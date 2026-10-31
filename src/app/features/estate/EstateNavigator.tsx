@@ -45,13 +45,12 @@ import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { EstateRoom, EstateTier } from './buildEstate';
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
+import * as css from './EstateNavigator.css';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
 /** How long after a timed-out tap the store may still deliver the room and have its DM filed. */
 const LATE_ARRIVAL_WINDOW_MS = 10 * 60 * 1000;
-/** Minimum tap target on phones. */
-const TOUCH_TARGET = 44;
 
 const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom): string => {
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
@@ -66,7 +65,6 @@ const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom
 function JoinRow({ room }: { room: EstateRoom }) {
   const mx = useMatrixClient();
   const navigate = useNavigate();
-  const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const [state, join] = useAsyncCallback(
     useCallback(async () => {
       const userId = mx.getSafeUserId();
@@ -96,12 +94,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
 
   return (
     <NavItem variant="Background" radii="400">
-      <Box
-        grow="Yes"
-        alignItems="Center"
-        gap="200"
-        style={{ padding: '0 8px', minHeight: mobile ? TOUCH_TARGET : 38 }}
-      >
+      <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px', minHeight: 38 }}>
         <NavItemContent>
           <Text as="span" size="Inherit" truncate>
             {room.name}
@@ -123,7 +116,6 @@ function JoinRow({ room }: { room: EstateRoom }) {
           before={busy ? <Spinner size="100" /> : <Icon src={Icons.Plus} size="50" />}
           onClick={join}
           disabled={busy}
-          style={mobile ? { minHeight: TOUCH_TARGET, minWidth: TOUCH_TARGET } : undefined}
           aria-label={`Join ${room.name}`}
         >
           <Text size="B300">Join</Text>
@@ -311,7 +303,7 @@ export function EstateNavigator() {
   return (
     <PageNav>
       <PageNavHeader>
-        <Box alignItems="Center" grow="Yes" gap="300">
+        <Box alignItems="Center" grow="Yes" gap="300" className={css.Targets}>
           <Box grow="Yes">
             <Text size="H4" truncate>
               {title}
@@ -327,7 +319,7 @@ export function EstateNavigator() {
         </Box>
       </PageNavHeader>
       <PageNavContent scrollRef={scrollRef}>
-        <Box direction="Column" gap="300">
+        <Box direction="Column" gap="300" className={css.Targets}>
           <EntryPoints />
           {rootId && <EstateTiers rootId={rootId} />}
           {!rootId && error && (
@@ -340,7 +332,14 @@ export function EstateNavigator() {
           )}
         </Box>
       </PageNavContent>
-      <Box shrink="No" alignItems="Center" justifyContent="Center" gap="200" style={{ padding: 8 }}>
+      <Box
+        shrink="No"
+        alignItems="Center"
+        justifyContent="Center"
+        gap="200"
+        style={{ padding: 8 }}
+        className={css.Targets}
+      >
         <UnverifiedTab />
         <InboxTab />
         <SettingsTab />

@@ -68,7 +68,7 @@ const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'El
     if (!(await loc.count())) { tl.push(`no Join ${name}`); return; }
     await loc.first().click(); tl.push(`CLICK Join ${name} ${t()}`);
     await pg.waitForTimeout(21500); await snap(`5-slow-${name.replace(/\W/g, '')}-21s`);
-    tl.push(`timeout msg shown: ${(await text()).includes('has not arrived yet')}`);
+    tl.push(`timeout msg shown: ${(await text()).includes('still on its way')}`);
     await pg.waitForTimeout(5500); await snap(`5-slow-${name.replace(/\W/g, '')}-27s`);
     tl.push(`after arrival: Join ${name} still present=${await pg.locator(`[aria-label="Join ${name}"]`).count()} url=${pg.url()}`);
   };
