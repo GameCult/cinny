@@ -51,12 +51,12 @@ describe('activateEstateRoom', () => {
   );
 
   it('falls back to the error message, then to a generic one', async () => {
-    const named = recordingClient(vi.fn().mockRejectedValue(new Error('Boom')));
+    const named = recordingClient(vi.fn().mockRejectedValue(Object.assign(new Error('Boom'), { httpStatus: 500 })));
     expect(await activateEstateRoom(named.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Boom',
     });
-    const bare = recordingClient(vi.fn().mockRejectedValue({}));
+    const bare = recordingClient(vi.fn().mockRejectedValue({ httpStatus: 500 }));
     expect(await activateEstateRoom(bare.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Could not join',
@@ -65,6 +65,7 @@ describe('activateEstateRoom', () => {
 
   it('reports the server refusal and does not decide access itself', async () => {
     const refusal = Object.assign(new Error('M_FORBIDDEN'), {
+      httpStatus: 403,
       data: { error: 'You are not invited to this room.' },
     });
     const { mx, joinRoom } = recordingClient(vi.fn().mockRejectedValue(refusal));
@@ -75,7 +76,7 @@ describe('activateEstateRoom', () => {
 });
 
 /** A client holding DM invites as the server sends them: the mark is in the invite event only. */
-const dmClient = (opts: { refuse?: boolean; invites: Record<string, string> }) => {
+const dmClient = (opts: { refuse?: boolean; drop?: boolean; invites: Record<string, string> }) => {
   let direct: Record<string, string[]> | undefined;
   const writes: Record<string, string[]>[] = [];
   const joined: string[] = [];
@@ -102,7 +103,8 @@ const dmClient = (opts: { refuse?: boolean; invites: Record<string, string> }) =
     joinRoom: async (roomId: string) => {
       // the join lands only after m.direct has been written: record what it held
       joined.push(JSON.stringify(direct ?? {}));
-      if (opts.refuse) throw new Error('M_FORBIDDEN');
+      if (opts.refuse) throw Object.assign(new Error('M_FORBIDDEN'), { httpStatus: 403 });
+      if (opts.drop) throw new Error('fetch failed');
       return { roomId };
     },
   };
@@ -132,6 +134,16 @@ describe('activateEstateRoom for a direct message invite', () => {
     const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
     expect(result).toEqual({ kind: 'refused', message: 'M_FORBIDDEN' });
     expect(c.current()).toEqual({ '@friend:test': [] });
+  });
+});
+
+describe('activateEstateRoom when the join gets no answer', () => {
+  it('keeps the room listed and shows a retryable message', async () => {
+    const c = dmClient({ drop: true, invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result.kind).toBe('refused');
+    expect((result as { message: string }).message).toMatch(/tap again to retry/);
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
   });
 });
 

@@ -7,6 +7,9 @@ export type EstateActivation =
   | { kind: 'joined'; roomId: string }
   | { kind: 'refused'; message: string };
 
+const LOST_JOIN_RESPONSE =
+  'The connection dropped before the server answered. The join may have gone through; tap again to retry.';
+
 type JoinClient = Parameters<typeof addRoomIdToMDirect>[0];
 
 /**
@@ -18,7 +21,10 @@ type JoinClient = Parameters<typeof addRoomIdToMDirect>[0];
  * An invite marked is_direct carries the mark in the invite event the client
  * already holds, and the join event does not repeat it. So the room is listed
  * in m.direct under the inviter before the join is sent, and taken out again if
- * the join is refused. Nothing needs to recognise the DM after it arrives.
+ * the join is refused by a server answer. A join that fails without one (lost
+ * response, dropped connection) may still have been accepted, so the entry
+ * stays and the tap is retryable. Nothing needs to recognise the DM after it
+ * arrives. The inbox Accept goes through here too: one owner for joining.
  */
 export const activateEstateRoom = async (
   mx: JoinClient,
@@ -29,6 +35,7 @@ export const activateEstateRoom = async (
     const err = e as { data?: { error?: string }; message?: string };
     return { kind: 'refused', message: err.data?.error ?? err.message ?? 'Could not join' };
   };
+  const answered = (e: unknown) => typeof (e as { httpStatus?: unknown }).httpStatus === 'number';
   const invite = room.state === 'invited' ? mx.getRoom(room.roomId) : null;
   const inviter = isDirectInvite(invite, mx.getSafeUserId())
     ? invite?.getMember(mx.getSafeUserId())?.events?.member?.getSender()
@@ -42,6 +49,7 @@ export const activateEstateRoom = async (
     const joined = await mx.joinRoom(room.roomId, { viaServers: room.via });
     return { kind: 'joined', roomId: joined.roomId };
   } catch (e) {
+    if (!answered(e)) return { kind: 'refused', message: LOST_JOIN_RESPONSE };
     if (inviter) await removeRoomIdFromMDirect(mx, room.roomId).catch(() => undefined);
     return refusal(e);
   }

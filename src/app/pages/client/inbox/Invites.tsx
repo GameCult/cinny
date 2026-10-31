@@ -46,11 +46,10 @@ import {
 import { nameInitials } from '../../../utils/common';
 import { RoomAvatar } from '../../../components/room-avatar';
 import {
-  addRoomIdToMDirect,
   getMxIdLocalPart,
-  guessDmRoomUserId,
   rateLimitedActions,
 } from '../../../utils/matrix';
+import { activateEstateRoom } from '../../../features/estate/joinEstateRoom';
 import { Time } from '../../../components/message';
 import { useElementSizeObserver } from '../../../hooks/useElementSizeObserver';
 import { onEnterOrSpace, stopPropagation } from '../../../utils/keyboard';
@@ -160,24 +159,20 @@ function InviteCard({
   hideAvatar,
 }: InviteCardProps) {
   const mx = useMatrixClient();
-  const userId = mx.getSafeUserId();
-
   const [viewTopic, setViewTopic] = useState(false);
   const closeTopic = () => setViewTopic(false);
   const openTopic = () => setViewTopic(true);
 
   const [joinState, join] = useAsyncCallback<void, MatrixError, []>(
     useCallback(async () => {
-      const dmUserId = isDirectInvite(invite.room, userId)
-        ? guessDmRoomUserId(invite.room, userId)
-        : undefined;
-
-      await mx.joinRoom(invite.roomId);
-      if (dmUserId) {
-        await addRoomIdToMDirect(mx, invite.roomId, dmUserId);
-      }
+      const result = await activateEstateRoom(mx, {
+        roomId: invite.roomId,
+        state: 'invited',
+        via: [],
+      });
+      if (result.kind === 'refused') throw new Error(result.message);
       onNavigate(invite.roomId, invite.isSpace);
-    }, [mx, invite, userId, onNavigate])
+    }, [mx, invite, onNavigate])
   );
   const [leaveState, leave] = useAsyncCallback<Record<string, never>, MatrixError, []>(
     useCallback(() => mx.leave(invite.roomId), [mx, invite])
