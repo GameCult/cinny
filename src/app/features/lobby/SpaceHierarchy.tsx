@@ -35,8 +35,6 @@ type SpaceHierarchyProps = {
   disabledReorder?: boolean;
   nextSpaceId?: string;
   getRoom: (roomId: string) => Room | undefined;
-  pinned: boolean;
-  togglePinToSidebar: (roomId: string) => void;
   onSpacesFound: (spaceItems: IHierarchyRoom[]) => void;
   onOpenRoom: MouseEventHandler<HTMLButtonElement>;
 };
@@ -58,8 +56,6 @@ export const SpaceHierarchy = forwardRef<HTMLDivElement, SpaceHierarchyProps>(
       disabledReorder,
       nextSpaceId,
       getRoom,
-      pinned,
-      togglePinToSidebar,
       onOpenRoom,
       onSpacesFound,
     },
@@ -136,8 +132,6 @@ export const SpaceHierarchy = forwardRef<HTMLDivElement, SpaceHierarchyProps>(
                 canEditChild={
                   !!parentPermissions?.stateEvent(StateEvent.SpaceChild, mx.getSafeUserId())
                 }
-                pinned={pinned}
-                onTogglePin={togglePinToSidebar}
               />
             )
           }

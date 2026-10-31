@@ -42,14 +42,6 @@ import { CanDropCallback, useDnDMonitor } from './DnD';
 import { ASCIILexicalTable, orderKeys } from '../../utils/ASCIILexicalTable';
 import { getStateEvent } from '../../utils/room';
 import { useClosedLobbyCategoriesAtom } from '../../state/hooks/closedLobbyCategories';
-import {
-  makeCinnySpacesContent,
-  sidebarItemWithout,
-  useSidebarItems,
-} from '../../hooks/useSidebarItems';
-import { useOrphanSpaces } from '../../state/hooks/roomList';
-import { roomToParentsAtom } from '../../state/room/roomToParents';
-import { AccountDataEvent } from '../../../types/matrix/accountData';
 import { useRoomMembers } from '../../hooks/useRoomMembers';
 import { SpaceHierarchy } from './SpaceHierarchy';
 import { useGetRoom } from '../../hooks/useGetRoom';
@@ -167,18 +159,6 @@ export function Lobby() {
   const screenSize = useScreenSizeContext();
   const [onTop, setOnTop] = useState(true);
   const [closedCategories, setClosedCategories] = useAtom(useClosedLobbyCategoriesAtom());
-  const [sidebarItems] = useSidebarItems(
-    useOrphanSpaces(mx, allRoomsAtom, useAtomValue(roomToParentsAtom))
-  );
-  const sidebarSpaces = useMemo(() => {
-    const sideSpaces = sidebarItems.flatMap((item) => {
-      if (typeof item === 'string') return item;
-      return item.content;
-    });
-
-    return new Set(sideSpaces);
-  }, [sidebarItems]);
-
   const [spacesItems, setSpacesItem] = useState<Map<string, IHierarchyRoom>>(() => new Map());
 
   useElementSizeObserver(
@@ -415,18 +395,6 @@ export function Lobby() {
     navigate(getSpaceRoomPath(pSpaceIdOrAlias, getCanonicalAliasOrRoomId(mx, rId)));
   };
 
-  const togglePinToSidebar = useCallback(
-    (rId: string) => {
-      const newItems = sidebarItemWithout(sidebarItems, rId);
-      if (!sidebarSpaces.has(rId)) {
-        newItems.push(rId);
-      }
-      const newSpacesContent = makeCinnySpacesContent(mx, newItems);
-      mx.setAccountData(AccountDataEvent.CinnySpaces as any, newSpacesContent as any);
-    },
-    [mx, sidebarItems, sidebarSpaces]
-  );
-
   return (
     <PowerLevelsContextProvider value={spacePowerLevels}>
       <Box grow="Yes">
@@ -499,8 +467,6 @@ export function Lobby() {
                             disabledReorder={reordering}
                             nextSpaceId={nextSpaceId}
                             getRoom={getRoom}
-                            pinned={sidebarSpaces.has(item.space.roomId)}
-                            togglePinToSidebar={togglePinToSidebar}
                             onSpacesFound={handleSpacesFound}
                             onOpenRoom={handleOpenRoom}
                           />
