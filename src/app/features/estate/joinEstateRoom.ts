@@ -41,7 +41,9 @@ export const activateEstateRoom = async (
     const err = e as { httpStatus?: unknown; errcode?: unknown; data?: { errcode?: unknown } };
     const status = err.httpStatus;
     const errcode = err.errcode ?? err.data?.errcode;
-    return typeof status === 'number' && status >= 400 && status < 500 && typeof errcode === 'string';
+    return (
+      typeof status === 'number' && status >= 400 && status < 500 && typeof errcode === 'string'
+    );
   };
   const invite = room.state === 'invited' ? mx.getRoom(room.roomId) : null;
   const inviter = isDirectInvite(invite, mx.getSafeUserId())
