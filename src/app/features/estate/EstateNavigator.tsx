@@ -64,8 +64,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
       if (result.kind === 'refused') throw new Error(result.message);
       // joinRoom resolves before the store holds the room; opening it now shows the invite card.
       if (!(await awaitMyJoin(mx, room.roomId, JOIN_ARRIVAL_TIMEOUT_MS))) {
-        // The join is accepted; when the room arrives the row becomes a joined row by itself
-        // and a direct message is filed by useFileDirectRooms.
+        // The join is accepted; when the room arrives the row becomes a joined row by itself.
         throw new Error('Joined. The room is still on its way and will open from this list.');
       }
       navigate(estateRoomPath(mx, room));

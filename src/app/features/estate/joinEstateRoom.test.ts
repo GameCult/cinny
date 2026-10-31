@@ -18,6 +18,8 @@ const recordingClient = (joinRoom = vi.fn().mockResolvedValue({ roomId: '!r:game
           return joinRoom(...args);
         };
       }
+      if (prop === 'getRoom') return () => null;
+      if (prop === 'getSafeUserId') return () => '@me:test';
       return () => {
         calls.push(prop);
         throw new Error(`unexpected client call: ${prop}`);
@@ -69,6 +71,67 @@ describe('activateEstateRoom', () => {
     const result = await activateEstateRoom(mx, room('joinable'));
     expect(result).toEqual({ kind: 'refused', message: 'You are not invited to this room.' });
     expect(joinRoom).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** A client holding DM invites as the server sends them: the mark is in the invite event only. */
+const dmClient = (opts: { refuse?: boolean; invites: Record<string, string> }) => {
+  let direct: Record<string, string[]> | undefined;
+  const writes: Record<string, string[]>[] = [];
+  const joined: string[] = [];
+  const mx = {
+    getSafeUserId: () => '@me:test',
+    getRoom: (roomId: string) => ({
+      getMember: () => ({
+        events: {
+          member: {
+            getContent: () => ({ membership: 'invite', is_direct: true }),
+            getSender: () => opts.invites[roomId],
+          },
+        },
+      }),
+    }),
+    getAccountData: () => (direct ? { getContent: () => direct } : undefined),
+    setAccountData: async (_t: string, content: Record<string, string[]>) => {
+      await new Promise((r) => {
+        setTimeout(r, 5);
+      });
+      writes.push(structuredClone(content));
+      direct = structuredClone(content);
+    },
+    joinRoom: async (roomId: string) => {
+      // the join lands only after m.direct has been written: record what it held
+      joined.push(JSON.stringify(direct ?? {}));
+      if (opts.refuse) throw new Error('M_FORBIDDEN');
+      return { roomId };
+    },
+  };
+  return { mx: mx as never, writes, joined, current: () => direct };
+};
+const tap = (id: string) => ({ roomId: id, state: 'invited' as const, via: ['test'] });
+
+describe('activateEstateRoom for a direct message invite', () => {
+  it('lists the room under the inviter before the join is sent', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(c.joined).toEqual([JSON.stringify({ '@friend:test': ['!dm1:test'] })]);
+  });
+
+  it('keeps both rooms when two DM joins are tapped together', async () => {
+    const c = dmClient({ invites: { '!dm2:test': '@friend:test', '!dm3:test': '@friend:test' } });
+    const results = await Promise.all([
+      activateEstateRoom(c.mx, tap('!dm2:test')),
+      activateEstateRoom(c.mx, tap('!dm3:test')),
+    ]);
+    expect(results.map((r) => r.kind)).toEqual(['joined', 'joined']);
+    expect(c.current()).toEqual({ '@friend:test': ['!dm2:test', '!dm3:test'] });
+  });
+
+  it('takes the room out again when the join is refused', async () => {
+    const c = dmClient({ refuse: true, invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result).toEqual({ kind: 'refused', message: 'M_FORBIDDEN' });
+    expect(c.current()).toEqual({ '@friend:test': [] });
   });
 });
 

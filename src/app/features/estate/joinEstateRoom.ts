@@ -1,31 +1,49 @@
 import { EstateRoom } from './buildEstate';
+import { addRoomIdToMDirect, removeRoomIdFromMDirect } from '../../utils/matrix';
+import { isDirectInvite } from '../../utils/room';
 
 export type EstateActivation =
   | { kind: 'open'; roomId: string }
   | { kind: 'joined'; roomId: string }
   | { kind: 'refused'; message: string };
 
-type JoinClient = {
-  joinRoom(roomId: string, opts: { viaServers: string[] }): Promise<{ roomId: string }>;
-};
+type JoinClient = Parameters<typeof addRoomIdToMDirect>[0];
 
 /**
  * What a tap on an estate row does. A joined room opens; any other room is
  * joined, and only here (plus a first post in the room view). Opening a room
  * never joins it and the client has no peek path. The server decides whether
  * the join is allowed; its refusal is reported, the row is not hidden.
+ *
+ * An invite marked is_direct carries the mark in the invite event the client
+ * already holds, and the join event does not repeat it. So the room is listed
+ * in m.direct under the inviter before the join is sent, and taken out again if
+ * the join is refused. Nothing needs to recognise the DM after it arrives.
  */
 export const activateEstateRoom = async (
   mx: JoinClient,
   room: Pick<EstateRoom, 'roomId' | 'state' | 'via'>
 ): Promise<EstateActivation> => {
   if (room.state === 'joined') return { kind: 'open', roomId: room.roomId };
+  const refusal = (e: unknown): EstateActivation => {
+    const err = e as { data?: { error?: string }; message?: string };
+    return { kind: 'refused', message: err.data?.error ?? err.message ?? 'Could not join' };
+  };
+  const invite = room.state === 'invited' ? mx.getRoom(room.roomId) : null;
+  const inviter = isDirectInvite(invite, mx.getSafeUserId())
+    ? invite?.getMember(mx.getSafeUserId())?.events?.member?.getSender()
+    : undefined;
+  try {
+    if (inviter) await addRoomIdToMDirect(mx, room.roomId, inviter);
+  } catch (e) {
+    return refusal(e);
+  }
   try {
     const joined = await mx.joinRoom(room.roomId, { viaServers: room.via });
     return { kind: 'joined', roomId: joined.roomId };
   } catch (e) {
-    const err = e as { data?: { error?: string }; message?: string };
-    return { kind: 'refused', message: err.data?.error ?? err.message ?? 'Could not join' };
+    if (inviter) await removeRoomIdFromMDirect(mx, room.roomId).catch(() => undefined);
+    return refusal(e);
   }
 };
 

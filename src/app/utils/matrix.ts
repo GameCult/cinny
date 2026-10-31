@@ -16,7 +16,7 @@ import {
 import to from 'await-to-js';
 import { IImageInfo, IThumbnailContent, IVideoInfo } from '../../types/matrix/common';
 import { AccountDataEvent } from '../../types/matrix/accountData';
-import { getStateEvent, wasInvitedAsDirect } from './room';
+import { getStateEvent } from './room';
 import { Membership, StateEvent } from '../../types/matrix/room';
 
 const DOMAIN_REGEX = /\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b/;
@@ -226,7 +226,6 @@ export const guessDmRoomUserId = (room: Room, myUserId: string): string => {
 };
 
 type MDirectContent = Record<string, string[]>;
-type DirectEntry = { roomId: string; userId: string };
 
 const mDirectWrites = new WeakMap<MatrixClient, Promise<unknown>>();
 
@@ -252,12 +251,13 @@ export const updateMDirect = (
 };
 
 /** A room can be a DM for one person only: it leaves every other user's list. */
-export const withDirectEntries = (
-  current: MDirectContent,
-  entries: DirectEntry[]
-): MDirectContent => {
-  const next = structuredClone(current);
-  entries.forEach(({ roomId, userId }) => {
+export const addRoomIdToMDirect = (
+  mx: MatrixClient,
+  roomId: string,
+  userId: string
+): Promise<void> =>
+  updateMDirect(mx, (current) => {
+    const next = structuredClone(current);
     Object.keys(next).forEach((targetUserId) => {
       if (targetUserId !== userId) {
         next[targetUserId] = next[targetUserId].filter((id) => id !== roomId);
@@ -266,41 +266,8 @@ export const withDirectEntries = (
     const roomIds = next[userId] ?? [];
     if (!roomIds.includes(roomId)) roomIds.push(roomId);
     next[userId] = roomIds;
+    return next;
   });
-  return next;
-};
-
-export const addRoomIdToMDirect = (
-  mx: MatrixClient,
-  roomId: string,
-  userId: string
-): Promise<void> =>
-  updateMDirect(mx, (current) => withDirectEntries(current, [{ roomId, userId }]));
-
-/**
- * The one filer of direct messages. Files every joined room whose invite was
- * marked is_direct and which m.direct does not list, in a single write, once
- * the other party is known. Run on startup and on every sync: a DM that
- * arrives late, in a burst or after a reload is filed by the same check.
- */
-export const fileDirectRooms = (mx: MatrixClient): Promise<void> => {
-  const me = mx.getSafeUserId();
-  return updateMDirect(mx, (current) => {
-    const filed = new Set(Object.values(current).flat());
-    const entries = mx
-      .getRooms()
-      .filter(
-        (room: Room) =>
-          room.getMyMembership() === 'join' &&
-          !filed.has(room.roomId) &&
-          wasInvitedAsDirect(room, me)
-      )
-      .map((room: Room) => ({ roomId: room.roomId, userId: guessDmRoomUserId(room, me) }))
-      // The other party's membership has not synced yet; a later sync files it.
-      .filter((entry: DirectEntry) => entry.userId !== me);
-    return entries.length > 0 ? withDirectEntries(current, entries) : undefined;
-  });
-};
 
 export const removeRoomIdFromMDirect = (mx: MatrixClient, roomId: string): Promise<void> =>
   updateMDirect(mx, (current) => {

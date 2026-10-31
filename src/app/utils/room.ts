@@ -72,18 +72,6 @@ export const isDirectInvite = (room: Room | null, myUserId: string | null): bool
   return content?.is_direct === true;
 };
 
-/**
- * Whether the invite that brought this user into the room was marked is_direct.
- * The join event keeps the mark in its own content when the server copies it,
- * and otherwise in the invite it replaced (unsigned.prev_content).
- */
-export const wasInvitedAsDirect = (room: Room, myUserId: string): boolean => {
-  const event = room.getMember(myUserId)?.events?.member;
-  if (event?.getContent()?.is_direct === true) return true;
-  const prev = event?.getPrevContent();
-  return prev?.membership === 'invite' && prev.is_direct === true;
-};
-
 export const isSpace = (room: Room | null): boolean => {
   if (!room) return false;
   const event = getStateEvent(room, StateEvent.RoomCreate);
