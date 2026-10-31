@@ -523,16 +523,21 @@ Each later cut is one line, with what it waits on.
   metadata, the corner avatar and the cosmetic XP bar; waits on `emote-slot`.
 - `attention-bubbles`: per-person attention bubbles from Huginn's typed
   attention document, scoped to room members; waits on Huginn publishing it.
-- `album-share-mouth`: the mouth turns a `chat_share_request` into an album
-  in her zone (upload, mel sidecar for WAV, thread, announce line, receipt,
-  resume from Matrix), and gamecult-ops makes the outboxes, their ACLs, the
-  Self unit's write path and the zone rooms; specced
-  (`ratatoskr:cut_spec:cut-album-share-mouth.r1`); waits on nothing.
+- `album-share-mouth` (Bifrost): the mouth turns a `chat_share_request` into
+  an album in her zone (upload, mel sidecar for WAV, thread, announce line,
+  receipt, resume from Matrix), against a fake homeserver and a temp outbox;
+  specced (`ratatoskr:cut_spec:cut-album-share-mouth.r1`); waits on nothing.
+- `album-outbox-ops` (gamecult-ops): the outboxes and their ACLs, the Self
+  unit's `ReadWritePaths`, a line in the Self seed text saying how to share,
+  the zone rooms in `synapse-accounts-hand-managed.py` (room type, steward in
+  the space child, one alias file per Mind) and `MATRIX_FILE_ZONE_<SLUG>` in
+  `mouth.env`; waits on `album-share-mouth` (its variable names) and on
+  `ratatoskr:question:file-zone-audience`.
 - `album-share-persona`: Huginn's Persona organ lists her outbox albums in
   her turn, her reply gains `albums[]` (name and follows constrained to the
   listed albums, room to her rooms), and the organ sends each as a
   `chat_share_request`; waits on `album-share-mouth` merging (it owns the
-  document); if the live-session rebuild (`eureka-body:ruling:live-mind-sessions`)
+  document) and on `album-outbox-ops` deployed; if the live-session rebuild (`eureka-body:ruling:live-mind-sessions`)
   lands first, the same document is emitted from wherever her reply is decoded.
 - `file-zone-view`: zones as their own branch kind in the navigator, the
   album list, an album's files with image grid and lightbox, an album queue
