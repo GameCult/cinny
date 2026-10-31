@@ -16,7 +16,7 @@ import {
 import to from 'await-to-js';
 import { IImageInfo, IThumbnailContent, IVideoInfo } from '../../types/matrix/common';
 import { AccountDataEvent } from '../../types/matrix/accountData';
-import { getStateEvent } from './room';
+import { getStateEvent, wasInvitedAsDirect } from './room';
 import { Membership, StateEvent } from '../../types/matrix/room';
 
 const DOMAIN_REGEX = /\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b/;
@@ -225,56 +225,91 @@ export const guessDmRoomUserId = (room: Room, myUserId: string): string => {
   return member1?.userId ?? myUserId;
 };
 
-export const addRoomIdToMDirect = async (
+type MDirectContent = Record<string, string[]>;
+type DirectEntry = { roomId: string; userId: string };
+
+const mDirectWrites = new WeakMap<MatrixClient, Promise<unknown>>();
+
+/**
+ * The only writer of m.direct. m.direct is one account-data event that every
+ * edit replaces whole, so edits run one at a time, each reading the content the
+ * previous one wrote. `edit` returns the new content, or undefined for no write.
+ */
+export const updateMDirect = (
+  mx: MatrixClient,
+  edit: (current: MDirectContent) => MDirectContent | undefined
+): Promise<void> => {
+  const run = (mDirectWrites.get(mx) ?? Promise.resolve()).then(async () => {
+    const event = mx.getAccountData(AccountDataEvent.Direct as any);
+    const next = edit(event ? structuredClone(event.getContent()) : {});
+    if (next) await mx.setAccountData(AccountDataEvent.Direct as any, next as any);
+  });
+  mDirectWrites.set(
+    mx,
+    run.catch(() => undefined)
+  );
+  return run;
+};
+
+/** A room can be a DM for one person only: it leaves every other user's list. */
+export const withDirectEntries = (
+  current: MDirectContent,
+  entries: DirectEntry[]
+): MDirectContent => {
+  const next = structuredClone(current);
+  entries.forEach(({ roomId, userId }) => {
+    Object.keys(next).forEach((targetUserId) => {
+      if (targetUserId !== userId) {
+        next[targetUserId] = next[targetUserId].filter((id) => id !== roomId);
+      }
+    });
+    const roomIds = next[userId] ?? [];
+    if (!roomIds.includes(roomId)) roomIds.push(roomId);
+    next[userId] = roomIds;
+  });
+  return next;
+};
+
+export const addRoomIdToMDirect = (
   mx: MatrixClient,
   roomId: string,
   userId: string
-): Promise<void> => {
-  const mDirectsEvent = mx.getAccountData(AccountDataEvent.Direct as any);
-  let userIdToRoomIds: Record<string, string[]> = {};
+): Promise<void> =>
+  updateMDirect(mx, (current) => withDirectEntries(current, [{ roomId, userId }]));
 
-  if (typeof mDirectsEvent !== 'undefined')
-    userIdToRoomIds = structuredClone(mDirectsEvent.getContent());
-
-  // remove it from the lists of any others users
-  // (it can only be a DM room for one person)
-  Object.keys(userIdToRoomIds).forEach((targetUserId) => {
-    const roomIds = userIdToRoomIds[targetUserId];
-
-    if (targetUserId !== userId) {
-      const indexOfRoomId = roomIds.indexOf(roomId);
-      if (indexOfRoomId > -1) {
-        roomIds.splice(indexOfRoomId, 1);
-      }
-    }
+/**
+ * The one filer of direct messages. Files every joined room whose invite was
+ * marked is_direct and which m.direct does not list, in a single write, once
+ * the other party is known. Run on startup and on every sync: a DM that
+ * arrives late, in a burst or after a reload is filed by the same check.
+ */
+export const fileDirectRooms = (mx: MatrixClient): Promise<void> => {
+  const me = mx.getSafeUserId();
+  return updateMDirect(mx, (current) => {
+    const filed = new Set(Object.values(current).flat());
+    const entries = mx
+      .getRooms()
+      .filter(
+        (room: Room) =>
+          room.getMyMembership() === 'join' &&
+          !filed.has(room.roomId) &&
+          wasInvitedAsDirect(room, me)
+      )
+      .map((room: Room) => ({ roomId: room.roomId, userId: guessDmRoomUserId(room, me) }))
+      // The other party's membership has not synced yet; a later sync files it.
+      .filter((entry: DirectEntry) => entry.userId !== me);
+    return entries.length > 0 ? withDirectEntries(current, entries) : undefined;
   });
-
-  const roomIds = userIdToRoomIds[userId] || [];
-  if (roomIds.indexOf(roomId) === -1) {
-    roomIds.push(roomId);
-  }
-  userIdToRoomIds[userId] = roomIds;
-
-  await mx.setAccountData(AccountDataEvent.Direct as any, userIdToRoomIds as any);
 };
 
-export const removeRoomIdFromMDirect = async (mx: MatrixClient, roomId: string): Promise<void> => {
-  const mDirectsEvent = mx.getAccountData(AccountDataEvent.Direct as any);
-  let userIdToRoomIds: Record<string, string[]> = {};
-
-  if (typeof mDirectsEvent !== 'undefined')
-    userIdToRoomIds = structuredClone(mDirectsEvent.getContent());
-
-  Object.keys(userIdToRoomIds).forEach((targetUserId) => {
-    const roomIds = userIdToRoomIds[targetUserId];
-    const indexOfRoomId = roomIds.indexOf(roomId);
-    if (indexOfRoomId > -1) {
-      roomIds.splice(indexOfRoomId, 1);
-    }
+export const removeRoomIdFromMDirect = (mx: MatrixClient, roomId: string): Promise<void> =>
+  updateMDirect(mx, (current) => {
+    const next: MDirectContent = {};
+    Object.keys(current).forEach((userId) => {
+      next[userId] = current[userId].filter((id) => id !== roomId);
+    });
+    return next;
   });
-
-  await mx.setAccountData(AccountDataEvent.Direct as any, userIdToRoomIds as any);
-};
 
 export const mxcUrlToHttp = (
   mx: MatrixClient,

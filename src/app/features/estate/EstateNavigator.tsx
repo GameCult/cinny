@@ -24,12 +24,7 @@ import {
 } from '../../pages/pathUtils';
 import { _RoomSearchParams } from '../../pages/paths';
 import { searchModalAtom } from '../../state/searchModal';
-import { isDirectInvite } from '../../utils/room';
-import {
-  addRoomIdToMDirect,
-  getCanonicalAliasOrRoomId,
-  guessDmRoomUserId,
-} from '../../utils/matrix';
+import { getCanonicalAliasOrRoomId } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
@@ -49,8 +44,6 @@ import * as css from './EstateNavigator.css';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
-/** How long after a timed-out tap the store may still deliver the room and have its DM filed. */
-const LATE_ARRIVAL_WINDOW_MS = 10 * 60 * 1000;
 
 const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom): string => {
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
@@ -67,28 +60,14 @@ function JoinRow({ room }: { room: EstateRoom }) {
   const navigate = useNavigate();
   const [state, join] = useAsyncCallback(
     useCallback(async () => {
-      const userId = mx.getSafeUserId();
-      const dmRoom = mx.getRoom(room.roomId);
-      const dmUserId =
-        room.direct && dmRoom && isDirectInvite(dmRoom, userId)
-          ? guessDmRoomUserId(dmRoom, userId)
-          : undefined;
       const result = await activateEstateRoom(mx, room);
       if (result.kind === 'refused') throw new Error(result.message);
       // joinRoom resolves before the store holds the room; opening it now shows the invite card.
       if (!(await awaitMyJoin(mx, room.roomId, JOIN_ARRIVAL_TIMEOUT_MS))) {
-        // The join is accepted; when the room arrives the row becomes a joined row by itself,
-        // so a DM is filed then (a failed write leaves it under Elsewhere, where it can be found).
-        if (dmUserId) {
-          awaitMyJoin(mx, room.roomId, LATE_ARRIVAL_WINDOW_MS)
-            .then(async (arrived) => {
-              if (arrived) await addRoomIdToMDirect(mx, room.roomId, dmUserId);
-            })
-            .catch(() => undefined);
-        }
+        // The join is accepted; when the room arrives the row becomes a joined row by itself
+        // and a direct message is filed by useFileDirectRooms.
         throw new Error('Joined. The room is still on its way and will open from this list.');
       }
-      if (dmUserId) await addRoomIdToMDirect(mx, room.roomId, dmUserId);
       navigate(estateRoomPath(mx, room));
     }, [mx, navigate, room])
   );
@@ -265,10 +244,7 @@ function EntryPoints() {
 /** A short message that wraps inside the navigator; never a raw request error. */
 function EstateError({ message }: { message: string }) {
   return (
-    <Text
-      size="T300"
-      style={{ color: color.Critical.Main, padding: 16, overflowWrap: 'anywhere' }}
-    >
+    <Text size="T300" style={{ color: color.Critical.Main, padding: 16, overflowWrap: 'anywhere' }}>
       {message}
     </Text>
   );

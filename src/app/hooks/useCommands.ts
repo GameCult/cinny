@@ -24,7 +24,7 @@ import {
 } from '../utils/matrix';
 import { useRoomNavigate } from './useRoomNavigate';
 import { Membership, StateEvent } from '../../types/matrix/room';
-import { getStateEvent } from '../utils/room';
+import { getStateEvent, wasInvitedAsDirect } from '../utils/room';
 import { splitWithSpace } from '../utils/common';
 import { createRoomEncryptionState } from '../components/create-room';
 
@@ -411,6 +411,16 @@ export const useCommands = (mx: MatrixClient, room: Room): CommandRecord => {
         description: 'Convert direct message to room',
         exe: async () => {
           await removeRoomIdFromMDirect(mx, room.roomId);
+          // The filer reads the invite's mark; clear it so the room stays a room.
+          const me = mx.getSafeUserId();
+          if (wasInvitedAsDirect(room, me)) {
+            await mx.sendStateEvent(
+              room.roomId,
+              StateEvent.RoomMember as any,
+              { ...room.getMember(me)?.events?.member?.getContent(), is_direct: false },
+              me
+            );
+          }
         },
       },
       [Command.Delete]: {

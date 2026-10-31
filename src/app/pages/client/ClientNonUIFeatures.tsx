@@ -26,6 +26,7 @@ import { getMxIdLocalPart, mxcUrlToHttp } from '../../utils/matrix';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useInboxNotificationsSelected } from '../../hooks/router/useInbox';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
+import { useFileDirectRooms } from '../../hooks/useFileDirectRooms';
 
 function SystemEmojiFeature() {
   const [twitterEmoji] = useSetting(settingsAtom, 'twitterEmoji');
@@ -258,6 +259,7 @@ type ClientNonUIFeaturesProps = {
 };
 
 export function ClientNonUIFeatures({ children }: ClientNonUIFeaturesProps) {
+  useFileDirectRooms();
   return (
     <>
       <SystemEmojiFeature />
