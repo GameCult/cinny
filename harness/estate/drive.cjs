@@ -24,9 +24,9 @@ const check = (ok, what) => { tl.push(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!o
   await pg.getByText('Join with Address').first().click();
   await pg.waitForTimeout(400);
   check((await pg.locator('input[name="addressInput"]').count()) === 1, 'Join with Address opens its prompt');
-  await pg.keyboard.press('Escape');
-  await pg.waitForTimeout(300);
-  if (await pg.locator('input[name="addressInput"]').count()) await pg.getByText('Cancel').first().click();
+  await pg.reload();
+  await pg.getByText('Create Room').first().waitFor({ timeout: 30000 });
+  await pg.waitForTimeout(2000);
 
   // Header search is the room finder, on a phone
   await pg.locator('[aria-label="Find a room"]').first().click();
