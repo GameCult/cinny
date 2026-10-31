@@ -18,3 +18,10 @@ runone () { # tag noroot
 }
 runone root 0
 runone noroot 1
+for t in root noroot; do
+  echo "=== $t"
+  grep -E '^(SMALL|layout|has Create|CLICK|POLL|timeout|after arrival|revealed|--- )' /out/$t-timeline.txt | cut -c1-1800 || true
+done
+echo "=== m.direct and joins (root)"
+grep -E 'direct|JOIN' /out/hslog-root.txt | cut -c1-220 || true
+tail -1 /out/build.log
