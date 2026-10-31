@@ -20,7 +20,7 @@ const strip = (id, name, space, direct) => [
   { type: 'm.room.name', state_key: '', sender: '@admin:test', content: { name } },
   { type: 'm.room.join_rules', state_key: '', sender: '@admin:test', content: { join_rule: 'invite' } },
   ...(direct ? [{ type: 'm.room.member', state_key: '@friend:test', sender: '@friend:test', content: { membership: 'join', displayname: 'Friend' } }] : []),
-  { type: 'm.room.member', state_key: ME, sender: direct ? '@friend:test' : '@admin:test', content: direct ? { membership: 'invite', is_direct: true } : { membership: 'invite' } },
+  { type: 'm.room.member', state_key: ME, sender: direct ? (process.env.INVITER_ADMIN === '1' && id === DM1 ? '@admin:test' : '@friend:test') : '@admin:test', content: direct ? { membership: 'invite', is_direct: true } : { membership: 'invite' } },
 ];
 const joinedRoom = (id, name, extra = [], space = false) => ({
   state: { events: [se('m.room.create', space ? { type: 'm.space', room_version: '12' } : { room_version: '12' }), se('m.room.name', { name }), se('m.room.join_rules', { join_rule: 'invite' }), se('m.room.member', { membership: 'join' }, ME, ME), ...extra] },
@@ -91,13 +91,18 @@ http.createServer((req, res) => {
       if (id === PROJ[1].id) return json(res, 403, { errcode: 'M_FORBIDDEN', error: 'You are not invited to this room.' });
       const prior = pending.find((q) => q.id === DM2 || q.id === DM3);
       pending.push({ id, at: (id === DM3 || id === DM2) && prior ? prior.at : Date.now() + (SLOW.has(id) ? 24000 : 1000) });
+      if (process.env.JOIN_DROP === '1' && id === DM1) { console.log('JOIN_DROPPED ' + Date.now() + ' ' + id); return req.socket.destroy(); }
+      if (process.env.JOIN_DELAY === '1') { console.log('JOIN_DELAYED ' + Date.now() + ' ' + id); return setTimeout(() => json(res, 200, { room_id: id }), 6000); }
       return json(res, 200, { room_id: id });
     }
     const sm = p.match(/\/rooms\/([^/]+)\/state\/m\.room\.member\/(.+)$/);
     if (req.method === 'PUT' && sm) { console.log('STATE_PUT ' + Date.now() + ' ' + sm[1] + ' ' + body); const e = se('m.room.member', JSON.parse(body), sm[2], sm[2]); e.unsigned = { prev_content: { membership: 'join' } }; setTimeout(() => pendingState.push({ id: sm[1], ev: e }), 400); return json(res, 200, { event_id: e.event_id }); }
+    if (p.includes('/account_data/') && req.method === 'PUT' && p.includes('m.direct') && process.env.FAIL_MDIRECT === '1' && !global.failedOnce) { global.failedOnce = 1; console.log('MDIRECT_FAIL ' + Date.now()); return json(res, 500, { errcode: 'M_UNKNOWN', error: 'Internal server error' }); }
     if (p.includes('/account_data/') && req.method === 'PUT') {
+      const DELAY = p.includes('m.direct') && process.env.DELAY_MDIRECT === '1';
       const type = decodeURIComponent(p.split('/account_data/')[1]);
       try { const c = JSON.parse(body); adLog.push({ type, content: c, after: syncN }); const i = held.findIndex((h) => h.type === type); if (i >= 0) held.splice(i, 1); held.push({ type, content: c }); } catch (e) {}
+      if (DELAY) { console.log('MDIRECT_DELAYED ' + Date.now()); return setTimeout(() => json(res, 200, {}), 6000); }
       return json(res, 200, {});
     }
     if (p.includes('/hierarchy')) return json(res, 200, { rooms: hierarchy() });
