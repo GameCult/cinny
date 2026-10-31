@@ -196,12 +196,10 @@ describe('buildEstate', () => {
       input({
         hierarchy: [
           ...hierarchy.slice(0, 2),
-          space(
-            PROJECTS,
-            'Projects',
-            ['!cultlib:gamecult.org', '!aeth:gamecult.org'],
-            { '!cultlib:gamecult.org': 'eureka', '!aeth:gamecult.org': 'eureka' }
-          ),
+          space(PROJECTS, 'Projects', ['!cultlib:gamecult.org', '!aeth:gamecult.org'], {
+            '!cultlib:gamecult.org': 'eureka',
+            '!aeth:gamecult.org': 'eureka',
+          }),
           ...hierarchy.slice(3, 5),
         ],
       })
@@ -268,10 +266,20 @@ describe('Elsewhere', () => {
     );
 
   it('lists a joined non-DM room the hierarchy does not return, named from the store', () => {
-    const t = strays({ strayRoomIds: ['!adhoc:x'], roomNames: new Map([['!adhoc:x', 'Meeting']]) })!;
+    const t = strays({
+      strayRoomIds: ['!adhoc:x'],
+      roomNames: new Map([['!adhoc:x', 'Meeting']]),
+    })!;
     expect(t.label).toBe('Elsewhere');
     expect(t.loose).toEqual([
-      { roomId: '!adhoc:x', name: 'Meeting', state: 'joined', via: [], parentId: null, direct: false },
+      {
+        roomId: '!adhoc:x',
+        name: 'Meeting',
+        state: 'joined',
+        via: [],
+        parentId: null,
+        direct: false,
+      },
     ]);
   });
 
@@ -292,7 +300,9 @@ describe('Elsewhere', () => {
   });
 
   it('never lists a room the user has not joined', () => {
-    expect(strays({ membership: new Map([['!adhoc:x', 'invite']]), strayRoomIds: ['!adhoc:x'] })).toBeUndefined();
+    expect(
+      strays({ membership: new Map([['!adhoc:x', 'invite']]), strayRoomIds: ['!adhoc:x'] })
+    ).toBeUndefined();
   });
 
   it('is absent when there are no strays', () => {

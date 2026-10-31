@@ -53,7 +53,7 @@ const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
   if (room.direct) return getDirectRoomPath(alias);
   // A Space the user has not joined has no Space route; the room still resolves from Home.
-  if (mx.getRoom(room.parentId)?.getMyMembership() === 'join') {
+  if (room.parentId && mx.getRoom(room.parentId)?.getMyMembership() === 'join') {
     return getSpaceRoomPath(getCanonicalAliasOrRoomId(mx, room.parentId), alias);
   }
   return getHomeRoomPath(alias);
