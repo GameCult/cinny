@@ -1,3 +1,3 @@
 export default {
-  base: '/',
+  base: process.env.CINNY_BASE ?? '/',
 };

@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "prepare": "husky install",
     "commit": "git-cz",
-    "bump": "node scripts/update-version.js"
+    "bump": "node scripts/update-version.js",
+    "test": "vitest run"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": "eslint",
@@ -87,7 +88,10 @@
     "slate-dom": "0.123.0",
     "slate-history": "0.113.1",
     "slate-react": "0.123.0",
-    "ua-parser-js": "1.0.35"
+    "ua-parser-js": "1.0.35",
+    "@fontsource/ubuntu": "5.2.5",
+    "@fontsource/montserrat": "5.2.5",
+    "@fontsource/ibm-plex-mono": "5.2.5"
   },
   "devDependencies": {
     "@element-hq/element-call-embedded": "0.20.1",
@@ -123,6 +127,7 @@
     "vite": "5.4.19",
     "vite-plugin-pwa": "0.20.5",
     "vite-plugin-static-copy": "1.0.4",
-    "vite-plugin-top-level-await": "1.4.4"
+    "vite-plugin-top-level-await": "1.4.4",
+    "vitest": "1.6.0"
   }
 }

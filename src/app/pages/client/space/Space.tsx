@@ -51,6 +51,7 @@ import { RoomNavCategoryButton, RoomNavItem } from '../../../features/room-nav';
 import { makeNavCategoryId } from '../../../state/closedNavCategories';
 import { roomToUnreadAtom } from '../../../state/room/roomToUnread';
 import { useCategoryHandler } from '../../../hooks/useCategoryHandler';
+import { useStewardGroups } from '../../../features/steward-groups/useStewardGroups';
 import { useNavToActivePathMapper } from '../../../hooks/useNavToActivePathMapper';
 import { useRoomName } from '../../../hooks/useRoomMeta';
 import { useSpaceJoinedHierarchy } from '../../../hooks/useSpaceHierarchy';
@@ -425,8 +426,18 @@ export function Space() {
     )
   );
 
+  const { entries, toggleGroup } = useStewardGroups({
+    mx,
+    spaceId: space.roomId,
+    items: hierarchy,
+    keepVisible: useCallback(
+      (rId: string) => roomToUnread.has(rId) || rId === selectedRoomId || callEmbed?.roomId === rId,
+      [roomToUnread, selectedRoomId, callEmbed]
+    ),
+  });
+
   const virtualizer = useVirtualizer({
-    count: hierarchy.length,
+    count: entries.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 0,
     overscan: 10,
@@ -491,7 +502,27 @@ export function Space() {
             }}
           >
             {virtualizer.getVirtualItems().map((vItem) => {
-              const { roomId } = hierarchy[vItem.index] ?? {};
+              const entry = entries[vItem.index];
+              if (!entry) return null;
+              if (entry.type === 'group') {
+                return (
+                  <VirtualTile
+                    virtualItem={vItem}
+                    key={vItem.index}
+                    ref={virtualizer.measureElement}
+                  >
+                    <NavCategoryHeader>
+                      <RoomNavCategoryButton
+                        onClick={() => toggleGroup(entry.id)}
+                        closed={!entry.open}
+                      >
+                        {entry.label} · {entry.count}
+                      </RoomNavCategoryButton>
+                    </NavCategoryHeader>
+                  </VirtualTile>
+                );
+              }
+              const { roomId } = entry.item;
               const room = mx.getRoom(roomId);
               if (!room) return null;
 

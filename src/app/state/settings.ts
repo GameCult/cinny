@@ -50,8 +50,8 @@ export interface Settings {
 }
 
 const defaultSettings: Settings = {
-  themeId: undefined,
-  useSystemTheme: true,
+  themeId: 'gamecult-theme',
+  useSystemTheme: false,
   lightThemeId: undefined,
   darkThemeId: undefined,
   monochromeMode: false,
@@ -61,10 +61,10 @@ const defaultSettings: Settings = {
   pageZoom: 100,
   hideActivity: false,
 
-  isPeopleDrawer: true,
+  isPeopleDrawer: false,
   memberSortFilterIndex: 0,
   enterForNewline: false,
-  messageLayout: 0,
+  messageLayout: 2,
   messageSpacing: '400',
   hideMembershipEvents: false,
   hideNickAvatarEvents: true,

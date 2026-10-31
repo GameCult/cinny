@@ -1,29 +1,20 @@
 import React, { ReactNode, useEffect } from 'react';
 import { configClass, varsClass } from 'folds';
 import {
-  DarkTheme,
-  LightTheme,
+  GameCultTheme,
   ThemeContextProvider,
-  ThemeKind,
   useActiveTheme,
-  useSystemThemeKind,
 } from '../hooks/useTheme';
 import { useSetting } from '../state/hooks/settings';
 import { settingsAtom } from '../state/settings';
 
 export function UnAuthRouteThemeManager() {
-  const systemThemeKind = useSystemThemeKind();
-
   useEffect(() => {
     document.body.className = '';
     document.body.classList.add(configClass, varsClass);
-    if (systemThemeKind === ThemeKind.Dark) {
-      document.body.classList.add(...DarkTheme.classNames);
-    }
-    if (systemThemeKind === ThemeKind.Light) {
-      document.body.classList.add(...LightTheme.classNames);
-    }
-  }, [systemThemeKind]);
+    // The GameCult identity is single-theme: signed-out pages ignore the system scheme.
+    document.body.classList.add(...GameCultTheme.classNames);
+  }, []);
 
   return null;
 }
