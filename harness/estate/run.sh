@@ -23,6 +23,7 @@ for t in root noroot; do
   grep -E '^(SMALL|layout|has Create|CLICK|POLL|timeout|after arrival|revealed|--- )' /out/$t-timeline.txt | cut -c1-1800 || true
 done
 ls -la /out | head -30
+cat /out/noroot-timeline.txt | grep -m3 -i "could not" || true
 echo "=== m.direct and joins (root)"
 grep -E 'direct|JOIN' /out/hslog-root.txt | cut -c1-220 || true
 tail -1 /out/build.log
