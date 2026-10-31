@@ -9,11 +9,11 @@ const log = [];
 const P = ['aetheria', 'ghostlight', 'huginn', 'idunn', 'bifrost', 'odin'];
 const STEWARD = { aetheria: 'nibu', ghostlight: 'nibu', huginn: 'eureka', idunn: 'eureka' };
 const PROJ = P.map((p, i) => ({ id: `!p${i}:test`, alias: `#${p}:test`, name: p[0].toUpperCase() + p.slice(1), key: p }));
-const ROOT = '!root:test', PSP = '!proj:test', GEN = '!gen:test', OP = '!op:test', PUB = '!pub:test', STRAY = '!stray:test', DM1 = '!dm1:test', DM2 = '!dm2:test';
-const SLOW = new Set([PROJ[5].id, DM2]);
-const NAMES = { [PUB]: 'Commons', [DM1]: 'Friend DM', [DM2]: 'Slow DM', [STRAY]: 'Adhoc' };
+const ROOT = '!root:test', PSP = '!proj:test', GEN = '!gen:test', OP = '!op:test', PUB = '!pub:test', STRAY = '!stray:test', DM1 = '!dm1:test', DM2 = '!dm2:test', DM3 = '!dm3:test';
+const SLOW = new Set([PROJ[5].id, DM2, DM3]);
+const NAMES = { [PUB]: 'Commons', [DM1]: 'Friend DM', [DM2]: 'Slow DM', [DM3]: 'Late DM', [STRAY]: 'Adhoc' };
 PROJ.forEach((r) => (NAMES[r.id] = r.name));
-const pending = []; const pendingAD = []; let ev = 0;
+const held = []; const pendingState = []; const pending = []; const pendingAD = []; let ev = 0;
 const se = (type, content, sk = '', sender = '@admin:test') => ({ type, content, state_key: sk, sender, event_id: `$e${++ev}`, origin_server_ts: Date.now() });
 const strip = (id, name, space, direct) => [
   { type: 'm.room.create', state_key: '', sender: direct ? '@friend:test' : '@admin:test', content: space ? { type: 'm.space', room_version: '12' } : { room_version: '12' } },
@@ -35,6 +35,7 @@ const invites = () => {
   PROJ.forEach((r) => (o[r.id] = { invite_state: { events: strip(r.id, r.name) } }));
   o[DM1] = { invite_state: { events: strip(DM1, NAMES[DM1], false, true) } };
   o[DM2] = { invite_state: { events: strip(DM2, NAMES[DM2], false, true) } };
+  o[DM3] = { invite_state: { events: strip(DM3, NAMES[DM3], false, true) } };
   return o;
 };
 const child = (id, steward) => ({ type: 'm.space.child', state_key: id, content: { via: ['test'], ...(steward ? { 'org.gamecult.steward': { mind: steward, repo: 'x', source: 'y', steward: 'z' } } : {}) }, sender: '@admin:test', origin_server_ts: 1 });
@@ -61,21 +62,23 @@ http.createServer((req, res) => {
     return fs.createReadStream(f).pipe(res);
   }
   let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
+    if (req.method === 'PUT' && p.includes('m.direct')) console.log('MDIRECT_PUT ' + (Date.now()) + ' ' + body);
     log.push(`${Date.now()} ${req.method} ${p}${req.method === 'PUT' && p.includes('account_data') ? ' BODY ' + body : ''}`);
     if (p === '/_matrix/client/versions') return json(res, 200, { versions: ['v1.1', 'v1.5', 'v1.11'], unstable_features: {} });
     if (p.endsWith('/sync')) {
       const since = u.searchParams.get('since');
       if (!since) {
         const join = {}; join[GEN] = joinedRoom(GEN, 'General'); join[STRAY] = joinedRoom(STRAY, 'Adhoc');
-        return json(res, 200, { next_batch: 's1', rooms: { join, invite: invites(), leave: {} }, account_data: { events: [] }, presence: { events: [] }, to_device: { events: [] }, device_one_time_keys_count: { signed_curve25519: 50 } });
+        return json(res, 200, { next_batch: 's1', rooms: { join, invite: invites(), leave: {} }, account_data: { events: held.slice() }, presence: { events: [] }, to_device: { events: [] }, device_one_time_keys_count: { signed_curve25519: 50 } });
       }
       const respond = () => {
         const now = Date.now(); const join = {};
         for (let i = pending.length - 1; i >= 0; i--) if (pending[i].at <= now) {
           const id = pending[i].id; pending.splice(i, 1);
-          const extra = id === DM1 || id === DM2 ? [se('m.room.member', { membership: 'join', displayname: 'Friend' }, '@friend:test', '@friend:test')] : [];
-          join[id] = joinedRoom(id, NAMES[id] || id, extra); log.push(`${now} SYNC delivers join ${id}`);
+          const extra = id === DM1 || id === DM2 || id === DM3 ? [se('m.room.member', { membership: 'join', displayname: 'Friend' }, '@friend:test', '@friend:test')] : [];
+          join[id] = joinedRoom(id, NAMES[id] || id, extra); if (extra.length) { const me = join[id].state.events.find((e) => e.type === 'm.room.member' && e.state_key === ME); me.unsigned = { prev_content: { membership: 'invite', is_direct: true } }; } log.push(`${now} SYNC delivers join ${id}`); console.log('DELIVER ' + now + ' ' + id);
         }
+        for (const s of pendingState.splice(0)) { join[s.id] = join[s.id] || { state: { events: [] }, timeline: { events: [], limited: false, prev_batch: 'p' }, ephemeral: { events: [] }, account_data: { events: [] }, unread_notifications: {}, summary: {} }; join[s.id].timeline.events.push(s.ev); console.log('STATE_ECHO ' + now + ' ' + s.id + ' ' + JSON.stringify(s.ev.content)); }
         const ad = pendingAD.splice(0);
         if (Object.keys(join).length || ad.length) return json(res, 200, { next_batch: `s${++syncN}`, rooms: { join, invite: {}, leave: {} }, account_data: { events: ad } });
         return json(res, 200, { next_batch: since, rooms: {} });
@@ -86,12 +89,15 @@ http.createServer((req, res) => {
     if (req.method === 'POST' && jm) {
       const id = jm[1]; log.push(`${Date.now()} JOIN ${id}`);
       if (id === PROJ[1].id) return json(res, 403, { errcode: 'M_FORBIDDEN', error: 'You are not invited to this room.' });
-      pending.push({ id, at: Date.now() + (SLOW.has(id) ? 24000 : 1000) });
+      const prior = pending.find((q) => q.id === DM2 || q.id === DM3);
+      pending.push({ id, at: (id === DM3 || id === DM2) && prior ? prior.at : Date.now() + (SLOW.has(id) ? 24000 : 1000) });
       return json(res, 200, { room_id: id });
     }
+    const sm = p.match(/\/rooms\/([^/]+)\/state\/m\.room\.member\/(.+)$/);
+    if (req.method === 'PUT' && sm) { console.log('STATE_PUT ' + Date.now() + ' ' + sm[1] + ' ' + body); const e = se('m.room.member', JSON.parse(body), sm[2], sm[2]); e.unsigned = { prev_content: { membership: 'join' } }; setTimeout(() => pendingState.push({ id: sm[1], ev: e }), 400); return json(res, 200, { event_id: e.event_id }); }
     if (p.includes('/account_data/') && req.method === 'PUT') {
       const type = decodeURIComponent(p.split('/account_data/')[1]);
-      try { pendingAD.push({ type, content: JSON.parse(body) }); } catch (e) {}
+      try { const c = JSON.parse(body); pendingAD.push({ type, content: c }); const i = held.findIndex((h) => h.type === type); if (i >= 0) held.splice(i, 1); held.push({ type, content: c }); } catch (e) {}
       return json(res, 200, {});
     }
     if (p.includes('/hierarchy')) return json(res, 200, { rooms: hierarchy() });

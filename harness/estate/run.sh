@@ -1,29 +1,20 @@
-# Run inside playwright:v1.48.2-jammy with the repo at /src and /out writable:
-#   bash /src/harness/estate/run.sh
-# Scenario A: root resolves. Scenario B (NOROOT=1): the root alias 404s.
+#!/usr/bin/env bash
+# Runs inside mcr.microsoft.com/playwright:v1.48.2-jammy with the repo at /src:
+# builds the client, then drives three direct-message scenarios against fakehs.cjs.
 set -e
 cd /src
-mkdir -p /out
-npm ci --no-audit --no-fund --ignore-scripts >/out/npmci.log 2>&1
-npm run build > /out/build.log 2>&1; echo BUILD_RC=$? >> /out/build.log
+npm ci --no-audit --no-fund --ignore-scripts >/tmp/npmci.log 2>&1 || { tail -20 /tmp/npmci.log; exit 1; }
+npm run build > /tmp/build.log 2>&1 || { tail -30 /tmp/build.log; exit 1; }
+echo BUILD_OK $(git rev-parse HEAD)
 printf '{"defaultHomeserver":0,"homeserverList":["127.0.0.1:8080"],"allowCustomHomeservers":true,"featuredCommunities":{"spaces":["#gamecult:test"],"rooms":[],"servers":["test"]},"hashRouter":{"enabled":true,"basename":"/"}}' > dist/config.json
-mkdir -p /tmp/pw && cd /tmp/pw && npm init -y >/dev/null && npm i --no-audit --no-fund playwright@1.48.2 >/out/pw.log 2>&1
+mkdir -p /tmp/pw && cd /tmp/pw && npm init -y >/dev/null && npm i --no-audit --no-fund playwright@1.48.2 >/tmp/pw.log 2>&1
 cp /src/harness/estate/drive.cjs /tmp/pw/
-runone () { # tag noroot
-  HSLOG=/out/hslog-$1.txt NOROOT=$2 node /src/harness/estate/fakehs.cjs /src/dist > /out/hs-$1.out 2>&1 &
-  HS=$!
-  sleep 2
-  TAG=$1 NOROOT=$2 node /tmp/pw/drive.cjs; echo "DRIVE $1 RC=$?"
-  kill $HS
-}
-runone root 0
-runone noroot 1
-for t in root noroot; do
-  echo "=== $t"
-  grep -E '^(SMALL|layout|has Create|CLICK|POLL|timeout|after arrival|revealed|--- )' /out/$t-timeline.txt | cut -c1-1800 || true
+set +e
+for m in twodm reload convert; do
+  HSLOG=/tmp/hslog-$m.txt NOROOT=0 node /src/harness/estate/fakehs.cjs /src/dist > /tmp/hs-$m.out 2>&1 &
+  HS=$!; sleep 2
+  MODE=$m node /tmp/pw/drive.cjs; echo "DRIVE $m RC=$?"
+  kill $HS; sleep 1
+  echo "=== hs $m"; grep -E "MDIRECT_PUT|DELIVER|STATE_" /tmp/hs-$m.out; grep -E " JOIN " /tmp/hslog-$m.txt
 done
-ls -la /out | head -30
-cat /out/noroot-timeline.txt | grep -m3 -i "could not" || true
-echo "=== m.direct and joins (root)"
-grep -E 'direct|JOIN' /out/hslog-root.txt | cut -c1-220 || true
-tail -1 /out/build.log
+echo DONE
