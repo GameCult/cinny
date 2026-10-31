@@ -48,6 +48,10 @@ import { useEstate, useEstateRootId } from './useEstate';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
+/** How long after a timed-out tap the store may still deliver the room and have its DM filed. */
+const LATE_ARRIVAL_WINDOW_MS = 10 * 60 * 1000;
+/** Minimum tap target on phones. */
+const TOUCH_TARGET = 44;
 
 const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom): string => {
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
@@ -62,6 +66,7 @@ const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom
 function JoinRow({ room }: { room: EstateRoom }) {
   const mx = useMatrixClient();
   const navigate = useNavigate();
+  const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const [state, join] = useAsyncCallback(
     useCallback(async () => {
       const userId = mx.getSafeUserId();
@@ -74,7 +79,14 @@ function JoinRow({ room }: { room: EstateRoom }) {
       if (result.kind === 'refused') throw new Error(result.message);
       // joinRoom resolves before the store holds the room; opening it now shows the invite card.
       if (!(await awaitMyJoin(mx, room.roomId, JOIN_ARRIVAL_TIMEOUT_MS))) {
-        throw new Error('Joined, but the room has not arrived yet. Tap Join again in a moment.');
+        // The join is accepted; when the room arrives the row becomes a joined row by itself,
+        // so a DM is filed then (a failed write leaves it under Elsewhere, where it can be found).
+        if (dmUserId) {
+          awaitMyJoin(mx, room.roomId, LATE_ARRIVAL_WINDOW_MS)
+            .then((arrived) => arrived && addRoomIdToMDirect(mx, room.roomId, dmUserId))
+            .catch(() => undefined);
+        }
+        throw new Error('Joined. The room is still on its way and will open from this list.');
       }
       if (dmUserId) await addRoomIdToMDirect(mx, room.roomId, dmUserId);
       navigate(estateRoomPath(mx, room));
@@ -84,14 +96,23 @@ function JoinRow({ room }: { room: EstateRoom }) {
 
   return (
     <NavItem variant="Background" radii="400">
-      <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px', minHeight: 38 }}>
+      <Box
+        grow="Yes"
+        alignItems="Center"
+        gap="200"
+        style={{ padding: '0 8px', minHeight: mobile ? TOUCH_TARGET : 38 }}
+      >
         <NavItemContent>
           <Text as="span" size="Inherit" truncate>
             {room.name}
           </Text>
         </NavItemContent>
         {state.status === AsyncStatus.Error && (
-          <Text as="span" size="T200" style={{ color: color.Critical.Main }} truncate>
+          <Text
+            as="span"
+            size="T200"
+            style={{ color: color.Critical.Main, overflowWrap: 'anywhere' }}
+          >
             {(state.error as Error).message}
           </Text>
         )}
@@ -102,6 +123,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           before={busy ? <Spinner size="100" /> : <Icon src={Icons.Plus} size="50" />}
           onClick={join}
           disabled={busy}
+          style={mobile ? { minHeight: TOUCH_TARGET, minWidth: TOUCH_TARGET } : undefined}
           aria-label={`Join ${room.name}`}
         >
           <Text size="B300">Join</Text>
@@ -248,27 +270,33 @@ function EntryPoints() {
 
 function EstateTiers({ rootId }: { rootId: string }) {
   const { fetching, error, tiers } = useEstate(rootId);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   return (
-    <PageNavContent scrollRef={scrollRef}>
-      <Box direction="Column" gap="300">
-        <EntryPoints />
-        {tiers.map((tier) => (
-          <Tier key={tier.id} tier={tier} />
-        ))}
-        {fetching && (
-          <Box justifyContent="Center" style={{ padding: 16 }}>
-            <Spinner />
-          </Box>
-        )}
-        {error && (
-          <Text size="T300" style={{ color: color.Critical.Main, padding: 16 }}>
-            {error.message}
-          </Text>
-        )}
-      </Box>
-    </PageNavContent>
+    <>
+      {tiers.map((tier) => (
+        <Tier key={tier.id} tier={tier} />
+      ))}
+      {fetching && (
+        <Box justifyContent="Center" style={{ padding: 16 }}>
+          <Spinner />
+        </Box>
+      )}
+      {error && (
+        <EstateError message="Could not load the room list. Check your connection and reload." />
+      )}
+    </>
+  );
+}
+
+/** A short message that wraps inside the navigator; never a raw request error. */
+function EstateError({ message }: { message: string }) {
+  return (
+    <Text
+      size="T300"
+      style={{ color: color.Critical.Main, padding: 16, overflowWrap: 'anywhere' }}
+    >
+      {message}
+    </Text>
   );
 }
 
@@ -276,6 +304,7 @@ function EstateTiers({ rootId }: { rootId: string }) {
 export function EstateNavigator() {
   const openRoomFinder = useSetAtom(searchModalAtom);
   const { rootId, error } = useEstateRootId();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const mx = useMatrixClient();
   const title = (rootId && mx.getRoom(rootId)?.name) || 'GameCult';
 
@@ -297,13 +326,20 @@ export function EstateNavigator() {
           </IconButton>
         </Box>
       </PageNavHeader>
-      {rootId ? (
-        <EstateTiers rootId={rootId} />
-      ) : (
-        <Box grow="Yes" alignItems="Center" justifyContent="Center">
-          {error ? <Text size="T300">{error.message}</Text> : <Spinner />}
+      <PageNavContent scrollRef={scrollRef}>
+        <Box direction="Column" gap="300">
+          <EntryPoints />
+          {rootId && <EstateTiers rootId={rootId} />}
+          {!rootId && error && (
+            <EstateError message="Could not find the GameCult space. Check your connection and reload." />
+          )}
+          {!rootId && !error && (
+            <Box justifyContent="Center" style={{ padding: 16 }}>
+              <Spinner />
+            </Box>
+          )}
         </Box>
-      )}
+      </PageNavContent>
       <Box shrink="No" alignItems="Center" justifyContent="Center" gap="200" style={{ padding: 8 }}>
         <UnverifiedTab />
         <InboxTab />
