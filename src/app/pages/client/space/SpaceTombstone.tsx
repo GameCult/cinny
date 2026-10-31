@@ -76,4 +76,3 @@ export function SpaceTombstone({ roomId, replacementRoomId }: SpaceTombstoneProp
     </Box>
   );
 }
-

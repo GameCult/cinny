@@ -151,11 +151,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
         <Route
           path={HOME_PATH}
           element={
-            <PageRoot
-              nav={
-                <EstatePageNav path={HOME_PATH} />
-              }
-            >
+            <PageRoot nav={<EstatePageNav path={HOME_PATH} />}>
               <Outlet />
             </PageRoot>
           }
@@ -176,11 +172,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
         <Route
           path={DIRECT_PATH}
           element={
-            <PageRoot
-              nav={
-                <EstatePageNav path={DIRECT_PATH} />
-              }
-            >
+            <PageRoot nav={<EstatePageNav path={DIRECT_PATH} />}>
               <Outlet />
             </PageRoot>
           }
@@ -200,11 +192,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
           path={SPACE_PATH}
           element={
             <RouteSpaceProvider>
-              <PageRoot
-                nav={
-                  <EstatePageNav path={SPACE_PATH} />
-                }
-              >
+              <PageRoot nav={<EstatePageNav path={SPACE_PATH} />}>
                 <Outlet />
               </PageRoot>
             </RouteSpaceProvider>

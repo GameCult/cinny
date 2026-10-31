@@ -15,7 +15,11 @@ import { buildEstate, EstateHierarchyRoom, EstateTier, Stewardships } from './bu
 
 const HIERARCHY_DEPTH = 10;
 
-type AliasedRoom = { roomId: string; getCanonicalAlias(): string | null; getAltAliases(): string[] };
+type AliasedRoom = {
+  roomId: string;
+  getCanonicalAlias(): string | null;
+  getAltAliases(): string[];
+};
 
 const findLoadedRoom = (
   mx: ReturnType<typeof useMatrixClient>,

@@ -7,8 +7,6 @@
  * a room it returns is never hidden by the client.
  */
 
-export const STEWARDSHIPS_EVENT_TYPE = 'org.gamecult.stewardships';
-
 export type EstateHierarchyRoom = {
   room_id: string;
   name?: string;
@@ -77,7 +75,9 @@ export const stewardOfRoom = (
   const local = canonicalAlias.replace(/^#/, '').split(':')[0].toLowerCase();
   const mind = Object.keys(stewardships).find((m) => {
     const repos = stewardships[m];
-    return Array.isArray(repos) && repos.some((r) => typeof r === 'string' && repoName(r) === local);
+    return (
+      Array.isArray(repos) && repos.some((r) => typeof r === 'string' && repoName(r) === local)
+    );
   });
   return mind;
 };

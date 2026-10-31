@@ -19,7 +19,11 @@ const room = (id: string, name: string, alias?: string): EstateHierarchyRoom => 
 const hierarchy = [
   space(ROOT, 'GameCult', ['!general:gamecult.org', PROJECTS]),
   room('!general:gamecult.org', 'General', '#general:gamecult.org'),
-  space(PROJECTS, 'Projects', ['!cultlib:gamecult.org', '!aeth:gamecult.org', '!misc:gamecult.org']),
+  space(PROJECTS, 'Projects', [
+    '!cultlib:gamecult.org',
+    '!aeth:gamecult.org',
+    '!misc:gamecult.org',
+  ]),
   room('!cultlib:gamecult.org', 'CultLib', '#cultlib:gamecult.org'),
   room('!aeth:gamecult.org', 'Aetheria', '#Aetheria:gamecult.org'),
   room('!misc:gamecult.org', 'Misc', '#misc:gamecult.org'),
@@ -43,7 +47,9 @@ const find = (tiers: ReturnType<typeof buildEstate>, roomId: string) =>
 
 describe('buildEstate', () => {
   it('lists an invited project room as invited', () => {
-    const tiers = buildEstate(input({ membership: new Map([['!cultlib:gamecult.org', 'invite']]) }));
+    const tiers = buildEstate(
+      input({ membership: new Map([['!cultlib:gamecult.org', 'invite']]) })
+    );
     expect(find(tiers, '!cultlib:gamecult.org')?.state).toBe('invited');
   });
 
@@ -84,7 +90,12 @@ describe('buildEstate', () => {
 
   it('sorts steward groups by display label', () => {
     const projects = buildEstate(
-      input({ mindLabels: new Map([['eureka', 'Zed'], ['void', 'Alpha']]) })
+      input({
+        mindLabels: new Map([
+          ['eureka', 'Zed'],
+          ['void', 'Alpha'],
+        ]),
+      })
     ).find((t) => t.id === PROJECTS)!;
     expect(projects.groups.map((g) => g.label)).toEqual(['Alpha', 'Zed']);
   });
@@ -116,9 +127,71 @@ describe('buildEstate', () => {
         membership: new Map([['!dm:gamecult.org', 'join']]),
       })
     );
-    expect(tiers.map((t) => t.label)).toEqual(['GameCult', 'Projects', 'Workshop', 'Direct Messages']);
+    expect(tiers.map((t) => t.label)).toEqual([
+      'GameCult',
+      'Projects',
+      'Workshop',
+      'Direct Messages',
+    ]);
     expect(tiers[0].loose.map((r) => r.name)).toEqual(['General']);
     expect(tiers[3].loose[0]).toMatchObject({ roomId: '!dm:gamecult.org', parentId: null });
+  });
+
+  it('takes join servers from the matching children_state entry', () => {
+    const tiers = buildEstate(
+      input({
+        hierarchy: [
+          {
+            ...space(ROOT, 'GameCult', ['!a:gamecult.org', '!b:gamecult.org']),
+            children_state: [
+              { state_key: '!a:gamecult.org', content: { via: ['one.example'] } },
+              { state_key: '!b:gamecult.org', content: { via: ['two.example'] } },
+            ],
+          },
+          room('!a:gamecult.org', 'A'),
+          room('!b:gamecult.org', 'B'),
+        ],
+      })
+    );
+    expect(find(tiers, '!a:gamecult.org')?.via).toEqual(['one.example']);
+    expect(find(tiers, '!b:gamecult.org')?.via).toEqual(['two.example']);
+  });
+
+  it('puts every room of one Mind in a single group', () => {
+    const tiers = buildEstate(
+      input({ stewardships: { eureka: ['CultLib', 'Aetheria'] } })
+    );
+    const projects = tiers.find((t) => t.id === PROJECTS)!;
+    expect(projects.groups).toHaveLength(1);
+    expect(projects.groups[0].rooms.map((r) => r.roomId)).toEqual([
+      '!cultlib:gamecult.org',
+      '!aeth:gamecult.org',
+    ]);
+  });
+
+  it('sorts group labels without regard to case', () => {
+    const projects = buildEstate(
+      input({ mindLabels: new Map([['eureka', 'beta'], ['void', 'Alpha']]) })
+    ).find((t) => t.id === PROJECTS)!;
+    expect(projects.groups.map((g) => g.label)).toEqual(['Alpha', 'beta']);
+  });
+
+  it('omits a tier whose Space returned no rooms and the Direct tier when there are no DMs', () => {
+    const tiers = buildEstate(
+      input({
+        hierarchy: [
+          space(ROOT, 'GameCult', ['!general:gamecult.org', PROJECTS]),
+          room('!general:gamecult.org', 'General'),
+          space(PROJECTS, 'Projects', ['!hidden:gamecult.org']),
+        ],
+      })
+    );
+    expect(tiers.map((t) => t.id)).toEqual([ROOT]);
+  });
+
+  it('puts direct messages in the final tier, off any Space', () => {
+    const tiers = buildEstate(input({ directRoomIds: ['!dm:gamecult.org'] }));
+    expect(tiers[tiers.length - 1]).toMatchObject({ id: 'direct', groups: [] });
   });
 
   it('is identical for identical inputs', () => {

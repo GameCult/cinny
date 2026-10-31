@@ -48,6 +48,19 @@ describe('activateEstateRoom', () => {
     }
   );
 
+  it('falls back to the error message, then to a generic one', async () => {
+    const named = recordingClient(vi.fn().mockRejectedValue(new Error('Boom')));
+    expect(await activateEstateRoom(named.mx, room('joinable'))).toEqual({
+      kind: 'refused',
+      message: 'Boom',
+    });
+    const bare = recordingClient(vi.fn().mockRejectedValue({}));
+    expect(await activateEstateRoom(bare.mx, room('joinable'))).toEqual({
+      kind: 'refused',
+      message: 'Could not join',
+    });
+  });
+
   it('reports the server refusal and does not decide access itself', async () => {
     const refusal = Object.assign(new Error('M_FORBIDDEN'), {
       data: { error: 'You are not invited to this room.' },
