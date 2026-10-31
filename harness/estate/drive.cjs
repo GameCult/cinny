@@ -38,6 +38,8 @@ const check = (ok, what) => { tl.push(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!o
 
   // Groups for an invitee, from the hierarchy alone; Elsewhere; invited DM
   for (const n of ['Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages']) await open(n);
+  // A tier that was not rendered yet when its header was tapped is still collapsed.
+  if (!(await text()).toLowerCase().includes('meeting')) await open('Elsewhere');
   await snap('expanded');
   const t1 = (await text()).toLowerCase();
   check(t1.includes('nibu') && t1.includes('eureka'), 'steward groups render for an invitee who cannot read Space state');
@@ -61,7 +63,8 @@ const check = (ok, what) => { tl.push(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!o
   // Join the DM: lands in the room too
   await pg.goto('http://127.0.0.1:8080/#/home/');
   await pg.waitForTimeout(3000);
-  await open('Direct Messages');
+  if (!(await pg.locator('[aria-label="Join Void"]').count())) await open('Direct Messages');
+  check((await pg.locator('[aria-label="Join Void"]').count()) === 1, 'the DM invite is still listed after the other join');
   if (await pg.locator('[aria-label="Join Void"]').count()) {
     await pg.locator('[aria-label="Join Void"]').first().click();
     let dmCard = 0; const t2 = Date.now();
