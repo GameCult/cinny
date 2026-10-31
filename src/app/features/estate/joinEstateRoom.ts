@@ -28,3 +28,36 @@ export const activateEstateRoom = async (
     return { kind: 'refused', message: err.data?.error ?? err.message ?? 'Could not join' };
   }
 };
+
+type MembershipSource = {
+  getRoom(roomId: string): { getMyMembership(): string } | null;
+  on(event: 'Room.myMembership', handler: (room: { roomId: string }, m: string) => void): unknown;
+  off(event: 'Room.myMembership', handler: (room: { roomId: string }, m: string) => void): unknown;
+};
+
+/**
+ * joinRoom resolves when the server accepts the join, before the client store
+ * holds the room; navigating then lands on the invite card. Resolves true once
+ * the store says the user's membership is join, false after timeoutMs.
+ */
+export const awaitMyJoin = (
+  mx: MembershipSource,
+  roomId: string,
+  timeoutMs: number
+): Promise<boolean> =>
+  new Promise((resolve) => {
+    if (mx.getRoom(roomId)?.getMyMembership() === 'join') {
+      resolve(true);
+      return;
+    }
+    const finish = (joined: boolean) => {
+      clearTimeout(timer);
+      mx.off('Room.myMembership', onMembership);
+      resolve(joined);
+    };
+    const onMembership = (room: { roomId: string }, membership: string) => {
+      if (room.roomId === roomId && membership === 'join') finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    mx.on('Room.myMembership', onMembership);
+  });

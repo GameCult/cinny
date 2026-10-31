@@ -36,7 +36,6 @@ export enum StateEvent {
   GroupCallMemberPrefix = 'org.matrix.msc3401.call.member',
 
   SpaceChild = 'm.space.child',
-  GameCultStewardships = 'org.gamecult.stewardships',
   SpaceParent = 'm.space.parent',
 
   PoniesRoomEmotes = 'im.ponies.room_emotes',

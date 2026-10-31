@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { buildEstate, EstateHierarchyRoom, EstateInput, stewardOfRoom } from './buildEstate';
+import { buildEstate, EstateHierarchyRoom, EstateInput, stewardOfChild } from './buildEstate';
 
 const ROOT = '!root:gamecult.org';
 const PROJECTS = '!projects:gamecult.org';
 
-const space = (id: string, name: string, children: string[]): EstateHierarchyRoom => ({
+/** A Space whose child entries may carry the steward Mind, as the accounts script writes it. */
+const space = (
+  id: string,
+  name: string,
+  children: string[],
+  stewards: Record<string, string> = {}
+): EstateHierarchyRoom => ({
   room_id: id,
   name,
   room_type: 'm.space',
-  children_state: children.map((c) => ({ state_key: c, content: { via: ['gamecult.org'] } })),
+  children_state: children.map((c) => ({
+    state_key: c,
+    content: {
+      via: ['gamecult.org'],
+      ...(stewards[c] ? { 'org.gamecult.steward': { mind: stewards[c], repo: 'x' } } : {}),
+    },
+  })),
 });
 const room = (id: string, name: string, alias?: string): EstateHierarchyRoom => ({
   room_id: id,
@@ -19,22 +31,20 @@ const room = (id: string, name: string, alias?: string): EstateHierarchyRoom => 
 const hierarchy = [
   space(ROOT, 'GameCult', ['!general:gamecult.org', PROJECTS]),
   room('!general:gamecult.org', 'General', '#general:gamecult.org'),
-  space(PROJECTS, 'Projects', [
-    '!cultlib:gamecult.org',
-    '!aeth:gamecult.org',
-    '!misc:gamecult.org',
-  ]),
+  space(
+    PROJECTS,
+    'Projects',
+    ['!cultlib:gamecult.org', '!aeth:gamecult.org', '!misc:gamecult.org'],
+    { '!cultlib:gamecult.org': 'eureka', '!aeth:gamecult.org': 'void' }
+  ),
   room('!cultlib:gamecult.org', 'CultLib', '#cultlib:gamecult.org'),
   room('!aeth:gamecult.org', 'Aetheria', '#Aetheria:gamecult.org'),
   room('!misc:gamecult.org', 'Misc', '#misc:gamecult.org'),
 ];
 
-const stewardships = { eureka: ['GameCult/CultLib'], void: ['GameCult/aetheria'] };
-
 const input = (over: Partial<EstateInput> = {}): EstateInput => ({
   rootId: ROOT,
   hierarchy,
-  stewardships,
   membership: new Map(),
   directRoomIds: [],
   ...over,
@@ -80,7 +90,7 @@ describe('buildEstate', () => {
     expect(tiers.flatMap((t) => [...t.loose, ...t.groups.flatMap((g) => g.rooms)])).toHaveLength(4);
   });
 
-  it('groups rooms by steward Mind from stewardships plus canonical alias, case-insensitively', () => {
+  it('groups rooms by steward Mind from the steward on each room's Space child entry', () => {
     const projects = buildEstate(input()).find((t) => t.id === PROJECTS)!;
     expect(projects.groups.map((g) => [g.mind, g.rooms.map((r) => r.roomId)])).toEqual([
       ['eureka', ['!cultlib:gamecult.org']],
@@ -105,12 +115,35 @@ describe('buildEstate', () => {
     expect(projects.loose.map((r) => r.roomId)).toEqual(['!misc:gamecult.org']);
   });
 
-  it('degrades to loose rows when the stewardships are unreadable', () => {
-    const projects = buildEstate(input({ stewardships: undefined })).find(
-      (t) => t.id === PROJECTS
-    )!;
-    expect(projects.groups).toEqual([]);
-    expect(projects.loose).toHaveLength(3);
+  it('groups an invited-only user by the same child-entry stewards, with no root state', () => {
+    const invitee = new Map<string, 'join' | 'invite'>([
+      [ROOT, 'invite'],
+      [PROJECTS, 'invite'],
+      ['!cultlib:gamecult.org', 'invite'],
+      ['!aeth:gamecult.org', 'invite'],
+    ]);
+    const projects = buildEstate(input({ membership: invitee })).find((t) => t.id === PROJECTS)!;
+    expect(projects.groups.map((g) => [g.mind, g.rooms.map((r) => r.state)])).toEqual([
+      ['eureka', ['invited']],
+      ['void', ['invited']],
+    ]);
+  });
+
+  it('ignores a steward that is not a non-empty string', () => {
+    const odd = (steward: unknown): EstateHierarchyRoom[] => [
+      {
+        ...space(ROOT, 'GameCult', ['!a:gamecult.org']),
+        children_state: [
+          { state_key: '!a:gamecult.org', content: { 'org.gamecult.steward': { mind: steward } } },
+        ],
+      },
+      room('!a:gamecult.org', 'A'),
+    ];
+    [42, '', undefined, null].forEach((m) => {
+      const t = buildEstate(input({ hierarchy: odd(m) }))[0];
+      expect(t.groups).toEqual([]);
+      expect(t.loose).toHaveLength(1);
+    });
   });
 
   it('makes one tier per sub-Space in hierarchy order, root rooms first, Direct last', () => {
@@ -133,6 +166,7 @@ describe('buildEstate', () => {
       'Workshop',
       'Direct Messages',
     ]);
+    expect(tiers[3].loose[0].direct).toBe(true);
     expect(tiers[0].loose.map((r) => r.name)).toEqual(['General']);
     expect(tiers[3].loose[0]).toMatchObject({ roomId: '!dm:gamecult.org', parentId: null });
   });
@@ -158,7 +192,20 @@ describe('buildEstate', () => {
   });
 
   it('puts every room of one Mind in a single group', () => {
-    const tiers = buildEstate(input({ stewardships: { eureka: ['CultLib', 'Aetheria'] } }));
+    const tiers = buildEstate(
+      input({
+        hierarchy: [
+          ...hierarchy.slice(0, 2),
+          space(
+            PROJECTS,
+            'Projects',
+            ['!cultlib:gamecult.org', '!aeth:gamecult.org'],
+            { '!cultlib:gamecult.org': 'eureka', '!aeth:gamecult.org': 'eureka' }
+          ),
+          ...hierarchy.slice(3, 5),
+        ],
+      })
+    );
     const projects = tiers.find((t) => t.id === PROJECTS)!;
     expect(projects.groups).toHaveLength(1);
     expect(projects.groups[0].rooms.map((r) => r.roomId)).toEqual([
@@ -202,15 +249,68 @@ describe('buildEstate', () => {
   });
 });
 
-describe('stewardOfRoom', () => {
-  it('matches the alias localpart to the repo name, ignoring case and the org prefix', () => {
-    expect(stewardOfRoom('#CULTLIB:gamecult.org', stewardships)).toBe('eureka');
-    expect(stewardOfRoom('#aetheria:gamecult.org', stewardships)).toBe('void');
+describe('stewardOfChild', () => {
+  it('reads the Mind from the org.gamecult.steward key of the child content', () => {
+    expect(stewardOfChild({ via: ['x'], 'org.gamecult.steward': { mind: 'void' } })).toBe('void');
   });
 
-  it('has no steward without an alias, a match or readable stewardships', () => {
-    expect(stewardOfRoom(undefined, stewardships)).toBeUndefined();
-    expect(stewardOfRoom('#unknown:gamecult.org', stewardships)).toBeUndefined();
-    expect(stewardOfRoom('#cultlib:gamecult.org', { eureka: 'GameCult/CultLib' })).toBeUndefined();
+  it('has no steward without the key, content or a string Mind', () => {
+    expect(stewardOfChild(undefined)).toBeUndefined();
+    expect(stewardOfChild({ via: ['x'] })).toBeUndefined();
+    expect(stewardOfChild({ 'org.gamecult.steward': {} })).toBeUndefined();
+  });
+});
+
+describe('Elsewhere', () => {
+  const strays = (over: Partial<EstateInput>) =>
+    buildEstate(input({ membership: new Map([['!adhoc:x', 'join']]), ...over })).find(
+      (t) => t.id === 'elsewhere'
+    );
+
+  it('lists a joined non-DM room the hierarchy does not return, named from the store', () => {
+    const t = strays({ strayRoomIds: ['!adhoc:x'], roomNames: new Map([['!adhoc:x', 'Meeting']]) })!;
+    expect(t.label).toBe('Elsewhere');
+    expect(t.loose).toEqual([
+      { roomId: '!adhoc:x', name: 'Meeting', state: 'joined', via: [], parentId: null, direct: false },
+    ]);
+  });
+
+  it('does not repeat a room the hierarchy lists or a DM, and is last before Direct', () => {
+    const tiers = buildEstate(
+      input({
+        membership: new Map([
+          ['!general:gamecult.org', 'join'],
+          ['!dm:x', 'join'],
+          ['!adhoc:x', 'join'],
+        ]),
+        strayRoomIds: ['!general:gamecult.org', '!dm:x', '!adhoc:x'],
+        directRoomIds: ['!dm:x'],
+      })
+    );
+    expect(tiers.map((t) => t.id)).toEqual([ROOT, PROJECTS, 'elsewhere', 'direct']);
+    expect(tiers[2].loose.map((r) => r.roomId)).toEqual(['!adhoc:x']);
+  });
+
+  it('never lists a room the user has not joined', () => {
+    expect(strays({ membership: new Map([['!adhoc:x', 'invite']]), strayRoomIds: ['!adhoc:x'] })).toBeUndefined();
+  });
+
+  it('is absent when there are no strays', () => {
+    expect(strays({})).toBeUndefined();
+  });
+});
+
+describe('direct invites', () => {
+  it('lists an invited DM in the Direct tier as invited, named from the store', () => {
+    const tiers = buildEstate(
+      input({
+        membership: new Map([['!dm:x', 'invite']]),
+        directRoomIds: ['!dm:x'],
+        roomNames: new Map([['!dm:x', 'Void']]),
+      })
+    );
+    expect(tiers[tiers.length - 1].loose).toEqual([
+      { roomId: '!dm:x', name: 'Void', state: 'invited', via: [], parentId: null, direct: true },
+    ]);
   });
 });

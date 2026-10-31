@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { activateEstateRoom } from './joinEstateRoom';
+import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 
 const room = (state: 'joined' | 'invited' | 'joinable') => ({
   roomId: '!r:gamecult.org',
@@ -69,5 +69,57 @@ describe('activateEstateRoom', () => {
     const result = await activateEstateRoom(mx, room('joinable'));
     expect(result).toEqual({ kind: 'refused', message: 'You are not invited to this room.' });
     expect(joinRoom).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('awaitMyJoin', () => {
+  /** A store that gains the room when the test says so, emitting like the SDK. */
+  const store = () => {
+    let membership: string | null = null;
+    const handlers = new Set<(room: { roomId: string }, m: string) => void>();
+    return {
+      mx: {
+        getRoom: () => (membership ? { getMyMembership: () => membership! } : null),
+        on: (_e: string, h: (room: { roomId: string }, m: string) => void) => handlers.add(h),
+        off: (_e: string, h: (room: { roomId: string }, m: string) => void) => handlers.delete(h),
+      },
+      handlers,
+      become: (roomId: string, m: string) => {
+        membership = m;
+        handlers.forEach((h) => h({ roomId }, m));
+      },
+    };
+  };
+
+  it('resolves at once when the store already holds the joined room', async () => {
+    const s = store();
+    s.become('!r:x', 'join');
+    expect(await awaitMyJoin(s.mx, '!r:x', 1000)).toBe(true);
+  });
+
+  it('stays pending while the store still shows an invite, then resolves on join', async () => {
+    const s = store();
+    let settled = false;
+    const p = awaitMyJoin(s.mx, '!r:x', 1000).then((v) => {
+      settled = true;
+      return v;
+    });
+    s.become('!r:x', 'invite');
+    s.become('!other:x', 'join');
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    s.become('!r:x', 'join');
+    expect(await p).toBe(true);
+    expect(s.handlers.size).toBe(0);
+  });
+
+  it('gives up after the timeout and stops listening', async () => {
+    vi.useFakeTimers();
+    const s = store();
+    const p = awaitMyJoin(s.mx, '!r:x', 500);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await p).toBe(false);
+    expect(s.handlers.size).toBe(0);
+    vi.useRealTimers();
   });
 });

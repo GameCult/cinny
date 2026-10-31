@@ -1,18 +1,35 @@
 import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAtom, useAtomValue } from 'jotai';
-import { Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
-import { NavCategory, NavCategoryHeader, NavItem, NavItemContent } from '../../components/nav';
+import {
+  NavButton,
+  NavCategory,
+  NavCategoryHeader,
+  NavItem,
+  NavItemContent,
+} from '../../components/nav';
+import { UseStateProvider } from '../../components/UseStateProvider';
+import { JoinAddressPrompt } from '../../components/join-address-prompt';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
 import { InboxTab, SettingsTab, UnverifiedTab } from '../../pages/client/sidebar';
 import {
+  encodeSearchParamValueArray,
   getDirectRoomPath,
+  getHomeCreatePath,
   getHomeRoomPath,
-  getHomeSearchPath,
   getSpaceRoomPath,
+  withSearchParam,
 } from '../../pages/pathUtils';
-import { getCanonicalAliasOrRoomId } from '../../utils/matrix';
+import { _RoomSearchParams } from '../../pages/paths';
+import { searchModalAtom } from '../../state/searchModal';
+import { isDirectInvite } from '../../utils/room';
+import {
+  addRoomIdToMDirect,
+  getCanonicalAliasOrRoomId,
+  guessDmRoomUserId,
+} from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
@@ -26,12 +43,15 @@ import { makeNavCategoryId } from '../../state/closedNavCategories';
 import { roomToUnreadAtom } from '../../state/room/roomToUnread';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { EstateRoom, EstateTier } from './buildEstate';
-import { activateEstateRoom } from './joinEstateRoom';
+import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
+
+/** How long a tap waits for the client store to hold the room it just joined. */
+const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
 import { useEstate, useEstateRootId } from './useEstate';
 
 const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom): string => {
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
-  if (room.parentId === null) return getDirectRoomPath(alias);
+  if (room.direct) return getDirectRoomPath(alias);
   // A Space the user has not joined has no Space route; the room still resolves from Home.
   if (mx.getRoom(room.parentId)?.getMyMembership() === 'join') {
     return getSpaceRoomPath(getCanonicalAliasOrRoomId(mx, room.parentId), alias);
@@ -44,8 +64,19 @@ function JoinRow({ room }: { room: EstateRoom }) {
   const navigate = useNavigate();
   const [state, join] = useAsyncCallback(
     useCallback(async () => {
+      const userId = mx.getSafeUserId();
+      const dmRoom = mx.getRoom(room.roomId);
+      const dmUserId =
+        room.direct && dmRoom && isDirectInvite(dmRoom, userId)
+          ? guessDmRoomUserId(dmRoom, userId)
+          : undefined;
       const result = await activateEstateRoom(mx, room);
       if (result.kind === 'refused') throw new Error(result.message);
+      // joinRoom resolves before the store holds the room; opening it now shows the invite card.
+      if (!(await awaitMyJoin(mx, room.roomId, JOIN_ARRIVAL_TIMEOUT_MS))) {
+        throw new Error('Joined, but the room has not arrived yet. Tap Join again in a moment.');
+      }
+      if (dmUserId) await addRoomIdToMDirect(mx, room.roomId, dmUserId);
       navigate(estateRoomPath(mx, room));
     }, [mx, navigate, room])
   );
@@ -91,7 +122,7 @@ function EstateRow({ room }: { room: EstateRoom }) {
     <RoomNavItem
       room={mxRoom}
       selected={selectedRoomId === room.roomId}
-      direct={room.parentId === null}
+      direct={room.direct}
       linkPath={estateRoomPath(mx, room)}
       notificationMode={getRoomNotificationMode(notificationPreferences, room.roomId)}
     />
@@ -157,6 +188,64 @@ function Tier({ tier }: { tier: EstateTier }) {
   );
 }
 
+function EntryPoints() {
+  const navigate = useNavigate();
+  return (
+    <NavCategory>
+      <NavItem variant="Background" radii="400">
+        <NavButton onClick={() => navigate(getHomeCreatePath())}>
+          <NavItemContent>
+            <Box as="span" grow="Yes" alignItems="Center" gap="200">
+              <Avatar size="200" radii="400">
+                <Icon src={Icons.Plus} size="100" />
+              </Avatar>
+              <Text as="span" size="Inherit" truncate>
+                Create Room
+              </Text>
+            </Box>
+          </NavItemContent>
+        </NavButton>
+      </NavItem>
+      <UseStateProvider initial={false}>
+        {(open, setOpen) => (
+          <>
+            <NavItem variant="Background" radii="400">
+              <NavButton onClick={() => setOpen(true)}>
+                <NavItemContent>
+                  <Box as="span" grow="Yes" alignItems="Center" gap="200">
+                    <Avatar size="200" radii="400">
+                      <Icon src={Icons.Link} size="100" />
+                    </Avatar>
+                    <Text as="span" size="Inherit" truncate>
+                      Join with Address
+                    </Text>
+                  </Box>
+                </NavItemContent>
+              </NavButton>
+            </NavItem>
+            {open && (
+              <JoinAddressPrompt
+                onCancel={() => setOpen(false)}
+                onOpen={(roomIdOrAlias, viaServers, eventId) => {
+                  setOpen(false);
+                  const path = getHomeRoomPath(roomIdOrAlias, eventId);
+                  navigate(
+                    viaServers
+                      ? withSearchParam<_RoomSearchParams>(path, {
+                          viaServers: encodeSearchParamValueArray(viaServers),
+                        })
+                      : path
+                  );
+                }}
+              />
+            )}
+          </>
+        )}
+      </UseStateProvider>
+    </NavCategory>
+  );
+}
+
 function EstateTiers({ rootId }: { rootId: string }) {
   const { fetching, error, tiers } = useEstate(rootId);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -164,6 +253,7 @@ function EstateTiers({ rootId }: { rootId: string }) {
   return (
     <PageNavContent scrollRef={scrollRef}>
       <Box direction="Column" gap="300">
+        <EntryPoints />
         {tiers.map((tier) => (
           <Tier key={tier.id} tier={tier} />
         ))}
@@ -184,7 +274,7 @@ function EstateTiers({ rootId }: { rootId: string }) {
 
 /** The single navigator: every nav slot that lists rooms mounts this. */
 export function EstateNavigator() {
-  const navigate = useNavigate();
+  const openRoomFinder = useSetAtom(searchModalAtom);
   const { rootId, error } = useEstateRootId();
   const mx = useMatrixClient();
   const title = (rootId && mx.getRoom(rootId)?.name) || 'GameCult';
@@ -200,8 +290,8 @@ export function EstateNavigator() {
           </Box>
           <IconButton
             variant="Background"
-            aria-label="Search"
-            onClick={() => navigate(getHomeSearchPath())}
+            aria-label="Find a room"
+            onClick={() => openRoomFinder(true)}
           >
             <Icon src={Icons.Search} size="200" />
           </IconButton>

@@ -4,14 +4,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { useFetchSpaceHierarchyLevel } from '../../hooks/useSpaceHierarchy';
-import { useForceUpdate } from '../../hooks/useForceUpdate';
-import { getStateEvent } from '../../utils/room';
+import { isDirectInvite, isRoom, isUnsupportedRoom } from '../../utils/room';
 import { useStateEventCallback } from '../../hooks/useStateEventCallback';
 import { allRoomsAtom } from '../../state/room-list/roomList';
 import { allInvitesAtom } from '../../state/room-list/inviteList';
 import { mDirectAtom } from '../../state/mDirectList';
 import { StateEvent } from '../../../types/matrix/room';
-import { buildEstate, EstateHierarchyRoom, EstateTier, Stewardships } from './buildEstate';
+import { buildEstate, EstateHierarchyRoom, EstateTier, stewardOfChild } from './buildEstate';
 
 const HIERARCHY_DEPTH = 10;
 
@@ -50,9 +49,9 @@ export type Estate = {
 };
 
 /**
- * Feeds buildEstate: the server hierarchy of the root Space, the root's
- * stewardships from the client store, the user's membership and m.direct.
- * Recomputes on membership, Space child and stewardships changes.
+ * Feeds buildEstate: the server hierarchy of the root Space (which also carries
+ * each room's steward), the user's membership, m.direct and direct invites, and
+ * her joined rooms outside the Space. Recomputes on membership and Space child changes.
  */
 export const useEstate = (rootId: string): Estate => {
   const mx = useMatrixClient();
@@ -61,8 +60,6 @@ export const useEstate = (rootId: string): Estate => {
   const joined = useAtomValue(allRoomsAtom);
   const invited = useAtomValue(allInvitesAtom);
   const mDirects = useAtomValue(mDirectAtom);
-
-  const [stewardshipsVersion, bumpStewardships] = useForceUpdate();
 
   const refetchHierarchy = useCallback(
     () => queryClient.invalidateQueries({ queryKey: [rootId, 'hierarchy_level'] }),
@@ -73,9 +70,8 @@ export const useEstate = (rootId: string): Estate => {
     useCallback(
       (event) => {
         if (event.getType() === StateEvent.SpaceChild) refetchHierarchy();
-        if (event.getType() === StateEvent.GameCultStewardships) bumpStewardships();
       },
-      [refetchHierarchy, bumpStewardships]
+      [refetchHierarchy]
     )
   );
   // What the server lets this user see changes with invitations.
@@ -83,38 +79,44 @@ export const useEstate = (rootId: string): Estate => {
     refetchHierarchy();
   }, [invited.length, refetchHierarchy]);
 
-  const stewardships = useMemo(
-    () => {
-      const rootRoom = mx.getRoom(rootId);
-      return rootRoom
-        ? (getStateEvent(rootRoom, StateEvent.GameCultStewardships)?.getContent() as
-            | Stewardships
-            | undefined)
-        : undefined;
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mx, rootId, stewardshipsVersion, joined, invited]
-  );
-
   const tiers = useMemo(() => {
     const membership = new Map<string, 'join' | 'invite'>();
     invited.forEach((id) => membership.set(id, 'invite'));
     joined.forEach((id) => membership.set(id, 'join'));
+    const hierarchy = Array.from(rooms.values()) as unknown as EstateHierarchyRoom[];
     const domain = mx.getDomain();
     const mindLabels = new Map<string, string>();
-    Object.keys(stewardships ?? {}).forEach((mind) => {
-      const name = mx.getUser(`@${mind}:${domain}`)?.displayName;
-      if (name) mindLabels.set(mind, name);
+    hierarchy.forEach((r) =>
+      r.children_state?.forEach((c) => {
+        const mind = stewardOfChild(c.content);
+        const name = mind && mx.getUser(`@${mind}:${domain}`)?.displayName;
+        if (mind && name) mindLabels.set(mind, name);
+      })
+    );
+    const userId = mx.getUserId();
+    const directInvites = invited.filter((id) => isDirectInvite(mx.getRoom(id), userId));
+    const directRoomIds = [
+      ...new Set([...Array.from(mDirects).filter((id) => joined.includes(id)), ...directInvites]),
+    ];
+    const strayRoomIds = joined.filter((id) => {
+      const r = mx.getRoom(id);
+      return !mDirects.has(id) && isRoom(r) && !isUnsupportedRoom(r);
+    });
+    const roomNames = new Map<string, string>();
+    [...directInvites, ...strayRoomIds].forEach((id) => {
+      const name = mx.getRoom(id)?.name;
+      if (name) roomNames.set(id, name);
     });
     return buildEstate({
       rootId,
-      hierarchy: Array.from(rooms.values()) as unknown as EstateHierarchyRoom[],
-      stewardships,
+      hierarchy,
       membership,
-      directRoomIds: Array.from(mDirects).filter((id) => joined.includes(id)),
+      directRoomIds,
+      strayRoomIds,
+      roomNames,
       mindLabels,
     });
-  }, [mx, rootId, rooms, stewardships, joined, invited, mDirects]);
+  }, [mx, rootId, rooms, joined, invited, mDirects]);
 
   return { fetching, error, tiers };
 };
