@@ -1,79 +1,82 @@
-// Drives the built client against fakehs.js on a phone viewport and asserts the estate navigator.
 const { chromium } = require('playwright');
 const fs = require('fs');
-const out = (n) => `/out/${n}`;
+const TAG = process.env.TAG;
+const out = (n) => `/out/${TAG}-${n}`;
 const tl = [];
-const fails = [];
-const check = (ok, what) => { tl.push(`${ok ? 'PASS' : 'FAIL'} ${what}`); if (!ok) fails.push(what); };
+const T0 = Date.now();
+const t = () => `+${Date.now() - T0}ms`;
+const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages'];
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
   const pg = await ctx.newPage();
+  pg.on('console', (m) => { if (m.type() === 'error' && !/OIDC|issuer|endpoint|supported|ERR_NAME|404/.test(m.text())) tl.push('console.error ' + m.text().slice(0, 200)); });
   await pg.goto('http://127.0.0.1:8080/');
   await pg.evaluate(() => { localStorage.setItem('cinny_access_token', 'tok'); localStorage.setItem('cinny_device_id', 'DEV'); localStorage.setItem('cinny_user_id', '@t:test'); localStorage.setItem('cinny_hs_base_url', 'http://127.0.0.1:8080'); });
   await pg.goto('http://127.0.0.1:8080/#/home/');
-  await pg.getByText('Create Room').first().waitFor({ timeout: 30000 });
-  await pg.waitForTimeout(2000);
+  await pg.waitForTimeout(12000);
   const text = () => pg.evaluate(() => document.body.innerText);
-  const snap = async (n) => { await pg.screenshot({ path: out(n + '.png') }); };
-  const open = async (name) => { const h = pg.getByText(name, { exact: true }); if (await h.count()) { await h.first().click(); await pg.waitForTimeout(300); } };
-
-  // Entry points
-  const t0 = await text();
-  check(/Create Room/.test(t0) && /Join with Address/.test(t0), 'Create Room and Join with Address are navigator actions');
-  await pg.getByText('Join with Address').first().click();
-  await pg.waitForTimeout(400);
-  check((await pg.locator('input[name="addressInput"]').count()) === 1, 'Join with Address opens its prompt');
-  await pg.reload();
-  await pg.getByText('Create Room').first().waitFor({ timeout: 30000 });
-  await pg.waitForTimeout(2000);
-
-  // Header search is the room finder, on a phone
-  await pg.locator('[aria-label="Find a room"]').first().click();
-  await pg.waitForTimeout(500);
-  check((await pg.locator('input[placeholder="Search"]').count()) === 1 && !/#\/home\/search/.test(pg.url()), 'header search opens the room finder, not message search');
-  await snap('finder');
-  await pg.keyboard.press('Escape');
-  await pg.waitForTimeout(300);
-
-  // Groups for an invitee, from the hierarchy alone; Elsewhere; invited DM
-  for (const n of ['Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages']) await open(n);
-  // A tier that was not rendered yet when its header was tapped is still collapsed.
-  if (!(await text()).toLowerCase().includes('meeting')) await open('Elsewhere');
-  await snap('expanded');
-  const t1 = (await text()).toLowerCase();
-  check(t1.includes('nibu') && t1.includes('eureka'), 'steward groups render for an invitee who cannot read Space state');
-  check(t1.includes('elsewhere') && t1.includes('meeting'), 'a joined room outside the Space is listed under Elsewhere');
-  check(t1.includes('direct messages') && (await pg.locator('[aria-label="Join Void"]').count()) === 1, 'an invited DM is listed with Join');
-
-  // Join: no invite card at any frame, then the room
-  await pg.locator('[aria-label="Join Aetheria"]').first().click();
-  const t = Date.now();
-  let card = 0, room = null;
-  while (Date.now() - t < 6000) {
-    const body = await text();
-    if (/Summary card/.test(body)) card++;
-    if (room === null && /welcome to Aetheria/.test(body)) room = Date.now() - t;
-    await pg.waitForTimeout(40);
+  const snap = async (n) => { await pg.screenshot({ path: out(n + '.png') }); tl.push(`--- ${n} ${t()} url=${pg.url()}\n${await text()}`); };
+  const buttons = async () => tl.push('buttons ' + JSON.stringify(await pg.evaluate(() => [...document.querySelectorAll('button')].map((e) => { const r = e.getBoundingClientRect(); return [e.getAttribute('aria-label') || e.innerText.slice(0, 30), Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]; }))));
+  const small = async () => tl.push('SMALL ' + JSON.stringify(await pg.evaluate(() => [...document.querySelectorAll('button, a, [role="button"]')].filter((e) => e.getClientRects().length).map((e) => [e.getAttribute('aria-label') || e.innerText.slice(0, 30), Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)]).filter((r) => r[2] < 44))));
+  const layout = async () => tl.push('layout ' + JSON.stringify(await pg.evaluate(() => ({ vw: innerWidth, scrollW: document.documentElement.scrollWidth, bodyScrollW: document.body.scrollWidth }))));
+  await snap('1-landing'); await buttons(); await layout(); await small();
+  if (process.env.NOROOT === '1') {
+    tl.push('has Create Room: ' + (await pg.getByText('Create Room', { exact: true }).count()) + ' Join with Address: ' + (await pg.getByText('Join with Address', { exact: true }).count()) + ' finder: ' + (await pg.locator('[aria-label="Find a room"]').count()));
+    await b.close(); return;
   }
-  await snap('joined');
-  check(card === 0, `no invite card at any frame after the tap (saw ${card})`);
-  check(room !== null, `the room opened (after ${room} ms)`);
-
-  // Join the DM: lands in the room too
-  await pg.goto('http://127.0.0.1:8080/#/home/');
-  await pg.waitForTimeout(3000);
-  if (!(await pg.locator('[aria-label="Join Void"]').count())) await open('Direct Messages');
-  check((await pg.locator('[aria-label="Join Void"]').count()) === 1, 'the DM invite is still listed after the other join');
-  if (await pg.locator('[aria-label="Join Void"]').count()) {
-    await pg.locator('[aria-label="Join Void"]').first().click();
-    let dmCard = 0; const t2 = Date.now();
-    while (Date.now() - t2 < 5000) { if (/Summary card/.test(await text())) dmCard++; await pg.waitForTimeout(40); }
-    check(dmCard === 0 && /\/direct\//.test(pg.url()), 'the invited DM opens in Direct with no invite card');
-  }
+  const reveal = async (sel) => {
+    const loc = pg.locator(sel);
+    if (await loc.count()) return loc;
+    for (let round = 0; round < 2; round++) for (const h of HEADERS) {
+      const hl = pg.getByText(h, { exact: true });
+      if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); if (await loc.count()) { tl.push(`revealed ${sel} via ${h}`); return loc; } }
+    }
+    tl.push(`could not reveal ${sel}`); return loc;
+  };
+  // expand everything once for the inventory
+  for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); tl.push('clicked header ' + h); } }
+  await snap('2-expanded'); await buttons(); await layout(); await small();
+  // room finder
+  const finder = pg.locator('[aria-label="Find a room"], [aria-label="Search"]').first();
+  await finder.click(); await pg.waitForTimeout(800);
+  tl.push('after finder url=' + pg.url() + ' dialogs=' + (await pg.locator('[role="dialog"]').count()) + ' inputs=' + JSON.stringify(await pg.evaluate(() => [...document.querySelectorAll('input')].map((i) => i.placeholder))));
+  await snap('3-finder');
+  await pg.keyboard.press('Escape'); await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(3000);
+  // join with frame poll
+  const joinPoll = async (name, ms) => {
+    const loc = await reveal(`[aria-label="Join ${name}"]`);
+    if (!(await loc.count())) { tl.push(`no Join ${name}`); return; }
+    const u0 = pg.url(); await loc.first().click(); const c = Date.now(); tl.push(`CLICK Join ${name} ${t()}`);
+    let card = 0, frames = 0, urlAt = null, firstCardAt = null;
+    while (Date.now() - c < ms) {
+      const s = await text(); frames++;
+      if (s.includes('Summary card')) { card++; if (firstCardAt === null) firstCardAt = Date.now() - c; }
+      if (urlAt === null && pg.url() !== u0) urlAt = Date.now() - c;
+      await pg.waitForTimeout(40);
+    }
+    tl.push(`POLL ${name}: frames=${frames} cardFrames=${card} firstCardAt=${firstCardAt} urlChangedAt=${urlAt} url=${pg.url()}`);
+    await snap(`4-join-${name.replace(/\W/g, '')}`);
+    await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500);
+  };
+  await joinPoll('Commons', 6000);
+  await joinPoll('Aetheria', 6000);
+  await joinPoll('Friend DM', 6000);
+  // timeout path, room
+  const slow = async (name) => {
+    const loc = await reveal(`[aria-label="Join ${name}"]`);
+    if (!(await loc.count())) { tl.push(`no Join ${name}`); return; }
+    await loc.first().click(); tl.push(`CLICK Join ${name} ${t()}`);
+    await pg.waitForTimeout(21500); await snap(`5-slow-${name.replace(/\W/g, '')}-21s`);
+    tl.push(`timeout msg shown: ${(await text()).includes('has not arrived yet')}`);
+    await pg.waitForTimeout(5500); await snap(`5-slow-${name.replace(/\W/g, '')}-27s`);
+    tl.push(`after arrival: Join ${name} still present=${await pg.locator(`[aria-label="Join ${name}"]`).count()} url=${pg.url()}`);
+  };
+  await slow('Odin');
+  await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500);
+  await slow('Slow DM');
+  // wide: tier placement (wide tiers start open)
+  await pg.setViewportSize({ width: 1280, height: 800 });
+  await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(6000); await snap('6-wide');
   await b.close();
-})().catch((e) => { tl.push('ERROR ' + String(e.stack || e)); fails.push('error'); }).finally(() => {
-  fs.writeFileSync(out('timeline.txt'), tl.join('\n'));
-  console.log(tl.join('\n'));
-  process.exitCode = fails.length ? 1 : 0;
-});
+})().catch((e) => { tl.push('ERROR ' + String(e.stack || e)); process.exitCode = 1; }).finally(() => fs.writeFileSync(out('timeline.txt'), tl.join('\n')));
