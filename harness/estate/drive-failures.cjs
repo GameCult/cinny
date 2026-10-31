@@ -6,7 +6,9 @@ const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
 const log = (...a) => console.log(`[${MODE}]`, ...a);
 const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages'];
 let b;
-setTimeout(() => { console.log('DRIVER_TIMEOUT'); Promise.resolve(b && b.close()).catch(() => undefined).finally(() => process.exit(3)); }, 240000);
+// Close the browser, but never wait on it: a hung close must not hang the run.
+const quit = (code) => Promise.race([Promise.resolve(b && b.close()).catch(() => undefined), new Promise((r) => setTimeout(r, 5000))]).finally(() => process.exit(code));
+setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 240000);
 (async () => {
   b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
@@ -54,5 +56,5 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); Promise.resolve(b && b.close()
     await pg.waitForTimeout(8000); await tiers('pjreload');
     const l = pg.locator('[aria-label="Join Slow DM"]'); log('SLOW_DM_STILL_JOINABLE', await l.count());
   }
-  await b.close();
-})().catch((e) => { log('ERROR', String(e.stack || e).slice(0, 300)); Promise.resolve(b && b.close()).catch(() => undefined).finally(() => process.exit(1)); });
+  await quit(0);
+})().catch((e) => { log('ERROR', String(e.stack || e).slice(0, 300)); quit(1); });
