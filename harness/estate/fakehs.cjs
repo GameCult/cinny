@@ -13,7 +13,7 @@ const ROOT = '!root:test', PSP = '!proj:test', GEN = '!gen:test', OP = '!op:test
 const SLOW = new Set([PROJ[5].id, DM2, DM3]);
 const NAMES = { [PUB]: 'Commons', [DM1]: 'Friend DM', [DM2]: 'Slow DM', [DM3]: 'Late DM', [STRAY]: 'Adhoc' };
 PROJ.forEach((r) => (NAMES[r.id] = r.name));
-const held = []; const pendingState = []; const pending = []; const pendingAD = []; let ev = 0;
+const held = []; const pendingState = []; const pending = []; const adLog = []; let ev = 0;
 const se = (type, content, sk = '', sender = '@admin:test') => ({ type, content, state_key: sk, sender, event_id: `$e${++ev}`, origin_server_ts: Date.now() });
 const strip = (id, name, space, direct) => [
   { type: 'm.room.create', state_key: '', sender: direct ? '@friend:test' : '@admin:test', content: space ? { type: 'm.space', room_version: '12' } : { room_version: '12' } },
@@ -69,7 +69,7 @@ http.createServer((req, res) => {
       const since = u.searchParams.get('since');
       if (!since) {
         const join = {}; join[GEN] = joinedRoom(GEN, 'General'); join[STRAY] = joinedRoom(STRAY, 'Adhoc');
-        return json(res, 200, { next_batch: 's1', rooms: { join, invite: invites(), leave: {} }, account_data: { events: held.slice() }, presence: { events: [] }, to_device: { events: [] }, device_one_time_keys_count: { signed_curve25519: 50 } });
+        return json(res, 200, { next_batch: `s${syncN}`, rooms: { join, invite: invites(), leave: {} }, account_data: { events: held.slice() }, presence: { events: [] }, to_device: { events: [] }, device_one_time_keys_count: { signed_curve25519: 50 } });
       }
       const respond = () => {
         const now = Date.now(); const join = {};
@@ -79,7 +79,7 @@ http.createServer((req, res) => {
           join[id] = joinedRoom(id, NAMES[id] || id, extra); if (extra.length) { const me = join[id].state.events.find((e) => e.type === 'm.room.member' && e.state_key === ME); me.unsigned = { prev_content: { membership: 'invite', is_direct: true } }; } log.push(`${now} SYNC delivers join ${id}`); console.log('DELIVER ' + now + ' ' + id);
         }
         for (const s of pendingState.splice(0)) { join[s.id] = join[s.id] || { state: { events: [] }, timeline: { events: [], limited: false, prev_batch: 'p' }, ephemeral: { events: [] }, account_data: { events: [] }, unread_notifications: {}, summary: {} }; join[s.id].timeline.events.push(s.ev); console.log('STATE_ECHO ' + now + ' ' + s.id + ' ' + JSON.stringify(s.ev.content)); }
-        const ad = pendingAD.splice(0);
+        const k = Number(String(since).replace(/^s/, '')) || 0; const ad = adLog.filter((a) => a.after >= k).map((a) => ({ type: a.type, content: a.content })); // a server answers with what changed since the client's token, whichever client asks
         if (Object.keys(join).length || ad.length) return json(res, 200, { next_batch: `s${++syncN}`, rooms: { join, invite: {}, leave: {} }, account_data: { events: ad } });
         return json(res, 200, { next_batch: since, rooms: {} });
       };
@@ -97,7 +97,7 @@ http.createServer((req, res) => {
     if (req.method === 'PUT' && sm) { console.log('STATE_PUT ' + Date.now() + ' ' + sm[1] + ' ' + body); const e = se('m.room.member', JSON.parse(body), sm[2], sm[2]); e.unsigned = { prev_content: { membership: 'join' } }; setTimeout(() => pendingState.push({ id: sm[1], ev: e }), 400); return json(res, 200, { event_id: e.event_id }); }
     if (p.includes('/account_data/') && req.method === 'PUT') {
       const type = decodeURIComponent(p.split('/account_data/')[1]);
-      try { const c = JSON.parse(body); pendingAD.push({ type, content: c }); const i = held.findIndex((h) => h.type === type); if (i >= 0) held.splice(i, 1); held.push({ type, content: c }); } catch (e) {}
+      try { const c = JSON.parse(body); adLog.push({ type, content: c, after: syncN }); const i = held.findIndex((h) => h.type === type); if (i >= 0) held.splice(i, 1); held.push({ type, content: c }); } catch (e) {}
       return json(res, 200, {});
     }
     if (p.includes('/hierarchy')) return json(res, 200, { rooms: hierarchy() });
