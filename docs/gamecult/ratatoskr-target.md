@@ -133,6 +133,16 @@ Probes run by Imagination on 2026-10-31, session `self-2026-10-29-eureka`.
    counts and so on; browsers need a visible notification for each push
    (`events_only` avoids event-less pushes).
 
+10. **Baseline at `dd88424e`** (Yggdrasil, `ygg-verify.sh`, image
+    `node:22-bookworm`, `npm ci --ignore-scripts`): `vitest run` passes (1
+    file, 5 tests, Void's steward grouping); `vite build` succeeds, `dist/` 61
+    MB with source maps, main chunk 3,739,716 bytes, Rust crypto wasm
+    5,573,870 bytes, `dist/sw.mjs` 1.66 kB. `tsc --noEmit` fails at base with
+    793 errors in 246 files (455 of them TS2614, named imports from
+    `matrix-js-sdk` 41.7.0 not resolved), so typecheck is not a usable gate as
+    is; a cut gates on zero errors in the files it adds and no rise in the
+    total.
+
 Not probed: phone frame times, the real resume timeline on the operator's
 Android Chrome install (needs her device or remote DevTools), the Rust crypto
 wasm size, and the router base under `/preview/` (its `config.json` sets
@@ -225,6 +235,15 @@ as of 2026-10-31 ~15:00.
   Self on 10-31: "use CultMath noise and erosion filter running in the shader
   to have an infinite terrain. We can just raymarch that instead"). Voronoi
   and Apollonian are dropped (05:24).
+- The scene renders in two passes, not one loop (operator to Self, 10-31:
+  "The tape optimized solid surface march should run really fast, i imagine,
+  way faster than the volumetric version, so they should not be one loop").
+  Pass 1, the solid-surface march (terrain, tree, squirrel), sphere-traces
+  with the field's Lipschitz bound and interval tile culling, at its own
+  resolution, and writes depth. Pass 2, the volumetric atmosphere march on
+  the site-ground framework (reduced resolution, TAA), is bounded by pass 1's
+  depth, so it marches only up to the surface hit. Each pass has its own
+  budget and its own measurement. Nibu owns both passes.
 - The web math path is CultLib's own: HLSL source lowered by dxc and
   SPIRV-Cross to WebGL2 GLSL ES (`packages/cultmath/shaders/CultMath.glsl`,
   `.Phacelle.glsl`; `tools/glsl/build-glsl.sh`), and C# CPU math through
@@ -287,8 +306,10 @@ Each later cut is one line, with what it waits on.
   picker, and the walk-through login for `patron-pt1`; waits on
   `estate-navigator`.
 - `terrain-background`: the raymarched CultMath noise and Phacelle terrain on
-  the site ground's march and TAA framework, in its own canvas and budget;
-  Nibu on the scene and render, Libby's CultMath underneath, Void
+  the site ground's march and TAA framework, in its own canvas and budget, as
+  two passes (solid-surface sphere trace writing depth, then the volumetric
+  atmosphere bounded by it), each measured on a phone; Nibu on the scene and
+  both passes, Libby's CultMath underneath, Void
   integrating; waits on Libby's `fbm` and the erosion Lipschitz probe (both in
   CultLib), then a phone measurement.
 - `yggdrasil-intro`: an animated tree-and-squirrel intro set in the same
