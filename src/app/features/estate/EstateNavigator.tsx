@@ -81,7 +81,9 @@ function JoinRow({ room }: { room: EstateRoom }) {
         // so a DM is filed then (a failed write leaves it under Elsewhere, where it can be found).
         if (dmUserId) {
           awaitMyJoin(mx, room.roomId, LATE_ARRIVAL_WINDOW_MS)
-            .then((arrived) => arrived && addRoomIdToMDirect(mx, room.roomId, dmUserId))
+            .then(async (arrived) => {
+              if (arrived) await addRoomIdToMDirect(mx, room.roomId, dmUserId);
+            })
             .catch(() => undefined);
         }
         throw new Error('Joined. The room is still on its way and will open from this list.');
