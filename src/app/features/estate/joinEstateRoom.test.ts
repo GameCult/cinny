@@ -68,6 +68,7 @@ describe('activateEstateRoom', () => {
   it('reports the server refusal and does not decide access itself', async () => {
     const refusal = Object.assign(new Error('M_FORBIDDEN'), {
       httpStatus: 403,
+      errcode: 'M_FORBIDDEN',
       data: { error: 'You are not invited to this room.' },
     });
     const { mx, joinRoom } = recordingClient(vi.fn().mockRejectedValue(refusal));
@@ -85,6 +86,7 @@ const dmClient = (opts: { status?: number; errcode?: string; refuse?: boolean; d
   const mx = {
     getSafeUserId: () => '@me:test',
     getRoom: (roomId: string) => ({
+      getMyMembership: () => 'invite',
       getMember: () => ({
         events: {
           member: {
