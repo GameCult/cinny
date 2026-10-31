@@ -235,6 +235,23 @@ as of 2026-10-31 ~15:00.
   Self on 10-31: "use CultMath noise and erosion filter running in the shader
   to have an infinite terrain. We can just raymarch that instead"). Voronoi
   and Apollonian are dropped (05:24).
+- Yggdrasil is the scene's centre (operator to Self, 10-31: "Yggdrasil should
+  be the star of the show now, so really the camera should just pull back a
+  bit when you login and the personas should be orbiting the tree, dancing
+  around each other in accordance with their activity"). On login the camera
+  pulls back from the tree; there is no separate intro to cut away from. The
+  Personas orbit the tree and move around each other by their live activity.
+- One activity vocabulary drives both sound and motion: Aqua's activity-kinds
+  grammar (`aqua-body:follow_up:chat-s431-432`, "enumerate the kinds of agent
+  activity in typed state") is the shared contract between Aqua's motifs and
+  Nibu's orbits, not two vocabularies. The live feed behind it is the same
+  typed state the swarm dashboard projects
+  (`eureka-body:ruling:swarm-dashboard-first-thing2-surface`, Libby;
+  `libby-body:follow_up:chat-s354-359`): Run documents, the heartbeat trace.
+  What reaches the client is a member-safe projection: kind, Mind, time and
+  intensity, never briefs or mind contents. Matrix presence and typing cover
+  humans and are too coarse for Minds. Where the feed comes from is
+  `ratatoskr:question:activity-feed-source`.
 - The scene renders in two passes, not one loop (operator to Self, 10-31:
   "The tape optimized solid surface march should run really fast, i imagine,
   way faster than the volumetric version, so they should not be one loop").
@@ -275,6 +292,8 @@ as of 2026-10-31 ~15:00.
   same world.
 - Aqua: render the first earcon set once Faust builds in her sandbox; then the
   instrument-per-Mind list and the manifest; then the soundscape design.
+- Aqua and Nibu: agree the activity vocabulary once (Aqua's grammar), so
+  motifs and orbits read the same kinds.
 - Void: the navigator (next cut); the Dings hook at
   `ClientNonUIFeatures.tsx` 131-258; the background canvas after Libby's shader.
 - Eureka: compression and caching for the shell on the chat host
@@ -312,11 +331,15 @@ Each later cut is one line, with what it waits on.
   both passes, Libby's CultMath underneath, Void
   integrating; waits on Libby's `fbm` and the erosion Lipschitz probe (both in
   CultLib), then a phone measurement.
-- `yggdrasil-intro`: an animated tree-and-squirrel intro set in the same
-  terrain world, Nibu on the scene, Libby on any CultMath it needs, Void
-  integrating, Aqua's soundscape under it; it may play during
-  the cold start or resume sync but never holds the client up; waits on
-  `terrain-background` (operator sketch, not a ruling).
+- `yggdrasil-scene`: the tree and squirrel at the centre of the terrain world;
+  on login the camera pulls back from the tree, and it may play during the
+  cold start or resume sync but never holds the client up; Nibu on the scene,
+  Libby on any CultMath it needs, Void integrating, Aqua's soundscape under
+  it; waits on `terrain-background`.
+- `orbiting-personas`: Personas orbit the tree and dance around each other by
+  live activity, from the shared activity vocabulary; waits on
+  `yggdrasil-scene`, Aqua's activity-kinds grammar, and
+  `ratatoskr:question:activity-feed-source`.
 - `bubbles-and-juice`: animated bubbles and mood flourishes from event
   metadata, the corner avatar and the cosmetic XP bar; waits on `emote-slot`.
 - `attention-bubbles`: per-person attention bubbles from Huginn's typed
