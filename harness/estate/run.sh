@@ -29,6 +29,6 @@ failure jdrop JOIN_DROP=1
 failure admin INVITER_ADMIN=1
 failure inboxadmin INVITER_ADMIN=1
 failure inboxreload JOIN_DELAY=1
-echo DONE
 DRIVER=drive-routes failure deeplink
 DRIVER=drive-routes failure gw504 JOIN_504=1
+echo DONE
