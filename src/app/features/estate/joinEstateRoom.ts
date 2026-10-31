@@ -50,14 +50,15 @@ export const awaitMyJoin = (
       resolve(true);
       return;
     }
-    const finish = (joined: boolean) => {
-      clearTimeout(timer);
-      mx.off('Room.myMembership', onMembership);
-      resolve(joined);
-    };
+    let finish: (joined: boolean) => void = () => undefined;
     const onMembership = (room: { roomId: string }, membership: string) => {
       if (room.roomId === roomId && membership === 'join') finish(true);
     };
     const timer = setTimeout(() => finish(false), timeoutMs);
+    finish = (joined) => {
+      clearTimeout(timer);
+      mx.off('Room.myMembership', onMembership);
+      resolve(joined);
+    };
     mx.on('Room.myMembership', onMembership);
   });

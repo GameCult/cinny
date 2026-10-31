@@ -90,7 +90,7 @@ describe('buildEstate', () => {
     expect(tiers.flatMap((t) => [...t.loose, ...t.groups.flatMap((g) => g.rooms)])).toHaveLength(4);
   });
 
-  it('groups rooms by steward Mind from the steward on each room's Space child entry', () => {
+  it('groups rooms by steward Mind from the steward on each Space child entry', () => {
     const projects = buildEstate(input()).find((t) => t.id === PROJECTS)!;
     expect(projects.groups.map((g) => [g.mind, g.rooms.map((r) => r.roomId)])).toEqual([
       ['eureka', ['!cultlib:gamecult.org']],

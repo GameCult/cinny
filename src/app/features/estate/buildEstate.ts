@@ -12,20 +12,20 @@
  * invited-only member can read (she cannot read the Space's state).
  */
 
-export type EstateHierarchyRoom = {
-  room_id: string;
-  name?: string;
-  canonical_alias?: string;
-  room_type?: string;
-  children_state?: { state_key: string; content?: SpaceChildContent }[];
-};
-
 export const STEWARD_KEY = 'org.gamecult.steward';
 
 export type SpaceChildContent = {
   via?: string[];
   /** The Mind who stewards the room, as the accounts script writes it. */
   [STEWARD_KEY]?: { mind?: unknown };
+};
+
+export type EstateHierarchyRoom = {
+  room_id: string;
+  name?: string;
+  canonical_alias?: string;
+  room_type?: string;
+  children_state?: { state_key: string; content?: SpaceChildContent }[];
 };
 
 export type EstateMembership = 'joined' | 'invited' | 'joinable';

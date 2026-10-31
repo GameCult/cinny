@@ -44,10 +44,10 @@ import { roomToUnreadAtom } from '../../state/room/roomToUnread';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { EstateRoom, EstateTier } from './buildEstate';
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
+import { useEstate, useEstateRootId } from './useEstate';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
-import { useEstate, useEstateRootId } from './useEstate';
 
 const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom): string => {
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
