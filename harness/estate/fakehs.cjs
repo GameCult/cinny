@@ -12,6 +12,7 @@ const DM = '!dm:test', MEETING = '!meeting:test';
 const PROJ = P.map((p, i) => ({ id: `!p${i}:test`, alias: `#${p}:test`, name: p[0].toUpperCase() + p.slice(1) }));
 const ROOT = '!root:test', PSP = '!proj:test', GEN = '!gen:test', OP = '!op:test';
 const pendingJoin = [];
+const pendingAccountData = [];
 let ev = 0;
 const se = (type, content, sk = '', sender = '@admin:test') => ({ type, content, state_key: sk, sender, event_id: `$e${++ev}`, origin_server_ts: Date.now() });
 const strip = (id, name, space, dm) => [
@@ -75,6 +76,7 @@ http.createServer((req, res) => {
           log.push(`${Date.now()} SYNC delivers join ${id}`);
           return json(res, 200, { next_batch: `s${++syncN}`, rooms: { join, invite: {}, leave: {} } });
         }
+        if (pendingAccountData.length) return json(res, 200, { next_batch: `s${++syncN}`, rooms: {}, account_data: { events: pendingAccountData.splice(0) } });
         return json(res, 200, { next_batch: since, rooms: {} });
       };
       return setTimeout(wait, pendingJoin.length ? 2500 : 1500);
@@ -94,6 +96,12 @@ http.createServer((req, res) => {
     if (p.includes('/room_keys/version')) return json(res, 404, { errcode: 'M_NOT_FOUND', error: 'none' });
     if (p.includes('/pushrules')) return json(res, 200, { global: { override: [], underride: [], room: [], sender: [], content: [] } });
     if (p.includes('/filter')) return json(res, 200, { filter_id: '1' });
+    if (p.includes('/account_data/') && req.method === 'PUT') {
+      const type = decodeURIComponent(p.split('/account_data/')[1]);
+      try { pendingAccountData.push({ type, content: JSON.parse(body) }); } catch (e) { /* ignore */ }
+      log.push(`${Date.now()} PUT account_data ${type}`);
+      return json(res, 200, {});
+    }
     if (p.includes('/account_data/')) return req.method === 'GET' ? json(res, 404, { errcode: 'M_NOT_FOUND', error: 'none' }) : json(res, 200, {});
     if (p.includes('/messages')) return json(res, 200, { chunk: [], start: 't0', end: 't0' });
     if (p.includes('/members')) return json(res, 200, { chunk: [] });
