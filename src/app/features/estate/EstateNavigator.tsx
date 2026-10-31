@@ -2,7 +2,6 @@ import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } fro
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue } from 'jotai';
 import { Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
-import { MatrixClient } from 'matrix-js-sdk';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
 import { NavCategory, NavCategoryHeader, NavItem, NavItemContent } from '../../components/nav';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
@@ -30,7 +29,7 @@ import { EstateRoom, EstateTier } from './buildEstate';
 import { activateEstateRoom } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 
-const estateRoomPath = (mx: MatrixClient, room: EstateRoom): string => {
+const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom): string => {
   const alias = getCanonicalAliasOrRoomId(mx, room.roomId);
   if (room.parentId === null) return getDirectRoomPath(alias);
   // A Space the user has not joined has no Space route; the room still resolves from Home.
@@ -62,7 +61,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
         </NavItemContent>
         {state.status === AsyncStatus.Error && (
           <Text as="span" size="T200" style={{ color: color.Critical.Main }} truncate>
-            {state.error.message}
+            {(state.error as Error).message}
           </Text>
         )}
         <Chip

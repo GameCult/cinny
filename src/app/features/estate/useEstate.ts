@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MatrixClient } from 'matrix-js-sdk';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { useFetchSpaceHierarchyLevel } from '../../hooks/useSpaceHierarchy';
@@ -12,14 +11,19 @@ import { allRoomsAtom } from '../../state/room-list/roomList';
 import { allInvitesAtom } from '../../state/room-list/inviteList';
 import { mDirectAtom } from '../../state/mDirectList';
 import { StateEvent } from '../../../types/matrix/room';
-import { buildEstate, EstateTier, Stewardships } from './buildEstate';
+import { buildEstate, EstateHierarchyRoom, EstateTier, Stewardships } from './buildEstate';
 
 const HIERARCHY_DEPTH = 10;
 
-const findLoadedRoom = (mx: MatrixClient, alias: string): string | undefined =>
-  mx
-    .getRooms()
-    .find((r) => r.getCanonicalAlias() === alias || r.getAltAliases().includes(alias))?.roomId;
+type AliasedRoom = { roomId: string; getCanonicalAlias(): string | null; getAltAliases(): string[] };
+
+const findLoadedRoom = (
+  mx: ReturnType<typeof useMatrixClient>,
+  alias: string
+): string | undefined =>
+  (mx.getRooms() as AliasedRoom[]).find(
+    (r) => r.getCanonicalAlias() === alias || r.getAltAliases().includes(alias)
+  )?.roomId;
 
 /** The estate's root Space: featuredCommunities.spaces[0] from the client config. */
 export const useEstateRootId = (): { rootId?: string; error?: Error } => {
@@ -79,7 +83,9 @@ export const useEstate = (rootId: string): Estate => {
     () => {
       const rootRoom = mx.getRoom(rootId);
       return rootRoom
-        ? getStateEvent(rootRoom, StateEvent.GameCultStewardships)?.getContent<Stewardships>()
+        ? (getStateEvent(rootRoom, StateEvent.GameCultStewardships)?.getContent() as
+            | Stewardships
+            | undefined)
         : undefined;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,7 +104,7 @@ export const useEstate = (rootId: string): Estate => {
     });
     return buildEstate({
       rootId,
-      hierarchy: Array.from(rooms.values()),
+      hierarchy: Array.from(rooms.values()) as EstateHierarchyRoom[],
       stewardships,
       membership,
       directRoomIds: Array.from(mDirects).filter((id) => joined.includes(id)),

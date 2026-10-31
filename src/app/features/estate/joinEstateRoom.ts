@@ -1,4 +1,3 @@
-import { MatrixClient } from 'matrix-js-sdk';
 import { EstateRoom } from './buildEstate';
 
 export type EstateActivation =
@@ -6,7 +5,9 @@ export type EstateActivation =
   | { kind: 'joined'; roomId: string }
   | { kind: 'refused'; message: string };
 
-type JoinClient = Pick<MatrixClient, 'joinRoom'>;
+type JoinClient = {
+  joinRoom(roomId: string, opts: { viaServers: string[] }): Promise<{ roomId: string }>;
+};
 
 /**
  * What a tap on an estate row does. A joined room opens; any other room is
