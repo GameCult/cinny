@@ -158,9 +158,7 @@ describe('buildEstate', () => {
   });
 
   it('puts every room of one Mind in a single group', () => {
-    const tiers = buildEstate(
-      input({ stewardships: { eureka: ['CultLib', 'Aetheria'] } })
-    );
+    const tiers = buildEstate(input({ stewardships: { eureka: ['CultLib', 'Aetheria'] } }));
     const projects = tiers.find((t) => t.id === PROJECTS)!;
     expect(projects.groups).toHaveLength(1);
     expect(projects.groups[0].rooms.map((r) => r.roomId)).toEqual([
@@ -171,7 +169,12 @@ describe('buildEstate', () => {
 
   it('sorts group labels without regard to case', () => {
     const projects = buildEstate(
-      input({ mindLabels: new Map([['eureka', 'beta'], ['void', 'Alpha']]) })
+      input({
+        mindLabels: new Map([
+          ['eureka', 'beta'],
+          ['void', 'Alpha'],
+        ]),
+      })
     ).find((t) => t.id === PROJECTS)!;
     expect(projects.groups.map((g) => g.label)).toEqual(['Alpha', 'beta']);
   });
