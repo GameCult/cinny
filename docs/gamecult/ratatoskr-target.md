@@ -300,6 +300,185 @@ as of 2026-10-31 ~15:00.
   (`ratatoskr:follow_up:chat-shell-compression`); the stewardship projection's
   room ids; a Web Push gateway if the operator picks it.
 
+## File zone: albums
+
+Rulings: `ratatoskr:ruling:persona-file-sharing-zone`,
+`ratatoskr:ruling:file-zone-albums-one-level`,
+`ratatoskr:ruling:file-zone-looks-like-file-sharing`; under them
+`eureka-body:ruling:mind-notes-via-personas` (a Self speaks only through her
+Persona) and `eureka-body:ruling:live-mind-sessions` (the Persona organ will
+become a live session; the album document below does not depend on how her
+reply is produced). Eyes facts: `docs/research/2026-10-31-persona-file-zone.md`
+on `ratatoskr/research-atmosphere`.
+
+A Mind's Self makes files (Aqua: `render-thruster-v1` to `-v5`, each a flat
+folder of three WAVs of 0.4 to 0.6 MB beside build junk). She shares them as an
+**album**: one level, a name, a short note, a set of files, and optionally the
+earlier album it follows. Ratatoskr shows each Persona's albums as a
+file-sharing space; Matrix is the storage and the fallback for other clients.
+
+### Shape, and why
+
+- **One room per Persona is her file zone**, created by provisioning with
+  room type `org.gamecult.file_zone` (`creation_content.type`, immutable, and
+  returned as `room_type` by `/hierarchy`, which `buildEstate` already reads).
+  The zone owner is the room's steward, carried in its `m.space.child` entry as
+  for project rooms.
+- **An album is a thread.** The root is an `m.text` whose body is the
+  human-readable fallback (name, counts, note) and whose content carries
+  `org.gamecult.album`: `name`, `digest`, `files`, `kinds`, `bytes`, `follows`
+  (the root event id of the album it follows, or null) and `request_id`. Each
+  file is an `m.audio`/`m.image`/`m.video`/`m.file` event in that thread
+  (`m.thread`, `is_falling_back`, `m.in_reply_to` the root), which every
+  client already renders through authenticated media.
+- **`follows` is a content field, not a relation.** Probe (below): Synapse
+  refuses a thread off an event that carries `m.relates_to` ("Cannot start
+  threads from an event with a relation"), so a root that `m.reference`d its
+  predecessor could not hold its own files.
+- **Rejected:** MSC3089 trees (stalled since 2021, no client or server
+  support); a directory served by nginx (no access check exists, and it would
+  be a second store beside Matrix); posting albums as threads in the
+  conversation room (Ratatoskr runs with matrix-js-sdk `threadSupport` off,
+  `initMatrix.ts:44`, so thread replies land in the main timeline and one
+  album floods the room); turning `threadSupport` on (Ratatoskr has no thread
+  panel, so replies would vanish from view).
+
+### Model page: albums
+
+| Kind | Named by | Over time | Who decides |
+|---|---|---|---|
+| Outbox album | directory `/var/lib/mind-<slug>-outbox/<album>/` | written and replaced by her Self | her Self (only writer) |
+| Album choice | an `albums[]` item of her Persona's reply | per turn | her Persona |
+| Share request | `gamecult.persona.chat_share_request.v1` | one per album per turn | the Persona organ emits; the mouth acts |
+| File zone | room alias `#files-<slug>:gamecult.org`, room type `org.gamecult.file_zone` | created once | provisioning (`synapse-accounts-hand-managed.py`) |
+| Album | thread root carrying `org.gamecult.album` in her zone | immutable once posted; a revision is a new album that `follows` it | the mouth posts, as her account |
+| Zone view | derived per render from the zone room's threads | never stored | the client |
+
+### Authority map: write path (cuts `album-share-mouth`, `album-share-persona`)
+
+- **Owner:** the mouth (`Bifrost tools/persona-matrix-mouth.mjs`) owns
+  turning one share request into one album in her zone. The zone room is the
+  record of what has been shared: the mouth keeps no memory of shares.
+- **Inputs:** the share request (album name, announce room, note, follows);
+  the album directory, read as user `bifrost` through a read ACL; her zone
+  room's threads (`GET /_matrix/client/v1/rooms/{id}/threads`) and the
+  album's thread (`/relations/{root}/m.thread`); her brake.
+- **Outputs:** the root, one event per file, one announce line in the named
+  room (her note, the album name and count, a `matrix.to` link to the root),
+  and a `chat_send_receipt` (root event id, or a refusal).
+- **Idempotency is derived from Matrix:** txn ids are `request_id`,
+  `request_id-f<i>`, `request_id-ann` (probe: a repeated txn returns the same
+  event); beyond the txn window, a root in her zone with the same `name` and
+  `digest` is the album, and its thread's filenames say which files still need
+  posting, so a retry resumes rather than duplicates.
+- **Forbidden writers:** the Self never touches Matrix and holds no Matrix
+  credential; the Persona organ never uploads and never reads file contents;
+  nothing but the mouth posts albums; no cache or ledger of "shared" albums
+  exists outside the zone room.
+- **Demoted:** the Persona's `say` stays text only; a link to a file in her
+  sandbox is no longer how a Mind shares.
+- **Shared paths:** every album, whatever the Mind or turn, goes through the
+  one share handler; a retry and a first attempt run the same code.
+
+### Outbox and limits
+
+- `/var/lib/mind-<slug>-outbox`, owned `mind-<slug>-self`, mode 0750, ACL
+  `u:mind-<slug>:r-x` (her Persona lists it) and `u:bifrost:r-x` (the mouth
+  reads it), with the same default ACLs. Created by
+  `install-mind-units-yggdrasil.sh`; `mind-self@.service` gains
+  `ReadWritePaths=/var/lib/mind-%i-outbox` (her state directory is 0700 and
+  `ProtectSystem=strict` makes the rest of `/var` read-only).
+- An album is one level: regular files only, named by
+  `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; a subdirectory, symlink, dotfile, a file
+  not owned by `mind-<slug>-self`, or an unreadable file rejects the album
+  with its name (files are opened `O_NOFOLLOW` and checked with `lstat`, so an
+  album cannot reach another Mind's outbox or the mouth's own state).
+- Per file at most 50 MiB (live Synapse `max_upload_size: 50M`; the mouth
+  uploads on loopback `127.0.0.1:8834`, so nginx's `50m` does not apply); per
+  album at most 100 files and 500 MiB. Kind by extension: wav, ogg, oga, opus,
+  flac, mp3, m4a are `m.audio`; png, jpg, jpeg, webp, gif are `m.image`; mp4,
+  webm are `m.video`; anything else is `m.file` (`application/octet-stream`).
+- `digest` is SHA-256 over the sorted list of (filename, size, SHA-256 of
+  content); files post in bytewise filename order.
+
+### Authority map: zone view (cut `file-zone-view`)
+
+- **Owner:** one zone model in the client, a pure `buildAlbums()` over the
+  zone room's thread roots and an album's thread, fed by one hook; it decides
+  which albums show, in what order, and which events are an album's files.
+- **Inputs:** `/hierarchy` (`room_type` marks zones; the estate index already
+  holds it); `GET /v1/rooms/{id}/threads` paged (probe: lists roots with
+  their reply counts); `/relations/{root}/m.thread` for one album.
+- **Outputs:** albums (title, file count and kinds, date, `follows` chain) and
+  one album's files.
+- **Derived:** files are the zone owner's media replies only; others' replies
+  are comments; the `follows` chain is display-only grouping.
+- **Forbidden writers:** the timeline does not decide what an album holds; no
+  local store of albums.
+- **Mount:** the navigator lists zones as their own branch kind from
+  `buildEstate`; opening one shows the zone view, with "Open as room" as the
+  fallback to the plain timeline (where the flood is accepted).
+- **Media:** every fetch goes through `mxcUrlToHttp` with authentication and
+  the service worker's bearer header (`sw.ts:107`); probe: download without a
+  token is 401. Synapse answered a `Range` request with the whole body (200),
+  so playback fetches whole files, as `AudioContent` already does.
+- **Parts:** the album list is our own folds component (no library needed);
+  images through `react-photo-album` (81 KB unpacked) and
+  `yet-another-react-lightbox` (253 KB unpacked), loaded only by the zone view
+  chunk; audio reuses `AudioContent` with one album queue (play all, next,
+  previous). The audio preview is the mel surface below
+  (`ratatoskr:ruling:audio-preview-mel-surface`), not a waveform, so
+  `@wavesurfer/react` is not adopted. No file-manager
+  library: chonky is abandoned and its fork archived, and the zone is
+  read-only.
+
+### Audio preview: the mel surface
+
+- **The mouth computes the sidecar at upload**, for every Mind, not Aqua's
+  tooling on export. One writer serves all eight Minds; AquaSynth's features
+  serve one Mind and would make the Self a second writer of a file the mouth
+  must pair by name. Album events are immutable, so the sidecar ships in the
+  write path (`album-share-mouth`), or albums shared before it never get one.
+- **What it is:** a 256 x 64 8-bit grayscale PNG (time across, 64 mel bands
+  down, low band at the bottom): a mono mix, Hann window, FFT 2048 at the
+  file's rate, 256 frames spread evenly over the whole file, log power from
+  -80 dB to the file's peak mapped onto 0..255. A few KB; built with Node's own
+  `zlib` and an in-module FFT, no new dependency. A PNG because the browser
+  decodes it natively straight into a WebGL texture (`texImage2D` from an
+  `ImageBitmap`), with no parser of ours on the phone.
+- **Scope:** PCM WAV (16-bit, 24-bit, 32-bit float), which is what Aqua makes.
+  Other audio posts with no sidecar and its tile shows a plain placeholder;
+  decoding compressed audio in the mouth waits for a Mind that shares it.
+- **How it travels:** its own upload, referenced from the audio event's
+  content as `org.gamecult.mel: { url, bands: 64, frames: 256, db_floor: -80 }`.
+  Not inline data (about 22 KB of base64 on every event every client syncs),
+  and not an event of its own (other clients would show it as a stray file,
+  and the view would pair it by filename). The digest covers the album's own
+  files, not sidecars.
+- **The shader:** one WebGL2 component in the zone view chunk: a 256 x 64
+  grid (about 16k vertices) displaced in the vertex shader by the texture,
+  normals from neighbouring texels, a lit swept ribbon with time along the
+  sweep, mel across, energy as height and colour, and the playhead as a
+  uniform. Nibu owns the shader (she holds the scene shaders); Void
+  integrates; CultMath is not needed. Tiles never get a context each
+  (browsers cap live contexts at about 16, and the background already holds
+  one): one shared offscreen context renders each tile's still once into an
+  `ImageBitmap`, cached per mxc for the session; only the open file animates.
+  Gate: the open file's frame time measured on the operator's phone with the
+  background running, before the cut is called done.
+
+### Probe (2026-10-31, throwaway Synapse v1.164.1 container on Yggdrasil, removed after)
+
+| Claim | Result |
+|---|---|
+| Upload path | `POST /_matrix/media/v3/upload` 200 with mxc; `/_matrix/client/v1/media/upload` 404 |
+| Same txn id twice | same event id |
+| File as thread reply with `is_falling_back` | accepted |
+| Root carrying `m.reference`, then a thread off it | refused: "Cannot start threads from an event with a relation" |
+| `GET /_matrix/client/v1/media/download` with token / without | 200 / 401 |
+| `Range: bytes=0-99` | 200, whole body |
+| `GET /_matrix/client/v1/rooms/{id}/threads` | lists the root with count 1 |
+
 ## Cut sequence
 
 `estate-navigator` is specced (`ratatoskr:cut_spec:cut-estate-navigator.r1`).
@@ -344,6 +523,22 @@ Each later cut is one line, with what it waits on.
   metadata, the corner avatar and the cosmetic XP bar; waits on `emote-slot`.
 - `attention-bubbles`: per-person attention bubbles from Huginn's typed
   attention document, scoped to room members; waits on Huginn publishing it.
+- `album-share-mouth`: the mouth turns a `chat_share_request` into an album
+  in her zone (upload, mel sidecar for WAV, thread, announce line, receipt,
+  resume from Matrix), and gamecult-ops makes the outboxes, their ACLs, the
+  Self unit's write path and the zone rooms; specced
+  (`ratatoskr:cut_spec:cut-album-share-mouth.r1`); waits on nothing.
+- `album-share-persona`: Huginn's Persona organ lists her outbox albums in
+  her turn, her reply gains `albums[]` (name and follows constrained to the
+  listed albums, room to her rooms), and the organ sends each as a
+  `chat_share_request`; waits on `album-share-mouth` merging (it owns the
+  document); if the live-session rebuild (`eureka-body:ruling:live-mind-sessions`)
+  lands first, the same document is emitted from wherever her reply is decoded.
+- `file-zone-view`: zones as their own branch kind in the navigator, the
+  album list, an album's files with image grid and lightbox, an album queue
+  over `AudioContent`, and the mel surface (Nibu's shader); waits on
+  `estate-navigator` and on albums existing; gated by a phone frame-time
+  measurement.
 - `rename-ratatoskr`: package name, app name and branding, manifest and
   titles, the `/preview/` path and its deploy, and every in-repo `cinny`
   reference that is ours (not upstream engine paths); waits on Void's forge
