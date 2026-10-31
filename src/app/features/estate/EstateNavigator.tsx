@@ -260,6 +260,18 @@ function EntryPoints() {
   );
 }
 
+/** A short message that wraps inside the navigator; never a raw request error. */
+function EstateError({ message }: { message: string }) {
+  return (
+    <Text
+      size="T300"
+      style={{ color: color.Critical.Main, padding: 16, overflowWrap: 'anywhere' }}
+    >
+      {message}
+    </Text>
+  );
+}
+
 function EstateTiers({ rootId }: { rootId: string }) {
   const { fetching, error, tiers } = useEstate(rootId);
 
@@ -277,18 +289,6 @@ function EstateTiers({ rootId }: { rootId: string }) {
         <EstateError message="Could not load the room list. Check your connection and reload." />
       )}
     </>
-  );
-}
-
-/** A short message that wraps inside the navigator; never a raw request error. */
-function EstateError({ message }: { message: string }) {
-  return (
-    <Text
-      size="T300"
-      style={{ color: color.Critical.Main, padding: 16, overflowWrap: 'anywhere' }}
-    >
-      {message}
-    </Text>
   );
 }
 
