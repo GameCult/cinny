@@ -51,7 +51,9 @@ describe('activateEstateRoom', () => {
   );
 
   it('falls back to the error message, then to a generic one', async () => {
-    const named = recordingClient(vi.fn().mockRejectedValue(Object.assign(new Error('Boom'), { httpStatus: 500 })));
+    const named = recordingClient(
+      vi.fn().mockRejectedValue(Object.assign(new Error('Boom'), { httpStatus: 500 }))
+    );
     expect(await activateEstateRoom(named.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Boom',

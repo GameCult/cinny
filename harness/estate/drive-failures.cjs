@@ -5,8 +5,8 @@ const MODE = process.env.MODE;
 const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
 const log = (...a) => console.log(`[${MODE}]`, ...a);
 const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages'];
-setTimeout(() => { console.log('DRIVER_TIMEOUT'); process.exit(3); }, 150000);
 let b;
+setTimeout(() => { console.log('DRIVER_TIMEOUT'); Promise.resolve(b && b.close()).catch(() => undefined).finally(() => process.exit(3)); }, 240000);
 (async () => {
   b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });

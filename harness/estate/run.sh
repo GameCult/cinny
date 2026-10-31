@@ -14,14 +14,14 @@ for m in twodm reload convert; do
   HSLOG=/tmp/hslog-$m.txt NOROOT=0 node /src/harness/estate/fakehs.cjs /src/dist > /tmp/hs-$m.out 2>&1 &
   HS=$!; sleep 2
   MODE=$m node /tmp/pw/drive.cjs; echo "DRIVE $m RC=$?"
-  kill $HS; sleep 1
+  kill $HS; wait $HS 2>/dev/null; sleep 1
   echo "=== hs $m"; grep -E "MDIRECT_PUT|DELIVER|STATE_" /tmp/hs-$m.out; grep -E " JOIN " /tmp/hslog-$m.txt
 done
 failure() { m=$1; shift
   env "$@" HSLOG=/tmp/hslog-$m.txt NOROOT=0 node /src/harness/estate/fakehs.cjs /src/dist > /tmp/hs-$m.out 2>&1 &
   HS=$!; sleep 2
   MODE=$m node /tmp/pw/drive-failures.cjs; echo "DRIVE $m RC=$?"
-  kill $HS; sleep 1
+  kill $HS; wait $HS 2>/dev/null; sleep 1
   echo "=== hs $m"; grep -E "MDIRECT|DELIVER|JOIN_|STATE_" /tmp/hs-$m.out; grep -E " JOIN " /tmp/hslog-$m.txt; }
 failure pjfail FAIL_MDIRECT=1
 failure pjreload DELAY_MDIRECT=1

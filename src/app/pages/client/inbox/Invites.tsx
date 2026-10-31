@@ -45,10 +45,7 @@ import {
 } from '../../../utils/room';
 import { nameInitials } from '../../../utils/common';
 import { RoomAvatar } from '../../../components/room-avatar';
-import {
-  getMxIdLocalPart,
-  rateLimitedActions,
-} from '../../../utils/matrix';
+import { getMxIdLocalPart, rateLimitedActions } from '../../../utils/matrix';
 import { activateEstateRoom } from '../../../features/estate/joinEstateRoom';
 import { Time } from '../../../components/message';
 import { useElementSizeObserver } from '../../../hooks/useElementSizeObserver';
