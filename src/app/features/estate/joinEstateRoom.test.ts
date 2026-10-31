@@ -18,8 +18,7 @@ const recordingClient = (joinRoom = vi.fn().mockResolvedValue({ roomId: '!r:game
           return joinRoom(...args);
         };
       }
-      return (...args: unknown[]) => {
-        void args;
+      return () => {
         calls.push(prop);
         throw new Error(`unexpected client call: ${prop}`);
       };

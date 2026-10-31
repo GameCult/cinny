@@ -104,7 +104,7 @@ export const useEstate = (rootId: string): Estate => {
     });
     return buildEstate({
       rootId,
-      hierarchy: Array.from(rooms.values()) as EstateHierarchyRoom[],
+      hierarchy: Array.from(rooms.values()) as unknown as EstateHierarchyRoom[],
       stewardships,
       membership,
       directRoomIds: Array.from(mDirects).filter((id) => joined.includes(id)),
