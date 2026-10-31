@@ -26,6 +26,7 @@ import { useRoomNavigate } from './useRoomNavigate';
 import { Membership, StateEvent } from '../../types/matrix/room';
 import { getStateEvent } from '../utils/room';
 import { splitWithSpace } from '../utils/common';
+import { joinEstateRoomIdOrAlias } from '../features/estate/joinEstateRoom';
 import { createRoomEncryptionState } from '../components/create-room';
 
 export const SHRUG = '¯\\_(ツ)_/¯';
@@ -233,7 +234,7 @@ export const useCommands = (mx: MatrixClient, room: Room): CommandRecord => {
             (idOrAlias) => isRoomId(idOrAlias) || isRoomAlias(idOrAlias)
           );
           roomIdOrAliases.forEach(async (idOrAlias) => {
-            await mx.joinRoom(idOrAlias);
+            await joinEstateRoomIdOrAlias(mx, idOrAlias);
           });
         },
       },

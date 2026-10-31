@@ -1,0 +1,33 @@
+const { chromium } = require('playwright');
+const MODE = process.env.MODE; const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
+const log = (...a) => console.log(`[${MODE}]`, ...a);
+const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages'];
+let b; const quit = (c) => Promise.race([Promise.resolve(b && b.close()).catch(() => 0), new Promise((r) => setTimeout(r, 5000))]).finally(() => process.exit(c));
+setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 120000);
+(async () => {
+  b = await chromium.launch();
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const pg = await ctx.newPage();
+  await pg.goto('http://127.0.0.1:8080/');
+  await pg.evaluate(() => { localStorage.setItem('cinny_access_token', 'tok'); localStorage.setItem('cinny_device_id', 'DEV'); localStorage.setItem('cinny_user_id', '@t:test'); localStorage.setItem('cinny_hs_base_url', 'http://127.0.0.1:8080'); });
+  await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.reload(); await pg.waitForTimeout(9000);
+  const body = async () => (await pg.evaluate(() => document.body.innerText)).replace(/\s+/g, ' ');
+  const tierOf = (n) => pg.evaluate((n) => { const s = document.body.innerText.split('\n').map((x) => x.trim()); const i = s.indexOf(n); if (i < 0) return 'absent'; for (let j = i; j >= 0; j--) if (/^(elsewhere|direct messages)$/i.test(s[j])) return s[j]; return 'none-above'; }, n);
+  const tiers = async (tag) => { await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500); for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } } log('TIER', tag, '| Friend DM', await tierOf('Friend DM')); };
+  if (MODE === 'deeplink') {
+    for (const route of ['direct', 'home']) {
+      await pg.goto(`http://127.0.0.1:8080/#/${route}/${encodeURIComponent('!dm1:test')}/`); await pg.waitForTimeout(4000);
+      const bb = await body(); log('ROUTE', route, JSON.stringify(bb.slice(0, 300)));
+      const j = pg.getByRole('button', { name: /^Join$/ }); log('JOIN_BUTTONS', route, await j.count());
+      if (await j.count()) { await j.first().click(); log('CLICK_JOIN', route, t()); await pg.waitForTimeout(6000); break; }
+    }
+    await tiers('after deeplink join');
+  } else if (MODE === 'gw504') {
+    const HL = HEADERS; let l = pg.locator('[aria-label="Join Friend DM"]');
+    for (let r = 0; r < 2 && !(await l.count()); r++) for (const h of HL) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } }
+    log('JOINCTRL', await l.count()); await l.first().click(); log('CLICK', t()); await pg.waitForTimeout(4000);
+    const bb = await body(); const k = bb.search(/504|Gateway|connection dropped|Could not join/i); log('AFTER_504', k >= 0 ? bb.slice(Math.max(0, k - 60), k + 120) : 'no message');
+    await pg.waitForTimeout(4000); await tiers('after 504 (join delivered by sync)');
+  }
+  await quit(0);
+})().catch((e) => { log('ERROR', String(e.stack || e).slice(0, 300)); quit(1); });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
+import { activateEstateRoom, awaitMyJoin, joinEstateRoomIdOrAlias } from './joinEstateRoom';
 
 const room = (state: 'joined' | 'invited' | 'joinable') => ({
   roomId: '!r:gamecult.org',
@@ -52,13 +52,13 @@ describe('activateEstateRoom', () => {
 
   it('falls back to the error message, then to a generic one', async () => {
     const named = recordingClient(
-      vi.fn().mockRejectedValue(Object.assign(new Error('Boom'), { httpStatus: 500 }))
+      vi.fn().mockRejectedValue(Object.assign(new Error('Boom'), { httpStatus: 403, errcode: 'M_FORBIDDEN' }))
     );
     expect(await activateEstateRoom(named.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Boom',
     });
-    const bare = recordingClient(vi.fn().mockRejectedValue({ httpStatus: 500 }));
+    const bare = recordingClient(vi.fn().mockRejectedValue({ httpStatus: 403, errcode: 'M_FORBIDDEN' }));
     expect(await activateEstateRoom(bare.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Could not join',
@@ -78,7 +78,7 @@ describe('activateEstateRoom', () => {
 });
 
 /** A client holding DM invites as the server sends them: the mark is in the invite event only. */
-const dmClient = (opts: { refuse?: boolean; drop?: boolean; invites: Record<string, string> }) => {
+const dmClient = (opts: { status?: number; errcode?: string; refuse?: boolean; drop?: boolean; invites: Record<string, string> }) => {
   let direct: Record<string, string[]> | undefined;
   const writes: Record<string, string[]>[] = [];
   const joined: string[] = [];
@@ -105,7 +105,8 @@ const dmClient = (opts: { refuse?: boolean; drop?: boolean; invites: Record<stri
     joinRoom: async (roomId: string) => {
       // the join lands only after m.direct has been written: record what it held
       joined.push(JSON.stringify(direct ?? {}));
-      if (opts.refuse) throw Object.assign(new Error('M_FORBIDDEN'), { httpStatus: 403 });
+      if (opts.refuse) throw Object.assign(new Error('M_FORBIDDEN'), { httpStatus: 403, errcode: 'M_FORBIDDEN' });
+      if (opts.status) throw Object.assign(new Error('Gateway Time-out'), { httpStatus: opts.status, errcode: opts.errcode });
       if (opts.drop) throw new Error('fetch failed');
       return { roomId };
     },
@@ -146,6 +147,37 @@ describe('activateEstateRoom when the join gets no answer', () => {
     expect(result.kind).toBe('refused');
     expect((result as { message: string }).message).toMatch(/tap again to retry/);
     expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+});
+
+describe('activateEstateRoom when a gateway answers instead of the server', () => {
+  it.each([502, 503, 504, 404])('keeps the room listed on a %i with no errcode', async (status) => {
+    const c = dmClient({ status, invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result.kind).toBe('refused');
+    expect((result as { message: string }).message).toMatch(/tap again to retry/);
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+
+  it('keeps the room listed on a 5xx even when it carries an errcode', async () => {
+    const c = dmClient({ status: 500, errcode: 'M_UNKNOWN', invites: { '!dm1:test': '@friend:test' } });
+    await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+});
+
+describe('joinEstateRoomIdOrAlias, the room card and /join', () => {
+  it('files a direct invite opened by its link before the join is sent', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    const result = await joinEstateRoomIdOrAlias(c.mx, '!dm1:test', ['test']);
+    expect(result).toEqual({ kind: 'joined', roomId: '!dm1:test' });
+    expect(c.joined).toEqual([JSON.stringify({ '@friend:test': ['!dm1:test'] })]);
+  });
+
+  it('joins an alias or an unheld room without touching m.direct', async () => {
+    const { mx, calls } = recordingClient();
+    await joinEstateRoomIdOrAlias(mx, '#room:gamecult.org');
+    expect(calls).toEqual(['joinRoom']);
   });
 });
 
