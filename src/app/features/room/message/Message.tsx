@@ -58,7 +58,10 @@ import {
   isRoomAlias,
   mxcUrlToHttp,
 } from '../../../utils/matrix';
-import { MessageLayout, MessageSpacing } from '../../../state/settings';
+import { MessageLayout, MessageSpacing, settingsAtom } from '../../../state/settings';
+import { useSetting } from '../../../state/hooks/settings';
+import { PoseAvatar } from '../../../components/message/pose/PoseAvatar';
+import { POSE_KEY, mindOfSender, resolvePose } from '../../../components/message/pose/poses';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { useRecentEmoji } from '../../../hooks/useRecentEmoji';
 import * as css from './styles.css';
@@ -788,6 +791,12 @@ export const Message = as<'div', MessageProps>(
       </Box>
     );
 
+    const [poseBubbles] = useSetting(settingsAtom, 'poseBubbles');
+    const mind =
+      poseBubbles && messageLayout === MessageLayout.Bubble
+        ? mindOfSender(getMxIdLocalPart(senderId), senderDisplayName)
+        : undefined;
+
     const avatarJSX = !collapse && messageLayout !== MessageLayout.Compact && (
       <AvatarBase
         className={messageLayout === MessageLayout.Bubble ? css.BubbleAvatarBase : undefined}
@@ -811,6 +820,15 @@ export const Message = as<'div', MessageProps>(
           />
         </Avatar>
       </AvatarBase>
+    );
+
+    const poseJSX = !collapse && mind && (
+      <PoseAvatar
+        mind={mind}
+        pose={resolvePose(mind, mEvent.getContent()[POSE_KEY])}
+        userId={senderId}
+        onClick={onUserClick}
+      />
     );
 
     const msgContentJSX = (
@@ -1135,7 +1153,10 @@ export const Message = as<'div', MessageProps>(
           </CompactLayout>
         )}
         {messageLayout === MessageLayout.Bubble && (
-          <BubbleLayout before={avatarJSX} header={headerJSX} onContextMenu={handleContextMenu}>
+          <BubbleLayout
+            pose={!!mind}
+            before={mind ? poseJSX : avatarJSX}
+            header={headerJSX} onContextMenu={handleContextMenu}>
             {msgContentJSX}
           </BubbleLayout>
         )}

@@ -884,6 +884,7 @@ function Messages() {
     settingsAtom,
     'legacyUsernameColor'
   );
+  const [poseBubbles, setPoseBubbles] = useSetting(settingsAtom, 'poseBubbles');
   const [hideMembershipEvents, setHideMembershipEvents] = useSetting(
     settingsAtom,
     'hideMembershipEvents'
@@ -916,6 +917,13 @@ function Messages() {
               onChange={setLegacyUsernameColor}
             />
           }
+        />
+      </SequenceCard>
+      <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
+        <SettingTile
+          title="Pose Portraits"
+          description="Show a Mind's pose portrait beside its bubbles (bubble layout only)."
+          after={<Switch variant="Primary" value={poseBubbles} onChange={setPoseBubbles} />}
         />
       </SequenceCard>
       <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
