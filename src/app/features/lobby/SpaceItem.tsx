@@ -18,7 +18,7 @@ import {
 } from 'folds';
 import FocusTrap from 'focus-trap-react';
 import classNames from 'classnames';
-import { MatrixError, Room } from 'matrix-js-sdk';
+import { Room } from 'matrix-js-sdk';
 import { IHierarchyRoom } from 'matrix-js-sdk/lib/@types/spaces';
 import { HierarchyItem } from '../../hooks/useSpaceHierarchy';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
@@ -38,6 +38,7 @@ import { useOpenCreateSpaceModal } from '../../state/hooks/createSpaceModal';
 import { AddExistingModal } from '../add-existing';
 import { CreateRoomType } from '../../components/create-room/types';
 import { BetaNoticeBadge } from '../../components/BetaNoticeBadge';
+import { joinEstateRoomOrThrow } from '../estate/joinEstateRoom';
 
 function SpaceProfileLoading() {
   return (
@@ -112,8 +113,8 @@ function UnjoinedSpaceProfile({
 }: UnjoinedSpaceProfileProps) {
   const mx = useMatrixClient();
 
-  const [joinState, join] = useAsyncCallback<Room, MatrixError, []>(
-    useCallback(() => mx.joinRoom(roomId, { viaServers: via }), [mx, roomId, via])
+  const [joinState, join] = useAsyncCallback<string, Error, []>(
+    useCallback(() => joinEstateRoomOrThrow(mx, roomId, via), [mx, roomId, via])
   );
 
   const canJoin = joinState.status === AsyncStatus.Idle || joinState.status === AsyncStatus.Error;

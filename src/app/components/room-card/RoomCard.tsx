@@ -31,7 +31,7 @@ import { RoomType, StateEvent } from '../../../types/matrix/room';
 import { useJoinedRoomId } from '../../hooks/useJoinedRoomId';
 import { useElementSizeObserver } from '../../hooks/useElementSizeObserver';
 import { getRoomAvatarUrl, getStateEvent } from '../../utils/room';
-import { joinEstateRoomIdOrAlias } from '../../features/estate/joinEstateRoom';
+import { joinEstateRoomOrThrow } from '../../features/estate/joinEstateRoom';
 import { useStateEventCallback } from '../../hooks/useStateEventCallback';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 
@@ -200,8 +200,7 @@ export const RoomCard = as<'div', RoomCardProps>(
 
     const [joinState, join] = useAsyncCallback<void, MatrixError, []>(
       useCallback(async () => {
-        const result = await joinEstateRoomIdOrAlias(mx, roomIdOrAlias, viaServers);
-        if (result.kind === 'refused') throw new Error(result.message);
+        await joinEstateRoomOrThrow(mx, roomIdOrAlias, viaServers);
       }, [mx, roomIdOrAlias, viaServers])
     );
     const joining =

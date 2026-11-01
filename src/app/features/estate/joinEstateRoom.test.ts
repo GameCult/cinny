@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { activateEstateRoom, awaitMyJoin, joinEstateRoomIdOrAlias } from './joinEstateRoom';
+import {
+  activateEstateRoom,
+  awaitMyJoin,
+  joinEstateRoomIdOrAlias,
+  joinEstateRoomOrThrow,
+  runJoinCommand,
+} from './joinEstateRoom';
 
 const room = (state: 'joined' | 'invited' | 'joinable') => ({
   roomId: '!r:gamecult.org',
@@ -95,6 +101,7 @@ const dmClient = (opts: {
   let direct: Record<string, string[]> | undefined;
   const writes: Record<string, string[]>[] = [];
   const joined: string[] = [];
+  const joinOpts: unknown[] = [];
   const mx = {
     getSafeUserId: () => '@me:test',
     getRoom: (roomId: string) => ({
@@ -116,7 +123,8 @@ const dmClient = (opts: {
       writes.push(structuredClone(content));
       direct = structuredClone(content);
     },
-    joinRoom: async (roomId: string) => {
+    joinRoom: async (roomId: string, opts?: unknown) => {
+      joinOpts.push(opts);
       // the join lands only after m.direct has been written: record what it held
       joined.push(JSON.stringify(direct ?? {}));
       if (opts.refuse)
@@ -130,7 +138,7 @@ const dmClient = (opts: {
       return { roomId };
     },
   };
-  return { mx: mx as never, writes, joined, current: () => direct };
+  return { mx: mx as never, writes, joined, joinOpts, current: () => direct };
 };
 const tap = (id: string) => ({ roomId: id, state: 'invited' as const, via: ['test'] });
 
@@ -169,6 +177,22 @@ describe('activateEstateRoom when the join gets no answer', () => {
   });
 });
 
+describe('activateEstateRoom refusal bounds', () => {
+  it.each([400, 429, 499])('unfiles the room on a %i that carries an errcode', async (status) => {
+    const c = dmClient({ status, errcode: 'M_LIMIT_EXCEEDED', invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result.kind).toBe('refused');
+    expect((result as { message: string }).message).not.toMatch(/tap again to retry/);
+    expect(c.current()).toEqual({});
+  });
+
+  it.each([399, 500])('keeps the room listed on a %i that carries an errcode', async (status) => {
+    const c = dmClient({ status, errcode: 'M_UNKNOWN', invites: { '!dm1:test': '@friend:test' } });
+    await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+});
+
 describe('activateEstateRoom when a gateway answers instead of the server', () => {
   it.each([502, 503, 504, 404])('keeps the room listed on a %i with no errcode', async (status) => {
     const c = dmClient({ status, invites: { '!dm1:test': '@friend:test' } });
@@ -197,10 +221,48 @@ describe('joinEstateRoomIdOrAlias, the room card and /join', () => {
     expect(c.joined).toEqual([JSON.stringify({ '@friend:test': ['!dm1:test'] })]);
   });
 
+  it('hands the via servers to the join', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    await joinEstateRoomIdOrAlias(c.mx, '!dm1:test', ['other.org']);
+    expect(c.joinOpts).toEqual([{ viaServers: ['other.org'] }]);
+  });
+
   it('joins an alias or an unheld room without touching m.direct', async () => {
     const { mx, calls } = recordingClient();
     await joinEstateRoomIdOrAlias(mx, '#room:gamecult.org');
     expect(calls).toEqual(['joinRoom']);
+  });
+});
+
+describe('joinEstateRoomOrThrow, the lobby, tombstone and predecessor buttons', () => {
+  it('files a direct invite and answers the joined room id', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    await expect(joinEstateRoomOrThrow(c.mx, '!dm1:test', ['test'])).resolves.toBe('!dm1:test');
+    expect(c.joined).toEqual([JSON.stringify({ '@friend:test': ['!dm1:test'] })]);
+  });
+
+  it('throws the refusal and unfiles the room', async () => {
+    const c = dmClient({ refuse: true, invites: { '!dm1:test': '@friend:test' } });
+    await expect(joinEstateRoomOrThrow(c.mx, '!dm1:test')).rejects.toThrow('M_FORBIDDEN');
+    expect(c.current()).toEqual({});
+  });
+});
+
+describe('runJoinCommand, /join', () => {
+  it('reports each refusal and joins the others', async () => {
+    const c = dmClient({ refuse: true, invites: { '!dm1:test': '@friend:test' } });
+    const reported: string[] = [];
+    await runJoinCommand(c.mx, '!dm1:test notanaddress', (m) => reported.push(m));
+    expect(reported).toEqual(['M_FORBIDDEN']);
+    expect(c.joined).toHaveLength(1);
+  });
+
+  it('reports nothing when the join is accepted', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    const reported: string[] = [];
+    await runJoinCommand(c.mx, '!dm1:test', (m) => reported.push(m));
+    expect(reported).toEqual([]);
+    expect(c.joined).toHaveLength(1);
   });
 });
 

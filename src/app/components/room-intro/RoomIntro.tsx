@@ -17,6 +17,7 @@ import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 import { useSetting } from '../../state/hooks/settings';
 import { settingsAtom } from '../../state/settings';
 import { InviteUserPrompt } from '../invite-user-prompt';
+import { joinEstateRoomOrThrow } from '../../features/estate/joinEstateRoom';
 
 export type RoomIntroProps = {
   room: Room;
@@ -43,7 +44,7 @@ export const RoomIntro = as<'div', RoomIntroProps>(({ room, ...props }, ref) => 
   const prevRoomId = createContent?.predecessor?.room_id;
 
   const [prevRoomState, joinPrevRoom] = useAsyncCallback(
-    useCallback(async (roomId: string) => mx.joinRoom(roomId), [mx])
+    useCallback((roomId: string) => joinEstateRoomOrThrow(mx, roomId), [mx])
   );
 
   const [hour24Clock] = useSetting(settingsAtom, 'hour24Clock');

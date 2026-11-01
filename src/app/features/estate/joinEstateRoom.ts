@@ -1,5 +1,11 @@
 import { EstateRoom } from './buildEstate';
-import { addRoomIdToMDirect, removeRoomIdFromMDirect } from '../../utils/matrix';
+import {
+  addRoomIdToMDirect,
+  isRoomAlias,
+  isRoomId,
+  removeRoomIdFromMDirect,
+} from '../../utils/matrix';
+import { splitWithSpace } from '../../utils/common';
 import { isDirectInvite } from '../../utils/room';
 
 export type EstateActivation =
@@ -25,8 +31,9 @@ type JoinClient = Parameters<typeof addRoomIdToMDirect>[0];
  * join that fails any other way (lost response, dropped connection, a gateway's
  * 5xx or a status with no errcode) may still have been accepted upstream, so the
  * entry stays and the tap is retryable. Nothing needs to recognise the DM after it
- * arrives. Every join of a room the client holds an invite for goes through
- * here: the inbox Accept, the room card, /join. One owner for joining.
+ * arrives. Every client join goes through here: the estate tap, the inbox Accept,
+ * the room card, /join, the lobby and space Join buttons, the tombstone and
+ * predecessor links. One owner for joining.
  */
 export const activateEstateRoom = async (
   mx: JoinClient,
@@ -78,6 +85,36 @@ export const joinEstateRoomIdOrAlias = (
     state: mx.getRoom(roomIdOrAlias)?.getMyMembership() === 'invite' ? 'invited' : 'joinable',
     via,
   });
+
+/**
+ * joinEstateRoomIdOrAlias for a caller that reports failure by throwing (a
+ * useAsyncCallback button): the joined room id, or an Error carrying the refusal.
+ */
+export const joinEstateRoomOrThrow = async (
+  mx: JoinClient,
+  roomIdOrAlias: string,
+  via?: string[]
+): Promise<string> => {
+  const result = await joinEstateRoomIdOrAlias(mx, roomIdOrAlias, via);
+  if (result.kind === 'refused') throw new Error(result.message);
+  return result.roomId;
+};
+
+/**
+ * The /join command: every room id or alias in the payload is joined, and each
+ * refusal is handed to report, never dropped.
+ */
+export const runJoinCommand = async (
+  mx: JoinClient,
+  payload: string,
+  report: (message: string) => void
+): Promise<void> => {
+  const addresses = splitWithSpace(payload).filter((a) => isRoomId(a) || isRoomAlias(a));
+  const results = await Promise.all(addresses.map((a) => joinEstateRoomIdOrAlias(mx, a)));
+  results.forEach((r) => {
+    if (r.kind === 'refused') report(r.message);
+  });
+};
 
 type MembershipSource = {
   getRoom(roomId: string): { getMyMembership(): string } | null;

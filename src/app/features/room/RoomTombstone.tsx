@@ -8,6 +8,7 @@ import { Membership } from '../../../types/matrix/room';
 import { RoomInputPlaceholder } from './RoomInputPlaceholder';
 import { useRoomNavigate } from '../../hooks/useRoomNavigate';
 import { getViaServers } from '../../plugins/via-servers';
+import { joinEstateRoomOrThrow } from '../estate/joinEstateRoom';
 
 type RoomTombstoneProps = { roomId: string; body?: string; replacementRoomId: string };
 export function RoomTombstone({ roomId, body, replacementRoomId }: RoomTombstoneProps) {
@@ -18,16 +19,14 @@ export function RoomTombstone({ roomId, body, replacementRoomId }: RoomTombstone
     useCallback(() => {
       const currentRoom = mx.getRoom(roomId);
       const via = currentRoom ? getViaServers(currentRoom) : [];
-      return mx.joinRoom(replacementRoomId, {
-        viaServers: via,
-      });
+      return joinEstateRoomOrThrow(mx, replacementRoomId, via);
     }, [mx, roomId, replacementRoomId])
   );
   const replacementRoom = mx.getRoom(replacementRoomId);
 
   const handleOpen = () => {
     if (replacementRoom) navigateRoom(replacementRoom.roomId);
-    if (joinState.status === AsyncStatus.Success) navigateRoom(joinState.data.roomId);
+    if (joinState.status === AsyncStatus.Success) navigateRoom(joinState.data);
   };
 
   return (
