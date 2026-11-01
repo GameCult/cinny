@@ -1,5 +1,5 @@
 const { chromium } = require('playwright');
-const { expect, done, isDm } = require('./check.cjs');
+const { expect, done, isDm, revealedTier } = require('./check.cjs');
 const MODE = process.env.MODE; // twodm | reload
 const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
 const log = (...a) => console.log(`[${MODE}]`, ...a);
@@ -15,7 +15,7 @@ let tierBefore;
   await open();
   const text = () => pg.evaluate(() => document.body.innerText);
   const reveal = async (name) => { const loc = pg.locator(`[aria-label="Join ${name}"]`); if (await loc.count()) return loc; for (let r = 0; r < 2; r++) for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); if (await loc.count()) return loc; } } return loc; };
-  const tierOf = (name) => pg.evaluate((n) => { const s = document.body.innerText.split('\n').map((x) => x.trim()); const i = s.indexOf(n); if (i < 0) return 'absent'; for (let j = i; j >= 0; j--) if (/^(elsewhere|direct messages)$/i.test(s[j])) return s[j]; return 'none-above'; }, name);
+  const tierOf = (name) => revealedTier(pg, name);
   const tap = async (n) => { const l = await reveal(n); log('JOINCTRL', n, await l.count()); await l.first().click(); log('CLICK', n, t()); };
   if (MODE === 'twodm') {
     await tap('Slow DM'); await pg.waitForTimeout(300); await tap('Late DM');
@@ -37,7 +37,6 @@ let tierBefore;
     log('RELOAD', t()); await open();
     await pg.waitForTimeout(30000);
   }
-  for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } }
   const slow = await tierOf('Slow DM'), late = await tierOf('Late DM'), friend = await tierOf('Friend DM');
   log('TIER Slow DM', slow, '| Late DM', late, '| Friend DM', friend);
   if (MODE === 'twodm') { expect('Slow DM is filed under Direct Messages', isDm(slow), slow); expect('Late DM is filed under Direct Messages', isDm(late), late); }

@@ -1,7 +1,7 @@
 // Failure-mode scenarios for the estate join paths (estate tap and inbox Accept), run by run.sh
 // against fakehs.cjs with the env flag each mode needs.
 const { chromium } = require('playwright');
-const { expect, done, isDm, mDirectPuts, joinsOf } = require('./check.cjs');
+const { expect, done, isDm, mDirectPuts, joinsOf, revealedTier, sawText } = require('./check.cjs');
 const MODE = process.env.MODE;
 const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
 const log = (...a) => console.log(`[${MODE}]`, ...a);
@@ -20,9 +20,9 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 240000);
   await open();
   const body = async () => (await pg.evaluate(() => document.body.innerText)).replace(/\s+/g, ' ');
   const reveal = async (name) => { const loc = pg.locator(`[aria-label="Join ${name}"]`); if (await loc.count()) return loc; for (let r = 0; r < 2; r++) for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); if (await loc.count()) return loc; } } return loc; };
-  const tierOf = (name) => pg.evaluate((n) => { const s = document.body.innerText.split('\n').map((x) => x.trim()); const i = s.indexOf(n); if (i < 0) return 'absent'; for (let j = i; j >= 0; j--) if (/^(elsewhere|direct messages)$/i.test(s[j])) return s[j]; return 'none-above'; }, name);
+  const tierOf = (name) => revealedTier(pg, name);
   const tap = async (n) => { const l = await reveal(n); log('JOINCTRL', n, await l.count()); await l.first().click(); log('CLICK', n, t()); };
-  const tiers = async (tag) => { await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500); for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } } const r = { friend: await tierOf('Friend DM'), slow: await tierOf('Slow DM') }; log('TIER', tag, '| Friend DM', r.friend, '| Slow DM', r.slow); return r; };
+  const tiers = async (tag) => { const r = { friend: await tierOf('Friend DM'), slow: await tierOf('Slow DM') }; log('TIER', tag, '| Friend DM', r.friend, '| Slow DM', r.slow); return r; };
   const neverUnfiled = () => mDirectPuts().every((b) => b.includes('!dm1:test'));
   const acceptInInbox = async (name) => {
     // reach the inbox through the navigator's own Inbox tab
@@ -47,9 +47,8 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 240000);
     expect('the retry joins once', joinsOf('!dm1:test') === 1, String(joinsOf('!dm1:test')));
     expect('Friend DM is filed under Direct Messages after the retry', isDm(r.friend), r.friend);
   } else if (MODE === 'jdrop') {
-    await tap('Friend DM'); await pg.waitForTimeout(4000);
-    const bb = await body(); const k = bb.search(/tap again to retry/i); log('AFTER_DROP', k >= 0 ? bb.slice(Math.max(0, k - 60), k + 80) : 'no message');
-    expect('a dropped join shows the retryable message', k >= 0, bb.slice(0, 200));
+    await tap('Friend DM'); const saw = await sawText(pg, /tap again to retry/, 3000); log('AFTER_DROP', saw);
+    expect('a dropped join shows the retryable message', saw, (await body()).slice(0, 200));
     await pg.waitForTimeout(6000); const r1 = await tiers('after drop'); await open(); const r2 = await tiers('after reload');
     expect('the entry is kept after the drop', isDm(r1.friend) && neverUnfiled(), r1.friend);
     expect('Friend DM is under Direct Messages after the reload', isDm(r2.friend), r2.friend);
@@ -66,7 +65,7 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 240000);
   } else if (MODE === 'pjreload') {
     await tap('Slow DM'); await pg.waitForTimeout(2000); log('RELOAD', t()); await open();
     await pg.waitForTimeout(8000); await tiers('pjreload');
-    const l = pg.locator('[aria-label="Join Slow DM"]'); const n = await l.count(); log('SLOW_DM_STILL_JOINABLE', n);
+    const n = await (await reveal('Slow DM')).count(); log('SLOW_DM_STILL_JOINABLE', n);
     expect('a join cut off by a reload stays joinable', n === 1, String(n));
   }
   await quit(done());

@@ -123,8 +123,8 @@ const dmClient = (opts: {
       writes.push(structuredClone(content));
       direct = structuredClone(content);
     },
-    joinRoom: async (roomId: string, opts?: unknown) => {
-      joinOpts.push(opts);
+    joinRoom: async (roomId: string, joinArgs?: unknown) => {
+      joinOpts.push(joinArgs);
       // the join lands only after m.direct has been written: record what it held
       joined.push(JSON.stringify(direct ?? {}));
       if (opts.refuse)
@@ -179,7 +179,11 @@ describe('activateEstateRoom when the join gets no answer', () => {
 
 describe('activateEstateRoom refusal bounds', () => {
   it.each([400, 429, 499])('unfiles the room on a %i that carries an errcode', async (status) => {
-    const c = dmClient({ status, errcode: 'M_LIMIT_EXCEEDED', invites: { '!dm1:test': '@friend:test' } });
+    const c = dmClient({
+      status,
+      errcode: 'M_LIMIT_EXCEEDED',
+      invites: { '!dm1:test': '@friend:test' },
+    });
     const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
     expect(result.kind).toBe('refused');
     expect((result as { message: string }).message).not.toMatch(/tap again to retry/);

@@ -1,5 +1,5 @@
 const { chromium } = require('playwright');
-const { expect, done, isDm, mDirectPuts, joinsOf, hsLog } = require('./check.cjs');
+const { expect, done, isDm, mDirectPuts, hsLog, revealedTier, sawText } = require('./check.cjs');
 const MODE = process.env.MODE; const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
 const log = (...a) => console.log(`[${MODE}]`, ...a);
 const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages'];
@@ -13,8 +13,7 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 120000);
   await pg.evaluate(() => { localStorage.setItem('cinny_access_token', 'tok'); localStorage.setItem('cinny_device_id', 'DEV'); localStorage.setItem('cinny_user_id', '@t:test'); localStorage.setItem('cinny_hs_base_url', 'http://127.0.0.1:8080'); });
   await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.reload(); await pg.waitForTimeout(9000);
   const body = async () => (await pg.evaluate(() => document.body.innerText)).replace(/\s+/g, ' ');
-  const tierOf = (n) => pg.evaluate((n) => { const s = document.body.innerText.split('\n').map((x) => x.trim()); const i = s.indexOf(n); if (i < 0) return 'absent'; for (let j = i; j >= 0; j--) if (/^(elsewhere|direct messages)$/i.test(s[j])) return s[j]; return 'none-above'; }, n);
-  const tiers = async (tag) => { await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500); for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } } const f = await tierOf('Friend DM'); log('TIER', tag, '| Friend DM', f); return f; };
+  const tiers = async (tag) => { const f = await revealedTier(pg, 'Friend DM'); log('TIER', tag, '| Friend DM', f); return f; };
   let joined = false;
   if (MODE === 'deeplink') {
     for (const route of ['direct', 'home']) {
@@ -32,9 +31,9 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 120000);
   } else if (MODE === 'gw504') {
     const HL = HEADERS; let l = pg.locator('[aria-label="Join Friend DM"]');
     for (let r = 0; r < 2 && !(await l.count()); r++) for (const h of HL) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } }
-    log('JOINCTRL', await l.count()); await l.first().click(); log('CLICK', t()); await pg.waitForTimeout(4000);
-    const bb = await body(); const k = bb.search(/504|Gateway|connection dropped|Could not join/i); log('AFTER_504', k >= 0 ? bb.slice(Math.max(0, k - 60), k + 120) : 'no message');
-    expect('a gateway timeout shows the retryable message', /tap again to retry/i.test(bb), bb.slice(0, 200));
+    log('JOINCTRL', await l.count()); await l.first().click(); log('CLICK', t());
+    const saw = await sawText(pg, /tap again to retry/, 3000); log('AFTER_504', saw);
+    expect('a gateway timeout shows the retryable message', saw, (await body()).slice(0, 200));
     await pg.waitForTimeout(4000); const f = await tiers('after 504 (join delivered by sync)');
     expect('the DM stays filed after a gateway timeout', mDirectPuts().every((b) => b.includes('!dm1:test')) && mDirectPuts().length > 0, JSON.stringify(mDirectPuts()));
     expect('the DM is filed under Direct Messages once sync delivers it', isDm(f), f);
