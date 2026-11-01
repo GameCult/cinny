@@ -90,9 +90,11 @@ const [, , dir, mode, outdir = '.'] = process.argv;
         'float terrainFbm(vec2 xz) { float a = 1.0, fr = 1.0, v = 0.0; for (int i = 0; i < W_OCTAVES; i++) { v += a * cultmath_snoise(vec3(xz * W_FREQ * fr, 0.0)); fr *= W_LACUNARITY; a *= W_GAIN; } return v; }',
       ],
       noErosion: ['#define W_ERODE_ENABLED 1', '#define W_ERODE_ENABLED 0'],
+      // Upper bound on what skipping sky rays would save: every upward ray misses at once.
+      noSkyMarch: ['    bool hit = false;\n    bool onTree = false;', '    if (rd.y > 0.0) { o_color = vec4(0.0); o_depth = W_FAR; return; }\n    bool hit = false;\n    bool onTree = false;'],
       noTree: ['float dr = treeDistance(p, leafness);', 'float dr = 1e9; leafness = 0.0;'],
     };
-    const wanted = mode === 'variants' ? Object.keys(VARIANTS) : ['baseline'];
+    const wanted = mode === "variants" ? (process.env.ONLY ? process.env.ONLY.split(",") : Object.keys(VARIANTS)) : ['baseline'];
     const sizes = [
       [960, 540],
       [540, 1200],

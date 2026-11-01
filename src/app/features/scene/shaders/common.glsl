@@ -26,6 +26,6 @@ vec3 skyColor(vec3 rd)
     float h = clamp(rd.y, 0.0, 1.0);
     vec3 c = mix(u_skyHorizon, u_skyTop, pow(h, 0.45));
     float s = max(dot(rd, u_sunDir), 0.0);
-    c += u_sunColor * (0.25 * pow(s, 8.0) + 1.5 * pow(s, 256.0));
+    c += u_sunColor * (1.5 * pow(s, 256.0));
     return c;
 }

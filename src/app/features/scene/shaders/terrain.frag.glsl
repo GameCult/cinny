@@ -30,6 +30,10 @@ CultPhasor terrainPhacelle(vec2 xz)
 float terrainDistance(vec3 p)
 {
     float m = terrainMask(p.xz);
+    // Flat plateau: the height is exactly 0, so neither noise is evaluated. Sky rays spend most
+    // of their steps here.
+    if (m <= 0.0)
+        return p.y * W_SLOPE_ENV_INV;
     float hb = m * W_AMP * terrainFbm(p.xz);
     float above = p.y - (hb + m * W_ERODE_AMP);
     if (above > 0.0)
