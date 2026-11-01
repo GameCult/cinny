@@ -23,11 +23,12 @@ export const WORLD = {
   // The stripe wave vector and normalization the terrain feeds cultmath_phacelle.
   erodeSide: [1.7, 0, 1] as const,
   erodeNorm: 0.5,
-  // Lipschitz bound of the phasor's cos component, NOT a proof: max |grad| over 4,194,304 random
-  // points of the z = 0 slice with the side and norm above was 5.04 (`drive.cjs phacelle`,
-  // 2026-10-31), x 1.25. |value| <= 1 holds by construction (the output is a normalized phasor).
-  // Replace with the bound Libby supplies; until then the march is as safe as that probe.
-  phacelleGradBound: 6.3,
+  // Bound on |grad| of the phasor's cos component for the side and norm above. Libby measured a
+  // sup of 6.63 at |side| = 1.5, n = 0 (CultLib PR #1 head 990521b3); 7.0 adds margin. The
+  // shader passes roughness n = 0 as a literal, so the doc envelope max(10, 1.25|side|)/(1-n)
+  // needs no 1/(1-n) factor here; if n ever becomes nonzero, divide this bound by (1 - n).
+  // |value| <= 1 holds by construction (the output is a normalized phasor).
+  phacelleGradBound: 7.0,
   // World tree at the origin.
   tree: {
     trunkHeight: 38,

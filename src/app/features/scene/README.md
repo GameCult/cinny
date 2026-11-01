@@ -38,10 +38,9 @@ computed from `SNOISE_LIPSCHITZ` (CultMath's constant for `snoise`) in `world.ts
 envelope (fbm plus the erosion amplitude) the step uses the envelope's bound alone and Phacelle is
 not evaluated.
 
-- The Phacelle gradient bound `phacelleGradBound` (6.3) is **an empirical probe, not a proof**:
-  the maximum `|grad|` of the cos component over 4,194,304 random points (5.04) times 1.25
-  (`harness/scene/drive.cjs phacelle`). Replace it with Libby's bound; until then the march is
-  only as safe as that probe.
+- The Phacelle gradient bound `phacelleGradBound` (7.0) is Libby's measured sup (6.63 at
+  |side| = 1.5, n = 0, CultLib PR #1 head 990521b3) plus margin: a measurement, not a proof.
+  The shader fixes roughness n = 0; a nonzero n needs the bound divided by (1 - n).
 - The bound makes grazing rays crawl. A ray that exhausts its steps while still below the highest
   terrain is ended as a distant surface (fog hides it). That is a visible approximation, not a
   hit proven by the march.
