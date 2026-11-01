@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const { expect, done, isDm, mDirectPuts, joinsOf, hsLog } = require('./check.cjs');
 const MODE = process.env.MODE; const T0 = Date.now(); const t = () => `+${Date.now() - T0}ms`;
 const log = (...a) => console.log(`[${MODE}]`, ...a);
 const HEADERS = ['GameCult', 'Projects', 'nibu', 'eureka', 'Nibu', 'Eureka', 'Elsewhere', 'Direct Messages'];
@@ -13,21 +14,30 @@ setTimeout(() => { console.log('DRIVER_TIMEOUT'); quit(3); }, 120000);
   await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.reload(); await pg.waitForTimeout(9000);
   const body = async () => (await pg.evaluate(() => document.body.innerText)).replace(/\s+/g, ' ');
   const tierOf = (n) => pg.evaluate((n) => { const s = document.body.innerText.split('\n').map((x) => x.trim()); const i = s.indexOf(n); if (i < 0) return 'absent'; for (let j = i; j >= 0; j--) if (/^(elsewhere|direct messages)$/i.test(s[j])) return s[j]; return 'none-above'; }, n);
-  const tiers = async (tag) => { await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500); for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } } log('TIER', tag, '| Friend DM', await tierOf('Friend DM')); };
+  const tiers = async (tag) => { await pg.goto('http://127.0.0.1:8080/#/home/'); await pg.waitForTimeout(2500); for (const h of HEADERS) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } } const f = await tierOf('Friend DM'); log('TIER', tag, '| Friend DM', f); return f; };
+  let joined = false;
   if (MODE === 'deeplink') {
     for (const route of ['direct', 'home']) {
       await pg.goto(`http://127.0.0.1:8080/#/${route}/${encodeURIComponent('!dm1:test')}/`); await pg.waitForTimeout(4000);
       const bb = await body(); log('ROUTE', route, JSON.stringify(bb.slice(0, 300)));
       const j = pg.getByRole('button', { name: /^Join$/ }); log('JOIN_BUTTONS', route, await j.count());
-      if (await j.count()) { await j.first().click(); log('CLICK_JOIN', route, t()); await pg.waitForTimeout(6000); break; }
+      if (await j.count()) { joined = true; await j.first().click(); log('CLICK_JOIN', route, t()); await pg.waitForTimeout(6000); break; }
     }
-    await tiers('after deeplink join');
+    const f = await tiers('after deeplink join');
+    const stamps = (re) => hsLog().filter((l) => re.test(l)).map((l) => Number(l.split(' ')[0]));
+    const put = stamps(/ PUT .*m\.direct BODY .*!dm1:test/)[0], join = stamps(/ JOIN !dm1:test$/)[0];
+    expect('the deep link offers one Join button', joined, 'no Join button');
+    expect('the DM is filed before the join is sent', put !== undefined && join !== undefined && put <= join, `put ${put} join ${join}`);
+    expect('the DM is filed under Direct Messages', isDm(f), f);
   } else if (MODE === 'gw504') {
     const HL = HEADERS; let l = pg.locator('[aria-label="Join Friend DM"]');
     for (let r = 0; r < 2 && !(await l.count()); r++) for (const h of HL) { const hl = pg.getByText(h, { exact: true }); if (await hl.count()) { await hl.first().click(); await pg.waitForTimeout(250); } }
     log('JOINCTRL', await l.count()); await l.first().click(); log('CLICK', t()); await pg.waitForTimeout(4000);
     const bb = await body(); const k = bb.search(/504|Gateway|connection dropped|Could not join/i); log('AFTER_504', k >= 0 ? bb.slice(Math.max(0, k - 60), k + 120) : 'no message');
-    await pg.waitForTimeout(4000); await tiers('after 504 (join delivered by sync)');
+    expect('a gateway timeout shows the retryable message', /tap again to retry/i.test(bb), bb.slice(0, 200));
+    await pg.waitForTimeout(4000); const f = await tiers('after 504 (join delivered by sync)');
+    expect('the DM stays filed after a gateway timeout', mDirectPuts().every((b) => b.includes('!dm1:test')) && mDirectPuts().length > 0, JSON.stringify(mDirectPuts()));
+    expect('the DM is filed under Direct Messages once sync delivers it', isDm(f), f);
   }
-  await quit(0);
+  await quit(done());
 })().catch((e) => { log('ERROR', String(e.stack || e).slice(0, 300)); quit(1); });
