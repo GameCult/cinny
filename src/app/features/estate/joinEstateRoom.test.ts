@@ -187,7 +187,7 @@ describe('activateEstateRoom refusal bounds', () => {
     const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
     expect(result.kind).toBe('refused');
     expect((result as { message: string }).message).not.toMatch(/tap again to retry/);
-    expect(c.current()).toEqual({});
+    expect(c.current()).toEqual({ '@friend:test': [] });
   });
 
   it.each([399, 500])('keeps the room listed on a %i that carries an errcode', async (status) => {
@@ -248,7 +248,7 @@ describe('joinEstateRoomOrThrow, the lobby, tombstone and predecessor buttons', 
   it('throws the refusal and unfiles the room', async () => {
     const c = dmClient({ refuse: true, invites: { '!dm1:test': '@friend:test' } });
     await expect(joinEstateRoomOrThrow(c.mx, '!dm1:test')).rejects.toThrow('M_FORBIDDEN');
-    expect(c.current()).toEqual({});
+    expect(c.current()).toEqual({ '@friend:test': [] });
   });
 });
 
