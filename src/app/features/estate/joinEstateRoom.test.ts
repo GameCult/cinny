@@ -96,6 +96,7 @@ const dmClient = (opts: {
   errcode?: string;
   refuse?: boolean;
   drop?: boolean;
+  failWrite?: boolean;
   invites: Record<string, string>;
 }) => {
   let direct: Record<string, string[]> | undefined;
@@ -117,6 +118,7 @@ const dmClient = (opts: {
     }),
     getAccountData: () => (direct ? { getContent: () => direct } : undefined),
     setAccountData: async (_t: string, content: Record<string, string[]>) => {
+      if (opts.failWrite) throw new Error('account data write failed');
       await new Promise((r) => {
         setTimeout(r, 5);
       });
@@ -174,6 +176,29 @@ describe('activateEstateRoom when the join gets no answer', () => {
     expect(result.kind).toBe('refused');
     expect((result as { message: string }).message).toMatch(/tap again to retry/);
     expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+});
+
+describe('activateEstateRoom when the filing cannot be written', () => {
+  it('reports the failure and sends no join', async () => {
+    const c = dmClient({ failWrite: true, invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result).toEqual({ kind: 'refused', message: 'account data write failed' });
+    expect(c.joined).toEqual([]);
+  });
+});
+
+describe('activateEstateRoom when a room that is not a direct message refuses', () => {
+  it('reports the refusal and leaves m.direct alone', async () => {
+    const joinRoom = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error('no'), { httpStatus: 403, errcode: 'M_FORBIDDEN' })
+      );
+    const { mx, calls } = recordingClient(joinRoom);
+    const result = await activateEstateRoom(mx, room('joinable'));
+    expect(result.kind).toBe('refused');
+    expect(calls).toEqual(['joinRoom']);
   });
 });
 
@@ -278,8 +303,12 @@ describe('awaitMyJoin', () => {
     return {
       mx: {
         getRoom: () => (membership ? { getMyMembership: () => membership! } : null),
-        on: (_e: string, h: (room: { roomId: string }, m: string) => void) => handlers.add(h),
-        off: (_e: string, h: (room: { roomId: string }, m: string) => void) => handlers.delete(h),
+        on: (e: string, h: (room: { roomId: string }, m: string) => void) => {
+          if (e === 'Room.myMembership') handlers.add(h);
+        },
+        off: (e: string, h: (room: { roomId: string }, m: string) => void) => {
+          if (e === 'Room.myMembership') handlers.delete(h);
+        },
       },
       handlers,
       become: (roomId: string, m: string) => {
