@@ -7,6 +7,7 @@ import atmosphereFrag from './shaders/atmosphere.frag.glsl?raw';
 import resolveFrag from './shaders/resolve.frag.glsl?raw';
 import compositeFrag from './shaders/composite.frag.glsl?raw';
 import { WORLD, worldDefines } from './world';
+import { trimGlsl } from './cultmathTrim';
 
 export type Stage = 'terrain' | 'atmosphere' | 'resolve' | 'composite';
 
@@ -22,8 +23,12 @@ const stages: Record<Stage, string> = {
   composite: compositeFrag,
 };
 
-/** Fragment source for a stage: header, world defines, CultMath, the shared block, the stage. */
+/**
+ * Fragment source for a stage: header, world defines, the part of CultMath the stage reaches, the
+ * shared block, the stage. Phacelle stays a separate file, added only where it is called.
+ */
 export function fragmentSource(stage: Stage): string {
   const erosion = stage === 'terrain' && WORLD.phacelleGradBound > 0 ? phacelle : '';
-  return `${HEADER}${worldDefines()}\n${cultmath}\n${erosion}\n${common}\n${stages[stage]}`;
+  const math = trimGlsl(cultmath, [erosion, common, stages[stage]]);
+  return `${HEADER}${worldDefines()}\n${math}\n${erosion}\n${common}\n${stages[stage]}`;
 }

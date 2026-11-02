@@ -13,3 +13,7 @@ header and any change to it is published under MPL-2.0.
 The other `*.glsl` files here are the scene's own stages. They are
 concatenated by `../shaderSource.ts` after a prelude; they use no colour
 literal (the palette is uniforms) and define no noise.
+
+`../shaderSource.ts` compiles each stage with only the part of `CultMath.glsl` that stage reaches
+(`../cultmathTrim.ts`); the vendored file itself stays whole. Phacelle is added to the terrain stage
+alone.

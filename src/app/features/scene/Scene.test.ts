@@ -49,14 +49,16 @@ function fakeCanvas(gl: WebGL2RenderingContext | null) {
 let rafQueue: Array<(t: number) => void>;
 let cancelled: number;
 let win: EventTarget;
+let motion: EventTarget & { matches: boolean };
 let doc: EventTarget & { visibilityState: string };
 
 beforeEach(() => {
   rafQueue = [];
   cancelled = 0;
+  motion = Object.assign(new EventTarget(), { matches: false });
   win = Object.assign(new EventTarget(), {
     devicePixelRatio: 1,
-    matchMedia: () => ({ matches: false }),
+    matchMedia: () => motion,
   });
   doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   vi.stubGlobal('window', win);
@@ -180,6 +182,69 @@ describe('context loss', () => {
   });
 });
 
+describe('prefers-reduced-motion', () => {
+  const runAll = (t0: number) => {
+    let t = t0;
+    let n = 0;
+    while (rafQueue.length && n < 200) {
+      runFrame(t);
+      t += 40;
+      n += 1;
+    }
+    return n;
+  };
+
+  it('freezes to a bounded run when the preference turns on mid-flight', () => {
+    const { gl } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)) });
+    runFrame(1000);
+    expect(rafQueue).toHaveLength(1); // moving: keeps going
+    motion.matches = true;
+    motion.dispatchEvent(new Event('change'));
+    expect(runAll(1040)).toBeLessThan(200); // ends
+    expect(rafQueue).toHaveLength(0);
+  });
+
+  it('thaws a frozen scene when the preference turns off', () => {
+    motion.matches = true;
+    const { gl } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)) });
+    runAll(1000);
+    expect(rafQueue).toHaveLength(0);
+    motion.matches = false;
+    motion.dispatchEvent(new Event('change'));
+    expect(rafQueue).toHaveLength(1);
+    runFrame(5000);
+    expect(rafQueue).toHaveLength(1); // unbounded again
+  });
+
+  it('removes the listener on dispose and on context loss', () => {
+    const { gl } = fakeGl();
+    const scene = createScene({ canvas: asCanvas(fakeCanvas(gl)) });
+    scene?.dispose();
+    rafQueue.length = 0;
+    motion.dispatchEvent(new Event('change'));
+    expect(rafQueue).toHaveLength(0);
+
+    const lostCanvas = fakeCanvas(fakeGl().gl);
+    createScene({ canvas: asCanvas(lostCanvas) });
+    lostCanvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    rafQueue.length = 0;
+    motion.matches = true;
+    motion.dispatchEvent(new Event('change'));
+    expect(rafQueue).toHaveLength(0);
+  });
+
+  it('a still does not listen: one frame stays one frame', () => {
+    const { gl } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)), tier: 'still' });
+    runFrame(1000);
+    motion.matches = false;
+    motion.dispatchEvent(new Event('change'));
+    expect(rafQueue).toHaveLength(0);
+  });
+});
+
 describe('startBackgroundScene', () => {
   it("does not request a context when the config leaves the tier 'off'", async () => {
     const { gl } = fakeGl();
@@ -202,6 +267,28 @@ describe('startBackgroundScene', () => {
     runFrame(1000);
     expect(calls.drawArrays).toHaveBeenCalledTimes(4);
     expect(rafQueue).toHaveLength(0);
+  });
+
+  it('reports a failed scene chunk to onCompileFail and returns null instead of throwing', async () => {
+    vi.resetModules();
+    vi.doMock('./Scene', () => {
+      throw new Error('Failed to fetch dynamically imported module');
+    });
+    try {
+      const { startBackgroundScene: start } = await import('./index');
+      const onCompileFail = vi.fn();
+      const canvas = fakeCanvas(fakeGl().gl);
+      const scene = await start({ tier: 'full' }, {}, { canvas: asCanvas(canvas), onCompileFail });
+      expect(scene).toBeNull();
+      expect(onCompileFail).toHaveBeenCalledTimes(1);
+      expect(onCompileFail.mock.calls[0][0]).toBeInstanceOf(Error);
+      expect(canvas.getContext).not.toHaveBeenCalled();
+      // and with no callback it still does not throw
+      expect(await start({ tier: 'full' }, {}, { canvas: asCanvas(canvas) })).toBeNull();
+    } finally {
+      vi.doUnmock('./Scene');
+      vi.resetModules();
+    }
   });
 
   it('hands compile failure to the host and returns null, the fall to the CSS ground', async () => {

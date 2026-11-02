@@ -14,15 +14,17 @@ callbacks and the creature sizing rule. Nothing has drawn a creature.
   door. The client config's `backgroundScene.tier` (`off` default, `still`, `low`, `full`) is the
   feature flag and the ceiling; `tier.ts` lowers it for `saveData`, low memory or few cores. At
   `off` nothing is imported and no canvas context is requested; otherwise `Scene.ts` loads on
-  demand, so it stays out of the main chunk.
+  demand, so it stays out of the main chunk; if that chunk fails to load the error goes to
+  `onCompileFail` and the door returns null, it does not throw.
 - `Scene.ts` `createScene({ canvas, tier, onCompileFail, onContextLost, ... })` returns
   `{ login, dispose }`, or `null` (keep the CSS ground then) when the tier is `off`, WebGL2 or
   `EXT_color_buffer_float` is missing, or a shader fails to compile (`onCompileFail` gets the
-  `ShaderCompileError`; programs already linked are freed). `still` draws one frame at the top
-  level and stops; `low` starts the ladder at level 2; `full` at level 0. A lost WebGL context
+  `ShaderCompileError`; programs already linked are freed). `still` is a live rendered frame, not a
+  baked image: it runs the full pipeline once at the top level and stops; `low` starts the ladder at level 2; `full` at level 0. A lost WebGL context
   stops the scene for good and calls `onContextLost`; nothing rebuilds it, the host decides what to
   show. It caps at 30 fps, pauses when
-  the tab is hidden, renders 32 frames and stops under `prefers-reduced-motion`, and steps down a
+  the tab is hidden, renders 32 frames and stops under `prefers-reduced-motion` (a change of the
+  preference while it runs freezes or thaws it), and steps down a
   quality ladder (`budget.ts`) against a 4 ms GPU budget when timer queries exist.
 - `creatures.ts` the creature record and `creatureScale`: a neutral creature is one fixed size and
   overrides `sizeBucket`. The bucket names and scales are placeholders until the persona cut owns them.

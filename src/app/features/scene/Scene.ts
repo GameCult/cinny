@@ -448,6 +448,13 @@ export function createScene(opts: SceneOptions): Scene | null {
     opts.onContextLost?.();
   });
   if (reducedMotion?.matches && !still) framesLeft = REDUCED_MOTION_FRAMES;
+  // The preference can flip while the scene lives: freeze to a bounded run, or thaw to a free one.
+  if (reducedMotion && !still) {
+    listen(reducedMotion, 'change', () => {
+      framesLeft = reducedMotion.matches ? REDUCED_MOTION_FRAMES : Infinity;
+      wake();
+    });
+  }
   wake();
 
   return {
