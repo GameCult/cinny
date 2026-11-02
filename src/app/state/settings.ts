@@ -47,6 +47,12 @@ export interface Settings {
   dateFormatString: string;
 
   developerTools: boolean;
+
+  /** Soundscape flag: default off, and muted by default even when on. */
+  soundscapeEnabled: boolean;
+  soundscapeMuted: boolean;
+  soundscapeVolume: number;
+  soundscapeVoiceCap: number;
 }
 
 const defaultSettings: Settings = {
@@ -81,6 +87,11 @@ const defaultSettings: Settings = {
   dateFormatString: 'D MMM YYYY',
 
   developerTools: false,
+
+  soundscapeEnabled: false,
+  soundscapeMuted: true,
+  soundscapeVolume: 0.5,
+  soundscapeVoiceCap: 4,
 };
 
 export const getSettings = () => {
