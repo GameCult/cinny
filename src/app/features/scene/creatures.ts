@@ -1,4 +1,15 @@
 // Creature sizing for the orbiting personas. Only the rule lives here; drawing them is a later cut.
+//
+// Props contract: heimdall-body/ratatoskr-creature-projection (against GameCult/Bifrost).
+// Nothing here is binding until Bifrost's steward cuts that contract.
+//
+// Shape: {id, estate, sizeBucket, neutral, activity}.
+// Invariants:
+//   - Exact vote weights stay in Bifrost; Ratatoskr only ever sees a bucket.
+//   - neutral=true overrides any bucket, and no size is drawn.
+//   - activity comes from the Heimdall session.
+// Consent: humans get a coarse bucket by default plus a typed opt-out; Minds and Personas may show finer buckets.
+// Humans have three coarse buckets. The scales below (0.7 / 1 / 1.4) are placeholders, not fixed.
 
 export type SizeBucket = 'small' | 'medium' | 'large';
 
