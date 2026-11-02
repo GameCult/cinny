@@ -91,6 +91,7 @@ http.createServer((req, res) => {
       if (id === PROJ[1].id) return json(res, 403, { errcode: 'M_FORBIDDEN', error: 'You are not invited to this room.' });
       const prior = pending.find((q) => q.id === DM2 || q.id === DM3);
       pending.push({ id, at: (id === DM3 || id === DM2) && prior ? prior.at : Date.now() + (SLOW.has(id) ? 24000 : 1000) });
+      if (process.env.JOIN_504 === '1' && id === DM1) { console.log('JOIN_504 ' + Date.now() + ' ' + id); res.writeHead(504, {'Content-Type':'text/html'}); return res.end('<html>504 Gateway Time-out</html>'); }
       if (process.env.JOIN_DROP === '1' && id === DM1) { console.log('JOIN_DROPPED ' + Date.now() + ' ' + id); return req.socket.destroy(); }
       if (process.env.JOIN_DELAY === '1') { console.log('JOIN_DELAYED ' + Date.now() + ' ' + id); return setTimeout(() => json(res, 200, { room_id: id }), 6000); }
       return json(res, 200, { room_id: id });

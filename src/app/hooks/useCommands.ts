@@ -15,7 +15,6 @@ import {
   addRoomIdToMDirect,
   getDMRoomFor,
   guessDmRoomUserId,
-  isRoomAlias,
   isRoomId,
   isServerName,
   isUserId,
@@ -26,6 +25,7 @@ import { useRoomNavigate } from './useRoomNavigate';
 import { Membership, StateEvent } from '../../types/matrix/room';
 import { getStateEvent } from '../utils/room';
 import { splitWithSpace } from '../utils/common';
+import { runJoinCommand } from '../features/estate/joinEstateRoom';
 import { createRoomEncryptionState } from '../components/create-room';
 
 export const SHRUG = '¯\\_(ツ)_/¯';
@@ -227,15 +227,7 @@ export const useCommands = (mx: MatrixClient, room: Room): CommandRecord => {
       [Command.Join]: {
         name: Command.Join,
         description: 'Join room with address. Example: /join address1 address2',
-        exe: async (payload) => {
-          const rawIds = splitWithSpace(payload);
-          const roomIdOrAliases = rawIds.filter(
-            (idOrAlias) => isRoomId(idOrAlias) || isRoomAlias(idOrAlias)
-          );
-          roomIdOrAliases.forEach(async (idOrAlias) => {
-            await mx.joinRoom(idOrAlias);
-          });
-        },
+        exe: (payload) => runJoinCommand(mx, payload, (message) => window.alert(message)),
       },
       [Command.Leave]: {
         name: Command.Leave,

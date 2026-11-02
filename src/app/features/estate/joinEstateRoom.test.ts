@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
+import {
+  activateEstateRoom,
+  awaitMyJoin,
+  joinEstateRoomIdOrAlias,
+  joinEstateRoomOrThrow,
+  runJoinCommand,
+} from './joinEstateRoom';
 
 const room = (state: 'joined' | 'invited' | 'joinable') => ({
   roomId: '!r:gamecult.org',
@@ -52,13 +58,19 @@ describe('activateEstateRoom', () => {
 
   it('falls back to the error message, then to a generic one', async () => {
     const named = recordingClient(
-      vi.fn().mockRejectedValue(Object.assign(new Error('Boom'), { httpStatus: 500 }))
+      vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('Boom'), { httpStatus: 403, errcode: 'M_FORBIDDEN' })
+        )
     );
     expect(await activateEstateRoom(named.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Boom',
     });
-    const bare = recordingClient(vi.fn().mockRejectedValue({ httpStatus: 500 }));
+    const bare = recordingClient(
+      vi.fn().mockRejectedValue({ httpStatus: 403, errcode: 'M_FORBIDDEN' })
+    );
     expect(await activateEstateRoom(bare.mx, room('joinable'))).toEqual({
       kind: 'refused',
       message: 'Could not join',
@@ -68,6 +80,7 @@ describe('activateEstateRoom', () => {
   it('reports the server refusal and does not decide access itself', async () => {
     const refusal = Object.assign(new Error('M_FORBIDDEN'), {
       httpStatus: 403,
+      errcode: 'M_FORBIDDEN',
       data: { error: 'You are not invited to this room.' },
     });
     const { mx, joinRoom } = recordingClient(vi.fn().mockRejectedValue(refusal));
@@ -78,13 +91,22 @@ describe('activateEstateRoom', () => {
 });
 
 /** A client holding DM invites as the server sends them: the mark is in the invite event only. */
-const dmClient = (opts: { refuse?: boolean; drop?: boolean; invites: Record<string, string> }) => {
+const dmClient = (opts: {
+  status?: number;
+  errcode?: string;
+  refuse?: boolean;
+  drop?: boolean;
+  failWrite?: boolean;
+  invites: Record<string, string>;
+}) => {
   let direct: Record<string, string[]> | undefined;
   const writes: Record<string, string[]>[] = [];
   const joined: string[] = [];
+  const joinOpts: unknown[] = [];
   const mx = {
     getSafeUserId: () => '@me:test',
     getRoom: (roomId: string) => ({
+      getMyMembership: () => 'invite',
       getMember: () => ({
         events: {
           member: {
@@ -96,21 +118,29 @@ const dmClient = (opts: { refuse?: boolean; drop?: boolean; invites: Record<stri
     }),
     getAccountData: () => (direct ? { getContent: () => direct } : undefined),
     setAccountData: async (_t: string, content: Record<string, string[]>) => {
+      if (opts.failWrite) throw new Error('account data write failed');
       await new Promise((r) => {
         setTimeout(r, 5);
       });
       writes.push(structuredClone(content));
       direct = structuredClone(content);
     },
-    joinRoom: async (roomId: string) => {
+    joinRoom: async (roomId: string, joinArgs?: unknown) => {
+      joinOpts.push(joinArgs);
       // the join lands only after m.direct has been written: record what it held
       joined.push(JSON.stringify(direct ?? {}));
-      if (opts.refuse) throw Object.assign(new Error('M_FORBIDDEN'), { httpStatus: 403 });
+      if (opts.refuse)
+        throw Object.assign(new Error('M_FORBIDDEN'), { httpStatus: 403, errcode: 'M_FORBIDDEN' });
+      if (opts.status)
+        throw Object.assign(new Error('Gateway Time-out'), {
+          httpStatus: opts.status,
+          errcode: opts.errcode,
+        });
       if (opts.drop) throw new Error('fetch failed');
       return { roomId };
     },
   };
-  return { mx: mx as never, writes, joined, current: () => direct };
+  return { mx: mx as never, writes, joined, joinOpts, current: () => direct };
 };
 const tap = (id: string) => ({ roomId: id, state: 'invited' as const, via: ['test'] });
 
@@ -149,6 +179,122 @@ describe('activateEstateRoom when the join gets no answer', () => {
   });
 });
 
+describe('activateEstateRoom when the filing cannot be written', () => {
+  it('reports the failure and sends no join', async () => {
+    const c = dmClient({ failWrite: true, invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result).toEqual({ kind: 'refused', message: 'account data write failed' });
+    expect(c.joined).toEqual([]);
+  });
+});
+
+describe('activateEstateRoom when a room that is not a direct message refuses', () => {
+  it('reports the refusal and leaves m.direct alone', async () => {
+    const joinRoom = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error('no'), { httpStatus: 403, errcode: 'M_FORBIDDEN' })
+      );
+    const { mx, calls } = recordingClient(joinRoom);
+    const result = await activateEstateRoom(mx, room('joinable'));
+    expect(result.kind).toBe('refused');
+    expect(calls).toEqual(['joinRoom']);
+  });
+});
+
+describe('activateEstateRoom refusal bounds', () => {
+  it.each([400, 429, 499])('unfiles the room on a %i that carries an errcode', async (status) => {
+    const c = dmClient({
+      status,
+      errcode: 'M_LIMIT_EXCEEDED',
+      invites: { '!dm1:test': '@friend:test' },
+    });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result.kind).toBe('refused');
+    expect((result as { message: string }).message).not.toMatch(/tap again to retry/);
+    expect(c.current()).toEqual({ '@friend:test': [] });
+  });
+
+  it.each([399, 500])('keeps the room listed on a %i that carries an errcode', async (status) => {
+    const c = dmClient({ status, errcode: 'M_UNKNOWN', invites: { '!dm1:test': '@friend:test' } });
+    await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+});
+
+describe('activateEstateRoom when a gateway answers instead of the server', () => {
+  it.each([502, 503, 504, 404])('keeps the room listed on a %i with no errcode', async (status) => {
+    const c = dmClient({ status, invites: { '!dm1:test': '@friend:test' } });
+    const result = await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(result.kind).toBe('refused');
+    expect((result as { message: string }).message).toMatch(/tap again to retry/);
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+
+  it('keeps the room listed on a 5xx even when it carries an errcode', async () => {
+    const c = dmClient({
+      status: 500,
+      errcode: 'M_UNKNOWN',
+      invites: { '!dm1:test': '@friend:test' },
+    });
+    await activateEstateRoom(c.mx, tap('!dm1:test'));
+    expect(c.current()).toEqual({ '@friend:test': ['!dm1:test'] });
+  });
+});
+
+describe('joinEstateRoomIdOrAlias, the room card and /join', () => {
+  it('files a direct invite opened by its link before the join is sent', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    const result = await joinEstateRoomIdOrAlias(c.mx, '!dm1:test', ['test']);
+    expect(result).toEqual({ kind: 'joined', roomId: '!dm1:test' });
+    expect(c.joined).toEqual([JSON.stringify({ '@friend:test': ['!dm1:test'] })]);
+  });
+
+  it('hands the via servers to the join', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    await joinEstateRoomIdOrAlias(c.mx, '!dm1:test', ['other.org']);
+    expect(c.joinOpts).toEqual([{ viaServers: ['other.org'] }]);
+  });
+
+  it('joins an alias or an unheld room without touching m.direct', async () => {
+    const { mx, calls } = recordingClient();
+    await joinEstateRoomIdOrAlias(mx, '#room:gamecult.org');
+    expect(calls).toEqual(['joinRoom']);
+  });
+});
+
+describe('joinEstateRoomOrThrow, the lobby, tombstone and predecessor buttons', () => {
+  it('files a direct invite and answers the joined room id', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    await expect(joinEstateRoomOrThrow(c.mx, '!dm1:test', ['test'])).resolves.toBe('!dm1:test');
+    expect(c.joined).toEqual([JSON.stringify({ '@friend:test': ['!dm1:test'] })]);
+  });
+
+  it('throws the refusal and unfiles the room', async () => {
+    const c = dmClient({ refuse: true, invites: { '!dm1:test': '@friend:test' } });
+    await expect(joinEstateRoomOrThrow(c.mx, '!dm1:test')).rejects.toThrow('M_FORBIDDEN');
+    expect(c.current()).toEqual({ '@friend:test': [] });
+  });
+});
+
+describe('runJoinCommand, /join', () => {
+  it('reports each refusal and joins the others', async () => {
+    const c = dmClient({ refuse: true, invites: { '!dm1:test': '@friend:test' } });
+    const reported: string[] = [];
+    await runJoinCommand(c.mx, '!dm1:test notanaddress', (m) => reported.push(m));
+    expect(reported).toEqual(['M_FORBIDDEN']);
+    expect(c.joined).toHaveLength(1);
+  });
+
+  it('reports nothing when the join is accepted', async () => {
+    const c = dmClient({ invites: { '!dm1:test': '@friend:test' } });
+    const reported: string[] = [];
+    await runJoinCommand(c.mx, '!dm1:test', (m) => reported.push(m));
+    expect(reported).toEqual([]);
+    expect(c.joined).toHaveLength(1);
+  });
+});
+
 describe('awaitMyJoin', () => {
   /** A store that gains the room when the test says so, emitting like the SDK. */
   const store = () => {
@@ -157,8 +303,12 @@ describe('awaitMyJoin', () => {
     return {
       mx: {
         getRoom: () => (membership ? { getMyMembership: () => membership! } : null),
-        on: (_e: string, h: (room: { roomId: string }, m: string) => void) => handlers.add(h),
-        off: (_e: string, h: (room: { roomId: string }, m: string) => void) => handlers.delete(h),
+        on: (e: string, h: (room: { roomId: string }, m: string) => void) => {
+          if (e === 'Room.myMembership') handlers.add(h);
+        },
+        off: (e: string, h: (room: { roomId: string }, m: string) => void) => {
+          if (e === 'Room.myMembership') handlers.delete(h);
+        },
       },
       handlers,
       become: (roomId: string, m: string) => {

@@ -1,5 +1,5 @@
 import React, { ReactNode, useCallback, useRef, useState } from 'react';
-import { MatrixError, Room } from 'matrix-js-sdk';
+import { MatrixError } from 'matrix-js-sdk';
 import {
   Avatar,
   Badge,
@@ -31,6 +31,7 @@ import { RoomType, StateEvent } from '../../../types/matrix/room';
 import { useJoinedRoomId } from '../../hooks/useJoinedRoomId';
 import { useElementSizeObserver } from '../../hooks/useElementSizeObserver';
 import { getRoomAvatarUrl, getStateEvent } from '../../utils/room';
+import { joinEstateRoomOrThrow } from '../../features/estate/joinEstateRoom';
 import { useStateEventCallback } from '../../hooks/useStateEventCallback';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 
@@ -197,8 +198,10 @@ export const RoomCard = as<'div', RoomCardProps>(
       )
     );
 
-    const [joinState, join] = useAsyncCallback<Room, MatrixError, []>(
-      useCallback(() => mx.joinRoom(roomIdOrAlias, { viaServers }), [mx, roomIdOrAlias, viaServers])
+    const [joinState, join] = useAsyncCallback<void, MatrixError, []>(
+      useCallback(async () => {
+        await joinEstateRoomOrThrow(mx, roomIdOrAlias, viaServers);
+      }, [mx, roomIdOrAlias, viaServers])
     );
     const joining =
       joinState.status === AsyncStatus.Loading || joinState.status === AsyncStatus.Success;

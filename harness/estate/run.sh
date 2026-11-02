@@ -8,19 +8,19 @@ npm run build > /tmp/build.log 2>&1 || { tail -30 /tmp/build.log; exit 1; }
 echo BUILD_OK $(git rev-parse HEAD)
 printf '{"defaultHomeserver":0,"homeserverList":["127.0.0.1:8080"],"allowCustomHomeservers":true,"featuredCommunities":{"spaces":["#gamecult:test"],"rooms":[],"servers":["test"]},"hashRouter":{"enabled":true,"basename":"/"}}' > dist/config.json
 mkdir -p /tmp/pw && cd /tmp/pw && npm init -y >/dev/null && npm i --no-audit --no-fund playwright@1.48.2 >/tmp/pw.log 2>&1
-cp /src/harness/estate/drive.cjs /src/harness/estate/drive-failures.cjs /tmp/pw/
+cp /src/harness/estate/check.cjs /src/harness/estate/drive.cjs /src/harness/estate/drive-failures.cjs /src/harness/estate/drive-routes.cjs /tmp/pw/
 set +e
 for m in twodm reload convert; do
   HSLOG=/tmp/hslog-$m.txt NOROOT=0 node /src/harness/estate/fakehs.cjs /src/dist > /tmp/hs-$m.out 2>&1 &
   HS=$!; sleep 2
-  MODE=$m node /tmp/pw/drive.cjs; echo "DRIVE $m RC=$?"
+  HSLOG=/tmp/hslog-$m.txt MODE=$m node /tmp/pw/drive.cjs; rc=$?; echo "DRIVE $m RC=$rc"; [ $rc -eq 0 ] || FAILED="$FAILED $m"
   kill $HS; wait $HS 2>/dev/null; sleep 1
   echo "=== hs $m"; grep -E "MDIRECT_PUT|DELIVER|STATE_" /tmp/hs-$m.out; grep -E " JOIN " /tmp/hslog-$m.txt
 done
 failure() { m=$1; shift
   env "$@" HSLOG=/tmp/hslog-$m.txt NOROOT=0 node /src/harness/estate/fakehs.cjs /src/dist > /tmp/hs-$m.out 2>&1 &
   HS=$!; sleep 2
-  MODE=$m node /tmp/pw/drive-failures.cjs; echo "DRIVE $m RC=$?"
+  HSLOG=/tmp/hslog-$m.txt MODE=$m node /tmp/pw/${DRIVER:-drive-failures}.cjs; rc=$?; echo "DRIVE $m RC=$rc"; [ $rc -eq 0 ] || FAILED="$FAILED $m"
   kill $HS; wait $HS 2>/dev/null; sleep 1
   echo "=== hs $m"; grep -E "MDIRECT|DELIVER|JOIN_|STATE_" /tmp/hs-$m.out; grep -E " JOIN " /tmp/hslog-$m.txt; }
 failure pjfail FAIL_MDIRECT=1
@@ -29,4 +29,7 @@ failure jdrop JOIN_DROP=1
 failure admin INVITER_ADMIN=1
 failure inboxadmin INVITER_ADMIN=1
 failure inboxreload JOIN_DELAY=1
-echo DONE
+DRIVER=drive-routes failure deeplink
+DRIVER=drive-routes failure gw504 JOIN_504=1
+echo "FAILED_DRIVES:${FAILED:- none}"
+[ -z "$FAILED" ]

@@ -1,5 +1,11 @@
 import { EstateRoom } from './buildEstate';
-import { addRoomIdToMDirect, removeRoomIdFromMDirect } from '../../utils/matrix';
+import {
+  addRoomIdToMDirect,
+  isRoomAlias,
+  isRoomId,
+  removeRoomIdFromMDirect,
+} from '../../utils/matrix';
+import { splitWithSpace } from '../../utils/common';
 import { isDirectInvite } from '../../utils/room';
 
 export type EstateActivation =
@@ -8,7 +14,7 @@ export type EstateActivation =
   | { kind: 'refused'; message: string };
 
 const LOST_JOIN_RESPONSE =
-  'The connection dropped before the server answered. The join may have gone through; tap again to retry.';
+  'The server did not answer the join. It may have gone through; tap again to retry.';
 
 type JoinClient = Parameters<typeof addRoomIdToMDirect>[0];
 
@@ -21,21 +27,31 @@ type JoinClient = Parameters<typeof addRoomIdToMDirect>[0];
  * An invite marked is_direct carries the mark in the invite event the client
  * already holds, and the join event does not repeat it. So the room is listed
  * in m.direct under the inviter before the join is sent, and taken out again if
- * the join is refused by a server answer. A join that fails without one (lost
- * response, dropped connection) may still have been accepted, so the entry
- * stays and the tap is retryable. Nothing needs to recognise the DM after it
- * arrives. The inbox Accept goes through here too: one owner for joining.
+ * the join is refused by a Matrix error answer (a 4xx carrying an errcode). A
+ * join that fails any other way (lost response, dropped connection, a gateway's
+ * 5xx or a status with no errcode) may still have been accepted upstream, so the
+ * entry stays and the tap is retryable. Nothing needs to recognise the DM after it
+ * arrives. Every client join goes through here: the estate tap, the inbox Accept,
+ * the room card, /join, the lobby and space Join buttons, the tombstone and
+ * predecessor links. One owner for joining.
  */
 export const activateEstateRoom = async (
   mx: JoinClient,
-  room: Pick<EstateRoom, 'roomId' | 'state' | 'via'>
+  room: Pick<EstateRoom, 'roomId' | 'state'> & { via?: string[] }
 ): Promise<EstateActivation> => {
   if (room.state === 'joined') return { kind: 'open', roomId: room.roomId };
   const refusal = (e: unknown): EstateActivation => {
     const err = e as { data?: { error?: string }; message?: string };
     return { kind: 'refused', message: err.data?.error ?? err.message ?? 'Could not join' };
   };
-  const answered = (e: unknown) => typeof (e as { httpStatus?: unknown }).httpStatus === 'number';
+  const refusedByServer = (e: unknown) => {
+    const err = e as { httpStatus?: unknown; errcode?: unknown; data?: { errcode?: unknown } };
+    const status = err.httpStatus;
+    const errcode = err.errcode ?? err.data?.errcode;
+    return (
+      typeof status === 'number' && status >= 400 && status < 500 && typeof errcode === 'string'
+    );
+  };
   const invite = room.state === 'invited' ? mx.getRoom(room.roomId) : null;
   const inviter = isDirectInvite(invite, mx.getSafeUserId())
     ? invite?.getMember(mx.getSafeUserId())?.events?.member?.getSender()
@@ -49,10 +65,55 @@ export const activateEstateRoom = async (
     const joined = await mx.joinRoom(room.roomId, { viaServers: room.via });
     return { kind: 'joined', roomId: joined.roomId };
   } catch (e) {
-    if (!answered(e)) return { kind: 'refused', message: LOST_JOIN_RESPONSE };
+    if (!refusedByServer(e)) return { kind: 'refused', message: LOST_JOIN_RESPONSE };
     if (inviter) await removeRoomIdFromMDirect(mx, room.roomId).catch(() => undefined);
     return refusal(e);
   }
+};
+
+/**
+ * activateEstateRoom for a caller that holds only an id or alias (room card,
+ * /join): a room the client has an invite for is an invited room.
+ */
+export const joinEstateRoomIdOrAlias = (
+  mx: JoinClient,
+  roomIdOrAlias: string,
+  via?: string[]
+): Promise<EstateActivation> =>
+  activateEstateRoom(mx, {
+    roomId: roomIdOrAlias,
+    state: mx.getRoom(roomIdOrAlias)?.getMyMembership() === 'invite' ? 'invited' : 'joinable',
+    via,
+  });
+
+/**
+ * joinEstateRoomIdOrAlias for a caller that reports failure by throwing (a
+ * useAsyncCallback button): the joined room id, or an Error carrying the refusal.
+ */
+export const joinEstateRoomOrThrow = async (
+  mx: JoinClient,
+  roomIdOrAlias: string,
+  via?: string[]
+): Promise<string> => {
+  const result = await joinEstateRoomIdOrAlias(mx, roomIdOrAlias, via);
+  if (result.kind === 'refused') throw new Error(result.message);
+  return result.roomId;
+};
+
+/**
+ * The /join command: every room id or alias in the payload is joined, and each
+ * refusal is handed to report, never dropped.
+ */
+export const runJoinCommand = async (
+  mx: JoinClient,
+  payload: string,
+  report: (message: string) => void
+): Promise<void> => {
+  const addresses = splitWithSpace(payload).filter((a) => isRoomId(a) || isRoomAlias(a));
+  const results = await Promise.all(addresses.map((a) => joinEstateRoomIdOrAlias(mx, a)));
+  results.forEach((r) => {
+    if (r.kind === 'refused') report(r.message);
+  });
 };
 
 type MembershipSource = {
