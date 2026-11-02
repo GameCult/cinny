@@ -1,4 +1,4 @@
-import type { ActivityFrame, Energy, Kind } from './frame';
+import type { ActivityFrame, Energy, Kind, LiveFrame } from './frame';
 
 /** Grammar V3 (proposed, unmeasured): voices audible at once. */
 export const DEFAULT_VOICE_CAP = 4;
@@ -42,7 +42,9 @@ export const planVoices = (
   if (gain === 0) return [];
   const cap = Math.max(0, Math.floor(prefs.voiceCap));
   return frames
-    .filter((f) => !f.neutral && f.override !== 'Muted' && !SILENT_KINDS.has(f.kind))
+    .filter(
+      (f): f is LiveFrame => !f.neutral && f.override !== 'Muted' && !SILENT_KINDS.has(f.kind)
+    )
     .sort((a, b) => ENERGY_RANK[b.energy] - ENERGY_RANK[a.energy] || a.mind.localeCompare(b.mind))
     .slice(0, cap)
     .map((f) => ({ mind: f.mind, kind: f.kind, energy: f.energy, gain }));

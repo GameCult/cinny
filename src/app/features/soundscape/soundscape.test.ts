@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FrameTable, readFrame, STALE_AFTER_S, type ActivityFrame } from './frame';
+import { FrameTable, readFrame, STALE_AFTER_S, type ActivityFrame, type LiveFrame } from './frame';
 import { drawnCreatures, PLACEHOLDER_SIZE_SCALE } from './scene';
 import { DEFAULT_VOICE_CAP, planVoices, type SoundscapePrefs } from './voices';
 import { isWeakDevice } from './device';
 import { createAudioSocket, silentSource, type ActivitySource } from './socket';
 
-const frame = (o: Partial<ActivityFrame> = {}): ActivityFrame => ({
+const frame = (o: Partial<LiveFrame> = {}): LiveFrame => ({
   mind: 'void',
   estate: 'mind',
   kind: 'Working',
@@ -17,6 +17,11 @@ const frame = (o: Partial<ActivityFrame> = {}): ActivityFrame => ({
   at: 100,
   ...o,
 });
+const neutralFrame = (o: Partial<ActivityFrame> = {}): ActivityFrame =>
+  ({ ...frame(), ...o, neutral: true } as unknown as ActivityFrame);
+/** A raw frame as a producer sends it, with the named keys omitted. */
+const without = (f: object, ...keys: string[]) =>
+  Object.fromEntries(Object.entries(f).filter(([k]) => !keys.includes(k)));
 const noop = () => undefined;
 const on: SoundscapePrefs = { enabled: true, muted: false, volume: 0.5, voiceCap: 4 };
 
@@ -25,9 +30,7 @@ describe('neutral overrides everything', () => {
     const cases = (['human', 'mind', 'persona'] as const).flatMap((estate) =>
       (['Speaking', 'Alert', 'Working'] as const).flatMap((kind) =>
         (['High', 'Peak'] as const).flatMap((energy) =>
-          (['S', 'M', 'L'] as const).map((size) =>
-            frame({ neutral: true, estate, kind, energy, size })
-          )
+          (['S', 'M', 'L'] as const).map((size) => neutralFrame({ estate, kind, energy, size }))
         )
       )
     );
@@ -42,6 +45,55 @@ describe('neutral overrides everything', () => {
     t.offer(frame({ at: 100 }));
     expect(drawnCreatures(t.fresh(100 + STALE_AFTER_S + 1))).toEqual([]);
     expect(drawnCreatures(t.fresh(100)).length).toBe(1);
+  });
+});
+
+describe('neutral is read first', () => {
+  it('yields no kind and no energy, even when the producer sent them', () => {
+    (['human', 'mind', 'persona'] as const).forEach((estate) => {
+      const f = readFrame({
+        ...frame({ estate, kind: 'Speaking', energy: 'High' }),
+        neutral: true,
+      });
+      expect(f).toBeDefined();
+      expect(f?.neutral).toBe(true);
+      expect(f?.kind).toBeUndefined();
+      expect(f?.energy).toBeUndefined();
+      expect(Object.keys(f ?? {})).not.toContain('kind');
+      expect(Object.keys(f ?? {})).not.toContain('energy');
+    });
+  });
+  it('a neutral human with kind omitted is not an Idle', () => {
+    const bare = without(frame({ estate: 'human' }), 'kind', 'energy');
+    const f = readFrame({ ...bare, neutral: true });
+    expect(f?.kind).toBeUndefined();
+    expect(drawnCreatures([f as ActivityFrame])).toEqual([]);
+    expect(planVoices([f as ActivityFrame], on)).toEqual([]);
+  });
+});
+
+describe('human kinds are the provisional subset', () => {
+  it.each(['Reading', 'Thinking', 'Waiting', 'Alert'] as const)('clamps %s to Idle', (kind) => {
+    expect(readFrame(frame({ estate: 'human', kind }))?.kind).toBe('Idle');
+  });
+  it('keeps Idle, Working and Speaking', () => {
+    (['Idle', 'Working', 'Speaking'] as const).forEach((kind) =>
+      expect(readFrame(frame({ estate: 'human', kind }))?.kind).toBe(kind)
+    );
+  });
+  it('an omitted kind is Idle for a non-neutral human only', () => {
+    const noKind = without(frame({ estate: 'human' }), 'kind');
+    expect(readFrame(noKind)?.kind).toBe('Idle');
+    expect(readFrame({ ...noKind, neutral: true })?.kind).toBeUndefined();
+  });
+  it('minds and personas keep all seven kinds, and omitted is malformed for them', () => {
+    (['mind', 'persona'] as const).forEach((estate) => {
+      (['Idle', 'Reading', 'Thinking', 'Working', 'Speaking', 'Waiting', 'Alert'] as const).forEach(
+        (kind) => expect(readFrame(frame({ estate, kind }))?.kind).toBe(kind)
+      );
+      const noKind = without(frame({ estate }), 'kind');
+      expect(readFrame(noKind)).toBeUndefined();
+    });
   });
 });
 
