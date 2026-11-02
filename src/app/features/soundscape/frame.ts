@@ -1,6 +1,7 @@
-// The activity frame of Aqua's soundscape grammar (AquaSynth docs/soundscape-grammar.md at aeae510,
+// The activity frame of Aqua's soundscape grammar (AquaSynth docs/soundscape-grammar at 5e2eaa9,
 // section 2). The Heimdall session produces it; this file only reads it. Shape follows
-// heimdall-body:follow_up:ratatoskr-creature-projection-v2 as the grammar relays it.
+// heimdall-body:follow_up:ratatoskr-creature-projection-v2 as the grammar relays it. The human
+// subset below is PROVISIONAL until Bifrost's steward cuts the list.
 
 export type Estate = 'human' | 'mind' | 'persona';
 export type Kind = 'Idle' | 'Reading' | 'Thinking' | 'Working' | 'Speaking' | 'Waiting' | 'Alert';
@@ -8,18 +9,27 @@ export type Energy = 'Low' | 'Mid' | 'High' | 'Peak';
 export type Size = 'S' | 'M' | 'L';
 export type Override = 'None' | 'Muted';
 
-export interface ActivityFrame {
+interface FrameBase {
   mind: string;
   estate: Estate;
-  kind: Kind;
-  energy: Energy;
   size: Size;
-  neutral: boolean;
   override: Override;
   seq: number;
   /** Producer observation time, whole seconds (grammar: 1 s resolution). */
   at: number;
 }
+/** O1: a neutral frame carries no kind and no energy; it is not an Idle and nothing reads one. */
+export interface NeutralFrame extends FrameBase {
+  neutral: true;
+  kind?: undefined;
+  energy?: undefined;
+}
+export interface LiveFrame extends FrameBase {
+  neutral: false;
+  kind: Kind;
+  energy: Energy;
+}
+export type ActivityFrame = NeutralFrame | LiveFrame;
 
 const ESTATES: readonly Estate[] = ['human', 'mind', 'persona'];
 const KINDS: readonly Kind[] = [
@@ -40,39 +50,40 @@ export const STALE_AFTER_S = 10;
 const oneOf = <T extends string>(set: readonly T[], v: unknown): T | undefined =>
   set.find((s) => s === v);
 
-/** Grammar estate rule: a consumer clamps a human's energy to Low/Mid/High. */
-export const clampEnergy = (estate: Estate, energy: Energy): Energy =>
+/** PROVISIONAL (grammar section 2, awaiting the projection-v2 field list): a human's kinds. */
+export const HUMAN_KINDS: readonly Kind[] = ['Idle', 'Working', 'Speaking'];
+
+/** Estate clamp, only ever revealing less: a human's out-of-subset or omitted kind is Idle. */
+const clampKind = (estate: Estate, kind: unknown): Kind | undefined =>
+  estate === 'human' ? oneOf(HUMAN_KINDS, kind) ?? 'Idle' : oneOf(KINDS, kind);
+
+/** A human's energy is three buckets: Peak reads as High. */
+const clampEnergy = (estate: Estate, energy: Energy): Energy =>
   estate === 'human' && energy === 'Peak' ? 'High' : energy;
 
 /**
  * Read an untrusted frame. Only the grammar's fields survive: any other key (a weight, a vote, a
  * room id) is dropped, so a consumer cannot be steered by data the grammar does not define (A3).
- * Returns undefined for anything malformed; the caller treats that as no frame (A4).
+ * `neutral` is read first: a neutral frame yields no kind and no energy even if the producer sent
+ * them (O1). Returns undefined for anything malformed; the caller treats that as no frame (A4).
  */
 export const readFrame = (raw: unknown): ActivityFrame | undefined => {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const r = raw as Record<string, unknown>;
+  if (typeof r.neutral !== 'boolean') return undefined;
   const estate = oneOf(ESTATES, r.estate);
-  const kind = oneOf(KINDS, r.kind);
-  const energy = oneOf(ENERGIES, r.energy);
   const size = oneOf(SIZES, r.size);
   const override =
     r.override === undefined ? 'None' : oneOf(['None', 'Muted'] as const, r.override);
-  if (!estate || !kind || !energy || !size || !override) return undefined;
-  if (typeof r.mind !== 'string' || r.mind === '' || typeof r.neutral !== 'boolean')
-    return undefined;
+  if (!estate || !size || !override) return undefined;
+  if (typeof r.mind !== 'string' || r.mind === '') return undefined;
   if (!Number.isInteger(r.seq) || !Number.isFinite(r.at)) return undefined;
-  return {
-    mind: r.mind,
-    estate,
-    kind,
-    energy: clampEnergy(estate, energy),
-    size,
-    neutral: r.neutral,
-    override,
-    seq: r.seq as number,
-    at: r.at as number,
-  };
+  const base = { mind: r.mind, estate, size, override, seq: r.seq as number, at: r.at as number };
+  if (r.neutral) return { ...base, neutral: true };
+  const kind = clampKind(estate, r.kind);
+  const energy = oneOf(ENERGIES, r.energy);
+  if (!kind || !energy) return undefined;
+  return { ...base, neutral: false, kind, energy: clampEnergy(estate, energy) };
 };
 
 /** Latest frame per mind (S1: consumers drop seq <= last). */
