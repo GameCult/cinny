@@ -1,6 +1,6 @@
 // Creature sizing for the orbiting personas. Only the rule lives here; drawing them is a later cut.
 //
-// Props contract: heimdall-body/ratatoskr-creature-projection (against GameCult/Bifrost).
+// Props contract: heimdall-body:follow_up:ratatoskr-creature-projection-v2 (against GameCult/Bifrost; supersedes heimdall-body/ratatoskr-creature-projection).
 // Nothing here is binding until Bifrost's steward cuts that contract.
 //
 // Shape: {id, estate, sizeBucket, neutral, activity}.
