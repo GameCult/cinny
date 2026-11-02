@@ -28,7 +28,8 @@ export const WORLD = {
   // shader passes roughness n = 0 as a literal, so the doc envelope max(10, 1.25|side|)/(1-n)
   // needs no 1/(1-n) factor here; if n ever becomes nonzero, divide this bound by (1 - n).
   // |value| <= 1 holds by construction (the output is a normalized phasor).
-  phacelleGradBound: 7.0,
+  // Typed number, not the literal 7, so callers can build variants such as { ...WORLD, phacelleGradBound: 0 }.
+  phacelleGradBound: 7.0 as number,
   // World tree at the origin.
   tree: {
     trunkHeight: 38,

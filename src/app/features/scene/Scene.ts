@@ -1,6 +1,7 @@
 import { fragmentSource, vertexSource, Stage } from './shaderSource';
 import { cameraPose, pullProgress, CameraPose } from './camera';
-import { BudgetLadder, Level } from './budget';
+import { BudgetLadder, Level, LEVELS } from './budget';
+import type { SceneTier } from './tier';
 import { PALETTE } from './palette';
 
 /** Phone GPU budget for the whole scene, from the ground-cut doc's budget table. */
@@ -20,8 +21,31 @@ export interface SceneStats {
   atmosphereSize: [number, number];
 }
 
+/** Measurement seam: the harness rewrites a stage's source to time a variant. Never set in the client. */
+export type SourcePatch = (stage: Stage, source: string) => string;
+
+export class ShaderCompileError extends Error {
+  constructor(readonly stage: Stage | 'vertex', readonly log: string) {
+    super(`${stage} shader failed to compile:\n${log}`);
+  }
+}
+
+/** Ladder level a 'low' scene starts at: the cost of a weak device's first 45 frames is never paid at full. */
+const LOW_START_LEVEL = 2;
+/** The 'still' tier draws one frame at this level and stops. */
+const STILL_LEVEL = LEVELS[0];
+
 export interface SceneOptions {
   canvas: HTMLCanvasElement;
+  /**
+   * 'off' returns null without touching the canvas. 'still' draws one frame and stops. 'low' starts
+   * the adaptive ladder low. 'full' starts it at the top. Default 'full'.
+   */
+  tier?: SceneTier;
+  /** A shader failed to compile or link. createScene frees what it built and returns null. */
+  onCompileFail?: (e: ShaderCompileError) => void;
+  /** The WebGL context was lost. The scene stops for good; the host keeps its ground. */
+  onContextLost?: () => void;
   /** Called per finished frame when timer queries exist. */
   onStats?: (s: SceneStats) => void;
   /** Weather knob, 0 clear .. 1 overcast. */
@@ -37,15 +61,6 @@ export interface Scene {
   /** Start the camera pull-back from the tree. */
   login(): void;
   dispose(): void;
-}
-
-/** Measurement seam: the harness rewrites a stage's source to time a variant. Never set in the client. */
-export type SourcePatch = (stage: Stage, source: string) => string;
-
-export class ShaderCompileError extends Error {
-  constructor(readonly stage: Stage | 'vertex', readonly log: string) {
-    super(`${stage} shader failed to compile:\n${log}`);
-  }
 }
 
 function compile(
@@ -112,6 +127,8 @@ function halton(i: number, base: number): number {
 /** Null when WebGL2 or float colour buffers are missing; the host keeps its CSS ground. */
 export function createScene(opts: SceneOptions): Scene | null {
   const { canvas } = opts;
+  const tier = opts.tier ?? 'full';
+  if (tier === 'off') return null;
   const gl = canvas.getContext('webgl2', {
     antialias: false,
     alpha: false,
@@ -127,7 +144,18 @@ export function createScene(opts: SceneOptions): Scene | null {
   } | null;
 
   const programs = {} as Record<PassName, WebGLProgram>;
-  for (const p of PASSES) programs[p] = linkStage(gl, p, opts.patchSource);
+  try {
+    PASSES.forEach((p) => {
+      programs[p] = linkStage(gl, p, opts.patchSource);
+    });
+  } catch (e) {
+    PASSES.forEach((p) => {
+      if (programs[p]) gl.deleteProgram(programs[p]);
+    });
+    if (!(e instanceof ShaderCompileError)) throw e;
+    opts.onCompileFail?.(e);
+    return null;
+  }
   const uniforms = new Map<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
   const loc = (p: WebGLProgram, name: string) => {
     let m = uniforms.get(p);
@@ -160,7 +188,9 @@ export function createScene(opts: SceneOptions): Scene | null {
   let atm: Target;
   let hist: [Target, Target];
   const freeTargets = () => {
-    for (const t of [solid, depth, atm, hist?.[0], hist?.[1]]) if (t) gl.deleteTexture(t.tex);
+    [solid, depth, atm, hist?.[0], hist?.[1]].forEach((t) => {
+      if (t) gl.deleteTexture(t.tex);
+    });
   };
 
   const attach = (fbo: WebGLFramebuffer, targets: Target[]) => {
@@ -171,8 +201,9 @@ export function createScene(opts: SceneOptions): Scene | null {
     gl.drawBuffers(targets.map((_, i) => gl.COLOR_ATTACHMENT0 + i));
   };
 
-  const ladder = new BudgetLadder(GPU_BUDGET_MS);
-  const level = (): Level => opts.fixedLevel ?? ladder.current;
+  const still = tier === 'still';
+  const ladder = new BudgetLadder(GPU_BUDGET_MS, 45, tier === 'low' ? LOW_START_LEVEL : 0);
+  const level = (): Level => opts.fixedLevel ?? (still ? STILL_LEVEL : ladder.current);
 
   let canvasW = 0;
   let canvasH = 0;
@@ -214,7 +245,7 @@ export function createScene(opts: SceneOptions): Scene | null {
   let prev: CameraPose | undefined;
   let raf = 0;
   let lastRendered = -Infinity;
-  let framesLeft = Infinity; // reduced motion bounds this
+  let framesLeft = still ? 1 : Infinity; // a still frame, or reduced motion, bounds this
   let disposed = false;
 
   // Timer queries in flight: each holds one pass's query.
@@ -222,7 +253,10 @@ export function createScene(opts: SceneOptions): Scene | null {
   const finished = new Map<number, Partial<Record<PassName, number>>>();
 
   const timed = (pass: PassName, f: number, body: () => void) => {
-    if (!timer || !opts.onStats) return body();
+    if (!timer || !opts.onStats) {
+      body();
+      return;
+    }
     const q = gl.createQuery()!;
     gl.beginQuery(timer.TIME_ELAPSED_EXT, q);
     body();
@@ -282,9 +316,11 @@ export function createScene(opts: SceneOptions): Scene | null {
     const lv = level();
     const frozen = reducedMotion?.matches ?? false;
     const time = frozen ? 0 : (now - start) / 1000;
-    const elapsed = loginAt === undefined ? undefined : frozen ? 1e9 : (now - loginAt) / 1000;
+    let elapsed: number | undefined;
+    if (loginAt !== undefined) elapsed = frozen ? 1e9 : (now - loginAt) / 1000;
     const pose = cameraPose(pullProgress(elapsed), time);
-    const f = frame++;
+    const f = frame;
+    frame += 1;
     const jx = halton((f % 16) + 1, 2) - 0.5;
     const jy = halton((f % 16) + 1, 3) - 0.5;
 
@@ -320,7 +356,7 @@ export function createScene(opts: SceneOptions): Scene | null {
     });
 
     // TAA resolve into the history that is not being read.
-    const write = histIndex ^ 1;
+    const write = histIndex === 0 ? 1 : 0;
     timed('resolve', f, () => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbos.hist[write]);
       gl.viewport(0, 0, atm.w, atm.h);
@@ -369,8 +405,10 @@ export function createScene(opts: SceneOptions): Scene | null {
         !timer &&
         lastRendered > 0 &&
         now - lastRendered > FRAME_INTERVAL_MS * 1.5
-      )
-        ladder.push(GPU_BUDGET_MS * 2) && (sizedFor = undefined); // no timer: a missed cap counts as over budget
+      ) {
+        // no timer: a missed cap counts as over budget
+        if (ladder.push(GPU_BUDGET_MS * 2)) sizedFor = undefined;
+      }
       lastRendered = now;
       render(now);
       framesLeft -= 1;
@@ -385,30 +423,47 @@ export function createScene(opts: SceneOptions): Scene | null {
     resetHistory = true; // the first frame after a pause has a real elapsed dt
     raf = requestAnimationFrame(tick);
   };
-  const onVisibility = () => {
-    if (document.visibilityState === 'visible') wake();
+  const undo: Array<() => void> = [];
+  const listen = (target: EventTarget, type: string, handler: (e: Event) => void) => {
+    target.addEventListener(type, handler);
+    undo.push(() => target.removeEventListener(type, handler));
   };
-  const onResize = () => wake();
-  if (!opts.unthrottled) document.addEventListener('visibilitychange', onVisibility);
-  window.addEventListener('resize', onResize);
-  if (reducedMotion?.matches) framesLeft = REDUCED_MOTION_FRAMES;
+  const stop = () => {
+    disposed = true;
+    if (raf) cancelAnimationFrame(raf);
+    undo.forEach((f) => f());
+  };
+  if (!opts.unthrottled) {
+    listen(document, 'visibilitychange', () => {
+      if (document.visibilityState === 'visible') wake();
+    });
+  }
+  listen(window, 'resize', () => wake());
+  // A lost context takes every texture and program with it and nothing here rebuilds them, so the
+  // scene ends and the host decides what to show. preventDefault: otherwise the browser never
+  // restores the context, which is what we want, and a restore would find a dead scene.
+  listen(canvas, 'webglcontextlost', (e) => {
+    e.preventDefault();
+    stop();
+    opts.onContextLost?.();
+  });
+  if (reducedMotion?.matches && !still) framesLeft = REDUCED_MOTION_FRAMES;
   wake();
 
   return {
     login() {
+      if (still || disposed) return; // a still has no pull-back
       loginAt = performance.now();
       if (reducedMotion?.matches) framesLeft = REDUCED_MOTION_FRAMES;
       wake();
     },
     dispose() {
-      disposed = true;
-      if (raf) cancelAnimationFrame(raf);
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('resize', onResize);
+      if (disposed) return;
+      stop();
       freeTargets();
-      for (const p of PASSES) gl.deleteProgram(programs[p]);
+      PASSES.forEach((p) => gl.deleteProgram(programs[p]));
       gl.deleteVertexArray(vao);
-      for (const f of [fbos.solid, fbos.atm, ...fbos.hist]) gl.deleteFramebuffer(f);
+      [fbos.solid, fbos.atm, ...fbos.hist].forEach((fb) => gl.deleteFramebuffer(fb));
     },
   };
 }

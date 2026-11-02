@@ -9,9 +9,9 @@ import { terrainBounds, WORLD, worldDefines } from './world';
 describe('world defines', () => {
   it('define every W_ name any scene shader uses', () => {
     const defined = new Set([...worldDefines().matchAll(/#define (W_\w+)/g)].map((m) => m[1]));
-    for (const src of [common, terrain, atmosphere, resolve, composite]) {
-      for (const m of src.matchAll(/\bW_[A-Z0-9_]+\b/g)) expect(defined, m[0]).toContain(m[0]);
-    }
+    [common, terrain, atmosphere, resolve, composite]
+      .flatMap((src) => [...src.matchAll(/\bW_[A-Z0-9_]+\b/g)])
+      .forEach((m) => expect(defined, m[0]).toContain(m[0]));
   });
 
   it('emit only valid GLSL numbers', () => {

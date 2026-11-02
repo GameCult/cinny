@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { BackgroundSceneConfig } from '../features/scene/tier';
 
 export type HashRouterConfig = {
   enabled?: boolean;
@@ -18,6 +19,8 @@ export type ClientConfig = {
   };
 
   hashRouter?: HashRouterConfig;
+
+  backgroundScene?: BackgroundSceneConfig;
 };
 
 const ClientConfigContext = createContext<ClientConfig | null>(null);

@@ -17,5 +17,9 @@
   "hashRouter": {
     "enabled": false,
     "basename": "/"
+  },
+
+  "backgroundScene": {
+    "tier": "off"
   }
 }

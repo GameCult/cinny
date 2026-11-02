@@ -20,10 +20,20 @@ export const LEVELS: readonly Level[] = [
 
 /** Median of the last `window` frame times above `budgetMs` for a whole window steps down one level. */
 export class BudgetLadder {
-  private level = 0;
+  private level: number;
+
   private recent: number[] = [];
 
-  constructor(private readonly budgetMs: number, private readonly window = 45) {}
+  private readonly budgetMs: number;
+
+  private readonly window: number;
+
+  /** `startLevel` lets a weak device begin below level 0; it is clamped into the ladder. */
+  constructor(budgetMs: number, window = 45, startLevel = 0) {
+    this.budgetMs = budgetMs;
+    this.window = window;
+    this.level = Math.min(Math.max(startLevel, 0), LEVELS.length - 1);
+  }
 
   get current(): Level {
     return LEVELS[this.level];
@@ -38,7 +48,7 @@ export class BudgetLadder {
     this.recent.push(ms);
     if (this.recent.length < this.window) return false;
     const sorted = [...this.recent].sort((a, b) => a - b);
-    const median = sorted[sorted.length >> 1];
+    const median = sorted[Math.floor(sorted.length / 2)];
     this.recent = [];
     if (median > this.budgetMs && this.level < LEVELS.length - 1) {
       this.level += 1;

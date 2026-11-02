@@ -3,15 +3,29 @@
 A two-pass WebGL2 scene for the client's background canvas: an infinite terrain of CultMath
 noise with a world tree at its centre, dusk atmosphere and clouds, and a camera that pulls back
 from the tree on login. It is a self-contained module; nothing in the client imports it yet.
-Integration (a canvas under the app, `createScene`, `login()` when the session starts, `dispose()`)
-is Void's cut `terrain-background`; the personas (`orbiting-personas`) and the squirrel are later cuts.
+Integration (a canvas under the app, `startBackgroundScene`, `login()` when the session starts,
+`dispose()`) is Void's cut `terrain-background`; the personas (`orbiting-personas`) and the squirrel
+are later cuts. This PR is the render core plus the contract the host needs: flag, tier, failure
+callbacks and the creature sizing rule. Nothing has drawn a creature.
 
 ## Entry points
 
-- `Scene.ts` `createScene({ canvas, ... })` returns `{ login, dispose }`, or `null` when WebGL2 or
-  `EXT_color_buffer_float` is missing (keep the CSS ground then). It caps at 30 fps, pauses when
+- `index.ts` `startBackgroundScene(config.backgroundScene, capabilities, options)` is the host's
+  door. The client config's `backgroundScene.tier` (`off` default, `still`, `low`, `full`) is the
+  feature flag and the ceiling; `tier.ts` lowers it for `saveData`, low memory or few cores. At
+  `off` nothing is imported and no canvas context is requested; otherwise `Scene.ts` loads on
+  demand, so it stays out of the main chunk.
+- `Scene.ts` `createScene({ canvas, tier, onCompileFail, onContextLost, ... })` returns
+  `{ login, dispose }`, or `null` (keep the CSS ground then) when the tier is `off`, WebGL2 or
+  `EXT_color_buffer_float` is missing, or a shader fails to compile (`onCompileFail` gets the
+  `ShaderCompileError`; programs already linked are freed). `still` draws one frame at the top
+  level and stops; `low` starts the ladder at level 2; `full` at level 0. A lost WebGL context
+  stops the scene for good and calls `onContextLost`; nothing rebuilds it, the host decides what to
+  show. It caps at 30 fps, pauses when
   the tab is hidden, renders 32 frames and stops under `prefers-reduced-motion`, and steps down a
   quality ladder (`budget.ts`) against a 4 ms GPU budget when timer queries exist.
+- `creatures.ts` the creature record and `creatureScale`: a neutral creature is one fixed size and
+  overrides `sizeBucket`. The bucket names and scales are placeholders until the persona cut owns them.
 - `camera.ts` the pull-back path as pure functions (`pullProgress`, `cameraPose`).
 - `world.ts` every world number, and the Lipschitz bounds the sphere trace steps by. The GLSL
   `#define`s are generated from it; no number is written twice.
