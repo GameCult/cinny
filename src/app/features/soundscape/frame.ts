@@ -1,7 +1,8 @@
-// The activity frame of Aqua's soundscape grammar (AquaSynth docs/soundscape-grammar at 5e2eaa9,
-// section 2). The Heimdall session produces it; this file only reads it. Shape follows
+// The activity frame of Aqua's soundscape grammar (AquaSynth docs/soundscape-grammar, grammar head
+// 0091d01, section 2). The Heimdall session produces it; this file only reads it. Shape follows
 // heimdall-body:follow_up:ratatoskr-creature-projection-v2 as the grammar relays it. The human
-// subset below is PROVISIONAL until Bifrost's steward cuts the list.
+// kind subset (Idle/Working/Speaking) below is PROVISIONAL: still proposed, not ruled, until
+// Bifrost's steward cuts the list.
 
 export type Estate = 'human' | 'mind' | 'persona';
 export type Kind = 'Idle' | 'Reading' | 'Thinking' | 'Working' | 'Speaking' | 'Waiting' | 'Alert';
@@ -12,20 +13,21 @@ export type Override = 'None' | 'Muted';
 interface FrameBase {
   mind: string;
   estate: Estate;
-  size: Size;
   override: Override;
   seq: number;
   /** Producer observation time, whole seconds (grammar: 1 s resolution). */
   at: number;
 }
-/** O1: a neutral frame carries no kind and no energy; it is not an Idle and nothing reads one. */
+/** O1: a neutral frame carries no size, kind or energy; it is not an Idle and nothing reads one. */
 export interface NeutralFrame extends FrameBase {
   neutral: true;
+  size?: undefined;
   kind?: undefined;
   energy?: undefined;
 }
 export interface LiveFrame extends FrameBase {
   neutral: false;
+  size: Size;
   kind: Kind;
   energy: Energy;
 }
@@ -64,7 +66,7 @@ const clampEnergy = (estate: Estate, energy: Energy): Energy =>
 /**
  * Read an untrusted frame. Only the grammar's fields survive: any other key (a weight, a vote, a
  * room id) is dropped, so a consumer cannot be steered by data the grammar does not define (A3).
- * `neutral` is read first: a neutral frame yields no kind and no energy even if the producer sent
+ * `neutral` is read first: a neutral frame yields no size, kind or energy even if the producer sent
  * them (O1). Returns undefined for anything malformed; the caller treats that as no frame (A4).
  */
 export const readFrame = (raw: unknown): ActivityFrame | undefined => {
@@ -72,18 +74,18 @@ export const readFrame = (raw: unknown): ActivityFrame | undefined => {
   const r = raw as Record<string, unknown>;
   if (typeof r.neutral !== 'boolean') return undefined;
   const estate = oneOf(ESTATES, r.estate);
-  const size = oneOf(SIZES, r.size);
   const override =
     r.override === undefined ? 'None' : oneOf(['None', 'Muted'] as const, r.override);
-  if (!estate || !size || !override) return undefined;
+  if (!estate || !override) return undefined;
   if (typeof r.mind !== 'string' || r.mind === '') return undefined;
   if (!Number.isInteger(r.seq) || !Number.isFinite(r.at)) return undefined;
-  const base = { mind: r.mind, estate, size, override, seq: r.seq as number, at: r.at as number };
+  const base = { mind: r.mind, estate, override, seq: r.seq as number, at: r.at as number };
   if (r.neutral) return { ...base, neutral: true };
   const kind = clampKind(estate, r.kind);
   const energy = oneOf(ENERGIES, r.energy);
-  if (!kind || !energy) return undefined;
-  return { ...base, neutral: false, kind, energy: clampEnergy(estate, energy) };
+  const size = oneOf(SIZES, r.size);
+  if (!kind || !energy || !size) return undefined;
+  return { ...base, neutral: false, size, kind, energy: clampEnergy(estate, energy) };
 };
 
 /** Latest frame per mind (S1: consumers drop seq <= last). */

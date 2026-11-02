@@ -49,7 +49,7 @@ describe('neutral overrides everything', () => {
 });
 
 describe('neutral is read first', () => {
-  it('yields no kind and no energy, even when the producer sent them', () => {
+  it('yields no size, kind or energy, even when the producer sent them', () => {
     (['human', 'mind', 'persona'] as const).forEach((estate) => {
       const f = readFrame({
         ...frame({ estate, kind: 'Speaking', energy: 'High' }),
@@ -57,6 +57,8 @@ describe('neutral is read first', () => {
       });
       expect(f).toBeDefined();
       expect(f?.neutral).toBe(true);
+      expect(f?.size).toBeUndefined();
+      expect(Object.keys(f ?? {})).not.toContain('size');
       expect(f?.kind).toBeUndefined();
       expect(f?.energy).toBeUndefined();
       expect(Object.keys(f ?? {})).not.toContain('kind');
@@ -219,5 +221,13 @@ describe('socket defaults and limits', () => {
     expect(t.offer(frame({ seq: 5 }))).toBe(false);
     expect(t.offer(frame({ seq: 4 }))).toBe(false);
     expect(t.offer({ ...frame(), kind: 'Dancing' })).toBe(false);
+  });
+});
+
+describe('neutral carries no size', () => {
+  it('reads without a size, and a live frame without one is malformed', () => {
+    const raw = frame();
+    expect(readFrame({ ...without(raw, 'size', 'kind', 'energy'), neutral: true })).toBeDefined();
+    expect(readFrame(without(raw, 'size'))).toBeUndefined();
   });
 });
