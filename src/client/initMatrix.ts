@@ -3,6 +3,7 @@ import { createClient, MatrixClient, IndexedDBStore, IndexedDBCryptoStore } from
 import { cryptoCallbacks } from './secretStorageKeys';
 import { clearNavToActivePathStore } from '../app/state/navToActivePath';
 import { pushSessionToSW } from '../sw-session';
+import { startResumeSync } from './resumeSync';
 
 type Session = {
   baseUrl: string;
@@ -40,10 +41,14 @@ export const initClient = async (session: Session): Promise<MatrixClient> => {
   return mx;
 };
 
-export const startClient = async (mx: MatrixClient) => {
-  await mx.startClient({
+const startSync = (mx: MatrixClient) =>
+  mx.startClient({
     lazyLoadMembers: true,
   });
+
+export const startClient = async (mx: MatrixClient) => {
+  await startSync(mx);
+  startResumeSync(mx, { restart: startSync });
 };
 
 export const clearCacheAndReload = async (mx: MatrixClient) => {
