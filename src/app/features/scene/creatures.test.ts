@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUCKET_SCALE, creatureScale, NEUTRAL_SCALE, SizeBucket } from './creatures';
+import { BUCKET_SCALE, creatureScale, SizeBucket } from './creatures';
 
 const buckets: SizeBucket[] = ['small', 'medium', 'large'];
 
@@ -10,14 +10,18 @@ describe('creature scale', () => {
     );
   });
 
-  it('is one fixed size for every neutral creature, whatever its sizeBucket', () => {
-    buckets.forEach((sizeBucket) =>
-      expect(creatureScale({ sizeBucket, neutral: true })).toBe(NEUTRAL_SCALE)
-    );
+  it('draws nothing for a neutral creature, whatever sizeBucket it was sent', () => {
+    expect(creatureScale({ neutral: true })).toBeNull();
+    buckets.forEach((sizeBucket) => expect(creatureScale({ sizeBucket, neutral: true })).toBeNull());
   });
 
-  it('is only visible as an override where the bucket would have said something else', () => {
-    expect(BUCKET_SCALE.small).not.toBe(NEUTRAL_SCALE);
-    expect(BUCKET_SCALE.large).not.toBe(NEUTRAL_SCALE);
+  it('does not crash or default to medium when a non-neutral creature has no sizeBucket', () => {
+    expect(creatureScale({ neutral: false })).toBeNull();
+    expect(creatureScale({ sizeBucket: undefined, neutral: false })).toBeNull();
+  });
+
+  it('draws nothing for an unknown bucket, including inherited property names', () => {
+    expect(creatureScale({ sizeBucket: 'huge' as SizeBucket, neutral: false })).toBeNull();
+    expect(creatureScale({ sizeBucket: 'toString' as SizeBucket, neutral: false })).toBeNull();
   });
 });

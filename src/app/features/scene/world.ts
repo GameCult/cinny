@@ -24,9 +24,10 @@ export const WORLD = {
   erodeSide: [1.7, 0, 1] as const,
   erodeNorm: 0.5,
   // Bound on |grad| of the phasor's cos component for the side and norm above. Libby measured a
-  // sup of 6.63 at |side| = 1.5, n = 0 (CultLib PR #1 head 990521b3); 7.0 adds margin. The
-  // shader passes roughness n = 0 as a literal, so the doc envelope max(10, 1.25|side|)/(1-n)
-  // needs no 1/(1-n) factor here; if n ever becomes nonzero, divide this bound by (1 - n).
+  // sup of 6.63 at |side| = 1.5, n = 0 (CultLib PR #1 head 990521b3); 7.0 adds margin.
+  // The sup was measured, not proved. The shader passes roughness n = 0 as a literal, so the doc
+  // envelope max(10, 1.25|side|)/(1-n) needs no 1/(1-n) factor here; if n ever becomes nonzero,
+  // divide this bound by (1 - n).
   // |value| <= 1 holds by construction (the output is a normalized phasor).
   // Typed number, not the literal 7, so callers can build variants such as { ...WORLD, phacelleGradBound: 0 }.
   phacelleGradBound: 7.0 as number,
