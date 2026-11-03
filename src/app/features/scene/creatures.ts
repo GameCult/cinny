@@ -33,5 +33,5 @@ export const BUCKET_SCALE: Readonly<Record<SizeBucket, number>> = {
 /** The draw scale, or null when nothing is drawn: a neutral creature, or a bucket that is absent or unknown. */
 export function creatureScale(c: Pick<Creature, 'sizeBucket' | 'neutral'>): number | null {
   if (c.neutral || c.sizeBucket === undefined) return null;
-  return Object.hasOwn(BUCKET_SCALE, c.sizeBucket) ? BUCKET_SCALE[c.sizeBucket] : null;
+  return Object.prototype.hasOwnProperty.call(BUCKET_SCALE, c.sizeBucket) ? BUCKET_SCALE[c.sizeBucket] : null;
 }
