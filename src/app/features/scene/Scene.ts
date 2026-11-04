@@ -1,13 +1,12 @@
 import { fragmentSource, vertexSource, Stage } from './shaderSource';
 import { cameraPose, pullProgress, CameraPose } from './camera';
 import { BudgetLadder, Level, LEVELS } from './budget';
+import { startFrameLoop } from './frameLoop';
 import type { SceneTier } from './tier';
 import { PALETTE } from './palette';
 
 /** Phone GPU budget for the whole scene, from the ground-cut doc's budget table. */
 export const GPU_BUDGET_MS = 4.0;
-const FRAME_INTERVAL_MS = 1000 / 30;
-const REDUCED_MOTION_FRAMES = 32;
 const MAX_DPR = 1.5;
 
 export type PassName = 'terrain' | 'atmosphere' | 'resolve' | 'composite' | 'prepass';
@@ -379,16 +378,11 @@ export function createScene(opts: SceneOptions): Scene | null {
     resetHistory = true;
   };
 
-  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
   const start = performance.now();
   let loginAt: number | undefined;
   let frame = 0;
   let histIndex = 0;
   let prev: CameraPose | undefined;
-  let raf = 0;
-  let lastRendered = -Infinity;
-  let framesLeft = still ? 1 : Infinity; // a still frame, or reduced motion, bounds this
-  let disposed = false;
 
   // Timer queries in flight: each holds one pass's query.
   const pending: Array<{ q: WebGLQuery; pass: PassName; frame: number }> = [];
@@ -456,7 +450,7 @@ export function createScene(opts: SceneOptions): Scene | null {
   const render = (now: number) => {
     ensureSize();
     const lv = level();
-    const frozen = reducedMotion?.matches ?? false;
+    const frozen = loop.frozen;
     const time = frozen ? 0 : (now - start) / 1000;
     let elapsed: number | undefined;
     if (loginAt !== undefined) elapsed = frozen ? 1e9 : (now - loginAt) / 1000;
@@ -554,79 +548,31 @@ export function createScene(opts: SceneOptions): Scene | null {
     pollReadback();
   };
 
-  const tick = (now: number) => {
-    raf = 0;
-    if (disposed) return;
-    const due = opts.unthrottled || now - lastRendered >= FRAME_INTERVAL_MS - 2;
-    if (due) {
-      if (
-        !opts.fixedLevel &&
-        !timer &&
-        lastRendered > 0 &&
-        now - lastRendered > FRAME_INTERVAL_MS * 1.5
-      ) {
-        // no timer: a missed cap counts as over budget
-        if (ladder.push(GPU_BUDGET_MS * 2)) sizedFor = undefined;
-      }
-      lastRendered = now;
-      render(now);
-      framesLeft -= 1;
-    }
-    if (framesLeft > 0 && (opts.unthrottled || document.visibilityState === 'visible'))
-      raf = requestAnimationFrame(tick);
-  };
-
-  const wake = () => {
-    if (disposed || raf) return;
-    if (reducedMotion?.matches && framesLeft <= 0) return;
-    resetHistory = true; // the first frame after a pause has a real elapsed dt
-    raf = requestAnimationFrame(tick);
-  };
-  const undo: Array<() => void> = [];
-  const listen = (target: EventTarget, type: string, handler: (e: Event) => void) => {
-    target.addEventListener(type, handler);
-    undo.push(() => target.removeEventListener(type, handler));
-  };
-  const stop = () => {
-    disposed = true;
-    if (raf) cancelAnimationFrame(raf);
-    undo.forEach((f) => f());
-  };
-  if (!opts.unthrottled) {
-    listen(document, 'visibilitychange', () => {
-      if (document.visibilityState === 'visible') wake();
-    });
-  }
-  listen(window, 'resize', () => wake());
-  // A lost context takes every texture and program with it and nothing here rebuilds them, so the
-  // scene ends and the host decides what to show. preventDefault: otherwise the browser never
-  // restores the context, which is what we want, and a restore would find a dead scene.
-  listen(canvas, 'webglcontextlost', (e) => {
-    e.preventDefault();
-    stop();
-    opts.onContextLost?.();
+  const loop = startFrameLoop({
+    canvas,
+    still,
+    unthrottled: opts.unthrottled,
+    render,
+    onSlow: () => {
+      // no timer: a missed cap counts as over budget
+      if (!opts.fixedLevel && !timer && ladder.push(GPU_BUDGET_MS * 2)) sizedFor = undefined;
+    },
+    onResume: () => {
+      resetHistory = true; // the first frame after a pause has a real elapsed dt
+    },
+    onContextLost: opts.onContextLost,
   });
-  if (reducedMotion?.matches && !still) framesLeft = REDUCED_MOTION_FRAMES;
-  // The preference can flip while the scene lives: freeze to a bounded run, or thaw to a free one.
-  if (reducedMotion && !still) {
-    listen(reducedMotion, 'change', () => {
-      framesLeft = reducedMotion.matches ? REDUCED_MOTION_FRAMES : Infinity;
-      wake();
-    });
-  }
-  wake();
 
   return {
     startFormat: halfStart ? 'RGBA16F' : 'RGBA32F',
     login() {
-      if (still || disposed) return; // a still has no pull-back
+      if (still || loop.disposed) return; // a still has no pull-back
       loginAt = performance.now();
-      if (reducedMotion?.matches) framesLeft = REDUCED_MOTION_FRAMES;
-      wake();
+      loop.restart();
     },
     dispose() {
-      if (disposed) return;
-      stop();
+      if (loop.disposed) return;
+      loop.stop();
       freeTargets();
       passes.forEach((p) => gl.deleteProgram(programs[p]));
       discardReadback();
