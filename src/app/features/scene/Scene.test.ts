@@ -1,57 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
-import { createScene, ShaderCompileError, HALF_START_BIAS, HALF_START_SCALE } from './Scene';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fakeCanvas, fakeGl } from './fakeGl';
+import { createScene, HALF_START_BIAS, HALF_START_SCALE } from './Scene';
+import { ShaderCompileError } from './link';
 import { WORLD } from './world';
 import { LEVELS } from './budget';
 import { fragmentSource } from './shaderSource';
 import { startBackgroundScene } from './index';
-
-type Fn = Mock;
-
-/** A GL context where every call is a spy and every constant is 1. Compiles succeed until `failFrom`. */
-function fakeGl(failFrom = Infinity, missing: string[] = []) {
-  let compiles = 0;
-  const calls: Record<string, Fn> = {};
-  const spy = (name: string, impl: (...a: any[]) => unknown = () => ({})): Fn => {
-    if (!calls[name]) calls[name] = vi.fn(impl);
-    return calls[name];
-  };
-  const gl = new Proxy({} as Record<string, unknown>, {
-    get(_, prop: string) {
-      // the two start-target formats must be told apart; every other constant is 1
-      if (prop === 'RGBA32F') return 32;
-      if (prop === 'RGBA16F') return 16;
-      if (/^[A-Z][A-Z0-9_]*$/.test(prop)) return 1;
-      if (prop === 'getExtension')
-        return spy(prop, (n: string) => (missing.includes(n) ? null : {}));
-      if (prop === 'compileShader') {
-        return spy(prop, () => {
-          compiles += 1;
-        });
-      }
-      if (prop === 'getShaderParameter') return spy(prop, () => compiles < failFrom);
-      if (prop === 'getShaderInfoLog') return spy(prop, () => 'ERROR: 0:1: bad');
-      if (prop === 'getProgramParameter') return spy(prop, () => true);
-      return spy(prop);
-    },
-  });
-  return { gl: gl as unknown as WebGL2RenderingContext, calls };
-}
-
-function fakeCanvas(gl: WebGL2RenderingContext | null) {
-  const canvas = new EventTarget() as EventTarget & {
-    clientWidth: number;
-    clientHeight: number;
-    width: number;
-    height: number;
-    getContext: Fn;
-  };
-  canvas.clientWidth = 400;
-  canvas.clientHeight = 300;
-  canvas.width = 0;
-  canvas.height = 0;
-  canvas.getContext = vi.fn(() => gl);
-  return canvas;
-}
 
 let rafQueue: Array<(t: number) => void>;
 let cancelled: number;
@@ -397,7 +351,7 @@ describe('startBackgroundScene', () => {
   it('applies the device ceiling: saveData runs a still, one frame', async () => {
     const { gl, calls } = fakeGl();
     const scene = await startBackgroundScene(
-      { tier: 'full' },
+      { tier: 'full', style: 'raymarch' },
       { saveData: true },
       { canvas: asCanvas(fakeCanvas(gl)) }
     );
@@ -416,13 +370,19 @@ describe('startBackgroundScene', () => {
       const { startBackgroundScene: start } = await import('./index');
       const onCompileFail = vi.fn();
       const canvas = fakeCanvas(fakeGl().gl);
-      const scene = await start({ tier: 'full' }, {}, { canvas: asCanvas(canvas), onCompileFail });
+      const scene = await start(
+        { tier: 'full', style: 'raymarch' },
+        {},
+        { canvas: asCanvas(canvas), onCompileFail }
+      );
       expect(scene).toBeNull();
       expect(onCompileFail).toHaveBeenCalledTimes(1);
       expect(onCompileFail.mock.calls[0][0]).toBeInstanceOf(Error);
       expect(canvas.getContext).not.toHaveBeenCalled();
       // and with no callback it still does not throw
-      expect(await start({ tier: 'full' }, {}, { canvas: asCanvas(canvas) })).toBeNull();
+      expect(
+        await start({ tier: 'full', style: 'raymarch' }, {}, { canvas: asCanvas(canvas) })
+      ).toBeNull();
     } finally {
       vi.doUnmock('./Scene');
       vi.resetModules();

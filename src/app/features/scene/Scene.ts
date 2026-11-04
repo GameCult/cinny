@@ -1,4 +1,5 @@
-import { fragmentSource, vertexSource, Stage } from './shaderSource';
+import { Stage } from './shaderSource';
+import { linkStage, ShaderCompileError, SourcePatch } from './link';
 import { cameraPose, pullProgress, CameraPose } from './camera';
 import { BudgetLadder, Level, LEVELS } from './budget';
 import { startFrameLoop } from './frameLoop';
@@ -22,6 +23,17 @@ export interface SceneStats {
   atmosphereSize: [number, number];
 }
 
+/** The voxel scene's per-frame figures, with no extension needed. */
+export interface FrameStats {
+  /** Milliseconds since the previous frame: the cadence, 33 ms at the 30 fps cap. */
+  frameMs: number;
+  /** Milliseconds one frame took to draw and read back; only when the host asked for trace stats, which forces a sync. */
+  renderMs?: number;
+  /** Drawing-buffer size as a fraction of the canvas's CSS size times device pixel ratio. */
+  scale: number;
+  size: [number, number];
+}
+
 /** Trace cost over one finished readback: mean distance evaluations per pass-1 pixel. */
 export interface TraceStats {
   /** Mean pass-1 steps per pixel. */
@@ -30,15 +42,6 @@ export interface TraceStats {
   prepassSteps: number;
   /** traceSteps plus the prepass's steps spread over the pixels of each tile. */
   stepsPerPixel: number;
-}
-
-/** Measurement seam: the harness rewrites a stage's source to time a variant. Never set in the client. */
-export type SourcePatch = (stage: Stage, source: string) => string;
-
-export class ShaderCompileError extends Error {
-  constructor(readonly stage: Stage | 'vertex', readonly log: string) {
-    super(`${stage} shader failed to compile:\n${log}`);
-  }
 }
 
 /**
@@ -91,6 +94,10 @@ export interface SceneOptions {
   fixedLevel?: Level;
   /** Cone prepass that starts pass-1 rays past empty space. Default true; false is the measurement baseline. */
   prepass?: boolean;
+  /** Voxel scene: per finished frame, the cadence and the drawing-buffer scale. */
+  onFrameStats?: (s: FrameStats) => void;
+  /** Voxel scene: seconds for the camera path, instead of the clock (measurement, tests). */
+  clock?: () => number;
   /** Hold the camera at this pull-back progress, 0..1, instead of following login (measurement). */
   fixedPull?: number;
   /** Ignore the 30 fps cap and the visibility pause (measurement). */
@@ -99,55 +106,11 @@ export interface SceneOptions {
 }
 
 export interface Scene {
-  /** Texture format of the prepass start target. */
-  readonly startFormat: 'RGBA32F' | 'RGBA16F';
+  /** Texture format of the ray-march scene's prepass start target; the voxel scene has none. */
+  readonly startFormat?: 'RGBA32F' | 'RGBA16F';
   /** Start the camera pull-back from the tree. */
   login(): void;
   dispose(): void;
-}
-
-function compile(
-  gl: WebGL2RenderingContext,
-  type: number,
-  source: string,
-  stage: Stage | 'vertex'
-): WebGLShader {
-  const sh = gl.createShader(type)!;
-  gl.shaderSource(sh, source);
-  gl.compileShader(sh);
-  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-    const log = gl.getShaderInfoLog(sh) ?? '';
-    gl.deleteShader(sh);
-    throw new ShaderCompileError(stage, log);
-  }
-  return sh;
-}
-
-export function linkStage(
-  gl: WebGL2RenderingContext,
-  stage: Stage,
-  patch?: SourcePatch,
-  defines?: string
-): WebGLProgram {
-  const vs = compile(gl, gl.VERTEX_SHADER, vertexSource, 'vertex');
-  const fs = compile(
-    gl,
-    gl.FRAGMENT_SHADER,
-    patch ? patch(stage, fragmentSource(stage, defines)) : fragmentSource(stage, defines),
-    stage
-  );
-  const prog = gl.createProgram()!;
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  gl.deleteShader(vs);
-  gl.deleteShader(fs);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    const log = gl.getProgramInfoLog(prog) ?? '';
-    gl.deleteProgram(prog);
-    throw new ShaderCompileError(stage, log);
-  }
-  return prog;
 }
 
 interface Target {
