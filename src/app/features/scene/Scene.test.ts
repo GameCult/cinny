@@ -1,21 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
-import { createScene, ShaderCompileError } from './Scene';
+import { createScene, ShaderCompileError, HALF_START_BIAS, HALF_START_SCALE } from './Scene';
+import { WORLD } from './world';
 import { LEVELS } from './budget';
+import { fragmentSource } from './shaderSource';
 import { startBackgroundScene } from './index';
 
 type Fn = Mock;
 
 /** A GL context where every call is a spy and every constant is 1. Compiles succeed until `failFrom`. */
-function fakeGl(failFrom = Infinity) {
+function fakeGl(failFrom = Infinity, missing: string[] = []) {
   let compiles = 0;
   const calls: Record<string, Fn> = {};
-  const spy = (name: string, impl: () => unknown = () => ({})): Fn => {
+  const spy = (name: string, impl: (...a: any[]) => unknown = () => ({})): Fn => {
     if (!calls[name]) calls[name] = vi.fn(impl);
     return calls[name];
   };
   const gl = new Proxy({} as Record<string, unknown>, {
     get(_, prop: string) {
+      // the two start-target formats must be told apart; every other constant is 1
+      if (prop === 'RGBA32F') return 32;
+      if (prop === 'RGBA16F') return 16;
       if (/^[A-Z][A-Z0-9_]*$/.test(prop)) return 1;
+      if (prop === 'getExtension')
+        return spy(prop, (n: string) => (missing.includes(n) ? null : {}));
       if (prop === 'compileShader') {
         return spy(prop, () => {
           compiles += 1;
@@ -94,7 +101,7 @@ describe('createScene tiers', () => {
     const scene = createScene({ canvas: asCanvas(fakeCanvas(gl)), tier: 'still' });
     expect(scene).not.toBeNull();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(4); // four passes, one frame
+    expect(calls.drawArrays).toHaveBeenCalledTimes(5); // prepass and four passes, one frame
     expect(rafQueue).toHaveLength(0);
   });
 
@@ -129,6 +136,137 @@ describe('createScene tiers', () => {
 
   it('returns null when WebGL2 is missing, so the host keeps its ground', () => {
     expect(createScene({ canvas: asCanvas(fakeCanvas(null)) })).toBeNull();
+  });
+});
+
+describe('cone prepass', () => {
+  const programsFor = (prepass?: boolean) => {
+    rafQueue.length = 0;
+    const { gl, calls } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)), prepass });
+    return calls.createProgram.mock.calls.length;
+  };
+
+  it('is one more program than the baseline, and off means off', () => {
+    expect(programsFor(true)).toBe(programsFor(false) + 1);
+    expect(programsFor(undefined)).toBe(programsFor(true));
+  });
+
+  it('draws before pass 1 and only when on', () => {
+    const drawsFor = (prepass: boolean) => {
+      rafQueue.length = 0;
+      const { gl, calls } = fakeGl();
+      createScene({ canvas: asCanvas(fakeCanvas(gl)), prepass });
+      runFrame(1000);
+      return calls.drawArrays.mock.calls.length;
+    };
+    expect(drawsFor(true)).toBe(drawsFor(false) + 1);
+  });
+
+  it('the trace-step output exists in pass 1 only when the host asked to measure', () => {
+    expect(fragmentSource('terrain')).not.toContain('TRACE_STATS 1');
+    expect(fragmentSource('terrain', '#define TRACE_STATS 1\n')).toContain('#define TRACE_STATS 1');
+  });
+
+  it('reads the step bytes tightly packed, whatever the width', () => {
+    rafQueue.length = 0;
+    const { gl, calls } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)), onTraceStats: () => {} });
+    runFrame(1000);
+    // fake constants are all 1: PACK_ALIGNMENT is 1, so a restore to 4 is the only other call
+    const packs = calls.pixelStorei.mock.calls.map((c) => c[1]);
+    expect(packs[0]).toBe(1);
+    expect(packs).toContain(4);
+    expect(calls.readPixels.mock.invocationCallOrder[0]).toBeGreaterThan(
+      calls.pixelStorei.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('shares one distance bound between pass 1 and the prepass', () => {
+    const bound = (stage: 'terrain' | 'prepass') =>
+      fragmentSource(stage).match(/float sceneDistance\([^)]*\)\s*\{[^}]*\}/)?.[0];
+    expect(bound('prepass')).toBeDefined();
+    expect(bound('prepass')).toBe(bound('terrain'));
+    expect(fragmentSource('atmosphere')).not.toContain('sceneDistance');
+  });
+});
+
+describe('device without EXT_color_buffer_float', () => {
+  const FLOAT = 'EXT_color_buffer_float';
+  const HALF = 'EXT_color_buffer_half_float';
+  const build = (missing: string[], extra: Partial<Parameters<typeof createScene>[0]> = {}) => {
+    rafQueue.length = 0;
+    const { gl, calls } = fakeGl(Infinity, missing);
+    const onUnavailable = vi.fn();
+    const scene = createScene({ canvas: asCanvas(fakeCanvas(gl)), onUnavailable, ...extra });
+    if (scene) runFrame(1000); // targets are allocated on the first frame
+    const formats = calls.texStorage2D?.mock.calls.map((c) => c[2]) ?? [];
+    const sources = (calls.shaderSource?.mock.calls ?? []).map((c) => c[1] as string);
+    return {
+      scene,
+      onUnavailable,
+      formats,
+      prepassSource: sources.find((x) => x.includes('o_start')),
+    };
+  };
+
+  it('names why the scene is unavailable: no WebGL2, or neither float nor half-float colour buffers', () => {
+    const none = vi.fn();
+    createScene({ canvas: asCanvas(fakeCanvas(null)), onUnavailable: none });
+    expect(none).toHaveBeenCalledTimes(1);
+    expect(none).toHaveBeenCalledWith('no-webgl2');
+    const r = build([FLOAT, HALF]);
+    expect(r.scene).toBeNull();
+    expect(r.onUnavailable).toHaveBeenCalledTimes(1);
+    expect(r.onUnavailable).toHaveBeenCalledWith('no-float-or-half-float-colour-buffer');
+    expect(build([]).onUnavailable).not.toHaveBeenCalled();
+  });
+
+  it('with only half-float colour buffers, starts the prepass in an RGBA16F target with the rounding-down write', () => {
+    const r = build([FLOAT]);
+    expect(r.scene?.startFormat).toBe('RGBA16F');
+    expect(r.formats).not.toContain(32);
+    expect(r.prepassSource).toContain('#define START_HALF 1');
+    expect(r.prepassSource).toContain(`#define START_HALF_SCALE ${HALF_START_SCALE}`);
+  });
+
+  it('keeps RGBA32F and the plain write where it is renderable, unless asked for half', () => {
+    const wide = build([HALF]);
+    expect(wide.scene?.startFormat).toBe('RGBA32F');
+    expect(wide.formats).toContain(32);
+    expect(wide.prepassSource).not.toContain('#define START_HALF');
+    expect(build([], { halfStart: true }).scene?.startFormat).toBe('RGBA16F');
+  });
+
+  // The shader writes max(0, t*SCALE - BIAS) into a half, which rounds to nearest (even); this is
+  // that rounding. The GPU's rounding of a half write is the unknown a phone must confirm.
+  const toHalf = (x: number) => {
+    if (x === 0) return 0;
+    let e = Math.max(Math.floor(Math.log2(x)), -14);
+    if (2 ** e > x) e -= 1;
+    const ulp = 2 ** (e - 10);
+    const q = x / ulp;
+    let r = Math.floor(q);
+    const d = q - r;
+    if (d > 0.5 || (d === 0.5 && r % 2 === 1)) r += 1;
+    return r * ulp;
+  };
+  const stored = (t: number) => toHalf(Math.max(0, t * HALF_START_SCALE - HALF_START_BIAS));
+
+  it('stores a start distance never past the true one, and not much short of it', () => {
+    let seed = 7;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const ts = [0, 1e-6, 1e-4, 6.1e-5, 0.01, 1, 1023.9, 1024, 2047.9];
+    for (let i = 0; i < 20000; i++) ts.push(rand() * WORLD.far, rand() * rand() * 4);
+    for (let t = 0; t <= WORLD.far; t += 0.37) ts.push(t);
+    for (const t of ts) {
+      expect(stored(t)).toBeLessThanOrEqual(t);
+      expect(t - stored(t)).toBeLessThanOrEqual(t * 0.0021 + 6e-5);
+    }
+  });
+
+  it('holds the miss sentinel W_FAR exactly, so pass 1 still skips a tile the prepass proved empty', () => {
+    expect(toHalf(WORLD.far)).toBe(WORLD.far);
   });
 });
 
@@ -265,7 +403,7 @@ describe('startBackgroundScene', () => {
     );
     expect(scene).not.toBeNull();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(4);
+    expect(calls.drawArrays).toHaveBeenCalledTimes(5);
     expect(rafQueue).toHaveLength(0);
   });
 
