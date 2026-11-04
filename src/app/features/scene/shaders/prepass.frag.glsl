@@ -39,8 +39,9 @@ void main()
     for (int i = 0; i < u_maxSteps && t < tEnd; i++)
     {
         evals++;
-        // Pass 1's hit tolerance is kept clear, so a ray never starts inside its own hit radius.
-        float s = sceneDistance(ro + rd * t, leafness, onTree) - spread * t - (0.0006 * t + 0.01);
+        // Pass 1's hit tolerance, 0.0006 t + 0.01, is kept clear at the far end of the step too, so
+        // no ray of the tile starts inside its own hit radius.
+        float s = (sceneDistance(ro + rd * t, leafness, onTree) - spread * t - (0.0006 * t + 0.01)) / 1.0006;
         if (s <= 0.0)
             break;
         t += s;

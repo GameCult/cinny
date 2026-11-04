@@ -254,6 +254,7 @@ export function createScene(opts: SceneOptions): Scene | null {
   };
   const startReadback = () => {
     if (!steps || readback) return;
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 1); // R8 rows are not 4-byte multiples at every width
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, packSteps);
     gl.bufferData(gl.PIXEL_PACK_BUFFER, steps.w * steps.h, gl.STREAM_READ);
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbos.solid);
@@ -268,6 +269,7 @@ export function createScene(opts: SceneOptions): Scene | null {
       gl.readPixels(0, 0, startTex.w, startTex.h, gl.RGBA, gl.FLOAT, 0);
     }
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
     readback = {
       fence: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!,
       pixels: steps.w * steps.h,

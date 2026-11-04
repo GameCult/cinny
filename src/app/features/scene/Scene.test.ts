@@ -162,6 +162,20 @@ describe('cone prepass', () => {
     expect(fragmentSource('terrain', '#define TRACE_STATS 1\n')).toContain('#define TRACE_STATS 1');
   });
 
+  it('reads the step bytes tightly packed, whatever the width', () => {
+    rafQueue.length = 0;
+    const { gl, calls } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)), onTraceStats: () => {} });
+    runFrame(1000);
+    // fake constants are all 1: PACK_ALIGNMENT is 1, so a restore to 4 is the only other call
+    const packs = calls.pixelStorei.mock.calls.map((c) => c[1]);
+    expect(packs[0]).toBe(1);
+    expect(packs).toContain(4);
+    expect(calls.readPixels.mock.invocationCallOrder[0]).toBeGreaterThan(
+      calls.pixelStorei.mock.invocationCallOrder[0]
+    );
+  });
+
   it('shares one distance bound between pass 1 and the prepass', () => {
     const bound = (stage: 'terrain' | 'prepass') =>
       fragmentSource(stage).match(/float sceneDistance\([^)]*\)\s*\{[^}]*\}/)?.[0];
