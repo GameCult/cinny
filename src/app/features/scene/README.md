@@ -14,7 +14,8 @@ callbacks and the creature sizing rule. Nothing has drawn a creature.
   door. The client config's `backgroundScene.tier` (`off` default, `still`, `low`, `full`) is the
   feature flag and the ceiling; `tier.ts` lowers it for `saveData`, low memory or few cores. At
   `off` nothing is imported and no canvas context is requested; otherwise `Scene.ts` loads on
-  demand, so it stays out of the main chunk; if that chunk fails to load the error goes to
+  demand, so it stays out of the main chunk; `backgroundScene.style` picks which scene loads:
+  `voxel` (default, below) or `raymarch` (the rest of this file); if that chunk fails to load the error goes to
   `onCompileFail` and the door returns null, it does not throw.
 - `Scene.ts` `createScene({ canvas, tier, onCompileFail, onContextLost, ... })` returns
   `{ login, dispose }`, or `null` (keep the CSS ground then) when the tier is `off`, WebGL2 is missing, neither
@@ -72,6 +73,38 @@ not evaluated.
   hit proven by the march.
 - The low-resolution atmosphere samples pass-1 depth nearest, so silhouettes of near objects
   carry a thin fog halo.
+
+## The voxel scene (default style)
+
+`voxel/Voxel.ts` `createVoxelScene` takes the same options and returns the same `{ login, dispose }`
+as `createScene`, so the door swaps one for the other. It is the cheap background: WebGL2 core
+only (no extension is requested, no float target is allocated), one fullscreen pass.
+
+- A wrapping ring of 256 x 256 world cells (8 units each) around the camera, in an RG8 texture
+  holding a 16-bit height per cell. Cell (x, z) lives at texel (x mod 256, z mod 256). When the
+  camera crosses into another cell, `ring.ts` `ringRects` names the columns and rows it admitted
+  and `shaders/voxelHeight.frag.glsl` rewrites exactly those, scissored: one `terrainFbm` plus one
+  Phacelle per texel, the ray-march scene's terrain without its plateau mask. A cell's height is a
+  pure function of the cell, so the order of writes cannot change the ring. A move of a whole ring
+  or more, or the first frame, rewrites all of it.
+- `shaders/voxel.frag.glsl`: per pixel below the horizon, march the screen column from the camera
+  outward, one lookup per step (steps grow with depth, at most 128, none past 120 cells), and stop
+  at the first column whose top reaches the pixel. The camera flies above the highest terrain, so
+  sky pixels spend no lookups and the march starts where a pixel first could be covered. That is
+  the image a running-horizon column renderer paints, found per pixel instead of carrying the
+  horizon between pixels, which one fullscreen pass cannot do.
+- The sky is baked once into RGBA8 (`voxelSky.frag.glsl`, gradient plus cloud bands) and sampled
+  by azimuth and elevation. The CSS ground stays the fallback: `createVoxelScene` returns null
+  where `createScene` would, and says why through `onUnavailable`.
+- Resolution adapts through the drawing-buffer size, not extra targets: `BudgetLadder` over
+  `SCALE_LEVELS` steps down when the median frame time misses the 30 fps cap, using only
+  `requestAnimationFrame` cadence, since timer queries are an extension.
+- `rails.ts` is the camera: a straight rail with the yaw wandering either side and sway, constant
+  altitude above the terrain; `login()` lifts and tips it down.
+- Measurement without extensions: `onFrameStats` gives the cadence and the buffer size; setting
+  `onTraceStats` makes one frame in eight draw a second, off-screen copy with lookup counts in
+  alpha and read it back (lookups per pixel), after timing the first draw with a one-texel
+  synchronous read. `harness/scene` has `drive.cjs voxel` and a standalone page.
 
 ## Measured and not measured
 
