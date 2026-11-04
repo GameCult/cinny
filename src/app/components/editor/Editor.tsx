@@ -23,6 +23,9 @@ import { RenderElement, RenderLeaf } from './Elements';
 import { CustomElement } from './slate';
 import * as css from './Editor.css';
 import { toggleKeyboardShortcut } from './keyboard';
+import { useSetting } from '../../state/hooks/settings';
+import { settingsAtom } from '../../state/settings';
+import { composerSpellcheckAttributes } from './spellcheck';
 
 const initialValue: CustomElement[] = [
   {
@@ -90,6 +93,7 @@ export const CustomEditor = forwardRef<HTMLDivElement, CustomEditorProps>(
     },
     ref
   ) => {
+    const [composerSpellcheck] = useSetting(settingsAtom, 'composerSpellcheck');
     const renderElement = useCallback(
       (props: RenderElementProps) => <RenderElement {...props} />,
       []
@@ -146,6 +150,7 @@ export const CustomEditor = forwardRef<HTMLDivElement, CustomEditorProps>(
                 onKeyDown={handleKeydown}
                 onKeyUp={onKeyUp}
                 onPaste={onPaste}
+                {...composerSpellcheckAttributes(composerSpellcheck)}
               />
             </Scroll>
             {after && (

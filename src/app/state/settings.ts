@@ -1,4 +1,5 @@
 import { atom } from 'jotai';
+import { defaultComposerSpellcheck } from '../components/editor/spellcheck';
 
 const STORAGE_KEY = 'settings';
 export type DateFormat =
@@ -30,6 +31,7 @@ export interface Settings {
   isPeopleDrawer: boolean;
   memberSortFilterIndex: number;
   enterForNewline: boolean;
+  composerSpellcheck: boolean;
   messageLayout: MessageLayout;
   messageSpacing: MessageSpacing;
   hideMembershipEvents: boolean;
@@ -64,6 +66,7 @@ const defaultSettings: Settings = {
   isPeopleDrawer: false,
   memberSortFilterIndex: 0,
   enterForNewline: false,
+  composerSpellcheck: defaultComposerSpellcheck(window.matchMedia?.bind(window)),
   messageLayout: 2,
   messageSpacing: '400',
   hideMembershipEvents: false,
