@@ -7,7 +7,7 @@ uniform int u_maxSteps;
 uniform vec2 u_tileHalf;   // half a tile in uv: the footprint of this texel, as pass 1 samples it
 
 in vec2 v_uv;
-layout(location = 0) out vec4 o_start;   // r: start distance, W_FAR when the tile misses; g: steps spent
+layout(location = 0) out vec4 o_start;   // r: start distance, W_FAR when the tile misses; g: steps spent (a half holds both)
 
 void main()
 {
@@ -46,5 +46,12 @@ void main()
             break;
         t += s;
     }
-    o_start = vec4(t >= tEnd ? W_FAR : t, float(evals), 0.0, 0.0);
+    float start = t;
+#ifdef START_HALF
+    // The target is RGBA16F: the write rounds to a half, and the round may go up. Any start past
+    // the true one is a ray that could skip a surface, so shave more than half a ulp off first
+    // (START_HALF_SCALE, START_HALF_BIAS: Scene.ts). W_FAR stays exact, an integer a half holds.
+    start = max(0.0, t * START_HALF_SCALE - START_HALF_BIAS);
+#endif
+    o_start = vec4(t >= tEnd ? W_FAR : start, float(evals), 0.0, 0.0);
 }

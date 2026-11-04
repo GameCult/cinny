@@ -42,6 +42,23 @@ export class ShaderCompileError extends Error {
   }
 }
 
+/**
+ * Why createScene returned null for want of a device feature. Rendering to half floats needs
+ * EXT_color_buffer_float or EXT_color_buffer_half_float; the prepass start target is RGBA32F with
+ * the first and RGBA16F with only the second.
+ */
+export type SceneUnavailable = 'no-webgl2' | 'no-float-or-half-float-colour-buffer';
+
+/**
+ * The RGBA16F prepass start is written as `t * HALF_START_SCALE - HALF_START_BIAS`. A half rounds
+ * to nearest with relative error at most 2^-11, so shaving 2^-10 of t leaves the stored value
+ * below t, and the bias covers the absolute error where halves go subnormal. The shader reads both
+ * through #defines, so this is the one copy.
+ */
+export const HALF_START_SCALE = 1 - 1 / 1024;
+export const HALF_START_BIAS = 1 / 32768;
+const HALF_START_DEFINES = `#define START_HALF 1\n#define START_HALF_SCALE ${HALF_START_SCALE}\n#define START_HALF_BIAS ${HALF_START_BIAS}\n`;
+
 /** Ladder level a 'low' scene starts at: the cost of a weak device's first 45 frames is never paid at full. */
 const LOW_START_LEVEL = 2;
 /** The 'still' tier draws one frame at this level and stops. */
@@ -54,6 +71,10 @@ export interface SceneOptions {
    * the adaptive ladder low. 'full' starts it at the top. Default 'full'.
    */
   tier?: SceneTier;
+  /** createScene is about to return null because the device lacks a feature, and which one. */
+  onUnavailable?: (reason: SceneUnavailable) => void;
+  /** Force the RGBA16F prepass start target even where RGBA32F is renderable (measurement, tests). */
+  halfStart?: boolean;
   /** A shader failed to compile or link. createScene frees what it built and returns null. */
   onCompileFail?: (e: ShaderCompileError) => void;
   /** The WebGL context was lost. The scene stops for good; the host keeps its ground. */
@@ -79,6 +100,8 @@ export interface SceneOptions {
 }
 
 export interface Scene {
+  /** Texture format of the prepass start target. */
+  readonly startFormat: 'RGBA32F' | 'RGBA16F';
   /** Start the camera pull-back from the tree. */
   login(): void;
   dispose(): void;
@@ -146,7 +169,7 @@ function halton(i: number, base: number): number {
   return r;
 }
 
-/** Null when WebGL2 or float colour buffers are missing; the host keeps its CSS ground. */
+/** Null when WebGL2 or a float colour buffer is missing (`onUnavailable` says which); the host keeps its CSS ground. */
 export function createScene(opts: SceneOptions): Scene | null {
   const { canvas } = opts;
   const tier = opts.tier ?? 'full';
@@ -158,7 +181,17 @@ export function createScene(opts: SceneOptions): Scene | null {
     stencil: false,
     powerPreference: 'low-power',
   });
-  if (!gl || !gl.getExtension('EXT_color_buffer_float')) return null;
+  if (!gl) {
+    opts.onUnavailable?.('no-webgl2');
+    return null;
+  }
+  const wide = !!gl.getExtension('EXT_color_buffer_float');
+  if (!wide && !gl.getExtension('EXT_color_buffer_half_float')) {
+    opts.onUnavailable?.('no-float-or-half-float-colour-buffer');
+    return null;
+  }
+  // Every other target is a half; only the prepass start can ask for 32 bits.
+  const halfStart = opts.halfStart || !wide;
   gl.getExtension('OES_texture_float_linear');
   const timer = gl.getExtension('EXT_disjoint_timer_query_webgl2') as {
     TIME_ELAPSED_EXT: number;
@@ -170,12 +203,13 @@ export function createScene(opts: SceneOptions): Scene | null {
   const programs = {} as Record<PassName, WebGLProgram>;
   try {
     passes.forEach((p) => {
-      programs[p] = linkStage(
-        gl,
-        p,
-        opts.patchSource,
-        p === 'terrain' && opts.onTraceStats ? '#define TRACE_STATS 1\n' : undefined
-      );
+      const defines =
+        p === 'terrain' && opts.onTraceStats
+          ? '#define TRACE_STATS 1\n'
+          : p === 'prepass' && halfStart
+          ? HALF_START_DEFINES
+          : undefined;
+      programs[p] = linkStage(gl, p, opts.patchSource, defines);
     });
   } catch (e) {
     passes.forEach((p) => {
@@ -195,6 +229,8 @@ export function createScene(opts: SceneOptions): Scene | null {
 
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
+
+  const startFormat = halfStart ? gl.RGBA16F : gl.RGBA32F;
 
   const makeTarget = (w: number, h: number, format: number, filter: number): Target => {
     const tex = gl.createTexture()!;
@@ -329,8 +365,8 @@ export function createScene(opts: SceneOptions): Scene | null {
     depth = makeTarget(sw, sh, gl.R16F, gl.NEAREST);
     // Without the prepass pass 1 reads a 1x1 zero start: every ray from the camera, as before.
     startTex = usePrepass
-      ? makeTarget(Math.ceil(sw / TILE), Math.ceil(sh / TILE), gl.RGBA32F, gl.NEAREST)
-      : makeTarget(1, 1, gl.RGBA32F, gl.NEAREST);
+      ? makeTarget(Math.ceil(sw / TILE), Math.ceil(sh / TILE), startFormat, gl.NEAREST)
+      : makeTarget(1, 1, startFormat, gl.NEAREST);
     steps = opts.onTraceStats ? makeTarget(sw, sh, gl.R8, gl.NEAREST) : undefined;
     atm = makeTarget(aw, ah, gl.RGBA16F, gl.LINEAR);
     hist = [makeTarget(aw, ah, gl.RGBA16F, gl.LINEAR), makeTarget(aw, ah, gl.RGBA16F, gl.LINEAR)];
@@ -581,6 +617,7 @@ export function createScene(opts: SceneOptions): Scene | null {
   wake();
 
   return {
+    startFormat: halfStart ? 'RGBA16F' : 'RGBA32F',
     login() {
       if (still || disposed) return; // a still has no pull-back
       loginAt = performance.now();

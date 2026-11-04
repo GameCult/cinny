@@ -33,7 +33,7 @@ esbuild
       path.join(out, 'index.html'),
       '<!doctype html><meta charset=utf-8><title>Ratatoskr scene: trace prepass</title><body style="margin:0;background:#000"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas>' +
         (demo
-          ? '<div style="position:fixed;left:8px;top:8px;padding:6px 8px;background:#000a;color:#ddd;font:12px monospace"><label><input id=prepass type=checkbox checked> cone prepass</label> <label>pull-back <input id=pull type=range min=0 max=1 step=0.05 value=0.6></label><pre id=out style="margin:4px 0 0"></pre></div>'
+          ? '<div style="position:fixed;left:8px;top:8px;padding:6px 8px;background:#000a;color:#ddd;font:12px monospace"><label><input id=prepass type=checkbox checked> cone prepass</label> <label><input id=half type=checkbox> half-float start</label> <label>pull-back <input id=pull type=range min=0 max=1 step=0.05 value=0.6></label><pre id=out style="margin:4px 0 0;white-space:pre-wrap"></pre><details id=dev><summary>device</summary><pre id=info style="margin:4px 0 0;white-space:pre-wrap;max-height:50vh;overflow:auto"></pre></details></div>'
           : '') +
         '<script src=bundle.js></script>'
     );
