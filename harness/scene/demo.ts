@@ -3,7 +3,7 @@
 import { createScene, Scene, SceneStats, TraceStats } from '../../src/app/features/scene/Scene';
 import { LEVELS } from '../../src/app/features/scene/budget';
 
-const canvas = document.getElementById('c') as HTMLCanvasElement;
+let canvas = document.getElementById('c') as HTMLCanvasElement;
 const out = document.getElementById('out') as HTMLPreElement;
 const box = document.getElementById('prepass') as HTMLInputElement;
 const pull = document.getElementById('pull') as HTMLInputElement;
@@ -22,6 +22,7 @@ function start() {
   // A fresh canvas: a context cannot change its attributes, and dispose leaves the old one bound.
   const fresh = canvas.cloneNode() as HTMLCanvasElement;
   canvas.replaceWith(fresh);
+  canvas = fresh;
   scene = createScene({
     canvas: fresh,
     unthrottled: true,
