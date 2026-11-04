@@ -97,8 +97,8 @@ describe('voxel ring generation', () => {
   it('the first frame bakes the sky, fills the whole ring once, and draws backdrop then strips', () => {
     const { calls } = build();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(3); // sky bake, ring fill, backdrop
-    expect(calls.drawArraysInstanced).toHaveBeenCalledTimes(1);
+    expect(calls.drawArrays).toHaveBeenCalledTimes(4); // sky bake, ring fill, backdrop, strips
+    expect(calls.drawArraysInstanced).toBeUndefined(); // one plain draw
     expect(calls.scissor.mock.calls).toEqual([[0, 0, N, N]]);
   });
 
@@ -106,8 +106,7 @@ describe('voxel ring generation', () => {
     const { calls } = build();
     runFrame(1000);
     runFrame(1034);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(4); // one more backdrop
-    expect(calls.drawArraysInstanced).toHaveBeenCalledTimes(2);
+    expect(calls.drawArrays).toHaveBeenCalledTimes(6); // two more: backdrop, strips
     expect(calls.scissor).toHaveBeenCalledTimes(1);
   });
 
@@ -134,16 +133,15 @@ describe('voxel ring generation', () => {
 });
 
 describe('voxel draw pass', () => {
-  it('draws one instance per column and step, four vertices each, with no depth buffer', () => {
+  it('draws one strip per column and step, six vertices each, in one plain draw with no depth buffer', () => {
     const { calls, canvas } = build();
     runFrame(1000);
-    const [mode, first, count, instances] = calls.drawArraysInstanced.mock.calls[0];
-    expect(count).toBe(4);
+    const [, first, count] = calls.drawArrays.mock.calls.at(-1)!;
     expect(first).toBe(0);
-    expect(mode).toBeDefined();
-    expect(instances % canvas.width).toBe(0); // whole columns
-    expect(instances / canvas.width).toBeLessThanOrEqual(STEPS);
-    expect(instances / canvas.width).toBeGreaterThan(STEPS / 2); // the near steps below the screen are skipped, not most of them
+    const strips = count / 6;
+    expect(strips % canvas.width).toBe(0); // whole columns
+    expect(strips / canvas.width).toBeLessThanOrEqual(STEPS);
+    expect(strips / canvas.width).toBeGreaterThan(STEPS / 2); // the near steps below the screen are skipped, not most of them
     expect(canvas.getContext.mock.calls[0][1].depth).toBe(false); // no depth buffer: order is the draw order
   });
 
@@ -239,8 +237,7 @@ describe('the door picks the style', () => {
     );
     expect(scene).not.toBeNull();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(3);
-    expect(calls.drawArraysInstanced).toHaveBeenCalledTimes(1);
+    expect(calls.drawArrays).toHaveBeenCalledTimes(4);
   });
 
   it("'raymarch' keeps the sphere-traced scene", async () => {

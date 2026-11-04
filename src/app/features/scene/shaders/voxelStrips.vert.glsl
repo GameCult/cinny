@@ -1,4 +1,4 @@
-// The terrain, painter's order. One instance is one strip: a screen column (one pixel wide) at one
+// The terrain, painter's order. Six vertices are one strip: a screen column (one pixel wide) at one
 // depth step. The host draws steps far to near with no depth test, so a nearer strip overwrites
 // what it hides, which is the classic voxel renderer's occlusion without a running horizon.
 //
@@ -10,11 +10,11 @@
 // read both heights to place itself. No pixel below a strip's top is left unpainted either:
 // the nearer strips cover the rest.
 //
-// Four vertices (a triangle strip): 0,1 are the bottom edge, 2,3 the top edge, 0,2 the left side.
-// A bottom vertex reads the nearer neighbour's height; a top vertex its own. The colour is
-// computed on the top vertices (which also read the neighbour's, for the slope) and leaves as a
-// flat varying; the provoking vertex of a GL ES triangle is its last, which for both triangles of
-// the strip is a top vertex.
+// One plain drawArrays of triangles, no vertex buffers, no instancing: gl_VertexID alone says which
+// strip and which corner. The six vertices are BL BR TL | TL BR TR. A bottom vertex reads the nearer
+// neighbour's height; a top vertex its own. The colour is computed on the two corners that are the
+// last vertex of a triangle (TL and TR, which also read the neighbour's height, for the slope) and
+// leaves as a flat varying: the provoking vertex of a GL ES triangle is its last.
 uniform sampler2D u_height;   // RG8, the ring of 16-bit heights
 uniform sampler2D u_sky;      // baked sky, gamma-encoded
 // u_camPos, u_tanHalf (x: tan(fov/2) * aspect, y: tan(fov/2)) and the palette come from the shared block.
@@ -44,9 +44,11 @@ float stepDepth(int k)
 
 void main()
 {
-    int strip = gl_InstanceID;
-    bool top = gl_VertexID >= 2;
-    float side = float(gl_VertexID & 1) * 2.0 - 1.0;
+    int strip = gl_VertexID / 6;
+    int corner = gl_VertexID - strip * 6;
+    bool top = corner == 2 || corner == 3 || corner == 5;
+    bool carriesColour = corner == 2 || corner == 5;
+    float side = (corner == 1 || corner == 4 || corner == 5) ? 1.0 : -1.0;
     int column = strip % u_columns;
     int k = VOX_STEPS - 1 - strip / u_columns;   // far to near
 
@@ -79,6 +81,8 @@ void main()
     }
     float h = cellHeight(ivec2(floor(base + dcell * z)));
     gl_Position.y = clamp(u_horizon + (h - u_camPos.y) / (z * u_tanHalf.y), -1.0, 1.0);
+    if (!carriesColour)
+        return;
     // Colour by height and slope along the view ray, then fog toward the sky's horizon colour.
     float hp = cellHeight(ivec2(floor(base + dcell * zp)));
     float slope = (h - hp) / max((z - zp) * dl, 1e-3);

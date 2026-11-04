@@ -1,5 +1,5 @@
 // The voxel terrain scene: a wrapping ring of cell heights around the camera, drawn painter's order
-// as instanced vertical strips over a baked sky. Same createScene contract as the ray-march scene,
+// as vertical strips over a baked sky. Same createScene contract as the ray-march scene,
 // but WebGL2 core only: no extensions, no float targets. Heights are 16 bits in an RG8 ring that the
 // strips' vertex shader reads; the sky is baked once into RGBA8; the drawing buffer is a fixed pixel
 // budget (320x180 at the top of the ladder) in the canvas's aspect, and CSS scales it up.
@@ -227,8 +227,8 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
     // The shear: the horizon sits above the centre by the amount the camera looks down.
     const horizon = -Math.tan(pose.pitch) / tanY;
     const first = firstStep(py, horizon, tanY);
-    const instances = canvasW * (STEPS - first);
-    const vertices = instances * VERTICES_PER_STRIP + 3;
+    const strips = canvasW * (STEPS - first);
+    const vertices = strips * VERTICES_PER_STRIP + 3;
     const lookups = liveStrips(canvasW, first, tanX) * LOOKUPS_PER_STRIP;
 
     const timed = measuring && frame % READBACK_EVERY === 0;
@@ -253,10 +253,11 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
       gl.bindTexture(gl.TEXTURE_2D, skyTex);
       gl.uniform1i(loc(p, 'u_sky'), 1);
     };
-    // Far to near, no depth test, no blending: the later strip is the nearer one and overwrites.
+    // Far to near, no depth test, no blending: the later strip is the nearer one and overwrites. One
+    // plain draw: instancing multiplies per-draw cost by the instance count in software GL.
     const drawStrips = (p: WebGLProgram) => {
       bindWorld(p);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, VERTICES_PER_STRIP, instances);
+      gl.drawArrays(gl.TRIANGLES, 0, strips * VERTICES_PER_STRIP);
     };
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvasW, canvasH);

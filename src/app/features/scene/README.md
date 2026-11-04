@@ -79,7 +79,7 @@ not evaluated.
 `voxel/Voxel.ts` `createVoxelScene` takes the same options and returns the same `{ login, dispose }`
 as `createScene`, so the door swaps one for the other. It is the cheap background: WebGL2 core
 only (no extension is requested, no float target is allocated). It draws the terrain painter's order,
-as instanced vertical strips, instead of marching a ray per pixel.
+as vertical strips, instead of marching a ray per pixel.
 
 - A wrapping ring of 256 x 256 world cells (8 units each) around the camera, in an RG8 texture
   holding a 16-bit height per cell. Cell (x, z) lives at texel (x mod 256, z mod 256). When the
@@ -88,16 +88,17 @@ as instanced vertical strips, instead of marching a ray per pixel.
   Phacelle per texel, the ray-march scene's terrain without its plateau mask. A cell's height is a
   pure function of the cell, so the order of writes cannot change the ring. A move of a whole ring
   or more, or the first frame, rewrites all of it.
-- `shaders/voxelStrips.vert.glsl` draws the terrain: one instance is a screen column (one buffer
-  pixel wide) at one depth step, and the host draws the steps far to near with no depth buffer
-  and no blending, so a nearer strip overwrites what it hides. A strip's vertices fetch its height
+- `shaders/voxelStrips.vert.glsl` draws the terrain: a strip is a screen column (one buffer
+  pixel wide) at one depth step, six vertices decoded from `gl_VertexID` (no buffers) in one
+  `drawArrays`. The host draws the steps far to near with no depth buffer and no blending, so a nearer strip overwrites what it hides. A strip's vertices fetch its height
   and its nearer neighbour's from the ring (vertex texture fetch, core WebGL2) and project them
   with the shear `y = horizon + (h - camY) / (z * tanHalf.y)`; the quad runs from its own top
-  down to the nearer neighbour's top (the screen bottom for the first strip drawn), and collapses
-  when the neighbour is higher. Colour is chosen once per strip, by height, slope along the view
+  down to the nearer neighbour's top (the screen bottom for the first strip drawn); where the
+  neighbour is higher the quad is upside down but lies under that nearer top, which the nearer
+  strips drawn after it cover. Colour is chosen once per strip, by height, slope along the view
   ray and fog, and leaves as a flat varying (the last vertex of each strip triangle is a top
   vertex); `shaders/voxel.frag.glsl` writes it with a dither. Depths follow `voxelWorld.ts`
-  `stepDepth` (about a cell up close, 2% of the depth far away; the same closed form in GLSL and
+  `stepDepth` (about a cell up close, 3% of the depth far away; the same closed form in GLSL and
   TypeScript), strips nearer than any terrain could reach the screen are not drawn, and strips
   past a column's far plane (120 cells) are clipped in the vertex shader.
 - `shaders/voxelBackdrop.frag.glsl` is the sky behind the strips, one fullscreen triangle.
@@ -112,7 +113,7 @@ as instanced vertical strips, instead of marching a ray per pixel.
 - `rails.ts` is the camera: a straight rail with the yaw wandering either side and sway, constant
   altitude above the terrain; `login()` lifts and tips it down.
 - Measurement without extensions: `onFrameStats` gives the cadence, the buffer size, the vertices
-  submitted and the ring lookups the frame costs (two per shaded strip vertex, counted on the host
+  submitted and the ring lookups the frame costs (eight per shaded strip, counted on the host
   from the same schedule the shader runs). Setting `onTraceStats` makes one frame in eight time
   the draw with a one-texel synchronous read, then draw the strips again off screen, each fragment
   adding one count, and read that back: lookups per pixel, and fragment overdraw per pixel.

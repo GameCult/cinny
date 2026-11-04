@@ -80,11 +80,12 @@ export function liveStrips(columns: number, first: number, tanX: number): number
 }
 
 /**
- * Ring lookups per live strip: each bottom vertex reads the nearer neighbour's height, each top
- * vertex its own, and the two top vertices that carry the strip's colour read the neighbour's too.
+ * Ring lookups per live strip: each of the three bottom vertices reads the nearer neighbour's
+ * height, each of the three top vertices its own, and the two that carry the strip's colour read
+ * the neighbour's too.
  */
-export const LOOKUPS_PER_STRIP = 6;
-export const VERTICES_PER_STRIP = 4;
+export const LOOKUPS_PER_STRIP = 8;
+export const VERTICES_PER_STRIP = 6;
 
 const f = (n: number) => (Number.isInteger(n) ? `${n}.0` : `${n}`);
 
