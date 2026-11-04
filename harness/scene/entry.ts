@@ -1,11 +1,14 @@
 // Browser entry for the harness: exposes the scene's seams to the driver. Not shipped.
-import { createScene, linkStage, ShaderCompileError } from '../../src/app/features/scene/Scene';
+import { createScene } from '../../src/app/features/scene/Scene';
+import { createVoxelScene } from '../../src/app/features/scene/voxel/Voxel';
+import { linkStage, ShaderCompileError } from '../../src/app/features/scene/link';
 import { LEVELS } from '../../src/app/features/scene/budget';
 import { fragmentSource } from '../../src/app/features/scene/shaderSource';
 import { WORLD } from '../../src/app/features/scene/world';
 
 (window as unknown as Record<string, unknown>).__scene = {
   createScene,
+  createVoxelScene,
   linkStage,
   ShaderCompileError,
   LEVELS,

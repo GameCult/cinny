@@ -1,10 +1,13 @@
 // Bundles entry.ts with the scene's ?raw GLSL imports into $OUT/bundle.js plus an index.html.
-// usage: node bundle.cjs <outdir> [demo]     (esbuild from NODE_PATH). `demo` bundles the standalone page.
+// usage: node bundle.cjs <outdir> [demo|voxel]     (esbuild from NODE_PATH). `demo` bundles the ray-march
+// standalone page, `voxel` the voxel scene's.
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 const out = process.argv[2];
-const demo = process.argv[3] === 'demo';
+const kind = process.argv[3];
+const demo = kind === 'demo';
+const voxel = kind === 'voxel';
 fs.mkdirSync(out, { recursive: true });
 const rawPlugin = {
   name: 'raw',
@@ -21,7 +24,7 @@ const rawPlugin = {
 };
 esbuild
   .build({
-    entryPoints: [path.join(__dirname, demo ? 'demo.ts' : 'entry.ts')],
+    entryPoints: [path.join(__dirname, demo ? 'demo.ts' : voxel ? 'voxelDemo.ts' : 'entry.ts')],
     bundle: true,
     outfile: path.join(out, 'bundle.js'),
     plugins: [rawPlugin],
@@ -31,8 +34,10 @@ esbuild
   .then(() => {
     fs.writeFileSync(
       path.join(out, 'index.html'),
-      '<!doctype html><meta charset=utf-8><title>Ratatoskr scene: trace prepass</title><body style="margin:0;background:#000"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas>' +
-        (demo
+      '<!doctype html><meta charset=utf-8><title>Ratatoskr scene</title><body style="margin:0;background:#000"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas>' +
+        (voxel
+          ? '<div style="position:fixed;left:8px;top:8px;padding:6px 8px;background:#000a;color:#ddd;font:12px monospace"><label>pull-back <input id=pull type=range min=0 max=1 step=0.05 value=0></label> <label>scale <input id=scale type=range min=0 max=4 step=1 value=0> <span id=scaleName>auto</span></label> <label><input id=measure type=checkbox checked> count lookups</label><pre id=out style="margin:4px 0 0;white-space:pre-wrap"></pre><details id=dev><summary>device</summary><pre id=info style="margin:4px 0 0;white-space:pre-wrap;max-height:50vh;overflow:auto"></pre></details></div>'
+          : demo
           ? '<div style="position:fixed;left:8px;top:8px;padding:6px 8px;background:#000a;color:#ddd;font:12px monospace"><label><input id=prepass type=checkbox checked> cone prepass</label> <label><input id=half type=checkbox> half-float start</label> <label>pull-back <input id=pull type=range min=0 max=1 step=0.05 value=0.6></label><pre id=out style="margin:4px 0 0;white-space:pre-wrap"></pre><details id=dev><summary>device</summary><pre id=info style="margin:4px 0 0;white-space:pre-wrap;max-height:50vh;overflow:auto"></pre></details></div>'
           : '') +
         '<script src=bundle.js></script>'

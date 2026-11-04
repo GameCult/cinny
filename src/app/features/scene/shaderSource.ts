@@ -8,10 +8,21 @@ import terrainFrag from './shaders/terrain.frag.glsl?raw';
 import atmosphereFrag from './shaders/atmosphere.frag.glsl?raw';
 import resolveFrag from './shaders/resolve.frag.glsl?raw';
 import compositeFrag from './shaders/composite.frag.glsl?raw';
+import voxelHeightFrag from './shaders/voxelHeight.frag.glsl?raw';
+import voxelSkyFrag from './shaders/voxelSky.frag.glsl?raw';
+import voxelFrag from './shaders/voxel.frag.glsl?raw';
 import { WORLD, worldDefines } from './world';
 import { trimGlsl } from './cultmathTrim';
 
-export type Stage = 'prepass' | 'terrain' | 'atmosphere' | 'resolve' | 'composite';
+export type Stage =
+  | 'prepass'
+  | 'terrain'
+  | 'atmosphere'
+  | 'resolve'
+  | 'composite'
+  | 'voxelHeight'
+  | 'voxelSky'
+  | 'voxel';
 
 const HEADER =
   '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n';
@@ -24,6 +35,9 @@ const stages: Record<Stage, string> = {
   atmosphere: atmosphereFrag,
   resolve: resolveFrag,
   composite: compositeFrag,
+  voxelHeight: voxelHeightFrag,
+  voxelSky: voxelSkyFrag,
+  voxel: voxelFrag,
 };
 
 /**
@@ -33,9 +47,11 @@ const stages: Record<Stage, string> = {
  * it is called.
  */
 export function fragmentSource(stage: Stage, defines = ''): string {
-  const solid = stage === 'terrain' || stage === 'prepass';
+  const solid = stage === 'terrain' || stage === 'prepass' || stage === 'voxelHeight';
   const erosion = solid && WORLD.phacelleGradBound > 0 ? phacelle : '';
   const world = solid ? sdf : '';
   const math = trimGlsl(cultmath, [erosion, common, world, stages[stage]]);
-  return `${HEADER}${defines}${worldDefines()}\n${math}\n${erosion}\n${common}\n${world}\n${stages[stage]}`;
+  return `${HEADER}${defines}${worldDefines()}\n${math}\n${erosion}\n${common}\n${world}\n${
+    stages[stage]
+  }`;
 }

@@ -221,6 +221,65 @@ const [, , dir, mode, outdir = '.'] = process.argv;
     }
   }
 
+  if (mode === 'voxel') {
+    // The voxel scene at fixed poses (POSES=pull:seconds,...) and internal scales (SCALES=0.75,0.5):
+    // lookups per pixel, and the median ms to draw one frame (a one-texel sync read), two viewports.
+    report.runs = [];
+    for (const [w, h] of process.env.PORTRAIT === '0'
+      ? [[960, 540]]
+      : [
+          [960, 540],
+          [540, 1200],
+        ]) {
+      for (const pose of (process.env.POSES || '0:0,0:60,1:60').split(',')) {
+        for (const scale of (process.env.SCALES || '0.75').split(',').map(Number)) {
+          await page.setViewportSize({ width: w, height: h });
+          const [pull, t] = pose.split(':').map(Number);
+          const r = await page.evaluate(
+            ({ pull, t, scale }) =>
+              new Promise((res) => {
+                const ms = [];
+                const looks = [];
+                let size;
+                const done = () => {
+                  s.dispose();
+                  const med = (xs) => xs.sort((a, b) => a - b)[xs.length >> 1];
+                  res({
+                    size,
+                    readbacks: looks.length,
+                    lookupsPerPixel: +(looks.slice(1).reduce((a, b) => a + b, 0) / (looks.length - 1)).toFixed(2),
+                    medianRenderMs: +med(ms.slice(1)).toFixed(1),
+                  });
+                };
+                const s = window.__scene.createVoxelScene({
+                  canvas: document.getElementById('c'),
+                  unthrottled: true,
+                  fixedPull: pull,
+                  clock: () => t,
+                  fixedLevel: { solidScale: scale },
+                  onTraceStats: (x) => {
+                    looks.push(x.traceSteps);
+                    if (looks.length >= 12) done();
+                  },
+                  onFrameStats: (x) => {
+                    size = x.size;
+                    if (x.renderMs !== undefined) ms.push(x.renderMs);
+                  },
+                });
+                if (!s) res({ error: 'createVoxelScene returned null' });
+              }),
+            { pull, t, scale }
+          );
+          report.runs.push({ viewport: [w, h], pull, t, scale, ...r });
+          await page.evaluate(() => {
+            const c = document.getElementById('c');
+            c.replaceWith(c.cloneNode());
+          });
+        }
+      }
+    }
+  }
+
   if (mode === 'diff') {
     // Same frozen frame (reduced motion: time 0, 32 frames) with and without the prepass, compared
     // pixel by pixel. The prepass is meant to change cost, not the picture.
