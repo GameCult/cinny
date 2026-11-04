@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
 import { createScene, ShaderCompileError } from './Scene';
 import { LEVELS } from './budget';
+import { fragmentSource } from './shaderSource';
 import { startBackgroundScene } from './index';
 
 type Fn = Mock;
@@ -94,7 +95,7 @@ describe('createScene tiers', () => {
     const scene = createScene({ canvas: asCanvas(fakeCanvas(gl)), tier: 'still' });
     expect(scene).not.toBeNull();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(4); // four passes, one frame
+    expect(calls.drawArrays).toHaveBeenCalledTimes(5); // prepass and four passes, one frame
     expect(rafQueue).toHaveLength(0);
   });
 
@@ -129,6 +130,44 @@ describe('createScene tiers', () => {
 
   it('returns null when WebGL2 is missing, so the host keeps its ground', () => {
     expect(createScene({ canvas: asCanvas(fakeCanvas(null)) })).toBeNull();
+  });
+});
+
+describe('cone prepass', () => {
+  const programsFor = (prepass?: boolean) => {
+    rafQueue.length = 0;
+    const { gl, calls } = fakeGl();
+    createScene({ canvas: asCanvas(fakeCanvas(gl)), prepass });
+    return calls.createProgram.mock.calls.length;
+  };
+
+  it('is one more program than the baseline, and off means off', () => {
+    expect(programsFor(true)).toBe(programsFor(false) + 1);
+    expect(programsFor(undefined)).toBe(programsFor(true));
+  });
+
+  it('draws before pass 1 and only when on', () => {
+    const drawsFor = (prepass: boolean) => {
+      rafQueue.length = 0;
+      const { gl, calls } = fakeGl();
+      createScene({ canvas: asCanvas(fakeCanvas(gl)), prepass });
+      runFrame(1000);
+      return calls.drawArrays.mock.calls.length;
+    };
+    expect(drawsFor(true)).toBe(drawsFor(false) + 1);
+  });
+
+  it('the trace-step output exists in pass 1 only when the host asked to measure', () => {
+    expect(fragmentSource('terrain')).not.toContain('TRACE_STATS 1');
+    expect(fragmentSource('terrain', '#define TRACE_STATS 1\n')).toContain('#define TRACE_STATS 1');
+  });
+
+  it('shares one distance bound between pass 1 and the prepass', () => {
+    const bound = (stage: 'terrain' | 'prepass') =>
+      fragmentSource(stage).match(/float sceneDistance\([^)]*\)\s*\{[^}]*\}/)?.[0];
+    expect(bound('prepass')).toBeDefined();
+    expect(bound('prepass')).toBe(bound('terrain'));
+    expect(fragmentSource('atmosphere')).not.toContain('sceneDistance');
   });
 });
 
@@ -265,7 +304,7 @@ describe('startBackgroundScene', () => {
     );
     expect(scene).not.toBeNull();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(4);
+    expect(calls.drawArrays).toHaveBeenCalledTimes(5);
     expect(rafQueue).toHaveLength(0);
   });
 

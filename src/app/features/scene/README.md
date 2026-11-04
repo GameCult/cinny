@@ -31,11 +31,16 @@ callbacks and the creature sizing rule. Nothing has drawn a creature.
 - `camera.ts` the pull-back path as pure functions (`pullProgress`, `cameraPose`).
 - `world.ts` every world number, and the Lipschitz bounds the sphere trace steps by. The GLSL
   `#define`s are generated from it; no number is written twice.
-- `shaders/` pass 1 `terrain.frag.glsl`, pass 2 `atmosphere.frag.glsl`, `resolve.frag.glsl` (TAA),
+- `shaders/` `sdf.glsl` (the distance bound pass 0 and pass 1 share), pass 0 `prepass.frag.glsl`, pass 1 `terrain.frag.glsl`, pass 2 `atmosphere.frag.glsl`, `resolve.frag.glsl` (TAA),
   `composite.frag.glsl`, plus CultLib's vendored GLSL (`shaders/README.md`).
 
 ## How it renders
 
+0. **Cone prepass** (`prepass.frag.glsl`, one texel per 8x8 tile of pass 1): marches one ray per
+   tile, shrinking each step by the widest any ray of the tile strays from it, so every step is
+   free for the whole tile. It stores the distance no ray of the tile can have hit before, or
+   `W_FAR` when the whole tile climbs out above the highest geometry. Pass 1 starts its rays
+   there. `createScene({ prepass: false })` skips it (the measurement baseline).
 1. **Solid pass** (`terrain.frag.glsl`, 0.4-0.75 of canvas resolution): sphere trace of
    `min(terrain, tree)`. Terrain height is `mask(r) * (A * fbm + E * phacelle)`, with
    `cultmath_fbm_grad(...).w` and `cultmath_phacelle(...).cos.w`. It writes lit colour with
@@ -46,6 +51,10 @@ callbacks and the creature sizing rule. Nothing has drawn a creature.
    3x3 neighbourhood clamp, 1/8 blend; reset on resize, level change and wake).
 4. **Composite** at canvas resolution: solid over analytic sky, then the atmosphere, ACES
    tonemap, dither.
+
+`createScene({ onTraceStats })` measures the trace: pass 1 gets a step-count output and an extra
+render target, read back every 8th frame through a pixel-pack buffer and a fence (never waited
+on), and reports mean steps per pixel. Unset, neither the output nor the target exists.
 
 ## The step bound, and what is not proven
 
