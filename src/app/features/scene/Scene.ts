@@ -32,9 +32,13 @@ export interface FrameStats {
   /** Drawing-buffer size as a fraction of the canvas's CSS size times device pixel ratio. */
   scale: number;
   size: [number, number];
+  /** Vertices submitted this frame (the strips, 4 each, plus the sky triangle). */
+  vertices: number;
+  /** Height-ring lookups this frame: the vertex shader's, two per shaded strip vertex. */
+  lookups: number;
 }
 
-/** Trace cost over one finished readback: mean distance evaluations per pass-1 pixel. */
+/** Trace cost over one finished readback: mean distance evaluations per pass-1 pixel (the voxel scene: ring lookups per pixel). */
 export interface TraceStats {
   /** Mean pass-1 steps per pixel. */
   traceSteps: number;
@@ -42,6 +46,8 @@ export interface TraceStats {
   prepassSteps: number;
   /** traceSteps plus the prepass's steps spread over the pixels of each tile. */
   stepsPerPixel: number;
+  /** Voxel strips: mean fragments the strips shade per pixel (the painter's overdraw); the sky's one is not counted. */
+  overdraw?: number;
 }
 
 /**

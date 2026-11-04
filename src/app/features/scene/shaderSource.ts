@@ -10,6 +10,8 @@ import resolveFrag from './shaders/resolve.frag.glsl?raw';
 import compositeFrag from './shaders/composite.frag.glsl?raw';
 import voxelHeightFrag from './shaders/voxelHeight.frag.glsl?raw';
 import voxelSkyFrag from './shaders/voxelSky.frag.glsl?raw';
+import voxelBackdropFrag from './shaders/voxelBackdrop.frag.glsl?raw';
+import voxelStripsVert from './shaders/voxelStrips.vert.glsl?raw';
 import voxelFrag from './shaders/voxel.frag.glsl?raw';
 import { WORLD, worldDefines } from './world';
 import { trimGlsl } from './cultmathTrim';
@@ -22,12 +24,23 @@ export type Stage =
   | 'composite'
   | 'voxelHeight'
   | 'voxelSky'
+  | 'voxelBackdrop'
   | 'voxel';
 
 const HEADER =
   '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n';
 
 export const vertexSource = HEADER + fullscreenVert;
+
+/**
+ * Vertex source for a stage: the fullscreen triangle, except the voxel strips, which have a vertex
+ * shader of their own (it reads the height ring and the shared block).
+ */
+export function vertexSourceFor(stage: Stage, defines = ''): string {
+  return stage === 'voxel'
+    ? `${HEADER}${defines}\n${common}\n${voxelStripsVert}`
+    : vertexSource;
+}
 
 const stages: Record<Stage, string> = {
   prepass: prepassFrag,
@@ -37,6 +50,7 @@ const stages: Record<Stage, string> = {
   composite: compositeFrag,
   voxelHeight: voxelHeightFrag,
   voxelSky: voxelSkyFrag,
+  voxelBackdrop: voxelBackdropFrag,
   voxel: voxelFrag,
 };
 

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeCanvas, fakeGl } from '../fakeGl';
 import heightStage from '../shaders/voxelHeight.frag.glsl?raw';
-import { fragmentSource } from '../shaderSource';
+import { fragmentSource, vertexSourceFor } from '../shaderSource';
 import { startBackgroundScene } from '../index';
 import { createVoxelScene, SCALE_LEVELS } from './Voxel';
-import { VOXEL, voxelDefines } from './voxelWorld';
+import { STEPS, VOXEL, voxelDefines } from './voxelWorld';
 
 const N = VOXEL.ring;
 let rafQueue: Array<(t: number) => void>;
@@ -94,10 +94,11 @@ describe('voxel scene contract', () => {
 });
 
 describe('voxel ring generation', () => {
-  it('the first frame bakes the sky, fills the whole ring once, and draws the terrain', () => {
+  it('the first frame bakes the sky, fills the whole ring once, and draws backdrop then strips', () => {
     const { calls } = build();
     runFrame(1000);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(3);
+    expect(calls.drawArrays).toHaveBeenCalledTimes(3); // sky bake, ring fill, backdrop
+    expect(calls.drawArraysInstanced).toHaveBeenCalledTimes(1);
     expect(calls.scissor.mock.calls).toEqual([[0, 0, N, N]]);
   });
 
@@ -105,7 +106,8 @@ describe('voxel ring generation', () => {
     const { calls } = build();
     runFrame(1000);
     runFrame(1034);
-    expect(calls.drawArrays).toHaveBeenCalledTimes(4); // one more draw: the terrain
+    expect(calls.drawArrays).toHaveBeenCalledTimes(4); // one more backdrop
+    expect(calls.drawArraysInstanced).toHaveBeenCalledTimes(2);
     expect(calls.scissor).toHaveBeenCalledTimes(1);
   });
 
@@ -131,8 +133,39 @@ describe('voxel ring generation', () => {
   });
 });
 
+describe('voxel draw pass', () => {
+  it('draws one instance per column and step, four vertices each, with no depth buffer', () => {
+    const { calls, canvas } = build();
+    runFrame(1000);
+    const [mode, first, count, instances] = calls.drawArraysInstanced.mock.calls[0];
+    expect(count).toBe(4);
+    expect(first).toBe(0);
+    expect(mode).toBeDefined();
+    expect(instances % canvas.width).toBe(0); // whole columns
+    expect(instances / canvas.width).toBeLessThanOrEqual(STEPS);
+    expect(instances / canvas.width).toBeGreaterThan(STEPS / 2); // the near steps below the screen are skipped, not most of them
+    expect(canvas.getContext.mock.calls[0][1].depth).toBe(false); // no depth buffer: order is the draw order
+  });
+
+  it('the drawing buffer is the pixel budget in the canvas aspect, 320x180 at 16:9', () => {
+    const wide = build();
+    wide.canvas.clientWidth = 1280;
+    wide.canvas.clientHeight = 720;
+    runFrame(1000);
+    expect([wide.canvas.width, wide.canvas.height]).toEqual([320, 180]);
+    rafQueue.length = 0;
+    const tall = build();
+    tall.canvas.clientWidth = 360;
+    tall.canvas.clientHeight = 800;
+    runFrame(1034);
+    expect(tall.canvas.width * tall.canvas.height).toBeGreaterThan(VOXEL.pixels * 0.98);
+    expect(tall.canvas.width * tall.canvas.height).toBeLessThan(VOXEL.pixels * 1.02);
+    expect(tall.canvas.height / tall.canvas.width).toBeCloseTo(800 / 360, 1);
+  });
+});
+
 describe('voxel measurement and adaptation', () => {
-  it('reads lookups per pixel back from alpha and times the draw, only when asked', () => {
+  it('reads fragment counts back and times the draw, only when asked', () => {
     const plain = build();
     runFrame(1000);
     expect(plain.calls.readPixels).toBeUndefined();
@@ -144,35 +177,47 @@ describe('voxel measurement and adaptation', () => {
     runFrame(1034);
     expect(m.calls.readPixels).toHaveBeenCalledTimes(2); // frame 0 of every 8: a one-texel sync, then the counted frame
     expect(onTraceStats).toHaveBeenCalledTimes(1);
+    expect(onTraceStats.mock.calls[0][0].overdraw).toBe(0); // the fake GL shaded nothing
     expect(m.canvas.getContext.mock.calls[0][1].alpha).toBe(false); // the canvas is opaque; the count is drawn off screen
     expect(onFrameStats).toHaveBeenCalledTimes(1); // the first frame has no predecessor
-    expect(onFrameStats.mock.calls[0][0].frameMs).toBe(34);
+    const stats = onFrameStats.mock.calls[0][0];
+    expect(stats.frameMs).toBe(34);
+    expect(stats.vertices).toBeGreaterThan(0);
+    expect(stats.lookups).toBeGreaterThan(0);
+    expect(stats.lookups).toBeLessThanOrEqual(stats.vertices * 2);
   });
 
   it('steps the drawing buffer down when frames keep missing the cap, and never back up', () => {
     const { canvas } = build({ unthrottled: true });
     let now = 1000;
     runFrame(now);
-    expect(canvas.width).toBe(Math.round(400 * SCALE_LEVELS[0].scale));
+    const widthAt = (level: number) =>
+      Math.round(Math.sqrt(VOXEL.pixels * (400 / 300)) * SCALE_LEVELS[level].scale);
+    expect(canvas.width).toBe(widthAt(0));
     for (let i = 0; i < 60; i++) runFrame((now += 100));
-    expect(canvas.width).toBe(Math.round(400 * SCALE_LEVELS[1].scale));
+    expect(canvas.width).toBe(widthAt(1));
     for (let i = 0; i < 200; i++) runFrame((now += 10));
-    expect(canvas.width).toBe(Math.round(400 * SCALE_LEVELS[1].scale));
+    expect(canvas.width).toBe(widthAt(1));
   });
 
   it("'low' starts below the top of the ladder", () => {
     const { canvas } = build({ tier: 'low' });
     runFrame(1000);
-    expect(canvas.width).toBe(Math.round(400 * SCALE_LEVELS[2].scale));
+    expect(canvas.width).toBe(
+      Math.round(Math.sqrt(VOXEL.pixels * (400 / 300)) * SCALE_LEVELS[1].scale)
+    );
   });
 });
 
 describe('voxel shaders', () => {
-  it('the march is capped at the lookup budget and the pass uses no extension', () => {
-    const src = fragmentSource('voxel', voxelDefines());
-    expect(src).toContain(`#define VOX_MAX_LOOKUPS ${VOXEL.maxLookups}`);
-    expect(src).not.toContain('#extension');
-    expect(src).toContain('texelFetch(u_height');
+  it('the strips read the ring in the vertex shader and use no extension', () => {
+    const vs = vertexSourceFor('voxel', voxelDefines());
+    expect(vs).toContain('texelFetch(u_height');
+    expect(vs).toContain(`#define VOX_STEPS ${STEPS}`);
+    expect(vs).not.toContain('#extension');
+    const fs = fragmentSource('voxel', voxelDefines());
+    expect(fs).not.toContain('texelFetch'); // the fragment is a flat colour
+    expect(fs).not.toContain('#extension');
   });
 
   it('ring generation is a pure function of the cell and uses the shipped terrain', () => {
@@ -185,7 +230,7 @@ describe('voxel shaders', () => {
 });
 
 describe('the door picks the style', () => {
-  it('voxel by default: one frame is sky, ring and terrain, three draws', async () => {
+  it('voxel by default: one frame is sky, ring and backdrop, then the strips', async () => {
     const { gl, calls } = fakeGl();
     const scene = await startBackgroundScene(
       { tier: 'still' },
@@ -195,6 +240,7 @@ describe('the door picks the style', () => {
     expect(scene).not.toBeNull();
     runFrame(1000);
     expect(calls.drawArrays).toHaveBeenCalledTimes(3);
+    expect(calls.drawArraysInstanced).toHaveBeenCalledTimes(1);
   });
 
   it("'raymarch' keeps the sphere-traced scene", async () => {

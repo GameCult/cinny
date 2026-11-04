@@ -78,7 +78,8 @@ not evaluated.
 
 `voxel/Voxel.ts` `createVoxelScene` takes the same options and returns the same `{ login, dispose }`
 as `createScene`, so the door swaps one for the other. It is the cheap background: WebGL2 core
-only (no extension is requested, no float target is allocated), one fullscreen pass.
+only (no extension is requested, no float target is allocated). It draws the terrain painter's order,
+as instanced vertical strips, instead of marching a ray per pixel.
 
 - A wrapping ring of 256 x 256 world cells (8 units each) around the camera, in an RG8 texture
   holding a 16-bit height per cell. Cell (x, z) lives at texel (x mod 256, z mod 256). When the
@@ -87,24 +88,35 @@ only (no extension is requested, no float target is allocated), one fullscreen p
   Phacelle per texel, the ray-march scene's terrain without its plateau mask. A cell's height is a
   pure function of the cell, so the order of writes cannot change the ring. A move of a whole ring
   or more, or the first frame, rewrites all of it.
-- `shaders/voxel.frag.glsl`: per pixel below the horizon, march the screen column from the camera
-  outward, one lookup per step (steps grow with depth, at most 128, none past 120 cells), and stop
-  at the first column whose top reaches the pixel. The camera flies above the highest terrain, so
-  sky pixels spend no lookups and the march starts where a pixel first could be covered. That is
-  the image a running-horizon column renderer paints, found per pixel instead of carrying the
-  horizon between pixels, which one fullscreen pass cannot do.
+- `shaders/voxelStrips.vert.glsl` draws the terrain: one instance is a screen column (one buffer
+  pixel wide) at one depth step, and the host draws the steps far to near with no depth buffer
+  and no blending, so a nearer strip overwrites what it hides. A strip's vertices fetch its height
+  and its nearer neighbour's from the ring (vertex texture fetch, core WebGL2) and project them
+  with the shear `y = horizon + (h - camY) / (z * tanHalf.y)`; the quad runs from its own top
+  down to the nearer neighbour's top (the screen bottom for the first strip drawn), and collapses
+  when the neighbour is higher. Colour is chosen once per strip, by height, slope along the view
+  ray and fog, and leaves as a flat varying (the last vertex of each strip triangle is a top
+  vertex); `shaders/voxel.frag.glsl` writes it with a dither. Depths follow `voxelWorld.ts`
+  `stepDepth` (about a cell up close, 2% of the depth far away; the same closed form in GLSL and
+  TypeScript), strips nearer than any terrain could reach the screen are not drawn, and strips
+  past a column's far plane (120 cells) are clipped in the vertex shader.
+- `shaders/voxelBackdrop.frag.glsl` is the sky behind the strips, one fullscreen triangle.
+- The drawing buffer is a fixed pixel budget in the canvas's aspect, 320 x 180 at the top of the
+  ladder; CSS scales it up. One column per buffer pixel, so the strip count follows the width.
 - The sky is baked once into RGBA8 (`voxelSky.frag.glsl`, gradient plus cloud bands) and sampled
-  by azimuth and elevation. The CSS ground stays the fallback: `createVoxelScene` returns null
+  by azimuth and elevation (the strips' vertex shader samples the horizon row for fog). The CSS ground stays the fallback: `createVoxelScene` returns null
   where `createScene` would, and says why through `onUnavailable`.
 - Resolution adapts through the drawing-buffer size, not extra targets: `BudgetLadder` over
-  `SCALE_LEVELS` steps down when the median frame time misses the 30 fps cap, using only
+  `SCALE_LEVELS` (1, 0.8, 0.64, 0.5 of the side of the 320 x 180 budget) steps down when the median frame time misses the 30 fps cap, using only
   `requestAnimationFrame` cadence, since timer queries are an extension.
 - `rails.ts` is the camera: a straight rail with the yaw wandering either side and sway, constant
   altitude above the terrain; `login()` lifts and tips it down.
-- Measurement without extensions: `onFrameStats` gives the cadence and the buffer size; setting
-  `onTraceStats` makes one frame in eight draw a second, off-screen copy with lookup counts in
-  alpha and read it back (lookups per pixel), after timing the first draw with a one-texel
-  synchronous read. `harness/scene` has `drive.cjs voxel` and a standalone page.
+- Measurement without extensions: `onFrameStats` gives the cadence, the buffer size, the vertices
+  submitted and the ring lookups the frame costs (two per shaded strip vertex, counted on the host
+  from the same schedule the shader runs). Setting `onTraceStats` makes one frame in eight time
+  the draw with a one-texel synchronous read, then draw the strips again off screen, each fragment
+  adding one count, and read that back: lookups per pixel, and fragment overdraw per pixel.
+  `harness/scene` has `drive.cjs voxel`, `voxelshots` and a standalone page.
 
 ## Measured and not measured
 

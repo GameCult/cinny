@@ -1,5 +1,5 @@
 // Compiling and linking a stage: the one place a shader failure becomes a ShaderCompileError.
-import { fragmentSource, vertexSource, Stage } from './shaderSource';
+import { fragmentSource, vertexSourceFor, Stage } from './shaderSource';
 
 /** Measurement seam: the harness rewrites a stage's source to time a variant. Never set in the client. */
 export type SourcePatch = (stage: Stage, source: string) => string;
@@ -33,7 +33,7 @@ export function linkStage(
   patch?: SourcePatch,
   defines?: string
 ): WebGLProgram {
-  const vs = compile(gl, gl.VERTEX_SHADER, vertexSource, 'vertex');
+  const vs = compile(gl, gl.VERTEX_SHADER, vertexSourceFor(stage, defines), 'vertex');
   const fs = compile(
     gl,
     gl.FRAGMENT_SHADER,

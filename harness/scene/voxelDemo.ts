@@ -1,5 +1,5 @@
-// Standalone page: the voxel scene full-window with a readout of lookups per pixel and frame ms,
-// the internal scale, and what the browser says about itself. Not shipped.
+// Standalone page: the voxel scene full-window with a readout of ring lookups per frame, vertices,
+// fragment overdraw and frame ms, the internal scale, and what the browser says about itself. Not shipped.
 import { createVoxelScene, SCALE_LEVELS } from '../../src/app/features/scene/voxel/Voxel';
 import type { FrameStats, Scene, TraceStats } from '../../src/app/features/scene/Scene';
 import { LEVELS } from '../../src/app/features/scene/budget';
@@ -55,10 +55,11 @@ setInterval(() => {
   const lines = [`voxel   pull ${pull.value}   scale ${scaleChoice()}`];
   if (frames) {
     lines.push(
-      `frame ms ${cadence.toFixed(1)} (cadence; the cap is 33.3)   buffer ${frames.size.join('x')} at scale ${frames.scale}`
+      `frame ms ${cadence.toFixed(1)} (cadence; the cap is 33.3)   buffer ${frames.size.join('x')} at scale ${frames.scale}`,
+      `lookups/frame ${frames.lookups}   vertices/frame ${frames.vertices}`
     );
   }
-  if (trace) lines.push(`lookups/pixel ${trace.traceSteps.toFixed(2)}   draw ms ${drawMs?.toFixed(1)} (one frame in 8, synced)`);
+  if (trace) lines.push(`lookups/pixel ${trace.traceSteps.toFixed(2)}   overdraw ${trace.overdraw?.toFixed(2)} fragments/pixel   draw ms ${drawMs?.toFixed(1)} (one frame in 8, synced)`);
   else if (measure.checked) lines.push('lookups/pixel: waiting for the first counted frame');
   out.textContent = lines.join('\n');
 }, 500);

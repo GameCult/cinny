@@ -1,5 +1,5 @@
 // Drives the scene in headless Chromium (software GL unless the host has a GPU).
-// usage: node drive.cjs <bundledir> <mode> [outdir]     modes: compile | shots | measure
+// usage: node drive.cjs <bundledir> <mode> [outdir]     modes: compile | shots | measure | voxel | voxelshots
 // Needs playwright from NODE_PATH and PLAYWRIGHT_BROWSERS_PATH. Prints one JSON report.
 const { chromium } = require('playwright');
 const path = require('path');
@@ -222,60 +222,112 @@ const [, , dir, mode, outdir = '.'] = process.argv;
   }
 
   if (mode === 'voxel') {
-    // The voxel scene at fixed poses (POSES=pull:seconds,...) and internal scales (SCALES=0.75,0.5):
-    // lookups per pixel, and the median ms to draw one frame (a one-texel sync read), two viewports.
+    // The voxel scene at fixed poses (POSES=pull:seconds,...) and internal buffer sizes
+    // (SIZES=320x180,160x90): the viewport is set to the size, and the scale to the fraction of the
+    // 320x180 pixel budget that makes the drawing buffer that size (BUFFER=canvas: scale 1, for a scene
+    // whose buffer is the canvas), so a scene whose buffer follows the
+    // canvas (the march) and one whose buffer follows the budget (the strips) draw the same pixels.
+    // Per run: lookups per pixel and per frame, vertices, fragment overdraw where the scene reports
+    // it, and the median ms to draw one frame (a one-texel sync read).
+    const BUDGET = 320 * 180;
     report.runs = [];
-    for (const [w, h] of process.env.PORTRAIT === '0'
-      ? [[960, 540]]
-      : [
-          [960, 540],
-          [540, 1200],
-        ]) {
+    for (const size of (process.env.SIZES || '320x180,256x144,160x90,162x360').split(',')) {
+      const [w, h] = size.split('x').map(Number);
+      const scale = process.env.BUFFER === 'canvas' ? 1 : +Math.sqrt((w * h) / BUDGET).toFixed(6);
       for (const pose of (process.env.POSES || '0:0,0:60,1:60').split(',')) {
-        for (const scale of (process.env.SCALES || '0.75').split(',').map(Number)) {
-          await page.setViewportSize({ width: w, height: h });
-          const [pull, t] = pose.split(':').map(Number);
-          const r = await page.evaluate(
-            ({ pull, t, scale }) =>
-              new Promise((res) => {
-                const ms = [];
-                const looks = [];
-                let size;
-                const done = () => {
-                  s.dispose();
-                  const med = (xs) => xs.sort((a, b) => a - b)[xs.length >> 1];
-                  res({
-                    size,
-                    readbacks: looks.length,
-                    lookupsPerPixel: +(looks.slice(1).reduce((a, b) => a + b, 0) / (looks.length - 1)).toFixed(2),
-                    medianRenderMs: +med(ms.slice(1)).toFixed(1),
-                  });
-                };
-                const s = window.__scene.createVoxelScene({
-                  canvas: document.getElementById('c'),
-                  unthrottled: true,
-                  fixedPull: pull,
-                  clock: () => t,
-                  fixedLevel: { solidScale: scale },
-                  onTraceStats: (x) => {
-                    looks.push(x.traceSteps);
-                    if (looks.length >= 12) done();
-                  },
-                  onFrameStats: (x) => {
-                    size = x.size;
-                    if (x.renderMs !== undefined) ms.push(x.renderMs);
-                  },
+        await page.setViewportSize({ width: w, height: h });
+        const [pull, t] = pose.split(':').map(Number);
+        const r = await page.evaluate(
+          ({ pull, t, scale, READS }) =>
+            new Promise((res) => {
+              const ms = [];
+              const looks = [];
+              const over = [];
+              let frame;
+              const done = () => {
+                s.dispose();
+                const med = (xs) => xs.sort((a, b) => a - b)[xs.length >> 1];
+                const mean = (xs) => +(xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2);
+                res({
+                  size: frame.size,
+                  readbacks: looks.length,
+                  lookupsPerPixel: mean(looks.slice(1)),
+                  overdraw: over.length ? mean(over.slice(1)) : undefined,
+                  vertices: frame.vertices,
+                  lookupsPerFrame: frame.lookups,
+                  medianRenderMs: +med(ms.slice(1)).toFixed(1),
                 });
-                if (!s) res({ error: 'createVoxelScene returned null' });
-              }),
-            { pull, t, scale }
-          );
-          report.runs.push({ viewport: [w, h], pull, t, scale, ...r });
-          await page.evaluate(() => {
-            const c = document.getElementById('c');
-            c.replaceWith(c.cloneNode());
-          });
+              };
+              const s = window.__scene.createVoxelScene({
+                canvas: document.getElementById('c'),
+                unthrottled: true,
+                fixedPull: pull,
+                clock: () => t,
+                fixedLevel: { solidScale: scale },
+                onTraceStats: (x) => {
+                  looks.push(x.traceSteps);
+                  if (x.overdraw !== undefined) over.push(x.overdraw);
+                  if (looks.length >= READS) done();
+                },
+                onFrameStats: (x) => {
+                  frame = x;
+                  if (x.renderMs !== undefined) ms.push(x.renderMs);
+                },
+              });
+              if (!s) res({ error: 'createVoxelScene returned null' });
+            }),
+          { pull, t, scale, READS: +(process.env.READS || 16) }
+        );
+        report.runs.push({ viewport: [w, h], pull, t, scale, ...r });
+        await page.evaluate(() => {
+          const c = document.getElementById('c');
+          c.replaceWith(c.cloneNode());
+        });
+      }
+    }
+  }
+
+  if (mode === 'voxelshots') {
+    // Screenshots of the voxel scene at SIZES and POSES, the viewport equal to the drawing buffer
+    // (see the voxel mode), one PNG each: vox-<w>x<h>-<pull>-<t>.png in outdir.
+    const BUDGET = 320 * 180;
+    report.shots = [];
+    for (const size of (process.env.SIZES || '320x180').split(',')) {
+      const [w, h] = size.split('x').map(Number);
+      const scale = process.env.BUFFER === 'canvas' ? 1 : +Math.sqrt((w * h) / BUDGET).toFixed(6);
+      for (const pose of (process.env.POSES || '0:0,0:60,1:60').split(',')) {
+        await page.setViewportSize({ width: w, height: h });
+        const [pull, t] = pose.split(':').map(Number);
+        const ok = await page.evaluate(
+          ({ pull, t, scale }) =>
+            new Promise((res) => {
+              let n = 0;
+              const s = window.__scene.createVoxelScene({
+                canvas: document.getElementById('c'),
+                unthrottled: true,
+                fixedPull: pull,
+                clock: () => t,
+                fixedLevel: { solidScale: scale },
+                onFrameStats: () => {
+                  if (++n === 3) res(true);
+                },
+              });
+              window.__v = s;
+              if (!s) res(false);
+            }),
+          { pull, t, scale }
+        );
+        const file = `vox-${size}-${pull}-${t}.png`;
+        if (ok) {
+          await page.waitForTimeout(100);
+          await page.screenshot({ path: path.join(outdir, file) });
+          report.shots.push(file);
         }
+        await page.evaluate(() => {
+          window.__v?.dispose();
+          const c = document.getElementById('c');
+          c.replaceWith(c.cloneNode());
+        });
       }
     }
   }

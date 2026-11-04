@@ -1,7 +1,8 @@
-// The voxel terrain scene: a wrapping ring of cell heights around the camera, drawn by one fullscreen
-// pass. Same createScene contract as the ray-march scene, but WebGL2 core only: no extensions, no
-// float targets. Heights are 16 bits in an RG8 ring; the sky is baked once into RGBA8; the drawing
-// buffer is the internal resolution, and CSS scales it up.
+// The voxel terrain scene: a wrapping ring of cell heights around the camera, drawn painter's order
+// as instanced vertical strips over a baked sky. Same createScene contract as the ray-march scene,
+// but WebGL2 core only: no extensions, no float targets. Heights are 16 bits in an RG8 ring that the
+// strips' vertex shader reads; the sky is baked once into RGBA8; the drawing buffer is a fixed pixel
+// budget (320x180 at the top of the ladder) in the canvas's aspect, and CSS scales it up.
 import type { FrameStats, Scene, SceneOptions } from '../Scene';
 import { BudgetLadder } from '../budget';
 import { pullProgress } from '../camera';
@@ -10,29 +11,36 @@ import { linkStage, ShaderCompileError } from '../link';
 import { PALETTE } from '../palette';
 import { Cell, ringRects, windowOrigin } from './ring';
 import { voxelPose } from './rails';
-import { VOXEL, voxelDefines } from './voxelWorld';
+import {
+  firstStep,
+  liveStrips,
+  LOOKUPS_PER_STRIP,
+  STEPS,
+  VERTICES_PER_STRIP,
+  VOXEL,
+  voxelDefines,
+} from './voxelWorld';
 
-const MAX_DPR = 1.5;
 const SKY_W = 512;
 const SKY_H = 128;
-/** Measurement readback of lookups per pixel, every this many frames. */
+/** Measurement readback of fragment counts, every this many frames. */
 const READBACK_EVERY = 8;
 /** Median cadence above this, over a window, drops one level: the 30 fps cap with some grace. */
 const SLOW_MS = FRAME_INTERVAL_MS * 1.2;
 
 export interface ScaleLevel {
-  /** Drawing-buffer size as a fraction of the canvas's CSS size times device pixel ratio. */
+  /** Drawing-buffer side as a fraction of the default's: pixels = VOXEL.pixels * scale^2, in the canvas's aspect. */
   scale: number;
 }
 
 /** Cheapest last. The ladder only descends. */
 export const SCALE_LEVELS: readonly ScaleLevel[] = [
-  { scale: 0.75 },
-  { scale: 0.6 },
+  { scale: 1 },
+  { scale: 0.8 },
+  { scale: 0.64 },
   { scale: 0.5 },
-  { scale: 0.4 },
 ];
-const LOW_START_LEVEL = 2;
+const LOW_START_LEVEL = 1;
 
 export function createVoxelScene(opts: SceneOptions): Scene | null {
   const { canvas } = opts;
@@ -52,13 +60,14 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
     return null;
   }
 
-  // `counted` is the terrain pass with its lookup count written to alpha; it exists only for a
-  // measuring scene, which draws it to an offscreen target (the canvas has no alpha to spare).
-  type Name = 'height' | 'sky' | 'voxel' | 'counted';
+  // `counted` is the strip pass with each fragment writing one count; it exists only for a
+  // measuring scene, which draws it blended to an offscreen target.
+  type Name = 'height' | 'sky' | 'backdrop' | 'voxel' | 'counted';
   const programs = {} as Record<Name, WebGLProgram>;
-  const sources: Array<[Name, 'voxelHeight' | 'voxelSky' | 'voxel', string]> = [
+  const sources: Array<[Name, 'voxelHeight' | 'voxelSky' | 'voxelBackdrop' | 'voxel', string]> = [
     ['height', 'voxelHeight', ''],
     ['sky', 'voxelSky', ''],
+    ['backdrop', 'voxelBackdrop', ''],
     ['voxel', 'voxel', ''],
   ];
   if (measuring) sources.push(['counted', 'voxel', '#define TRACE_STATS 1\n']);
@@ -156,15 +165,19 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
     SCALE_LEVELS
   );
   const scale = () => (opts.fixedLevel ? opts.fixedLevel.solidScale : ladder.current.scale);
+  const FALLBACK_ASPECT = 16 / 9;
 
   let canvasW = 0;
   let canvasH = 0;
   let sizedFor = 0;
   const ensureSize = () => {
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
     const s = scale();
-    const w = Math.max(2, Math.round(canvas.clientWidth * dpr * s));
-    const h = Math.max(2, Math.round(canvas.clientHeight * dpr * s));
+    const aspect =
+      canvas.clientWidth > 0 && canvas.clientHeight > 0
+        ? canvas.clientWidth / canvas.clientHeight
+        : FALLBACK_ASPECT;
+    const w = Math.max(2, Math.round(Math.sqrt(VOXEL.pixels * aspect) * s));
+    const h = Math.max(2, Math.round(Math.sqrt(VOXEL.pixels / aspect) * s));
     if (w === canvasW && h === canvasH) return;
     canvasW = w;
     canvasH = h;
@@ -209,10 +222,18 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
     const [px, py, pz] = pose.position;
     generate({ x: Math.floor(px / VOXEL.cell), z: Math.floor(pz / VOXEL.cell) });
 
+    const tanY = Math.tan(pose.fov / 2);
+    const tanX = tanY * (canvasW / canvasH);
+    // The shear: the horizon sits above the centre by the amount the camera looks down.
+    const horizon = -Math.tan(pose.pitch) / tanY;
+    const first = firstStep(py, horizon, tanY);
+    const instances = canvasW * (STEPS - first);
+    const vertices = instances * VERTICES_PER_STRIP + 3;
+    const lookups = liveStrips(canvasW, first, tanX) * LOOKUPS_PER_STRIP;
+
     const timed = measuring && frame % READBACK_EVERY === 0;
     const t0 = timed ? performance.now() : 0;
-    const drawTerrain = (p: WebGLProgram) => {
-      gl.viewport(0, 0, canvasW, canvasH);
+    const bindWorld = (p: WebGLProgram) => {
       gl.useProgram(p);
       palette(p);
       vec3(p, 'u_grass', PALETTE.grass);
@@ -220,21 +241,28 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
       gl.uniform3f(loc(p, 'u_camPos'), px, py, pz);
       gl.uniform2f(loc(p, 'u_fwd'), Math.cos(pose.yaw), Math.sin(pose.yaw));
       gl.uniform2f(loc(p, 'u_right'), Math.sin(pose.yaw), -Math.cos(pose.yaw));
-      const tanY = Math.tan(pose.fov / 2);
-      gl.uniform2f(loc(p, 'u_tanHalf'), tanY * (canvasW / canvasH), tanY);
-      // The shear: the horizon sits above the centre by the amount the camera looks down.
-      gl.uniform1f(loc(p, 'u_horizon'), -Math.tan(pose.pitch) / tanY);
+      gl.uniform2f(loc(p, 'u_tanHalf'), tanX, tanY);
+      gl.uniform1f(loc(p, 'u_horizon'), horizon);
       gl.uniform1f(loc(p, 'u_frame'), frame);
+      gl.uniform1i(loc(p, 'u_columns'), canvasW);
+      gl.uniform1i(loc(p, 'u_firstStep'), first);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, ringTex);
       gl.uniform1i(loc(p, 'u_height'), 0);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, skyTex);
       gl.uniform1i(loc(p, 'u_sky'), 1);
-      draw();
+    };
+    // Far to near, no depth test, no blending: the later strip is the nearer one and overwrites.
+    const drawStrips = (p: WebGLProgram) => {
+      bindWorld(p);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, VERTICES_PER_STRIP, instances);
     };
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    drawTerrain(programs.voxel);
+    gl.viewport(0, 0, canvasW, canvasH);
+    bindWorld(programs.backdrop);
+    draw();
+    drawStrips(programs.voxel);
 
     let renderMs: number | undefined;
     if (timed) {
@@ -242,21 +270,39 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
       // queued GPU (SwiftShader and phones alike) would otherwise not report.
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
       renderMs = performance.now() - t0;
-      // Then the same frame again with its lookup counts in alpha, off screen, and read back.
+      // Then the strips again, off screen, each fragment adding one to red, and read back.
       if (counted.w !== canvasW || counted.h !== canvasH) resizeCounted();
-      gl.bindFramebuffer(gl.FRAMEBUFFER, counted.fbo);
-      drawTerrain(programs.counted);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, counted.fbo ?? null);
+      gl.viewport(0, 0, canvasW, canvasH);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      drawStrips(programs.counted);
+      gl.disable(gl.BLEND);
       const px4 = new Uint8Array(canvasW * canvasH * 4);
       gl.readPixels(0, 0, canvasW, canvasH, gl.RGBA, gl.UNSIGNED_BYTE, px4);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       let sum = 0;
-      for (let i = 3; i < px4.length; i += 4) sum += px4[i];
-      const mean = sum / (canvasW * canvasH);
-      opts.onTraceStats?.({ traceSteps: mean, prepassSteps: 0, stepsPerPixel: mean });
+      for (let i = 0; i < px4.length; i += 4) sum += px4[i];
+      const perPixel = lookups / (canvasW * canvasH);
+      opts.onTraceStats?.({
+        traceSteps: perPixel,
+        prepassSteps: 0,
+        stepsPerPixel: perPixel,
+        overdraw: sum / (canvasW * canvasH),
+      });
     }
     if (prevNow !== undefined) {
       const frameMs = now - prevNow;
-      opts.onFrameStats?.({ frameMs, renderMs, scale: sizedFor, size: [canvasW, canvasH] });
+      opts.onFrameStats?.({
+        frameMs,
+        renderMs,
+        scale: sizedFor,
+        size: [canvasW, canvasH],
+        vertices,
+        lookups,
+      });
       if (!opts.fixedLevel && ladder.push(frameMs)) canvasW = 0; // resize on the next frame
     }
     prevNow = now;
@@ -279,6 +325,7 @@ export function createVoxelScene(opts: SceneOptions): Scene | null {
       if (counted.fbo) gl.deleteFramebuffer(counted.fbo);
       if (measuring) gl.deleteProgram(programs.counted);
       gl.deleteProgram(programs.height);
+      gl.deleteProgram(programs.backdrop);
       gl.deleteProgram(programs.voxel);
       gl.deleteVertexArray(vao);
     },
