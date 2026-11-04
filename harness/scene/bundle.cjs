@@ -1,9 +1,10 @@
 // Bundles entry.ts with the scene's ?raw GLSL imports into $OUT/bundle.js plus an index.html.
-// usage: node bundle.cjs <outdir>     (esbuild from NODE_PATH)
+// usage: node bundle.cjs <outdir> [demo]     (esbuild from NODE_PATH). `demo` bundles the standalone page.
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 const out = process.argv[2];
+const demo = process.argv[3] === 'demo';
 fs.mkdirSync(out, { recursive: true });
 const rawPlugin = {
   name: 'raw',
@@ -20,7 +21,7 @@ const rawPlugin = {
 };
 esbuild
   .build({
-    entryPoints: [path.join(__dirname, 'entry.ts')],
+    entryPoints: [path.join(__dirname, demo ? 'demo.ts' : 'entry.ts')],
     bundle: true,
     outfile: path.join(out, 'bundle.js'),
     plugins: [rawPlugin],
@@ -30,6 +31,10 @@ esbuild
   .then(() => {
     fs.writeFileSync(
       path.join(out, 'index.html'),
-      '<!doctype html><meta charset=utf-8><body style="margin:0"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas><script src=bundle.js></script>'
+      '<!doctype html><meta charset=utf-8><title>Ratatoskr scene: trace prepass</title><body style="margin:0;background:#000"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas>' +
+        (demo
+          ? '<div style="position:fixed;left:8px;top:8px;padding:6px 8px;background:#000a;color:#ddd;font:12px monospace"><label><input id=prepass type=checkbox checked> cone prepass</label> <label>pull-back <input id=pull type=range min=0 max=1 step=0.05 value=0.6></label><pre id=out style="margin:4px 0 0"></pre></div>'
+          : '') +
+        '<script src=bundle.js></script>'
     );
   });
