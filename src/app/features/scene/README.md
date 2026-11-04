@@ -17,8 +17,9 @@ callbacks and the creature sizing rule. Nothing has drawn a creature.
   demand, so it stays out of the main chunk; if that chunk fails to load the error goes to
   `onCompileFail` and the door returns null, it does not throw.
 - `Scene.ts` `createScene({ canvas, tier, onCompileFail, onContextLost, ... })` returns
-  `{ login, dispose }`, or `null` (keep the CSS ground then) when the tier is `off`, WebGL2 or
-  `EXT_color_buffer_float` is missing, or a shader fails to compile (`onCompileFail` gets the
+  `{ login, dispose }`, or `null` (keep the CSS ground then) when the tier is `off`, WebGL2 is missing, neither
+  `EXT_color_buffer_float` nor `EXT_color_buffer_half_float` exists (`onUnavailable` says which; with
+  only the half extension the prepass start target is RGBA16F, written rounded down), or a shader fails to compile (`onCompileFail` gets the
   `ShaderCompileError`; programs already linked are freed). `still` is a live rendered frame, not a
   baked image: it runs the full pipeline once at the top level and stops; `low` starts the ladder at level 2; `full` at level 0. A lost WebGL context
   stops the scene for good and calls `onContextLost`; nothing rebuilds it, the host decides what to
