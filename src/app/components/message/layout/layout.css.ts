@@ -138,6 +138,34 @@ export const BubbleBefore = style({
   minWidth: toRem(36),
 });
 
+// Pose portraits: beside the bubble on wide screens; on phones the row stacks, so the
+// portrait costs a little height instead of a column of width, and the left arrow goes.
+export const BubblePose = style({
+  '@media': {
+    'screen and (max-width: 750px)': {
+      flexDirection: 'column',
+      gap: config.space.S100,
+    },
+  },
+});
+
+export const BubbleBeforePose = style({
+  minWidth: toRem(64),
+  '@media': {
+    'screen and (max-width: 750px)': {
+      minWidth: 0,
+    },
+  },
+});
+
+export const BubbleArrowPose = style({
+  '@media': {
+    'screen and (max-width: 750px)': {
+      display: 'none',
+    },
+  },
+});
+
 export const BubbleContent = style({
   maxWidth: toRem(800),
   padding: config.space.S200,
@@ -149,6 +177,34 @@ export const BubbleContent = style({
 
 export const BubbleContentArrowLeft = style({
   borderTopLeftRadius: 0,
+});
+
+export const BubbleContentPoseStacked = style({
+  '@media': {
+    'screen and (max-width: 750px)': {
+      borderTopLeftRadius: config.radii.R500,
+    },
+  },
+});
+
+export const PoseButton = style({
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  lineHeight: 0,
+});
+
+export const PosePortrait = style({
+  width: toRem(64),
+  height: toRem(64),
+  objectFit: 'contain',
+  '@media': {
+    'screen and (max-width: 750px)': {
+      width: toRem(48),
+      height: toRem(48),
+    },
+  },
 });
 
 export const BubbleLeftArrow = style({

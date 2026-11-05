@@ -11,6 +11,7 @@ import { useEditor } from '../../components/editor';
 import { RoomInputPlaceholder } from './RoomInputPlaceholder';
 import { RoomTimeline } from './RoomTimeline';
 import { RoomViewTyping } from './RoomViewTyping';
+import { RoomViewPoseStatus } from './RoomViewPoseStatus';
 import { RoomTombstone } from './RoomTombstone';
 import { RoomInput } from './RoomInput';
 import { RoomViewFollowing, RoomViewFollowingPlaceholder } from './RoomViewFollowing';
@@ -100,6 +101,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
           roomInputRef={roomInputRef}
           editor={editor}
         />
+        <RoomViewPoseStatus room={room} />
         <RoomViewTyping room={room} />
       </Box>
       <Box shrink="No" direction="Column">
