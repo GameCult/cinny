@@ -12,8 +12,9 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 /**
  * The client's one door to the scene. When the tier resolves to 'off' nothing is imported and no
  * canvas context is requested; otherwise the scene code loads on demand, so it stays out of the
- * main chunk. `config.style` picks the scene: the voxel terrain unless it says 'raymarch'. Null means "keep the CSS ground", including when that chunk fails to load (offline,
- * stale deploy): the failure goes to onCompileFail and nothing throws.
+ * main chunk. `config.style` picks the scene: the voxel terrain unless it says 'raymarch'. Null
+ * means "keep the CSS ground", including when that chunk fails to load (offline, stale deploy):
+ * the failure goes to onCompileFail and nothing throws.
  */
 export async function startBackgroundScene(
   config: BackgroundSceneConfig | undefined,
