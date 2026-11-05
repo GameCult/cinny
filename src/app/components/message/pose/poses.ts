@@ -11,6 +11,7 @@ type MindEntry = {
   signatures: Record<string, string>;
 };
 const minds = catalogue.minds as Record<string, MindEntry>;
+export const MINDS = Object.keys(minds);
 
 // A sender is a known Mind when its Matrix localpart or the first word of its
 // display name is the Mind's name, case-insensitively.

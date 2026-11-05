@@ -61,7 +61,8 @@ import {
 import { MessageLayout, MessageSpacing, settingsAtom } from '../../../state/settings';
 import { useSetting } from '../../../state/hooks/settings';
 import { PoseAvatar } from '../../../components/message/pose/PoseAvatar';
-import { POSE_KEY, mindOfSender, resolvePose } from '../../../components/message/pose/poses';
+import { POSE_KEY, MINDS, mindOfSender, resolvePose } from '../../../components/message/pose/poses';
+import { useEntranceDelay } from '../../../components/message/pose/entrance';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { useRecentEmoji } from '../../../hooks/useRecentEmoji';
 import * as css from './styles.css';
@@ -797,6 +798,11 @@ export const Message = as<'div', MessageProps>(
         ? mindOfSender(getMxIdLocalPart(senderId), senderDisplayName)
         : undefined;
 
+    const own = senderId === mx.getUserId();
+    const enterDelay = useEntranceDelay(mEvent.getId());
+    // Minds alternate sides on phones, each always on the same one.
+    const poseAlt = !!mind && MINDS.indexOf(mind) % 2 === 1;
+
     const avatarJSX = !collapse && messageLayout !== MessageLayout.Compact && (
       <AvatarBase
         className={messageLayout === MessageLayout.Bubble ? css.BubbleAvatarBase : undefined}
@@ -827,6 +833,8 @@ export const Message = as<'div', MessageProps>(
         mind={mind}
         pose={resolvePose(mind, mEvent.getContent()[POSE_KEY])}
         userId={senderId}
+        alt={poseAlt}
+        enter={enterDelay !== undefined}
         onClick={onUserClick}
       />
     );
@@ -1154,9 +1162,14 @@ export const Message = as<'div', MessageProps>(
         )}
         {messageLayout === MessageLayout.Bubble && (
           <BubbleLayout
-            pose={!!mind}
-            before={mind ? poseJSX : avatarJSX}
-            header={headerJSX} onContextMenu={handleContextMenu}>
+            own={own}
+            pose={mind ? poseJSX : undefined}
+            alt={poseAlt}
+            enterDelay={enterDelay}
+            before={avatarJSX}
+            header={headerJSX}
+            onContextMenu={handleContextMenu}
+          >
             {msgContentJSX}
           </BubbleLayout>
         )}
