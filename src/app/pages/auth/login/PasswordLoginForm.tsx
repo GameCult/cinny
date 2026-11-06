@@ -35,6 +35,7 @@ import {
 } from './loginUtil';
 import { PasswordInput } from '../../../components/password-input';
 import { FieldError } from '../FiledError';
+import { TrainingNotice } from '../TrainingNotice';
 import { getResetPasswordPath } from '../../pathUtils';
 import { stopPropagation } from '../../../utils/keyboard';
 
@@ -255,6 +256,7 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
           </Box>
         </Box>
       </Box>
+      <TrainingNotice />
       <Button type="submit" variant="Primary" size="500">
         <Text as="span" size="B500">
           Login
