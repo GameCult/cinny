@@ -1,8 +1,9 @@
 import { lightTheme } from 'folds';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { onDarkFontWeight, onLightFontWeight } from '../../config.css';
-import { butterTheme, darkTheme, gamecultTheme, silverTheme } from '../../colors.css';
-import '../../gamecult.css';
+import { butterTheme, darkTheme, silverTheme, skyThemes } from '../../colors.css';
+import { DEFAULT_SKY_ID, SKY_VARIANTS } from '../../skyPalette';
+import '../../sky.css';
 import { settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
 
@@ -39,14 +40,26 @@ export const ButterTheme: Theme = {
   classNames: ['butter-theme', butterTheme, onDarkFontWeight, 'prism-dark'],
 };
 
-export const GameCultTheme: Theme = {
-  id: 'gamecult-theme',
-  kind: ThemeKind.Dark,
-  classNames: ['gamecult-theme', gamecultTheme, onDarkFontWeight, 'prism-dark'],
-};
+export const SkyThemes: Theme[] = SKY_VARIANTS.map((v) => ({
+  id: v.id,
+  kind: v.kind === 'dark' ? ThemeKind.Dark : ThemeKind.Light,
+  classNames: [
+    'sky-theme',
+    v.id,
+    skyThemes[v.id],
+    v.kind === 'dark' ? onDarkFontWeight : onLightFontWeight,
+    v.kind === 'dark' ? 'prism-dark' : 'prism-light',
+  ],
+}));
+const skyTheme = (id: string) => SkyThemes.find((t) => t.id === id) as Theme;
+export const DefaultTheme: Theme = skyTheme(DEFAULT_SKY_ID);
+const DaySkyTheme = skyTheme('sky-day');
 
 export const useThemes = (): Theme[] => {
-  const themes: Theme[] = useMemo(() => [GameCultTheme, LightTheme, SilverTheme, DarkTheme, ButterTheme], []);
+  const themes: Theme[] = useMemo(
+    () => [...SkyThemes, LightTheme, SilverTheme, DarkTheme, ButterTheme],
+    []
+  );
 
   return themes;
 };
@@ -54,7 +67,7 @@ export const useThemes = (): Theme[] => {
 export const useThemeNames = (): Record<string, string> =>
   useMemo(
     () => ({
-      [GameCultTheme.id]: 'GameCult',
+      ...Object.fromEntries(SKY_VARIANTS.map((v) => [v.id, `Sky ${v.name}`])),
       [LightTheme.id]: 'Light',
       [SilverTheme.id]: 'Silver',
       [DarkTheme.id]: 'Dark',
@@ -92,15 +105,15 @@ export const useActiveTheme = (): Theme => {
   const [darkThemeId] = useSetting(settingsAtom, 'darkThemeId');
 
   if (!systemTheme) {
-    const selectedTheme = themes.find((theme) => theme.id === themeId) ?? GameCultTheme;
+    const selectedTheme = themes.find((theme) => theme.id === themeId) ?? DefaultTheme;
 
     return selectedTheme;
   }
 
   const selectedTheme =
     systemThemeKind === ThemeKind.Dark
-      ? themes.find((theme) => theme.id === darkThemeId) ?? GameCultTheme
-      : themes.find((theme) => theme.id === lightThemeId) ?? GameCultTheme;
+      ? themes.find((theme) => theme.id === darkThemeId) ?? DefaultTheme
+      : themes.find((theme) => theme.id === lightThemeId) ?? DaySkyTheme;
 
   return selectedTheme;
 };

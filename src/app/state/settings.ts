@@ -56,7 +56,7 @@ export interface Settings {
 }
 
 const defaultSettings: Settings = {
-  themeId: 'gamecult-theme',
+  themeId: 'sky-dusk',
   useSystemTheme: false,
   lightThemeId: undefined,
   darkThemeId: undefined,
