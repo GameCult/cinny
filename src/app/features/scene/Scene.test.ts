@@ -397,7 +397,7 @@ describe('startBackgroundScene', () => {
   it('applies the device ceiling: saveData runs a still, one frame', async () => {
     const { gl, calls } = fakeGl();
     const scene = await startBackgroundScene(
-      { tier: 'full' },
+      { tier: 'full', style: 'raymarch' },
       { saveData: true },
       { canvas: asCanvas(fakeCanvas(gl)) }
     );
@@ -416,13 +416,19 @@ describe('startBackgroundScene', () => {
       const { startBackgroundScene: start } = await import('./index');
       const onCompileFail = vi.fn();
       const canvas = fakeCanvas(fakeGl().gl);
-      const scene = await start({ tier: 'full' }, {}, { canvas: asCanvas(canvas), onCompileFail });
+      const scene = await start(
+        { tier: 'full', style: 'raymarch' },
+        {},
+        { canvas: asCanvas(canvas), onCompileFail }
+      );
       expect(scene).toBeNull();
       expect(onCompileFail).toHaveBeenCalledTimes(1);
       expect(onCompileFail.mock.calls[0][0]).toBeInstanceOf(Error);
       expect(canvas.getContext).not.toHaveBeenCalled();
       // and with no callback it still does not throw
-      expect(await start({ tier: 'full' }, {}, { canvas: asCanvas(canvas) })).toBeNull();
+      expect(
+        await start({ tier: 'full', style: 'raymarch' }, {}, { canvas: asCanvas(canvas) })
+      ).toBeNull();
     } finally {
       vi.doUnmock('./Scene');
       vi.resetModules();
@@ -433,7 +439,7 @@ describe('startBackgroundScene', () => {
     const { gl } = fakeGl(0);
     const onCompileFail = vi.fn();
     const scene = await startBackgroundScene(
-      { tier: 'full' },
+      { tier: 'full', style: 'raymarch' },
       {},
       { canvas: asCanvas(fakeCanvas(gl)), onCompileFail }
     );

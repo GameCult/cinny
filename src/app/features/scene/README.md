@@ -1,5 +1,28 @@
 # Background scene
 
+**Default: the ridge scene** (`ridge/`), no WebGL. `startBackgroundScene` runs it unless the client
+config says `backgroundScene.style: 'raymarch'`; the tier flag still defaults to `off`, and null still
+means "keep the CSS ground". Everything below this section describes the opt-in ray-march scene.
+
+- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky? })` returns `{ login, dispose }` or
+  null (tier `off`, no 2D context). Four ridge layers are generated once on the CPU from CultMath's
+  value-noise fbm (`ridge/noise.ts`, a clean-room port, periodic so the drift loops), each painted once to a plain
+  2D canvas of integer size (two periods wide; DPR 2 or more paints at 2x, otherwise 1x; no resampling between
+  layers) over a baked sky gradient on the host canvas. Per frame the only motion is the browser sliding each layer with a
+  CSS transform (a Web Animation of `translate3d`, 150-420 s per period, farther is slower); no script runs per frame.
+  The host canvas and the layers' parent must be positioned and the canvas should fill the parent.
+- Paused when the tab is hidden; under `prefers-reduced-motion` the layers are painted but never played.
+  `tier: 'still'` flattens sky and layers into the host canvas at once and leaves no extra elements.
+- Cadence guard: for the first 2 s after start (after 5 warm-up frames) rAF intervals are sampled; if their p95 is over
+  33 ms the scene flattens to a still image (`ridge/probe.ts`) and stops. `?probe=1` (or `probe: true`) keeps sampling
+  and shows `n / median / p95` in a corner readout.
+- `ridge/skyColour.ts` `skyColours()` is the one place sky colours come from: a fixed dusk placeholder until Void's
+  `src/sky/sun.js` `light()` lands (PR #20); replace its body, keep the signature.
+- `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
+- Not yet measured on a phone: see the PR description.
+
+## Ray-march scene
+
 A two-pass WebGL2 scene for the client's background canvas: an infinite terrain of CultMath
 noise with a world tree at its centre, dusk atmosphere and clouds, and a camera that pulls back
 from the tree on login. It is a self-contained module; nothing in the client imports it yet.
