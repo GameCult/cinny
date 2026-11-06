@@ -2,7 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRidgeScene } from './Ridge';
 import { fbmPeriodic, valueNoisePeriodic, hash2 } from './noise';
 import { FrameSampler, frameStats, SLOW_P95_MS, WARMUP_FRAMES, WINDOW_MS } from './probe';
-import { FBM, LAYERS, layerColour, layerSize, profile, ridgeY } from './ridgeWorld';
+import {
+  AERIAL,
+  FBM,
+  LAYERS,
+  edgeBlur,
+  hazeColour,
+  layerColour,
+  layerSize,
+  profile,
+  ridgeY,
+  scatterAlpha,
+  transmittance,
+} from './ridgeWorld';
 import { skyColours } from './skyColour';
 import { startBackgroundScene } from '../index';
 
@@ -86,6 +98,63 @@ describe('ridge profile', () => {
       ).toBe(true);
       expect(z.width).toBe(2 * z.period);
     }
+  });
+});
+
+describe('aerial perspective', () => {
+  const sky = skyColours();
+  const lum = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  const chroma = (c: readonly number[]) => Math.max(...c) - Math.min(...c);
+  const far = LAYERS[0];
+  const near = LAYERS[LAYERS.length - 1];
+
+  it('transmittance is Beer-Lambert in distance: 1 at the viewer, exp(-k d) behind, strictly falling', () => {
+    expect(transmittance(near)).toBe(1);
+    for (const l of LAYERS)
+      expect(transmittance(l)).toBeCloseTo(Math.exp(-AERIAL.extinction * (1 - l.depth)), 12);
+    for (let i = 1; i < LAYERS.length; i += 1)
+      expect(transmittance(LAYERS[i])).toBeGreaterThan(transmittance(LAYERS[i - 1]));
+    // two layers' optical depths add: T(a)*T(b) = T(a+b)
+    const t = (d: number) => Math.exp(-AERIAL.extinction * d);
+    expect(t(0.3) * t(0.4)).toBeCloseTo(t(0.7), 12);
+  });
+
+  it('the nearest layer is exactly the ground colour; the farthest tends to the haze', () => {
+    expect(layerColour(near, sky)).toEqual([...sky.ground]);
+    const h = hazeColour(sky);
+    const f = layerColour(far, sky);
+    const dist = (a: readonly number[], b: readonly number[]) =>
+      Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    expect(dist(f, h)).toBeLessThan(dist(sky.ground, h) * (transmittance(far) + 0.2));
+  });
+
+  it('colour moves toward the haze and loses chroma with distance, beyond what the mix alone does', () => {
+    const h = hazeColour(sky);
+    for (const l of LAYERS.slice(0, -1)) {
+      const t = transmittance(l);
+      const c = layerColour(l, sky);
+      const mixed = [0, 1, 2].map((i) => sky.ground[i] * t + h[i] * (1 - t));
+      expect(chroma(c)).toBeLessThan(chroma(mixed));
+      expect(Math.abs(lum(c) - lum(mixed))).toBeLessThan(1.5); // desaturation keeps luma
+    }
+  });
+
+  it('edge softening grows with distance and is zero at the viewer', () => {
+    expect(edgeBlur(near)).toBe(0);
+    for (let i = 1; i < LAYERS.length; i += 1)
+      expect(edgeBlur(LAYERS[i])).toBeLessThan(edgeBlur(LAYERS[i - 1]));
+    expect(edgeBlur(far)).toBeLessThanOrEqual(AERIAL.blurPx);
+  });
+
+  it('in-scatter peaks at the sun azimuth, is periodic, faint, grows with distance, and is off without a sun', () => {
+    const az = 0.3;
+    const s = { ...sky, sunAzimuth: az };
+    expect(scatterAlpha(far, s, az)).toBeGreaterThan(scatterAlpha(far, s, az + 0.5));
+    expect(scatterAlpha(far, s, 0)).toBeCloseTo(scatterAlpha(far, s, 1), 12);
+    expect(scatterAlpha(far, s, az)).toBeLessThanOrEqual(AERIAL.scatter);
+    expect(scatterAlpha(near, s, az)).toBe(0);
+    expect(scatterAlpha(LAYERS[1], s, az)).toBeLessThan(scatterAlpha(far, s, az));
+    expect(scatterAlpha(far, { ...sky, sunAzimuth: undefined }, az)).toBe(0);
   });
 });
 
@@ -177,10 +246,13 @@ function fakeEl(tag = 'div') {
   return el;
 }
 const draws: string[] = [];
-function ctx() {
-  return {
+function ctx(withFilter = false) {
+  const c: any = {
+    globalCompositeOperation: 'source-over',
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
-    fillRect: () => draws.push('sky'),
+    fillRect() {
+      draws.push(c.globalCompositeOperation === 'source-atop' ? 'scatter' : 'sky');
+    },
     beginPath() {},
     moveTo() {},
     lineTo() {},
@@ -189,6 +261,8 @@ function ctx() {
     drawImage: () => draws.push('flatten'),
     set fillStyle(_v: unknown) {},
   };
+  if (withFilter) c.filter = 'none';
+  return c;
 }
 
 let rafQueue: Array<(t: number) => void>;
@@ -376,5 +450,64 @@ describe('fbm', () => {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('aerial perspective in the scene', () => {
+  it('is baked once: one scatter fill per hazy layer, none per frame, the nearest layer has none', () => {
+    const { canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full' })!;
+    expect(draws.filter((d) => d === 'scatter')).toHaveLength(LAYERS.length - 1);
+    const before = draws.length;
+    runFrames(16.7, 400);
+    expect(draws.length).toBe(before);
+    s.dispose();
+  });
+
+  it('a sky without a sun bakes no scatter', () => {
+    const { canvas } = host();
+    const s = createRidgeScene({
+      canvas,
+      tier: 'full',
+      sky: { ...skyColours(), sunAzimuth: undefined },
+    })!;
+    expect(draws.filter((d) => d === 'scatter')).toHaveLength(0);
+    s.dispose();
+  });
+
+  it('softens with the canvas filter where it exists, blur scaled by DPR, tiled so the wrap does not fade', () => {
+    const { parent, canvas } = host();
+    const filters: string[] = [];
+    const orig = (document as any).createElement;
+    (document as any).createElement = (t: string) => {
+      const el = orig(t);
+      el.getContext = vi.fn(() => {
+        const c = ctx(true);
+        let f = 'none';
+        Object.defineProperty(c, 'filter', {
+          get: () => f,
+          set: (v: string) => {
+            f = v;
+            filters.push(v);
+          },
+        });
+        return c;
+      });
+      return el;
+    };
+    const s = createRidgeScene({ canvas, tier: 'full' })!;
+    const blurs = filters.filter((f) => f !== 'none');
+    expect(blurs).toHaveLength(LAYERS.length - 1); // nearest is sharp
+    expect(blurs[0]).toBe(`blur(${edgeBlur(LAYERS[0]) * 2}px)`); // DPR 2
+    expect(parent.children).toHaveLength(1 + LAYERS.length);
+    s.dispose();
+  });
+
+  it("'still' tier keeps the sky and flattens the aerial layers without extra elements", () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'still' });
+    expect(parent.children).toEqual([canvas]);
+    expect(draws.filter((d) => d === 'sky')).toHaveLength(1);
+    expect(draws.filter((d) => d === 'flatten')).toHaveLength(LAYERS.length);
   });
 });

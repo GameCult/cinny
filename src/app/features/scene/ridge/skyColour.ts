@@ -14,6 +14,8 @@ export interface SkyColours {
   horizon: Srgb;
   /** Nearest ridge: the ground colour the farther layers mix away from. */
   ground: Srgb;
+  /** Where the sun sits across one drift period, 0..1; the layers pick up a faint warm in-scatter there. Omit for none. */
+  sunAzimuth?: number;
 }
 
 export function skyColours(_now: Date = new Date()): SkyColours {
@@ -22,5 +24,6 @@ export function skyColours(_now: Date = new Date()): SkyColours {
     mid: [78, 66, 150],
     horizon: [226, 130, 74],
     ground: [7, 17, 26],
+    sunAzimuth: 0.3,
   };
 }

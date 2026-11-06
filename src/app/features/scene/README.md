@@ -18,6 +18,13 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   and shows `n / median / p95` in a corner readout.
 - `ridge/skyColour.ts` `skyColours()` is the one place sky colours come from: a fixed dusk placeholder until Void's
   `src/sky/sun.js` `light()` lands (PR #20); replace its body, keep the signature.
+- Aerial perspective (`ridge/ridgeWorld.ts` `AERIAL`, `transmittance`, `layerColour`, `edgeBlur`, `scatterAlpha`) is applied
+  once while the layers are baked, from the `SkyColours` the one seam returns (`sunAzimuth` optional: omit it for no
+  in-scatter). Layer distance d = 1 - depth; transmittance T = exp(-1.6 d) (0.24 / 0.37 / 0.58 / 1.00 far to near); colour is
+  `T * ground + (1 - T) * haze`, then chroma drops by `0.5 (1 - T)`; the edge is blurred up to 2 px (canvas pixels at DPR 1,
+  via the 2D `filter`, skipped where unsupported, e.g. Safari); a faint warm in-scatter (at most 0.16 alpha) peaks at the
+  sun's azimuth. Nothing runs per frame. The in-scatter lobe is painted into each layer, so it drifts with the layer
+  rather than staying fixed under the sun; that is a known approximation until the sun is a real, fixed light.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
 - Not yet measured on a phone: see the PR description.
 

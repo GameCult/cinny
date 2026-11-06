@@ -46,11 +46,42 @@ export function hazeColour(sky: SkyColours): Srgb {
   ];
 }
 
-/** Layer colour: the haze for depth 0, the ground colour for depth 1, mixed in sRGB. */
+/**
+ * Aerial perspective, applied once at bake time. A layer at distance d (0 nearest, 1 farthest) is seen
+ * through Beer-Lambert transmittance T = exp(-extinction * d): it shows T of its own colour and 1 - T of
+ * the haze, then loses `desaturate * (1 - T)` of its chroma, is softened by up to `blurPx` (canvas
+ * pixels at scale 1) and takes a faint warm in-scatter of at most `scatter` on the sun side.
+ */
+export const AERIAL = { extinction: 1.6, desaturate: 0.5, blurPx: 2, scatter: 0.16 };
+
+/** Distance of a layer from the viewer, 0 (nearest) .. 1 (farthest). */
+export const layerDistance = (spec: LayerSpec): number => 1 - spec.depth;
+
+export const transmittance = (spec: LayerSpec): number =>
+  Math.exp(-AERIAL.extinction * layerDistance(spec));
+
+/** Layer colour as seen: its own ground colour thinned by the haze between it and the eye. */
 export function layerColour(spec: LayerSpec, sky: SkyColours): Srgb {
   const h = hazeColour(sky);
-  const m = (a: number, b: number) => Math.round(a + (b - a) * spec.depth);
-  return [m(h[0], sky.ground[0]), m(h[1], sky.ground[1]), m(h[2], sky.ground[2])];
+  const t = transmittance(spec);
+  const seen = (i: number) => sky.ground[i] * t + h[i] * (1 - t);
+  const luma = 0.2126 * seen(0) + 0.7152 * seen(1) + 0.0722 * seen(2);
+  const keep = 1 - AERIAL.desaturate * (1 - t);
+  const out = (i: number) => Math.round(luma + (seen(i) - luma) * keep);
+  return [out(0), out(1), out(2)];
+}
+
+/** Edge softening for a layer, in canvas pixels at scale 1; 0 for the nearest. */
+export const edgeBlur = (spec: LayerSpec): number => AERIAL.blurPx * (1 - transmittance(spec));
+
+/**
+ * Alpha of the warm sun-side in-scatter at `t` (0..1 across one period; periodic). Zero when the sky has
+ * no sun; grows with distance, peaks at the sun's azimuth.
+ */
+export function scatterAlpha(spec: LayerSpec, sky: SkyColours, t: number): number {
+  if (sky.sunAzimuth === undefined) return 0;
+  const lobe = 0.5 + 0.5 * Math.cos(2 * Math.PI * (t - sky.sunAzimuth));
+  return AERIAL.scatter * (1 - transmittance(spec)) * lobe * lobe;
 }
 
 /** Integer pixel sizes of a layer for a viewport: one period wide, twice that painted, so a drift of one period loops. */

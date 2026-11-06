@@ -1,7 +1,16 @@
 import type { Scene, SceneOptions } from '../Scene';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
-import { LAYERS, hazeColour, layerColour, layerSize, ridgeY, LayerSpec } from './ridgeWorld';
+import {
+  LAYERS,
+  LayerSpec,
+  edgeBlur,
+  hazeColour,
+  layerColour,
+  layerSize,
+  ridgeY,
+  scatterAlpha,
+} from './ridgeWorld';
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`. */
@@ -36,12 +45,64 @@ function paintSky(canvas: HTMLCanvasElement, sky: SkyColours): boolean {
   return true;
 }
 
+const SCATTER_STOPS = 16;
+
+/** Warm in-scatter over the silhouette only (source-atop), as a horizontal gradient that repeats each period. */
+function scatter(
+  ctx: CanvasRenderingContext2D,
+  spec: LayerSpec,
+  sky: SkyColours,
+  size: { period: number; width: number; height: number }
+) {
+  if (sky.sunAzimuth === undefined || scatterAlpha(spec, sky, sky.sunAzimuth) <= 0) return;
+  const g = ctx.createLinearGradient(0, 0, size.width, 0);
+  const [r, gr, b] = sky.horizon;
+  for (let k = 0; k <= 2 * SCATTER_STOPS; k += 1) {
+    const t = (k % SCATTER_STOPS) / SCATTER_STOPS;
+    g.addColorStop(k / (2 * SCATTER_STOPS), `rgba(${r},${gr},${b},${scatterAlpha(spec, sky, t)})`);
+  }
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size.width, size.height);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/**
+ * Soften the silhouette's edge by `px` once, where the browser's 2D canvas supports `filter` (not
+ * Safari, which keeps the sharp edge). One period is tiled past both ends and the bottom row extended below,
+ * then blurred in a single draw, so the blur sees the wrap and the ground instead of fading at borders.
+ */
+function soften(src: HTMLCanvasElement, px: number, period: number): HTMLCanvasElement {
+  const probe = context2d(src);
+  if (!probe || px <= 0 || !('filter' in probe)) return src;
+  const pad = Math.ceil(3 * px);
+  // The unfiltered tiling: blurring tile by tile would fade each tile's own border.
+  const tiled = document.createElement('canvas');
+  tiled.width = src.width + 2 * period;
+  tiled.height = src.height + pad;
+  const tctx = context2d(tiled);
+  const out = document.createElement('canvas');
+  out.width = src.width;
+  out.height = src.height;
+  const ctx = context2d(out);
+  if (!tctx || !ctx) return src;
+  for (let k = 0; k < 4; k += 1) {
+    tctx.drawImage(src, 0, 0, period, src.height, k * period, 0, period, src.height);
+    tctx.drawImage(src, 0, src.height - 1, period, 1, k * period, src.height, period, pad);
+  }
+  ctx.filter = `blur(${px}px)`;
+  ctx.drawImage(tiled, -period, 0);
+  ctx.filter = 'none';
+  return out;
+}
+
 /** One ridge layer, painted once: a filled silhouette two periods wide on a plain 2D canvas. */
 function paintLayer(
   spec: LayerSpec,
   sky: SkyColours,
   size: { period: number; width: number; height: number },
-  viewH: number
+  viewH: number,
+  scale: number
 ): HTMLCanvasElement | null {
   const el = document.createElement('canvas');
   el.width = size.width;
@@ -62,7 +123,8 @@ function paintLayer(
   ctx.lineTo(size.width, size.height);
   ctx.closePath();
   ctx.fill();
-  return el;
+  scatter(ctx, spec, sky, size);
+  return soften(el, edgeBlur(spec) * scale, size.period);
 }
 
 interface Built {
@@ -116,7 +178,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     if (!paintSky(canvas, sky)) return false;
     const layers: HTMLCanvasElement[] = [];
     for (const spec of LAYERS) {
-      const el = paintLayer(spec, sky, size, canvas.height);
+      const el = paintLayer(spec, sky, size, canvas.height, scale);
       if (!el) {
         layers.forEach((l) => l.remove());
         return false;
