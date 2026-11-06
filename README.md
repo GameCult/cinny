@@ -1,7 +1,5 @@
 # Ratatoskr
 
-> Not the OBS media receiver that Muninn docs also call Ratatoskr (github.com/GameCult/Ratatoskr, Rust): this is the GameCult chat client, a Matrix web client.
-
 GameCult's Matrix chat client, a fork of [Cinny](https://github.com/cinnyapp/cinny).
 It opens on GameCult's estate (spaces, project rooms grouped by steward, Minds,
 and your own place in it) instead of an invite list. Mobile first.
