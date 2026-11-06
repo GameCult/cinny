@@ -136,44 +136,11 @@ li p::before {
   display: inline-block;
 }
 
-/* GameCult identity: Ubuntu 300 prose, Montserrat thin titles, IBM Plex Mono labels. */
+/* GameCult identity (type only; colour is sky.css.ts): Ubuntu 300 prose, Montserrat thin titles, IBM Plex Mono labels. */
 .gamecult-theme {
-  --tc-link: #59b7ff;
-
-  --mx-uc-1: hsl(208, 100%, 72%);
-  --mx-uc-2: hsl(280, 100%, 78%);
-  --mx-uc-3: hsl(163, 70%, 65%);
-  --mx-uc-4: hsl(343, 100%, 76%);
-  --mx-uc-5: hsl(28, 100%, 66%);
-  --mx-uc-6: hsl(181, 70%, 62%);
-  --mx-uc-7: hsl(243, 100%, 80%);
-  --mx-uc-8: hsl(94, 70%, 70%);
-
   --font-secondary: 'Ubuntu', var(--font-emoji), sans-serif;
   --font-title: 'Montserrat', 'Ubuntu', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
-  --gamecult-rule: rgba(148, 163, 184, 0.22);
-  --gamecult-wash: 0.5;
-
-  background-color: #07111a;
-  background-image: radial-gradient(
-      circle at 78% 14%,
-      rgb(255 138 42 / calc(0.18 * var(--gamecult-wash))),
-      transparent 18%
-    ),
-    radial-gradient(
-      circle at 18% 10%,
-      rgb(109 96 255 / calc(0.16 * var(--gamecult-wash))),
-      transparent 24%
-    ),
-    radial-gradient(
-      circle at 52% 0%,
-      rgb(89 183 255 / calc(0.14 * var(--gamecult-wash))),
-      transparent 28%
-    ),
-    linear-gradient(180deg, #03070d 0%, #07111a 44%, #09141f 100%);
-  background-attachment: fixed;
-  color-scheme: dark;
   font-weight: 300;
 }
 

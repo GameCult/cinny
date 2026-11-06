@@ -19,6 +19,7 @@
     "prepare": "husky install",
     "commit": "git-cz",
     "bump": "node scripts/update-version.js",
+    "bake:sky": "node scripts/bake-sky.mjs && prettier --write src/sky/baked.ts",
     "test": "vitest run"
   },
   "lint-staged": {
