@@ -1,28 +1,28 @@
+import { StateEvent } from '../../types/matrix/room';
+
 export const TRAINING_NOTICE_TEXT =
   "Everything said here may be used to train GameCult's AI stewards.";
 
 /**
- * Where a room declares its notice. Heimdall's answer-collector-consent.md says the notice is pinned
- * with the sample and carries `notice_version` and a scope, but does not fix the pinned event's
- * encoding; this key is this client's provisional reading of it, and the one place to change.
+ * Heimdall's ruling: a room's notice is a room state event, not a pinned message. Type below,
+ * state_key '', content `{version, scope}`; version a positive integer, scope exactly one of
+ * show, study or train. Absent or malformed in any way means no train line.
  */
-export const ROOM_NOTICE_CONTENT_KEY = 'org.gamecult.notice';
+export const ROOM_NOTICE_EVENT_TYPE = StateEvent.GameCultNotice;
 
 export type RoomNotice = { version: number; scope: 'show' | 'study' | 'train' };
 
-/** The notice a pinned event declares, or undefined: no scope is ever inferred. */
+/** The notice a state event's content declares, or undefined: no scope is ever inferred. */
 export const parseRoomNotice = (content: unknown): RoomNotice | undefined => {
-  const raw = (content as Record<string, unknown> | undefined)?.[ROOM_NOTICE_CONTENT_KEY] as
-    | { version?: unknown; scope?: unknown }
-    | undefined;
+  if (typeof content !== 'object' || content === null) return undefined;
+  const { version, scope } = content as { version?: unknown; scope?: unknown };
   if (
-    raw &&
-    typeof raw.version === 'number' &&
-    Number.isInteger(raw.version) &&
-    raw.version > 0 &&
-    (raw.scope === 'show' || raw.scope === 'study' || raw.scope === 'train')
+    typeof version === 'number' &&
+    Number.isSafeInteger(version) &&
+    version > 0 &&
+    (scope === 'show' || scope === 'study' || scope === 'train')
   ) {
-    return { version: raw.version, scope: raw.scope };
+    return { version, scope };
   }
   return undefined;
 };
