@@ -71,6 +71,23 @@ export function layerColour(spec: LayerSpec, sky: SkyColours): Srgb {
   return [out(0), out(1), out(2)];
 }
 
+/**
+ * Comparison for the mesh tier: the same transmittance, but with distance read off the screen row. Over a ground
+ * plane a higher row is farther, so inside a layer the silhouette's top (`rowFrac` 0) is hazier than its foot (1):
+ * extra distance `ROW_DEPTH * (1 - rowFrac)` is added to the layer's own. Off by default (`rowHaze`).
+ */
+export const ROW_DEPTH = 0.35;
+
+export function layerColourAtRow(spec: LayerSpec, sky: SkyColours, rowFrac: number): Srgb {
+  const h = hazeColour(sky);
+  const t = Math.exp(-AERIAL.extinction * (layerDistance(spec) + ROW_DEPTH * (1 - rowFrac)));
+  const seen = (i: number) => sky.ground[i] * t + h[i] * (1 - t);
+  const luma = 0.2126 * seen(0) + 0.7152 * seen(1) + 0.0722 * seen(2);
+  const keep = 1 - AERIAL.desaturate * (1 - t);
+  const out = (i: number) => Math.round(luma + (seen(i) - luma) * keep);
+  return [out(0), out(1), out(2)];
+}
+
 /** Edge softening for a layer, in canvas pixels at scale 1; 0 for the nearest. */
 export const edgeBlur = (spec: LayerSpec): number => AERIAL.blurPx * (1 - transmittance(spec));
 

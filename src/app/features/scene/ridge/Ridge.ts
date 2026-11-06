@@ -7,6 +7,7 @@ import {
   edgeBlur,
   hazeColour,
   layerColour,
+  layerColourAtRow,
   layerSize,
   ridgeY,
   scatterAlpha,
@@ -19,6 +20,8 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
   sky?: SkyColours;
+  /** Comparison for the mesh tier: haze each layer by screen row (higher = farther) instead of one colour per layer. Default false. */
+  rowHaze?: boolean;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -102,7 +105,8 @@ function paintLayer(
   sky: SkyColours,
   size: { period: number; width: number; height: number },
   viewH: number,
-  scale: number
+  scale: number,
+  rowHaze: boolean
 ): HTMLCanvasElement | null {
   const el = document.createElement('canvas');
   el.width = size.width;
@@ -114,8 +118,13 @@ function paintLayer(
     top.push(ridgeY(spec, x, size.period, size.height, viewH));
   const c = layerColour(spec, sky);
   const g = ctx.createLinearGradient(0, 0, 0, size.height);
-  g.addColorStop(0, css(c));
-  g.addColorStop(1, css(mix(c, hazeColour(sky), 0.5 * (1 - spec.depth))));
+  if (rowHaze) {
+    // The band's top row is the ridge crest at its highest; its foot is the viewport's bottom edge.
+    for (let k = 0; k <= 4; k += 1) g.addColorStop(k / 4, css(layerColourAtRow(spec, sky, k / 4)));
+  } else {
+    g.addColorStop(0, css(c));
+    g.addColorStop(1, css(mix(c, hazeColour(sky), 0.5 * (1 - spec.depth))));
+  }
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.moveTo(0, size.height);
@@ -178,7 +187,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     if (!paintSky(canvas, sky)) return false;
     const layers: HTMLCanvasElement[] = [];
     for (const spec of LAYERS) {
-      const el = paintLayer(spec, sky, size, canvas.height, scale);
+      const el = paintLayer(spec, sky, size, canvas.height, scale, opts.rowHaze ?? false);
       if (!el) {
         layers.forEach((l) => l.remove());
         return false;

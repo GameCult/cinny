@@ -12,7 +12,7 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 /**
  * The client's one door to the scene. When the tier resolves to 'off' nothing is imported and no
  * canvas context is requested; otherwise the scene code loads on demand, so it stays out of the
- * main chunk. `config.style` picks the scene: the ridges unless it says 'raymarch'. Null means
+ * main chunk. `config.style` picks the scene: the ridges unless it says 'mesh' or 'raymarch'. Null means
  * "keep the CSS ground", including when that chunk fails to load (offline, stale deploy): the
  * failure goes to onCompileFail and nothing throws.
  */
@@ -28,6 +28,8 @@ export async function startBackgroundScene(
     createScene =
       config?.style === 'raymarch'
         ? (await import('./Scene')).createScene
+        : config?.style === 'mesh'
+        ? (await import('./ridge/Mesh')).createMeshScene
         : (await import('./ridge/Ridge')).createRidgeScene;
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));

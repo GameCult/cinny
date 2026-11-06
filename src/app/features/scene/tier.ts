@@ -15,8 +15,11 @@ export interface Capabilities {
   hardwareConcurrency?: number;
 }
 
-/** 'ridge': baked parallax ridges, no WebGL (default). 'raymarch': the sphere-traced world with its tree and clouds. */
-export type SceneStyle = 'ridge' | 'raymarch';
+/**
+ * 'ridge': baked parallax ridges, no WebGL (default). 'mesh': a low-poly far heightfield with depth haze, one WebGL pass.
+ * 'raymarch': the sphere-traced world with its tree and clouds.
+ */
+export type SceneStyle = 'ridge' | 'mesh' | 'raymarch';
 
 export interface BackgroundSceneConfig {
   tier?: SceneTier;

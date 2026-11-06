@@ -34,7 +34,7 @@ esbuild
     if (ridge) {
       fs.writeFileSync(
         path.join(out, 'index.html'),
-        '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Ratatoskr ridge scene</title><body style="margin:0;background:#07111a"><div id=stage style="position:relative;width:100vw;height:100vh;overflow:hidden"><canvas id=c style="width:100%;height:100%;display:block"></canvas></div><script src=bundle.js></script>'
+        '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Ratatoskr ridge, mesh scene</title><body style="margin:0;background:#07111a"><div id=stage style="position:relative;width:100vw;height:100vh;overflow:hidden"><canvas id=c style="width:100%;height:100%;display:block"></canvas></div><script src=bundle.js></script>'
       );
       return;
     }

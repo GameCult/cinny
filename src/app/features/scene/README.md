@@ -2,7 +2,7 @@
 
 **Default: the ridge scene** (`ridge/`), no WebGL. `startBackgroundScene` runs it unless the client
 config says `backgroundScene.style: 'raymarch'`; the tier flag still defaults to `off`, and null still
-means "keep the CSS ground". Everything below this section describes the opt-in ray-march scene.
+means "keep the CSS ground". `style: 'mesh'` selects a third scene (next section); everything after that describes the opt-in ray-march scene.
 
 - `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky? })` returns `{ login, dispose }` or
   null (tier `off`, no 2D context). Four ridge layers are generated once on the CPU from CultMath's
@@ -25,8 +25,26 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   via the 2D `filter`, skipped where unsupported, e.g. Safari); a faint warm in-scatter (at most 0.16 alpha) peaks at the
   sun's azimuth. Nothing runs per frame. The in-scatter lobe is painted into each layer, so it drifts with the layer
   rather than staying fixed under the sun; that is a known approximation until the sun is a real, fixed light.
-- `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
+- `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?style=mesh`, `?rowhaze=1`, `?probe=1`);
+  `harness/scene/ridgeDrive.cjs <out> <shots> [w h reps]` drives it in headless Chromium (SwiftShader unless there is a GPU).
+- Row haze (`createRidgeScene({ rowHaze: true })`, default off; `ridgeWorld.ts` `layerColourAtRow`, `ROW_DEPTH`): a comparison for the mesh tier.
+  Inside each baked layer the colour runs from hazier at the crest to the layer's own at the foot, as if the screen row were depth
+  (extra distance `0.35 (1 - rowFrac)` through the same transmittance). Still no per-frame work.
 - Not yet measured on a phone: see the PR description.
+
+## Mesh scene (`style: 'mesh'`, tier flag still defaults off)
+
+`ridge/Mesh.ts` `createMeshScene({ canvas, tier, probe?, onProbe?, sky?, onCompileFail?, onContextLost? })`, same `{ login, dispose }`/null
+contract. One WebGL1/2 pass: a full-screen gradient sky, then a low-poly far heightfield (`ridge/meshWorld.ts`: 96 x 20 quads =
+3840 triangles, 2037 vertices, 16-bit indices, rows from 6 to 150 world units, built once on the CPU from the same periodic fbm as the
+ridges plus depth bands). The camera is fixed; the field drifts one period in 240 s by a uniform, so there is no per-frame upload.
+No ray march and no light but the sky: the fragment shader (`ridge/meshShaders.ts`) shades by normal and height from `skyColours()`
+ground and mid colours, then hazes by view-space depth d (the projection's w): `T = exp(-3 d / 150)`, colour `T * base + (1 - T) * haze`,
+then chroma drops by `0.45 (1 - T)`. The haze colour is `hazeColour(skyColours())`, the same one the baked layers fade into; there
+is no second sun and no new colour source. `tier: 'low'` renders at 0.75 of the CSS size; `still` draws once. Cadence guard, pause on
+hidden tab, reduced motion and the `?probe=1` readout (which adds the triangle count) match the ridge scene. Context loss stops it
+and calls `onContextLost`. `?style=mesh` on the harness page opens it.
+
 
 ## Ray-march scene
 
