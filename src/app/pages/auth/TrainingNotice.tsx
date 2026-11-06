@@ -1,15 +1,14 @@
 import { Box, Checkbox, Text, color, config } from 'folds';
 import React from 'react';
-
-export const TRAINING_NOTICE =
-  "Everything said on this server may be used to train GameCult's AI stewards. We never ingest Discord content.";
+import { TRAINING_NOTICE_TEXT } from '../../utils/trainingNotice';
 
 type TrainingNoticeProps = {
-  // Registration passes this to require a ticked acknowledgement; login shows the notice only.
-  acknowledge?: { checked: boolean; onToggle: () => void };
+  checked: boolean;
+  onToggle: () => void;
 };
 
-export function TrainingNotice({ acknowledge }: TrainingNoticeProps) {
+// Registration only: ticking it is the newcomer's acceptance of the current notice version.
+export function TrainingNotice({ checked, onToggle }: TrainingNoticeProps) {
   return (
     <Box
       direction="Column"
@@ -22,24 +21,21 @@ export function TrainingNotice({ acknowledge }: TrainingNoticeProps) {
         border: `${config.borderWidth.B300} solid ${color.SurfaceVariant.ContainerLine}`,
       }}
     >
-      <Text size="T300">{TRAINING_NOTICE}</Text>
-      {acknowledge && (
-        <Text
-          as="label"
-          size="T300"
-          style={{ display: 'flex', alignItems: 'center', gap: config.space.S200 }}
-        >
-          <Checkbox
-            name="trainingAck"
-            size="300"
-            variant="Primary"
-            required
-            checked={acknowledge.checked}
-            onClick={acknowledge.onToggle}
-          />
-          I understand and agree.
-        </Text>
-      )}
+      <Text
+        as="label"
+        size="T300"
+        style={{ display: 'flex', alignItems: 'center', gap: config.space.S200 }}
+      >
+        <Checkbox
+          name="trainingAck"
+          size="300"
+          variant="Primary"
+          required
+          checked={checked}
+          onClick={onToggle}
+        />
+        {TRAINING_NOTICE_TEXT}
+      </Text>
     </Box>
   );
 }

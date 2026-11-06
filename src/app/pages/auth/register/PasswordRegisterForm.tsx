@@ -33,6 +33,7 @@ import { useAutoDiscoveryInfo } from '../../../hooks/useAutoDiscoveryInfo';
 import { RegisterError, RegisterResult, register, useRegisterComplete } from './registerUtil';
 import { FieldError } from '../FiledError';
 import { TrainingNotice } from '../TrainingNotice';
+import { recordNoticeAcceptance } from '../../../utils/trainingNotice';
 import {
   AutoDummyStageDialog,
   AutoTermsStageDialog,
@@ -242,6 +243,7 @@ export function PasswordRegisterForm({
       terms,
       clientSecret: mx.generateClientSecret(),
     };
+    recordNoticeAcceptance(localStorage);
     const pickedStages = pickStages(uiaFlows, fData);
     const pickedFlow = getUIAFlowForStages(uiaFlows, pickedStages);
     setOngoingFlow(pickedFlow);
@@ -391,12 +393,7 @@ export function PasswordRegisterForm({
           <FieldError message={registerError.data.error ?? 'Failed to register. Unknown Reason.'} />
         )}
         <span data-spacing-node />
-        <TrainingNotice
-          acknowledge={{
-            checked: trainingAck,
-            onToggle: () => setTrainingAck((ack) => !ack),
-          }}
-        />
+        <TrainingNotice checked={trainingAck} onToggle={() => setTrainingAck((ack) => !ack)} />
         <Button variant="Primary" size="500" type="submit" disabled={!trainingAck}>
           <Text as="span" size="B500">
             Register
