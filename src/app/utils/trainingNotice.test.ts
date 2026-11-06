@@ -1,19 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ROOM_NOTICE_CONTENT_KEY,
   TRAINING_NOTICE_TEXT,
-  TRAINING_NOTICE_VERSION,
-  getNoticeAcceptance,
-  needsFreshAcceptance,
-  recordNoticeAcceptance,
+  parseRoomNotice,
+  roomTrainingLine,
 } from './trainingNotice';
 
-const memoryStorage = () => {
-  const data = new Map<string, string>();
-  return {
-    getItem: (k: string) => data.get(k) ?? null,
-    setItem: (k: string, v: string) => void data.set(k, v),
-  };
-};
+const pinned = (notice: unknown) => ({ body: 'sample', [ROOM_NOTICE_CONTENT_KEY]: notice });
 
 describe('training notice', () => {
   it('says exactly the ruled sentence and never mentions Discord', () => {
@@ -23,29 +16,19 @@ describe('training notice', () => {
     expect(TRAINING_NOTICE_TEXT.toLowerCase()).not.toContain('discord');
   });
 
-  it('records the current version and time on acceptance', () => {
-    const storage = memoryStorage();
-    recordNoticeAcceptance(storage, new Date('2026-11-06T20:00:00Z'));
-    expect(getNoticeAcceptance(storage)).toEqual({
-      noticeVersion: TRAINING_NOTICE_VERSION,
-      acceptedAt: '2026-11-06T20:00:00.000Z',
-    });
-    expect(needsFreshAcceptance(storage)).toBe(false);
+  it('shows the train line only where the room declares train', () => {
+    const train = parseRoomNotice(pinned({ version: 2, scope: 'train' }));
+    expect(train).toEqual({ version: 2, scope: 'train' });
+    expect(roomTrainingLine(train)).toBe(TRAINING_NOTICE_TEXT);
+    expect(roomTrainingLine(parseRoomNotice(pinned({ version: 1, scope: 'study' })))).toBeUndefined();
+    expect(roomTrainingLine(parseRoomNotice(pinned({ version: 1, scope: 'show' })))).toBeUndefined();
   });
 
-  it('asks again when the notice version changes', () => {
-    const storage = memoryStorage();
-    recordNoticeAcceptance(storage, new Date(), TRAINING_NOTICE_VERSION);
-    expect(needsFreshAcceptance(storage, TRAINING_NOTICE_VERSION + 1)).toBe(true);
-  });
-
-  it('does not re-ask members who never registered here (no record)', () => {
-    expect(needsFreshAcceptance(memoryStorage())).toBe(false);
-  });
-
-  it('treats a corrupt record as none', () => {
-    const storage = memoryStorage();
-    storage.setItem('trainingNoticeAcceptance', '{nope');
-    expect(getNoticeAcceptance(storage)).toBeUndefined();
+  it('shows nothing where no notice is declared, and never infers train', () => {
+    expect(roomTrainingLine(undefined)).toBeUndefined();
+    expect(parseRoomNotice({ body: 'plain message' })).toBeUndefined();
+    expect(parseRoomNotice(pinned({ scope: 'train' }))).toBeUndefined();
+    expect(parseRoomNotice(pinned({ version: 0, scope: 'train' }))).toBeUndefined();
+    expect(parseRoomNotice(pinned({ version: 1, scope: 'everything' }))).toBeUndefined();
   });
 });

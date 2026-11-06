@@ -33,7 +33,6 @@ import { useAutoDiscoveryInfo } from '../../../hooks/useAutoDiscoveryInfo';
 import { RegisterError, RegisterResult, register, useRegisterComplete } from './registerUtil';
 import { FieldError } from '../FiledError';
 import { TrainingNotice } from '../TrainingNotice';
-import { recordNoticeAcceptance } from '../../../utils/trainingNotice';
 import {
   AutoDummyStageDialog,
   AutoTermsStageDialog,
@@ -243,7 +242,6 @@ export function PasswordRegisterForm({
       terms,
       clientSecret: mx.generateClientSecret(),
     };
-    recordNoticeAcceptance(localStorage);
     const pickedStages = pickStages(uiaFlows, fData);
     const pickedFlow = getUIAFlowForStages(uiaFlows, pickedStages);
     setOngoingFlow(pickedFlow);

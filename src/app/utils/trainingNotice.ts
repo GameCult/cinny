@@ -1,43 +1,32 @@
 export const TRAINING_NOTICE_TEXT =
   "Everything said here may be used to train GameCult's AI stewards.";
 
-// Any change to the wording or scope is a new version, and a new version needs a fresh acceptance.
-export const TRAINING_NOTICE_VERSION = 1;
+/**
+ * Where a room declares its notice. Heimdall's answer-collector-consent.md says the notice is pinned
+ * with the sample and carries `notice_version` and a scope, but does not fix the pinned event's
+ * encoding; this key is this client's provisional reading of it, and the one place to change.
+ */
+export const ROOM_NOTICE_CONTENT_KEY = 'org.gamecult.notice';
 
-const ACCEPTANCE_KEY = 'trainingNoticeAcceptance';
+export type RoomNotice = { version: number; scope: 'show' | 'study' | 'train' };
 
-export type NoticeAcceptance = { noticeVersion: number; acceptedAt: string };
-
-type NoticeStorage = Pick<Storage, 'getItem' | 'setItem'>;
-
-/** Written at registration only, so only newcomers have one; earlier members are never re-asked. */
-export const recordNoticeAcceptance = (
-  storage: NoticeStorage,
-  now: Date = new Date(),
-  noticeVersion: number = TRAINING_NOTICE_VERSION
-): NoticeAcceptance => {
-  const acceptance = { noticeVersion, acceptedAt: now.toISOString() };
-  storage.setItem(ACCEPTANCE_KEY, JSON.stringify(acceptance));
-  return acceptance;
-};
-
-export const getNoticeAcceptance = (storage: NoticeStorage): NoticeAcceptance | undefined => {
-  try {
-    const parsed = JSON.parse(storage.getItem(ACCEPTANCE_KEY) ?? 'null');
-    if (typeof parsed?.noticeVersion === 'number' && typeof parsed?.acceptedAt === 'string') {
-      return parsed;
-    }
-  } catch {
-    // unreadable record counts as none
+/** The notice a pinned event declares, or undefined: no scope is ever inferred. */
+export const parseRoomNotice = (content: unknown): RoomNotice | undefined => {
+  const raw = (content as Record<string, unknown> | undefined)?.[ROOM_NOTICE_CONTENT_KEY] as
+    | { version?: unknown; scope?: unknown }
+    | undefined;
+  if (
+    raw &&
+    typeof raw.version === 'number' &&
+    Number.isInteger(raw.version) &&
+    raw.version > 0 &&
+    (raw.scope === 'show' || raw.scope === 'study' || raw.scope === 'train')
+  ) {
+    return { version: raw.version, scope: raw.scope };
   }
   return undefined;
 };
 
-/** True when a newcomer's recorded acceptance is for an older notice version and must be renewed. */
-export const needsFreshAcceptance = (
-  storage: NoticeStorage,
-  currentVersion: number = TRAINING_NOTICE_VERSION
-): boolean => {
-  const accepted = getNoticeAcceptance(storage);
-  return accepted !== undefined && accepted.noticeVersion !== currentVersion;
-};
+/** The line a room shows: only a notice that says `train` in terms gets the train sentence. */
+export const roomTrainingLine = (notice: RoomNotice | undefined): string | undefined =>
+  notice?.scope === 'train' ? TRAINING_NOTICE_TEXT : undefined;

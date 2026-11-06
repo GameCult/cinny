@@ -105,7 +105,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
       </Box>
       <Box shrink="No" direction="Column">
         <div style={{ padding: `0 ${config.space.S400}` }}>
-          <RoomTrainingLine />
+          <RoomTrainingLine room={room} />
           {tombstoneEvent ? (
             <RoomTombstone
               roomId={roomId}
