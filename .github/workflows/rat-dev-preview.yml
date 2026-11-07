@@ -29,6 +29,8 @@ jobs:
       - name: Upload artifact
         # Forgejo's fork: upstream upload-artifact v4+ refuses non-GitHub servers (GHESNotSupportedError).
         uses: forgejo/upload-artifact@v4
+        env:
+          ACTIONS_RESULTS_URL: https://eureka.gamecult.org/forge/
         with:
           name: rat-dev-dist
           path: dist
