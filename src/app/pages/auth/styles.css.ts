@@ -11,12 +11,6 @@ export const AuthLayout = style({
   position: 'relative',
 });
 
-// With the background scene running (see features/scene/BackgroundScene), the signed-out ground is clear.
-globalStyle(`:root[data-scene] ${AuthLayout}`, {
-  backgroundColor: 'transparent',
-  backgroundImage: 'none',
-});
-
 export const AuthCard = style({
   marginTop: '1vh',
   maxWidth: toRem(460),
@@ -56,4 +50,34 @@ export const AuthCardContent = style({
 
 export const AuthFooter = style({
   padding: config.space.S200,
+});
+
+// While the background scene runs (html[data-scene], set by features/scene/BackgroundScene), the
+// signed-out ground is clear and the card is a translucent, blurred pane shaped like a message
+// bubble (BubbleContent: radius R500, no border), filled with the sky's bubble colour. The
+// --sky-bubble variables come from the sky theme (PR #22); the plain colours are the fallback
+// until it lands. 85% fill keeps text >= 4.5:1 over the scene's brightest and darkest backdrops.
+// The card is also made shorter so it leaves more of the scene visible on a phone.
+const scene = ':root[data-scene]';
+globalStyle(`${scene} ${AuthLayout}`, {
+  backgroundColor: 'transparent',
+  backgroundImage: 'none',
+});
+globalStyle(`${scene} ${AuthCard}`, {
+  backgroundColor: [
+    'rgba(13, 26, 38, 0.85)',
+    'color-mix(in srgb, var(--sky-bubble, #0d1a26) 85%, transparent)',
+  ],
+  color: 'var(--sky-bubble-text, #b7c7d9)',
+  borderRadius: config.radii.R500,
+  borderColor: 'transparent',
+  backdropFilter: 'blur(12px)',
+});
+globalStyle(`${scene} ${AuthHeader}`, {
+  backgroundColor: 'transparent',
+});
+globalStyle(`${scene} ${AuthCardContent}`, {
+  paddingTop: config.space.S500,
+  paddingBottom: config.space.S400,
+  gap: config.space.S500,
 });
