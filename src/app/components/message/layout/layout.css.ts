@@ -266,7 +266,6 @@ export const PoseButton = style({
       height: 'auto',
       margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
       shapeMargin: toRem(7),
-      shapeImageThreshold: 0.35,
       WebkitMaskImage: 'linear-gradient(#000 84%, transparent)',
       maskImage: 'linear-gradient(#000 84%, transparent)',
     },
