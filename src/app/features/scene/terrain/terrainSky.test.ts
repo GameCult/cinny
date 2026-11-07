@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { SKY } from './skyData';
 import {
+  AMBIENT_GAIN,
+  NIGHT_LIFT,
   ambientColour,
   hazeColour,
   hexToLinear,
@@ -43,6 +45,14 @@ describe('baked sky numbers', () => {
   it('the default sky from skyColours() is a night one, as the stars see it', () => {
     expect(skyNameFor(skyColours())).toBe('midnight');
     expect(skyNameFor({ ...skyColours(), top: [150, 198, 255] })).toBe('noonday');
+  });
+});
+
+describe('night fill', () => {
+  it('lifts ambient at night by NIGHT_LIFT and leaves a high sun at the plain gain', () => {
+    const z = (d: typeof SKY.midnight) => hexToLinear(d.gradient[0]);
+    ambientColour(SKY.midnight).forEach((v, i) => expect(v).toBeCloseTo(z(SKY.midnight)[i] * AMBIENT_GAIN * NIGHT_LIFT, 9));
+    ambientColour(SKY.noonday).forEach((v, i) => expect(v).toBeCloseTo(z(SKY.noonday)[i] * AMBIENT_GAIN, 9));
   });
 });
 

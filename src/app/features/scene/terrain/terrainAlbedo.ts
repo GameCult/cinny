@@ -4,7 +4,7 @@
 // part reads the baked sky (./skyData.ts): the snow line drops and every material is tinted toward the sky's colour
 // as the sun goes down, warm by the sun's own colour by day and cool by the horizon haze at night.
 import { SkyData, Vec3 } from './skyData';
-import { hazeColour, sunColour } from './terrainSky';
+import { coldness, hazeColour, sunColour } from './terrainSky';
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const smooth = (a: number, b: number, x: number) => {
@@ -16,16 +16,16 @@ const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 /** Every number the shader shares: band edges in metres, slope edges as the normal's y (cosine of the slope angle). */
 export const ALBEDO = {
   /** soil fades to scree across these heights. */
-  screeFrom: 55,
-  screeTo: 115,
+  screeFrom: 80,
+  screeTo: 160,
   /** half-width in metres of the snow line's fade. */
-  snowBand: 30,
+  snowBand: 22,
   /** n.y edges: faces with n.y below `rockLo` are all rock, above `rockHi` none. */
-  rockLo: 0.62,
-  rockHi: 0.88,
+  rockLo: 0.78,
+  rockHi: 0.95,
   /** n.y edges: snow is shed entirely below `snowLo` and settles fully above `snowHi`. */
-  snowLo: 0.68,
-  snowHi: 0.9,
+  snowLo: 0.74,
+  snowHi: 0.93,
   /** world-position wobble of the height edges (metres) and the slope edges, so bands are not contour lines. */
   wobbleHeight: 14,
   wobbleSlope: 0.05,
@@ -41,14 +41,14 @@ export interface AlbedoPalette {
 }
 
 const BASE = {
-  soil: [0.055, 0.06, 0.03],
-  scree: [0.2, 0.18, 0.155],
-  rock: [0.1, 0.09, 0.085],
+  soil: [0.045, 0.08, 0.02],
+  scree: [0.3, 0.235, 0.16],
+  rock: [0.075, 0.062, 0.06],
   snow: [0.72, 0.75, 0.8],
 } as const;
 
-const SNOW_LINE_DAY = 150;
-const SNOW_LINE_NIGHT = 105;
+const SNOW_LINE_DAY = 165;
+const SNOW_LINE_NIGHT = 135;
 
 const unit = (c: Vec3): Vec3 => {
   const m = Math.max(c[0], c[1], c[2], 1e-6);
@@ -57,7 +57,7 @@ const unit = (c: Vec3): Vec3 => {
 
 /** The palette one baked sky gives: base reflectances tinted toward the sky's colour, and its snow line. */
 export function albedoPalette(d: SkyData): AlbedoPalette {
-  const cold = 1 - smooth(-6, 25, d.elevation);
+  const cold = coldness(d);
   const sun = unit(sunColour(d));
   const haze = unit(hazeColour(d));
   const tint = [0, 1, 2].map((i) => mix(sun[i], haze[i], cold));

@@ -24,9 +24,10 @@ describe('albedo by slope and height', () => {
     expect(near(at('noonday', 220, 1), p.snow)).toBe(true);
   });
 
-  it('scree sits between soil and the snow line on gentle ground', () => {
+  it('soil grades to scree by height on gentle ground, halfway at the middle of the band', () => {
     const p = albedoPalette(SKY.noonday);
-    expect(near(at('noonday', ALBEDO.screeTo + 1, 1), p.scree)).toBe(true);
+    const half = p.soil.map((v, i) => (v + p.scree[i]) / 2);
+    expect(near(at('noonday', (ALBEDO.screeFrom + ALBEDO.screeTo) / 2, 1), half)).toBe(true);
   });
 
   it('snow is shed as the face steepens: the same height goes snow, then mixed, then rock', () => {

@@ -47,16 +47,24 @@ export function sunColour(d: SkyData): Vec3 {
  * the same gain turns the gradient's glow into a faint moonlit fill, where `diffuse` alone would be black.
  */
 export const AMBIENT_GAIN = 0.25;
+
+/** 0 with the sun well up, 1 once it is below -6 degrees (civil twilight over): the night notion the palette and fill share. */
+export const coldness = (d: SkyData): number => 1 - smooth(-6, 25, d.elevation);
+
+/** Extra ambient at night, so a moonlit face is readable and not black on a phone: x4 at full night, 1 by day. */
+export const NIGHT_LIFT = 4;
+
 export function ambientColour(d: SkyData): Vec3 {
   const z = hexToLinear(d.gradient[0]);
-  return [z[0] * AMBIENT_GAIN, z[1] * AMBIENT_GAIN, z[2] * AMBIENT_GAIN];
+  const k = AMBIENT_GAIN * (1 + (NIGHT_LIFT - 1) * coldness(d));
+  return [z[0] * k, z[1] * k, z[2] * k];
 }
 
 /** The colour distance fades to: the gradient's horizon stop, linear. */
 export const hazeColour = (d: SkyData): Vec3 => hexToLinear(d.gradient[d.gradient.length - 1]);
 
 /** Haze: transmittance T = exp(-k d) at distance d metres. */
-export const HAZE_K = 0.0007;
+export const HAZE_K = 0.0004;
 export const transmittance = (distance: number): number =>
   Math.exp(-HAZE_K * Math.max(0, distance));
 
