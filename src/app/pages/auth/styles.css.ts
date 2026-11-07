@@ -1,4 +1,4 @@
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { DefaultReset, color, config, toRem } from 'folds';
 
 export const AuthLayout = style({
@@ -9,6 +9,12 @@ export const AuthLayout = style({
   paddingRight: config.space.S200,
   paddingBottom: 0,
   position: 'relative',
+});
+
+// With the background scene running (see features/scene/BackgroundScene), the signed-out ground is clear.
+globalStyle(`:root[data-scene] ${AuthLayout}`, {
+  backgroundColor: 'transparent',
+  backgroundImage: 'none',
 });
 
 export const AuthCard = style({
