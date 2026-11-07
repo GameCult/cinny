@@ -10,6 +10,7 @@
   "scripts": {
     "start": "vite",
     "build": "vite build",
+    "build:preview": "vite build && node scripts/preview-config.js low",
     "preview": "vite preview",
     "lint": "npm run check:eslint && npm run check:prettier",
     "check:eslint": "eslint src/*",

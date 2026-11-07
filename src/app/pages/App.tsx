@@ -11,6 +11,7 @@ import { ConfigConfigError, ConfigConfigLoading } from './ConfigConfig';
 import { FeatureCheck } from './FeatureCheck';
 import { createRouter } from './Router';
 import { ScreenSizeProvider, useScreenSize } from '../hooks/useScreenSize';
+import { BackgroundScene } from '../features/scene/BackgroundScene';
 import { useCompositionEndTracking } from '../hooks/useComposingCheck';
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ function App() {
               >
                 {(clientConfig) => (
                   <ClientConfigProvider value={clientConfig}>
+                    <BackgroundScene />
                     <QueryClientProvider client={queryClient}>
                       <JotaiProvider>
                         <RouterProvider router={createRouter(clientConfig, screenSize)} />
