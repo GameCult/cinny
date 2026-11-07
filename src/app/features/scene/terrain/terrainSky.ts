@@ -56,7 +56,7 @@ export function ambientColour(d: SkyData): Vec3 {
 export const hazeColour = (d: SkyData): Vec3 => hexToLinear(d.gradient[d.gradient.length - 1]);
 
 /** Haze: transmittance T = exp(-k d) at distance d metres. */
-export const HAZE_K = 0.0012;
+export const HAZE_K = 0.0007;
 export const transmittance = (distance: number): number =>
   Math.exp(-HAZE_K * Math.max(0, distance));
 

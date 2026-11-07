@@ -114,12 +114,21 @@ uniform vec3 uCamera, uSun, uSunColour, uAmbient, uHaze;
 uniform float uSpan, uHazeK;
 out vec4 o;
 ${FETCH}
-void main() {
-  ivec2 t = ivec2(v_uv * float(uTex - 1) + 0.5);
-  float texel = uSpan / float(uTex - 1);
+// Unnormalised normal at one texel, central differences over its neighbours.
+vec3 nAt(ivec2 t, float texel) {
   float dx = hAt(t + ivec2(1, 0)) - hAt(t - ivec2(1, 0));
   float dz = hAt(t + ivec2(0, 1)) - hAt(t - ivec2(0, 1));
-  vec3 n = normalize(vec3(-dx, 2.0 * texel, -dz));
+  return normalize(vec3(-dx, 2.0 * texel, -dz));
+}
+void main() {
+  // The four texels around this fragment, blended, so the shading is continuous and not one flat square per texel.
+  vec2 p = v_uv * float(uTex - 1);
+  ivec2 t = ivec2(floor(p));
+  vec2 f = fract(p);
+  float texel = uSpan / float(uTex - 1);
+  vec3 n = normalize(mix(
+    mix(nAt(t, texel), nAt(t + ivec2(1, 0), texel), f.x),
+    mix(nAt(t + ivec2(0, 1), texel), nAt(t + ivec2(1, 1), texel), f.x), f.y));
   float alt = clamp(v_world.y / 200.0, 0.0, 1.0);
   vec3 rock = mix(vec3(0.07, 0.06, 0.05), vec3(0.28, 0.26, 0.22), alt);
   vec3 grass = mix(vec3(0.03, 0.07, 0.025), vec3(0.14, 0.15, 0.07), alt);
@@ -139,7 +148,7 @@ out vec4 o;
 void main() {
   vec2 ndc = gl_FragCoord.xy / uSize * 2.0 - 1.0;
   vec3 d = normalize(uForward + ndc.x * uTanHalf * uSize.x / uSize.y * uRight + ndc.y * uTanHalf * uUp);
-  float s = (1.0 - sqrt(clamp(d.y, 0.0, 1.0))) * 6.0;
+  float s = (1.0 - sqrt(smoothstep(-0.15, 1.0, d.y))) * 6.0;
   int i = int(min(floor(s), 5.0));
   vec3 c = mix(uGrad[i], uGrad[i + 1], s - float(i));
   o = vec4(pow(c, vec3(1.0 / 2.2)), 1.0);
