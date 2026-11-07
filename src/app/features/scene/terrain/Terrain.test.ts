@@ -233,3 +233,87 @@ describe("startBackgroundScene style 'terrain'", () => {
     expect(c2.getContext).not.toHaveBeenCalledWith('webgl2', expect.anything());
   });
 });
+
+describe('stars in the terrain scene', () => {
+  let overlays: any[];
+  let arcs: number;
+  const withOverlays = () => {
+    overlays = [];
+    arcs = 0;
+    (document as any).createElement = () => {
+      const el: any = {
+        style: {},
+        remove: vi.fn(),
+        setAttribute() {},
+        getContext: () => ({
+          clearRect() {},
+          beginPath() {},
+          fill() {},
+          arc: () => (arcs += 1),
+        }),
+      };
+      overlays.push(el);
+      return el;
+    };
+  };
+  const scene = (sky: 'midnight' | 'noonday', tier: 'still' | 'low' = 'low') => {
+    withOverlays();
+    const canvas = canvasWith(fakeGl().gl);
+    const s = createTerrainScene({ canvas, tier, sky })!;
+    return { s, canvas };
+  };
+
+  it('a midnight sky gets one star overlay beside the canvas, painted with the terrain', () => {
+    const { s, canvas } = scene('midnight');
+    expect(overlays).toHaveLength(1);
+    expect(canvas.parentElement.appendChild).toHaveBeenCalledWith(overlays[0]);
+    rafQueue.shift()!(16);
+    expect(arcs).toBeGreaterThan(0);
+    s.dispose();
+    expect(overlays[0].remove).toHaveBeenCalledOnce();
+  });
+
+  it('a noonday sky gets no overlay and paints no stars', () => {
+    const { s } = scene('noonday');
+    expect(overlays).toHaveLength(0);
+    expect(arcs).toBe(0);
+    s.dispose();
+  });
+
+  it("'still' paints the stars once at base and queues nothing", () => {
+    const { s } = scene('midnight', 'still');
+    expect(arcs).toBeGreaterThan(0);
+    expect(rafQueue).toHaveLength(0);
+    s.dispose();
+  });
+
+  it('a hidden tab or reduced motion paints no more stars than the first frame', () => {
+    visibility = 'hidden';
+    const { s } = scene('midnight');
+    const n = arcs;
+    expect(n).toBeGreaterThan(0);
+    expect(rafQueue).toHaveLength(0); // the terrain loop never starts, so nothing repaints the stars
+    s.dispose();
+    visibility = 'visible';
+    (window as any).matchMedia = () => ({
+      matches: true,
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    const r = scene('midnight');
+    expect(rafQueue).toHaveLength(0);
+    expect(arcs).toBe(n);
+    r.s.dispose();
+  });
+
+  it('stars turn with the terrain: a later frame is painted at a later heading', () => {
+    let clock = 0;
+    vi.stubGlobal('performance', { now: () => (clock += 1000) });
+    const { s } = scene('midnight');
+    rafQueue.shift()!(16);
+    const first = arcs;
+    rafQueue.shift()!(1000);
+    expect(arcs).toBeGreaterThan(first);
+    s.dispose();
+  });
+});
