@@ -97,7 +97,12 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
   win.WebSocket = GuardedSocket;
 
   const realOpen = win.XMLHttpRequest.prototype.open;
-  win.XMLHttpRequest.prototype.open = function open(this: XMLHttpRequest, method: string, url: string | URL, ...rest: unknown[]) {
+  win.XMLHttpRequest.prototype.open = function open(
+    this: XMLHttpRequest,
+    method: string,
+    url: string | URL,
+    ...rest: unknown[]
+  ) {
     if (routeOf(String(url), origin) !== 'own') throw refusal('XMLHttpRequest', String(url));
     return (realOpen as (...a: unknown[]) => void).call(this, method, url, ...rest);
   } as typeof realOpen;

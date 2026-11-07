@@ -102,7 +102,9 @@ describe('the pretend homeserver through matrix-js-sdk', () => {
       expect(mind, e.getSender()!).toBeDefined();
       expect(resolvePose(mind!, e.getContent()[POSE_KEY])).toBe(e.getContent()[POSE_KEY]);
     });
-    expect(events.some((e) => mindOfSender(e.getSender()!.slice(1).split(':')[0]) === undefined)).toBe(true);
+    expect(
+      events.some((e) => mindOfSender(e.getSender()!.slice(1).split(':')[0]) === undefined)
+    ).toBe(true);
   });
 
   it('shows the training line only in the rooms whose notice says train', async () => {
@@ -120,21 +122,38 @@ describe('the pretend homeserver through matrix-js-sdk', () => {
     const before = room.getLiveTimeline().getEvents().length;
     const sent = await mx.sendTextMessage(GENERAL, 'hello pretend world');
     const mine = await waitFor(() =>
-      room.getLiveTimeline().getEvents().find((e) => e.getId() === sent.event_id && !e.status)
+      room
+        .getLiveTimeline()
+        .getEvents()
+        .find((e) => e.getId() === sent.event_id && !e.status)
     );
     expect(mine.getSender()).toBe(ME);
     const reply = await waitFor(
-      () => room.getLiveTimeline().getEvents().find((e) => e.getSender() !== ME && e.getContent().body?.length && room.getLiveTimeline().getEvents().indexOf(e) >= before + 1),
+      () =>
+        room
+          .getLiveTimeline()
+          .getEvents()
+          .find(
+            (e) =>
+              e.getSender() !== ME &&
+              e.getContent().body?.length &&
+              room.getLiveTimeline().getEvents().indexOf(e) >= before + 1
+          ),
       6000
     );
     expect(reply.getContent()[POSE_KEY]).toBeTruthy();
-    const ours = room.getLiveTimeline().getEvents().filter((e) => e.getContent().body === 'hello pretend world');
+    const ours = room
+      .getLiveTimeline()
+      .getEvents()
+      .filter((e) => e.getContent().body === 'hello pretend world');
     expect(ours).toHaveLength(1);
   });
 
   it('joins the unjoined public room and then syncs it', async () => {
     const { mx } = await syncedClient();
-    const joinedRoom = new Promise<string>((resolve) => mx.on(ClientEvent.Room, (r) => resolve(r.roomId)));
+    const joinedRoom = new Promise<string>((resolve) =>
+      mx.on(ClientEvent.Room, (r) => resolve(r.roomId))
+    );
     await mx.joinRoom(COMMONS);
     expect(await joinedRoom).toBe(COMMONS);
   });
@@ -144,17 +163,25 @@ describe('the pretend homeserver through matrix-js-sdk', () => {
     const alias = await mx.getRoomIdForAlias('#gamecult:demo.invalid');
     expect(alias.room_id).toBeTruthy();
     const h = await mx.getRoomHierarchy(alias.room_id);
-    const stewards = h.rooms.flatMap((r) => r.children_state).map((c) => (c.content as Record<string, unknown>)['org.gamecult.steward']);
+    const stewards = h.rooms
+      .flatMap((r) => r.children_state)
+      .map((c) => (c.content as Record<string, unknown>)['org.gamecult.steward']);
     expect(stewards.filter(Boolean).length).toBe(2);
   });
 
   it('answers a long poll with nothing new after its timeout', async () => {
     const server = createDemoServer();
     live.push({ server, mx: clientFor(server) });
-    const first = await server.handle({ method: 'GET', url: `${DEMO_ORIGIN}/_matrix/client/v3/sync` });
+    const first = await server.handle({
+      method: 'GET',
+      url: `${DEMO_ORIGIN}/_matrix/client/v3/sync`,
+    });
     const token = (first.body as { next_batch: string }).next_batch;
     const t0 = Date.now();
-    const idle = await server.handle({ method: 'GET', url: `${DEMO_ORIGIN}/_matrix/client/v3/sync?since=${token}&timeout=150` });
+    const idle = await server.handle({
+      method: 'GET',
+      url: `${DEMO_ORIGIN}/_matrix/client/v3/sync?since=${token}&timeout=150`,
+    });
     expect(Date.now() - t0).toBeGreaterThanOrEqual(140);
     expect((idle.body as { rooms: { join: object } }).rooms.join).toEqual({});
   });
@@ -162,7 +189,10 @@ describe('the pretend homeserver through matrix-js-sdk', () => {
   it('says so, rather than inventing an answer, for an endpoint it does not implement', async () => {
     const server = createDemoServer();
     live.push({ server, mx: clientFor(server) });
-    const res = await server.handle({ method: 'GET', url: `${DEMO_ORIGIN}/_matrix/client/v3/something/new` });
+    const res = await server.handle({
+      method: 'GET',
+      url: `${DEMO_ORIGIN}/_matrix/client/v3/something/new`,
+    });
     expect(res.status).toBe(404);
     expect((res.body as { errcode: string }).errcode).toBe('M_UNRECOGNIZED');
   });
@@ -173,8 +203,12 @@ describe('the guard', () => {
     const server = createDemoServer();
     live.push({ server, mx: clientFor(server) });
     const f = guardedFetch(server, PAGE, never as never);
-    await expect(f('https://matrix.org/_matrix/client/versions')).rejects.toThrow(/pretend server only/);
-    await expect(f(new Request('https://converser.eu/_matrix/client/v3/login'))).rejects.toThrow(/refused/);
+    await expect(f('https://matrix.org/_matrix/client/versions')).rejects.toThrow(
+      /pretend server only/
+    );
+    await expect(f(new Request('https://converser.eu/_matrix/client/v3/login'))).rejects.toThrow(
+      /refused/
+    );
     expect(never).not.toHaveBeenCalled();
     await f(`${PAGE}/config.json`);
     expect(never).toHaveBeenCalledTimes(1);
@@ -200,14 +234,16 @@ describe('the guard', () => {
       },
     } as unknown as Window & typeof globalThis;
     vi.stubGlobal('document', {
-      createElement: () => ({ style: {}, setAttribute: () => {} }),
+      createElement: () => ({ style: {}, setAttribute: vi.fn() }),
       body: { appendChild: vi.fn() },
     });
     const server = installDemo(win);
     live.push({ server, mx: clientFor(server) });
     expect(() => new win.WebSocket('wss://matrix.org/x')).toThrow(/refused/);
     expect(() => new win.WebSocket(`wss://page.test/x`)).not.toThrow();
-    expect(() => win.XMLHttpRequest.prototype.open('GET', 'https://matrix.org/x')).toThrow(/refused/);
+    expect(() => win.XMLHttpRequest.prototype.open('GET', 'https://matrix.org/x')).toThrow(
+      /refused/
+    );
     win.XMLHttpRequest.prototype.open('GET', '/same-origin');
     expect(open).toHaveBeenCalledTimes(1);
     expect(win.navigator.sendBeacon('https://matrix.org/x')).toBe(false);
@@ -225,7 +261,10 @@ describe('the guard', () => {
       navigator: {},
       localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: vi.fn() },
     } as unknown as Window & typeof globalThis;
-    vi.stubGlobal('document', { createElement: () => ({ style: {}, setAttribute: () => {} }), body: { appendChild: vi.fn() } });
+    vi.stubGlobal('document', {
+      createElement: () => ({ style: {}, setAttribute: vi.fn() }),
+      body: { appendChild: vi.fn() },
+    });
     const server = installDemo(win);
     live.push({ server, mx: clientFor(server) });
     expect(win.localStorage.setItem).not.toHaveBeenCalled();

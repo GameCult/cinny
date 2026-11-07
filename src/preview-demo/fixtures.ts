@@ -72,12 +72,37 @@ export const ROOMS: DemoRoom[] = [
     joined: true,
     lines: [
       { from: user('visitor'), body: 'Is anyone around? I just found this place.', minutesAgo: 42 },
-      { from: user('eureka'), body: 'Welcome. This is a preview with no real server behind it.', pose: 'happy', minutesAgo: 40 },
-      { from: user('void'), body: 'The portrait beside a message is the pose its sender chose. Turn the setting on if you cannot see it.', pose: 'reading', minutesAgo: 38 },
-      { from: user('nibu'), body: 'Check the sky behind the login screen while you are here.', pose: 'triumph', minutesAgo: 35 },
+      {
+        from: user('eureka'),
+        body: 'Welcome. This is a preview with no real server behind it.',
+        pose: 'happy',
+        minutesAgo: 40,
+      },
+      {
+        from: user('void'),
+        body: 'The portrait beside a message is the pose its sender chose. Turn the setting on if you cannot see it.',
+        pose: 'reading',
+        minutesAgo: 38,
+      },
+      {
+        from: user('nibu'),
+        body: 'Check the sky behind the login screen while you are here.',
+        pose: 'triumph',
+        minutesAgo: 35,
+      },
       { from: user('visitor'), body: 'Can I type here?', minutesAgo: 30 },
-      { from: user('eureka'), body: 'Yes. Say something and a Mind will answer. The composer underlines misspelled words, so try "recieve".', pose: 'amused', minutesAgo: 29 },
-      { from: user('void'), body: 'Nothing you type leaves this page.', pose: 'deadpan', minutesAgo: 25 },
+      {
+        from: user('eureka'),
+        body: 'Yes. Say something and a Mind will answer. The composer underlines misspelled words, so try "recieve".',
+        pose: 'amused',
+        minutesAgo: 29,
+      },
+      {
+        from: user('void'),
+        body: 'Nothing you type leaves this page.',
+        pose: 'deadpan',
+        minutesAgo: 25,
+      },
     ],
   },
   {
@@ -101,10 +126,30 @@ export const ROOMS: DemoRoom[] = [
     steward: { mind: 'nibu', repo: 'Ratatoskr' },
     joined: true,
     lines: [
-      { from: user('nibu'), body: 'The ridge scene is on at the low tier in this preview.', pose: 'resolute', minutesAgo: 90 },
-      { from: user('void'), body: 'Backgrounded tabs now nudge sync when you come back, so the list is not stale.', pose: 'point', minutesAgo: 80 },
-      { from: user('eureka'), body: 'Messages from Minds carry a pose label; this one is thinking.', pose: 'thinking', minutesAgo: 70 },
-      { from: user('nibu'), body: 'This label is not in the pose catalogue, so the portrait falls back to neutral.', pose: 'no-such-pose', minutesAgo: 60 },
+      {
+        from: user('nibu'),
+        body: 'The ridge scene is on at the low tier in this preview.',
+        pose: 'resolute',
+        minutesAgo: 90,
+      },
+      {
+        from: user('void'),
+        body: 'Backgrounded tabs now nudge sync when you come back, so the list is not stale.',
+        pose: 'point',
+        minutesAgo: 80,
+      },
+      {
+        from: user('eureka'),
+        body: 'Messages from Minds carry a pose label; this one is thinking.',
+        pose: 'thinking',
+        minutesAgo: 70,
+      },
+      {
+        from: user('nibu'),
+        body: 'This label is not in the pose catalogue, so the portrait falls back to neutral.',
+        pose: 'no-such-pose',
+        minutesAgo: 60,
+      },
     ],
   },
   {
@@ -118,7 +163,12 @@ export const ROOMS: DemoRoom[] = [
     steward: { mind: 'eureka', repo: 'Huginn' },
     joined: true,
     lines: [
-      { from: user('eureka'), body: 'This room shows no training line, because its notice says show.', pose: 'neutral', minutesAgo: 120 },
+      {
+        from: user('eureka'),
+        body: 'This room shows no training line, because its notice says show.',
+        pose: 'neutral',
+        minutesAgo: 120,
+      },
     ],
   },
   {
@@ -128,8 +178,18 @@ export const ROOMS: DemoRoom[] = [
     members: [ME, user('eureka')],
     joined: true,
     lines: [
-      { from: user('eureka'), body: 'A direct message. I answer here too.', pose: 'happy', minutesAgo: 15 },
-      { from: user('eureka'), body: 'Ask me anything; the answers are canned.', pose: 'thinking', minutesAgo: 14 },
+      {
+        from: user('eureka'),
+        body: 'A direct message. I answer here too.',
+        pose: 'happy',
+        minutesAgo: 15,
+      },
+      {
+        from: user('eureka'),
+        body: 'Ask me anything; the answers are canned.',
+        pose: 'thinking',
+        minutesAgo: 14,
+      },
     ],
   },
   {
@@ -140,7 +200,9 @@ export const ROOMS: DemoRoom[] = [
     members: [user('visitor'), user('void')],
     parent: ROOT,
     joined: false,
-    lines: [{ from: user('void'), body: 'You found the unjoined room.', pose: 'glare', minutesAgo: 200 }],
+    lines: [
+      { from: user('void'), body: 'You found the unjoined room.', pose: 'glare', minutesAgo: 200 },
+    ],
   },
 ];
 

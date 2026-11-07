@@ -48,6 +48,8 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
   const waiters = new Set<() => void>();
   const timers = new Set<ReturnType<typeof setTimeout>>();
   let replyCounter = 0;
+  let accountDataVersion = 0;
+  let syncedJoined = new Set(joined);
   let closed = false;
 
   const mk = (
@@ -73,20 +75,42 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     const t0 = now() - 1000 * 60 * 60 * 24;
     const creator = room.members[0] ?? ME;
     const events: DemoEvent[] = [
-      mk('m.room.create', creator, room.space ? { type: 'm.space', room_version: '10' } : { room_version: '10' }, t0, ''),
+      mk(
+        'm.room.create',
+        creator,
+        room.space ? { type: 'm.space', room_version: '10' } : { room_version: '10' },
+        t0,
+        ''
+      ),
       mk('m.room.name', creator, { name: room.name }, t0, ''),
-      mk('m.room.join_rules', creator, { join_rule: room.id === COMMONS ? 'public' : 'invite' }, t0, ''),
+      mk(
+        'm.room.join_rules',
+        creator,
+        { join_rule: room.id === COMMONS ? 'public' : 'invite' },
+        t0,
+        ''
+      ),
       mk('m.room.history_visibility', creator, { history_visibility: 'shared' }, t0, ''),
-      mk('m.room.power_levels', creator, { users: { [ME]: 100 }, users_default: 0, events_default: 0, state_default: 50 }, t0, ''),
+      mk(
+        'm.room.power_levels',
+        creator,
+        { users: { [ME]: 100 }, users_default: 0, events_default: 0, state_default: 50 },
+        t0,
+        ''
+      ),
       ...room.members.map((m) =>
         mk('m.room.member', m, { membership: 'join', displayname: nameOf(m) }, t0, m)
       ),
     ];
     if (room.topic) events.push(mk('m.room.topic', creator, { topic: room.topic }, t0, ''));
-    if (room.alias) events.push(mk('m.room.canonical_alias', creator, { alias: room.alias }, t0, ''));
-    if (room.notice) events.push(mk(NOTICE_TYPE, creator, { version: 1, scope: room.notice }, t0, ''));
+    if (room.alias)
+      events.push(mk('m.room.canonical_alias', creator, { alias: room.alias }, t0, ''));
+    if (room.notice)
+      events.push(mk(NOTICE_TYPE, creator, { version: 1, scope: room.notice }, t0, ''));
     if (room.parent) {
-      events.push(mk('m.space.parent', creator, { via: [DEMO_SERVER], canonical: true }, t0, room.parent));
+      events.push(
+        mk('m.space.parent', creator, { via: [DEMO_SERVER], canonical: true }, t0, room.parent)
+      );
     }
     ROOMS.filter((c) => c.parent === room.id).forEach((c) => {
       events.push(
@@ -95,7 +119,11 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
           creator,
           {
             via: [DEMO_SERVER],
-            ...(c.steward ? { 'org.gamecult.steward': { ...c.steward, source: 'demo', steward: c.steward.mind } } : {}),
+            ...(c.steward
+              ? {
+                  'org.gamecult.steward': { ...c.steward, source: 'demo', steward: c.steward.mind },
+                }
+              : {}),
           },
           t0,
           c.id
@@ -149,7 +177,15 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     const reply = REPLIES[replyCounter % REPLIES.length];
     replyCounter += 1;
     later(1200, () =>
-      push(room.id, mk('m.room.message', mind, { msgtype: 'm.text', body: reply.body, [POSE_KEY]: reply.pose }, now()))
+      push(
+        room.id,
+        mk(
+          'm.room.message',
+          mind,
+          { msgtype: 'm.text', body: reply.body, [POSE_KEY]: reply.pose },
+          now()
+        )
+      )
     );
   };
 
@@ -164,7 +200,11 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
       ephemeral: { events: [] },
       account_data: { events: [] },
       unread_notifications: { highlight_count: 0, notification_count: 0 },
-      summary: { 'm.joined_member_count': room.members.length, 'm.invited_member_count': 0, 'm.heroes': [] },
+      summary: {
+        'm.joined_member_count': room.members.length,
+        'm.invited_member_count': 0,
+        'm.heroes': [],
+      },
     };
   };
 
@@ -188,10 +228,12 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
       device_one_time_keys_count: { signed_curve25519: 50 },
     };
   };
-  let accountDataVersion = 0;
-  let syncedJoined = new Set(joined);
 
-  const sync = async (since: number, timeoutMs: number, signal?: AbortSignal): Promise<DemoResponse> => {
+  const sync = async (
+    since: number,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<DemoResponse> => {
     if (since === 0) {
       syncedJoined = new Set(joined);
       return ok(syncBody(0, new Set()));
@@ -237,18 +279,27 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     let g: RegExpMatchArray | null;
 
-    if (p === '/.well-known/matrix/client') return ok({ 'm.homeserver': { base_url: DEMO_ORIGIN } });
+    if (p === '/.well-known/matrix/client')
+      return ok({ 'm.homeserver': { base_url: DEMO_ORIGIN } });
     if (!p.startsWith('/_matrix/')) return err(404, 'M_NOT_FOUND', 'Not found');
     const c = p.replace(/^\/_matrix\/client\/(v\d+|r0|unstable)/, '');
-    if (p.endsWith('/versions')) return ok({ versions: ['v1.1', 'v1.5', 'v1.11'], unstable_features: {} });
+    if (p.endsWith('/versions'))
+      return ok({ versions: ['v1.1', 'v1.5', 'v1.11'], unstable_features: {} });
     if (c === '/login') {
       if (m === 'GET') return ok({ flows: [{ type: 'm.login.password' }] });
-      return ok({ user_id: ME, access_token: DEMO_TOKEN, device_id: DEMO_DEVICE, home_server: DEMO_SERVER });
+      return ok({
+        user_id: ME,
+        access_token: DEMO_TOKEN,
+        device_id: DEMO_DEVICE,
+        home_server: DEMO_SERVER,
+      });
     }
-    if (c === '/register') return err(403, 'M_FORBIDDEN', 'Registration is closed on the pretend server.');
+    if (c === '/register')
+      return err(403, 'M_FORBIDDEN', 'Registration is closed on the pretend server.');
     if (c === '/account/whoami') return ok({ user_id: ME, device_id: DEMO_DEVICE });
     if (c === '/capabilities') return ok({ capabilities: {} });
-    if ((g = c.match(/^\/profile\/(.+)$/))) return ok({ displayname: nameOf(g[1]) });
+    g = c.match(/^\/profile\/(.+)$/);
+    if (g) return ok({ displayname: nameOf(g[1]) });
     if (c.endsWith('/filter') && m === 'POST') return ok({ filter_id: '1' });
     if (c.includes('/filter/')) return ok({});
     if (c === '/sync') {
@@ -259,7 +310,8 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     if (c === '/pushrules/' || c === '/pushrules') {
       return ok({ global: { override: [], underride: [], room: [], sender: [], content: [] } });
     }
-    if ((g = c.match(/^\/user\/[^/]+\/account_data\/(.+)$/))) {
+    g = c.match(/^\/user\/[^/]+\/account_data\/(.+)$/);
+    if (g) {
       if (m === 'PUT') {
         accountData.set(g[1], req.body ?? {});
         version += 1;
@@ -267,15 +319,22 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
         notify();
         return ok({});
       }
-      return accountData.has(g[1]) ? ok(accountData.get(g[1])) : err(404, 'M_NOT_FOUND', 'No account data');
+      return accountData.has(g[1])
+        ? ok(accountData.get(g[1]))
+        : err(404, 'M_NOT_FOUND', 'No account data');
     }
-    if ((g = c.match(/^\/directory\/room\/(.+)$/))) {
+    g = c.match(/^\/directory\/room\/(.+)$/);
+    if (g) {
       const room = ROOMS.find((r) => r.alias === g![1]);
-      return room ? ok({ room_id: room.id, servers: [DEMO_SERVER] }) : err(404, 'M_NOT_FOUND', 'Room alias not found');
+      return room
+        ? ok({ room_id: room.id, servers: [DEMO_SERVER] })
+        : err(404, 'M_NOT_FOUND', 'Room alias not found');
     }
     if (c === '/joined_rooms') return ok({ joined_rooms: [...joined] });
-    if ((g = c.match(/^\/rooms\/([^/]+)\/hierarchy$/))) return ok({ rooms: hierarchy() });
-    if ((g = c.match(/^\/(?:rooms\/([^/]+)\/join|join\/([^/]+))$/)) && m === 'POST') {
+    g = c.match(/^\/rooms\/([^/]+)\/hierarchy$/);
+    if (g) return ok({ rooms: hierarchy() });
+    g = c.match(/^\/(?:rooms\/([^/]+)\/join|join\/([^/]+))$/);
+    if (g && m === 'POST') {
       const target = g[1] ?? g[2];
       const room = roomOf(target) ?? ROOMS.find((r) => r.alias === target);
       if (!room) return err(404, 'M_NOT_FOUND', 'No such room');
@@ -288,8 +347,12 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
       }
       return ok({ room_id: room.id });
     }
-    if ((g = c.match(/^\/rooms\/([^/]+)\/(?:leave|forget|read_markers|typing\/[^/]+|receipt\/.+|report\/.+)$/))) return ok({});
-    if ((g = c.match(/^\/rooms\/([^/]+)\/send\/([^/]+)\/([^/]+)$/)) && m === 'PUT') {
+    g = c.match(
+      /^\/rooms\/([^/]+)\/(?:leave|forget|read_markers|typing\/[^/]+|receipt\/.+|report\/.+)$/
+    );
+    if (g) return ok({});
+    g = c.match(/^\/rooms\/([^/]+)\/send\/([^/]+)\/([^/]+)$/);
+    if (g && m === 'PUT') {
       const room = roomOf(g[1]);
       if (!room || !joined.has(room.id)) return err(403, 'M_FORBIDDEN', 'Not in room');
       const event = mk(g[2], ME, body, now());
@@ -298,25 +361,35 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
       if (g[2] === 'm.room.message') scheduleReply(room);
       return ok({ event_id: event.event_id });
     }
-    if ((g = c.match(/^\/rooms\/([^/]+)\/state\/([^/]+)(?:\/(.*))?$/))) {
+    g = c.match(/^\/rooms\/([^/]+)\/state\/([^/]+)(?:\/(.*))?$/);
+    if (g) {
       const room = roomOf(g[1]);
       if (!room) return err(404, 'M_NOT_FOUND', 'No such room');
       const key = g[3] ?? '';
       if (m === 'PUT') {
         const event = mk(g[2], ME, body, now(), key);
-        stateOf.set(room.id, [...(stateOf.get(room.id) ?? []).filter((e) => !(e.type === g![2] && e.state_key === key)), event]);
+        stateOf.set(room.id, [
+          ...(stateOf.get(room.id) ?? []).filter((e) => !(e.type === g![2] && e.state_key === key)),
+          event,
+        ]);
         push(room.id, event);
         return ok({ event_id: event.event_id });
       }
-      const found = (stateOf.get(room.id) ?? []).find((e) => e.type === g![2] && e.state_key === key);
+      const found = (stateOf.get(room.id) ?? []).find(
+        (e) => e.type === g![2] && e.state_key === key
+      );
       return found ? ok(found.content) : err(404, 'M_NOT_FOUND', 'No such state event');
     }
-    if ((g = c.match(/^\/rooms\/([^/]+)\/state$/))) return ok(stateOf.get(g[1]) ?? []);
-    if ((g = c.match(/^\/rooms\/([^/]+)\/members$/))) {
+    g = c.match(/^\/rooms\/([^/]+)\/state$/);
+    if (g) return ok(stateOf.get(g[1]) ?? []);
+    g = c.match(/^\/rooms\/([^/]+)\/members$/);
+    if (g) {
       return ok({ chunk: (stateOf.get(g[1]) ?? []).filter((e) => e.type === 'm.room.member') });
     }
-    if ((g = c.match(/^\/rooms\/([^/]+)\/messages$/))) return ok({ chunk: [], start: 'p0', end: 'p0' });
-    if ((g = c.match(/^\/rooms\/([^/]+)\/(?:summary|context\/.+)$/))) return err(404, 'M_NOT_FOUND', 'Not available on the pretend server');
+    g = c.match(/^\/rooms\/([^/]+)\/messages$/);
+    if (g) return ok({ chunk: [], start: 'p0', end: 'p0' });
+    g = c.match(/^\/rooms\/([^/]+)\/(?:summary|context\/.+)$/);
+    if (g) return err(404, 'M_NOT_FOUND', 'Not available on the pretend server');
     if (c === '/keys/upload') return ok({ one_time_key_counts: { signed_curve25519: 50 } });
     if (c === '/keys/query') return ok({ device_keys: {}, failures: {} });
     if (c === '/keys/claim') return ok({ one_time_keys: {}, failures: {} });
@@ -324,7 +397,8 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     if (c.startsWith('/keys/')) return ok({});
     if (c.startsWith('/sendToDevice/')) return ok({});
     if (c.startsWith('/room_keys/')) return err(404, 'M_NOT_FOUND', 'No backup');
-    if (c === '/devices') return ok({ devices: [{ device_id: DEMO_DEVICE, display_name: 'Preview' }] });
+    if (c === '/devices')
+      return ok({ devices: [{ device_id: DEMO_DEVICE, display_name: 'Preview' }] });
     if (c === '/thirdparty/protocols' || c === '/voip/turnServer') return ok({});
     if (c.startsWith('/presence/')) return ok({});
     if (c === '/user_directory/search') return ok({ results: [], limited: false });
