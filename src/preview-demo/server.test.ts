@@ -1,3 +1,4 @@
+/* eslint-disable max-classes-per-file, no-promise-executor-return, no-useless-constructor, no-empty-function, no-void, @typescript-eslint/no-non-null-assertion */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClientEvent, MatrixClient, SyncState, createClient } from 'matrix-js-sdk';
 import { DEMO_ORIGIN, ME, ROOMS, GENERAL, COMMONS } from './fixtures';

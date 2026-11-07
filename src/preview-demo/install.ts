@@ -1,3 +1,5 @@
+/* eslint-disable no-param-reassign */
+// Patching the window's network entry points is this module's whole job.
 // Routes the page's network through the pretend homeserver and refuses everything else. Installed
 // only by a build with VITE_PREVIEW_DEMO=1 whose config.json says previewDemo: true (src/index.tsx).
 // Own-origin requests (the app's static files) pass; the demo origin is answered in-page; any
@@ -87,7 +89,7 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
 
   win.fetch = guardedFetch(server, origin, realFetch);
 
-  const RealSocket = win.WebSocket;
+  const { WebSocket: RealSocket } = win;
   class GuardedSocket extends RealSocket {
     constructor(url: string | URL, protocols?: string | string[]) {
       if (routeOf(String(url), origin) !== 'own') throw refusal('WebSocket', String(url));
