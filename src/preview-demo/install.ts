@@ -26,9 +26,9 @@ export const routeOf = (url: string, pageOrigin: string): Route => {
 const refusal = (what: string, url: string) =>
   new Error(`preview: pretend server only; ${what} to ${url} refused`);
 
-const BANNER_TEXT = `preview: pretend server (${DEMO_SERVER}). Log in as demo with any password; nothing leaves this page.`;
+const BANNER_TEXT = 'preview: pretend server. Any password works.';
 const FOREIGN_SESSION_TEXT =
-  'preview: pretend server. A login for another server is stored on this origin and cannot be used here.';
+  'preview: pretend server. A login for another server is stored here and cannot be used.';
 
 const showBanner = (text: string) => {
   const el = document.createElement('div');
@@ -36,16 +36,9 @@ const showBanner = (text: string) => {
   el.setAttribute('role', 'status');
   el.style.cssText =
     'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:96vw;' +
-    'padding:2px 10px;font:11px/1.4 system-ui,sans-serif;color:#1b1b1b;background:#ffc46b;' +
+    'padding:0 8px;font:10px/1.5 system-ui,sans-serif;white-space:nowrap;opacity:0.9;color:#1b1b1b;background:#ffc46b;' +
     'border-radius:0 0 6px 6px;pointer-events:none;text-align:center';
   document.body.appendChild(el);
-};
-
-// The pose portraits are a setting that defaults off; a first visit turns it on so the demo shows them.
-const seedSettings = (storage: Storage) => {
-  if (storage.getItem('settings') === null) {
-    storage.setItem('settings', JSON.stringify({ poseBubbles: true }));
-  }
 };
 
 // The preview host's CSP sandbox has no allow-forms, so the browser cancels a native form
@@ -146,7 +139,6 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
       routeOf(String(url), origin) === 'own' ? realBeacon(url, data) : false;
   }
 
-  seedSettings(win.localStorage);
   deliverSubmitEvents(document);
   const stored = win.localStorage.getItem('cinny_hs_base_url');
   showBanner(stored !== null && stored !== DEMO_ORIGIN ? FOREIGN_SESSION_TEXT : BANNER_TEXT);

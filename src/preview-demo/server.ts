@@ -50,6 +50,7 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
   let replyCounter = 0;
   let accountDataVersion = 0;
   let syncedJoined = new Set(joined);
+  let polled = false;
   let closed = false;
 
   const mk = (
@@ -246,7 +247,9 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
           resolve();
         };
         waiters.add(done);
-        later(Math.min(timeoutMs, MAX_LONG_POLL_MS), done);
+        // The first poll answers quickly so the client leaves its Connecting state.
+        later(polled ? Math.min(timeoutMs, MAX_LONG_POLL_MS) : 200, done);
+        polled = true;
         signal?.addEventListener('abort', done);
       });
     }

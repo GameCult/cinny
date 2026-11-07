@@ -4,6 +4,7 @@ import { ClientEvent, MatrixClient, SyncState, createClient } from 'matrix-js-sd
 import { DEMO_ORIGIN, ME, ROOMS, GENERAL, COMMONS } from './fixtures';
 import { guardedFetch, installDemo, routeOf } from './install';
 import { createDemoServer, DemoServer } from './server';
+import { seedDemoSettings } from './seed';
 import { mindOfSender, POSE_KEY, resolvePose } from '../app/components/message/pose/poses';
 import { parseRoomNotice, roomTrainingLine } from '../app/utils/trainingNotice';
 
@@ -249,28 +250,16 @@ describe('the guard', () => {
     win.XMLHttpRequest.prototype.open('GET', '/same-origin');
     expect(open).toHaveBeenCalledTimes(1);
     expect(win.navigator.sendBeacon('https://matrix.org/x')).toBe(false);
-    expect(JSON.parse(store.get('settings')!)).toEqual({ poseBubbles: true });
     vi.unstubAllGlobals();
   });
 
-  it('keeps stored settings a visitor already chose', () => {
-    const store = new Map<string, string>([['settings', '{"poseBubbles":false}']]);
-    const win = {
-      location: { origin: PAGE },
-      fetch: never,
-      WebSocket: class {},
-      XMLHttpRequest: { prototype: { open: vi.fn() } },
-      navigator: {},
-      localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: vi.fn() },
-    } as unknown as Window & typeof globalThis;
-    vi.stubGlobal('document', {
-      createElement: () => ({ style: {}, setAttribute: vi.fn() }),
-      body: { appendChild: vi.fn() },
-      addEventListener: vi.fn(),
-    });
-    const server = installDemo(win);
-    live.push({ server, mx: clientFor(server) });
-    expect(win.localStorage.setItem).not.toHaveBeenCalled();
-    vi.unstubAllGlobals();
+  it('seeds pose portraits on for a first visit and keeps what a visitor already chose', () => {
+    const fresh = new Map<string, string>();
+    seedDemoSettings({ getItem: (k: string) => fresh.get(k) ?? null, setItem: (k: string, v: string) => void fresh.set(k, v) } as Storage);
+    expect(JSON.parse(fresh.get('settings')!)).toEqual({ poseBubbles: true });
+    const chosen = new Map([['settings', '{"poseBubbles":false}']]);
+    seedDemoSettings({ getItem: (k: string) => chosen.get(k) ?? null, setItem: (k: string, v: string) => void chosen.set(k, v) } as Storage);
+    expect(chosen.get('settings')).toBe('{"poseBubbles":false}');
   });
+});
 });
