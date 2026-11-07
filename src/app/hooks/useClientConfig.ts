@@ -21,6 +21,9 @@ export type ClientConfig = {
   hashRouter?: HashRouterConfig;
 
   backgroundScene?: BackgroundSceneConfig;
+
+  // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
+  previewDemo?: boolean;
 };
 
 const ClientConfigContext = createContext<ClientConfig | null>(null);
