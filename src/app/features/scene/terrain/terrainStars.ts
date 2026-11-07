@@ -72,6 +72,10 @@ export const elevationOf = (y: number): number => ELEVATION_TOP * (1 - y / SKY_S
 
 const wrap = (a: number): number => a - PERIOD * Math.round(a / PERIOD);
 
+/** The terrain overlay draws the ridge field's stars brighter and a little larger: a phone's small, hazy sky needs it to read. */
+export const BRIGHTEN = 2.4;
+export const GROW = 1.3;
+
 export interface TerrainStars {
   /** Paint for the camera `turns` into its turn (0..1). `seconds` is the clock while the terrain moves; absent: every star at base. */
   draw(turns: number, seconds?: number): void;
@@ -126,13 +130,13 @@ export function createTerrainStars(canvas: HTMLCanvasElement, sky: SkyData): Ter
     lit.forEach(({ star, az, e }, i) => {
       const da = wrap(az - yaw);
       const gain = seconds === undefined ? 1 : gains.get(i) ?? 1;
-      ctx.globalAlpha = Math.min(1, star.alpha * gain);
+      ctx.globalAlpha = Math.min(1, star.alpha * gain * BRIGHTEN);
       ctx.fillStyle = star.fill;
       [da, da > 0 ? da - PERIOD : da + PERIOD].forEach((d) => {
         const at = project(d, e, w, h);
         if (!at || at.y < 0 || at.y > el.height / scale) return;
         ctx.beginPath();
-        ctx.arc(at.x * scale, at.y * scale, star.r * scale, 0, 2 * Math.PI);
+        ctx.arc(at.x * scale, at.y * scale, star.r * GROW * scale, 0, 2 * Math.PI);
         ctx.fill();
       });
     });

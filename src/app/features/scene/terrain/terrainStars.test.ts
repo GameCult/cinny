@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SKY } from './skyData';
 import {
+  BRIGHTEN,
   createTerrainStars,
   elevationOf,
   ELEVATION_TOP,
@@ -12,7 +13,7 @@ import {
   skyColoursOf,
 } from './terrainStars';
 import { CAMERA, view } from './terrainWorld';
-import { isNight } from '../ridge/stars';
+import { isNight, makeStars } from '../ridge/stars';
 import { skyNameFor } from './terrainSky';
 
 /** A 2D context that only counts: arcs painted and clears since the last reset. */
@@ -165,6 +166,19 @@ describe('turning with the camera', () => {
   it('the field fills the screen top and thins toward the horizon, inside the elevation band', () => {
     expect(elevationOf(0)).toBeCloseTo(ELEVATION_TOP, 9);
     expect(elevationOf(0.78)).toBeCloseTo(0, 9);
+  });
+});
+
+describe('brightness', () => {
+  it('draws every star at BRIGHTEN times its ridge-field alpha, capped at 1', () => {
+    createTerrainStars(glCanvas(), SKY.midnight)?.draw(0);
+    const want = makeStars(skyColoursOf(SKY.midnight), 390, 844).map((st) =>
+      Math.min(1, st.alpha * BRIGHTEN)
+    );
+    ctx2d.c.alphas.forEach((a) => expect(want.some((w) => Math.abs(w - a) < 1e-9)).toBe(true));
+    // and it is brighter than the ridge field's own top alpha
+    const top = Math.max(...makeStars(skyColoursOf(SKY.midnight), 390, 844).map((st) => st.alpha));
+    expect(Math.max(...ctx2d.c.alphas)).toBeGreaterThan(top * 1.5);
   });
 });
 
