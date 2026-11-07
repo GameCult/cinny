@@ -23,6 +23,7 @@ export enum StateEvent {
   RoomMember = 'm.room.member',
   RoomThirdPartyInvite = 'm.room.third_party_invite',
   RoomPowerLevels = 'm.room.power_levels',
+  GameCultNotice = 'org.gamecult.notice',
   RoomName = 'm.room.name',
   RoomTopic = 'm.room.topic',
   RoomAvatar = 'm.room.avatar',

@@ -32,6 +32,7 @@ import { AsyncState, AsyncStatus, useAsyncCallback } from '../../../hooks/useAsy
 import { useAutoDiscoveryInfo } from '../../../hooks/useAutoDiscoveryInfo';
 import { RegisterError, RegisterResult, register, useRegisterComplete } from './registerUtil';
 import { FieldError } from '../FiledError';
+import { TrainingNotice } from '../TrainingNotice';
 import {
   AutoDummyStageDialog,
   AutoTermsStageDialog,
@@ -192,6 +193,7 @@ export function PasswordRegisterForm({
   const [formData, setFormData] = useState<FormData>();
 
   const [ongoingFlow, setOngoingFlow] = useState<UIAFlow>();
+  const [trainingAck, setTrainingAck] = useState(false);
 
   const [registerEmailState, registerEmail] = useRegisterEmail(mx);
 
@@ -389,7 +391,8 @@ export function PasswordRegisterForm({
           <FieldError message={registerError.data.error ?? 'Failed to register. Unknown Reason.'} />
         )}
         <span data-spacing-node />
-        <Button variant="Primary" size="500" type="submit">
+        <TrainingNotice checked={trainingAck} onToggle={() => setTrainingAck((ack) => !ack)} />
+        <Button variant="Primary" size="500" type="submit" disabled={!trainingAck}>
           <Text as="span" size="B500">
             Register
           </Text>
