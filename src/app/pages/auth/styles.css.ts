@@ -56,7 +56,9 @@ export const AuthFooter = style({
 // signed-out ground is clear and the card is a translucent, blurred pane shaped like a message
 // bubble (BubbleContent: radius R500, no border), filled with the sky's bubble colour. The
 // --sky-bubble variables come from the sky theme (PR #22); the plain colours are the fallback
-// until it lands. 85% fill keeps text >= 4.5:1 over the scene's brightest and darkest backdrops.
+// until it lands. The fill is 50%: the 18px blur carries the readability, flattening the sky and
+// ridges behind the text. Without the blur, text is 4.15:1 over the brightest backdrop (the horizon
+// glow; 4.5:1 needs 54%) and >= 7.3:1 elsewhere in the scene.
 // The card is also made shorter so it leaves more of the scene visible on a phone.
 const scene = ':root[data-scene]';
 globalStyle(`${scene} ${AuthLayout}`, {
@@ -65,13 +67,14 @@ globalStyle(`${scene} ${AuthLayout}`, {
 });
 globalStyle(`${scene} ${AuthCard}`, {
   backgroundColor: [
-    'rgba(13, 26, 38, 0.85)',
-    'color-mix(in srgb, var(--sky-bubble, #0d1a26) 85%, transparent)',
+    'rgba(13, 26, 38, 0.5)',
+    'color-mix(in srgb, var(--sky-bubble, #0d1a26) 50%, transparent)',
   ],
   color: 'var(--sky-bubble-text, #b7c7d9)',
   borderRadius: config.radii.R500,
-  borderColor: 'transparent',
-  backdropFilter: 'blur(12px)',
+  // A faint inner edge, so a pane this clear still reads as a surface.
+  borderColor: 'rgba(183, 199, 217, 0.14)',
+  backdropFilter: 'blur(18px)',
 });
 globalStyle(`${scene} ${AuthHeader}`, {
   backgroundColor: 'transparent',
