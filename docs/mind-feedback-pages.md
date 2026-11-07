@@ -4,6 +4,10 @@ Design only. No code exists for this; nothing here is built. Drafted by Kiko Sel
 on guests and hiding; placement ruled for this repo by Void. Follow-up `eureka-body:follow_up:ratatoskr-mind-feedback-pages`.
 Every number below is provisional.
 
+**Schema owner.** The Huginn kinds, their fields, keys and refusals are specified in `huginn-feedback-kinds-proposal.md` (Eureka Self, 2026-11-07, in
+`/opt/commons/handoff`), adopted for this page by Void's Persona. Where this page names a field of those kinds it mirrors that proposal; if they differ, the proposal wins.
+This repo owns only the client: a typed interface mirroring those shapes, and fixtures.
+
 Each Mind's section in the estate navigator opens on that Mind's **feedback page**: the Mind's open questions with options, its
 recommendation and what each waits on, answerable by the operator and anyone with an account. It replaces the old Fork Desk
 (taken from the brief; no trace of it was found in this repo or in the Minds' state).
@@ -18,27 +22,34 @@ so the section root stays a list of questions, not a wall of forms.
 
 | Concern | Owner | The page's part |
 |---|---|---|
-| The question | a typed `question` document in the **owning Mind's own mind** | a view of it; the page stores and edits nothing |
-| Which questions appear | the owning Mind, by a typed opt-in act carrying an `audience` | shows only what was opted in |
-| An answer | its author, as an append-only record | submits one record per answer |
+| The question | a typed `question` document in the **owning Mind's own mind**, key `<campaign>:question:<label>` | a view of it; the page stores and edits nothing |
+| Which questions appear | the owning Mind, by a `feedback_listing` (the opt-in act) carrying `audience` and `close_grants`; un-listing is a `Withdrawn` resolution on it | shows only what has a listing in force |
+| An answer | its author. The **receiver (Bifrost) holds the text**; the Mind holds a **text-free `feedback_answer` record** | submits the answer to the receiver |
 | The ruling | the owning Mind, recorded by her | **never writes one**; links to it once she has |
-| Status (open, answered, closed) | derived in the Mind from its documents, never written | shows it |
+| Status (open, answered, closed) | derived in the Mind from its documents (`closed` is a `Withdrawn` resolution on the question), never written | shows it |
 | Who answered, and as what | the Bifrost account behind the Heimdall session, plus its role at the moment of the answer | shows it; never takes it from the client |
-| Close | a request the owning Mind honours | offers Close only to a grant holder; **the page writes no ruling** |
-| Hiding | the owning Mind alone, as a typed act | shows the labelled stub; hides nothing itself |
+| Close | a `feedback_close_request` the owning Mind honours or declines; it never changes the question's status by itself | offers Close only to a grant holder; **the page writes no ruling** |
+| Hiding | the owning Mind alone, as a `feedback_hide`; unhide is a `Withdrawn` resolution on it | shows the labelled stub; hides nothing itself |
+| Erase | Bifrost's erase of an account; the receiver drops the text | shows "erased account" |
 
 An answer is input to a Mind, not a vote and not a decision. **The page never tallies**: no counts, no totals, no "leading" option, no
 ordering by popularity, no count of reports or close requests. Only the Mind's ruling picks anything.
 
 ## 3. Receiver and carriers
 
-- **Bifrost is the receiver** (Heimdall's side). It verifies the Heimdall session, reads the account, stamps `answerer`, `kind` and `time`,
-  appends the record, delivers it to the owning Mind, and serves the projection the page reads. The client writes no record that carries
-  identity; a Matrix sender is a different identity authority and never becomes `answerer`.
-- **Huginn is RUDP-only.** The client never talks to Huginn. The Mind's questions reach the page as a projection Bifrost serves.
-- **The Huginn kinds this needs are Eureka's:** the opt-in act with `audience`, `closeGrants` on a question, the close request, the hide and
-  unhide acts, and the redaction record. This spec names what it needs and proposes no kinds. `huginn-feedback-kinds-proposal.md` was not in
-  `/opt/commons/handoff` on 2026-11-07; the kinds wait on it.
+- **Schema owner: `huginn-feedback-kinds-proposal.md`.** Four new Huginn kinds, all Eureka's: `feedback_listing` (audience, `close_grants` with no Guest
+  grant, the opt-in act), `feedback_answer` (a text-free record), `feedback_close_request` and `feedback_hide`. Unhide, un-list and "request declined"
+  are `resolution`s on those kinds. This page proposes no kinds.
+- **Bifrost is the receiver** (Heimdall's side). It verifies the Heimdall session, reads the account, stamps `answerer`, `kind`, weight and `time`,
+  **stores the answer text**, hashes the record, delivers it, serves the projection the page reads, and **does the erase**. A Matrix sender is a different
+  identity authority and never becomes `answerer`.
+- **Huginn is RUDP-only.** The client never talks to Huginn, and the receiver never writes to it: an admission declared for another instance is refused
+  (`ForeignInstance`), so a receiver "admitting as Kiko" would be unauthenticated by construction.
+- **Delivery is by mouth.** The receiver delivers each answer or close request to the owning Mind's Persona through the mouth's pending/ack path (a new
+  delivery document, `gamecult.persona.feedback_delivery.v1`, owned by Bifrost). **The Persona admits the text-free record into her own mind** and acks only
+  after it is admitted; a restart redelivers the same record id, which is `AlreadyAdmitted`. The text reaches her turn once, in the delivery, and is never
+  admitted.
+- Dependencies that must ship first, in the proposal's order: Huginn readers (daemon, CLI, clients), then the Persona organ, then Bifrost's receiver.
 
 ## 4. Mock
 
@@ -79,73 +90,77 @@ SETTLED | Kiko ruled: "..."  (link to the ruling) | 5 Nov
 
 ## 5. Data contract
 
-Typed, closed, versioned by name. Logical shapes; the typed interface and its fixtures come first (section 9).
+The **Huginn shapes belong to the proposal** (section 2 there): `feedback_listing`, `feedback_answer`, `feedback_close_request`, `feedback_hide`. The client
+declares a typed interface that mirrors them as the page's projection and imports nothing it cannot decode from them.
 
-**Question** (`org.gamecult.feedback.question.v0`), projected read-only from the owning Mind's `question` document:
+**Question projection** (`org.gamecult.feedback.question.v0`, read-only, served by Bifrost):
 
 | Field | Meaning | Source |
 |---|---|---|
-| `id` | `<instance>:question:<label>` | the document key |
+| `id` | `<campaign>:question:<label>`; the key carries the campaign, not the instance | the document key |
 | `owner` | the asking Mind's instance | the instance |
 | `title`, `body` | one line; prose up to 4000 bytes | `title`, `question` |
-| `options[]` | `{ id, text }`, at most 8 | `options` (`label`, `text`) |
-| `recommendation` | an option id or absent | `recommended` |
-| `dependsOn[]` | `{ text, questionId? }`; an id only where the line cites one verbatim | `depends` |
-| `askedAt` | UTC time | the mind keeps a date (`asked_on`); admission time fills the rest |
-| `audience` | `account holders` (default) or `members only` | the opt-in act; **not in the mind today** |
-| `closeGrants[]` | account ids and/or the kinds `member`, `mind`; never `guest` | a field the Mind sets; **not in the mind today** |
-| `status` | `open`, `answered`, `closed`, derived; `answered` carries a `rulingId` | derived from the mind's documents |
+| `options[]` | `{ id, text }`, 2 to 8; **the option id is the option's label** | `options` (`label`, `text`) |
+| `recommendation` | an option label | `recommended` |
+| `dependsOn[]` | `{ text, questionId? }`; an id only where the line cites one verbatim | `depends` (free text) |
+| `askedAt` | the question's receipt `committed_at` | the receipt; `asked_on` is only a date |
+| `audience`, `closeGrants[]` | `AccountHolders` or `MembersOnly`, no default; grantees are accounts or the kinds `Member` and `Mind`, **never `Guest`** | the in-force `feedback_listing` |
+| `status` | `open`, `answered` (with a `rulingId`) or `closed`, derived | the question's resolutions |
 
-**Answer** (`org.gamecult.feedback.answer.v0`), append-only:
+**Answer row** (`org.gamecult.feedback.answer.v0`, assembled by the receiver from its stored record and the Mind's text-free `feedback_answer`):
 
 | Field | Meaning |
 |---|---|
-| `questionId` | the question's id |
-| `optionId` / `text` | an option id of that question, free text up to 2000 characters, or both; at least one |
-| `answerer` | the **Bifrost account id** (the stable id, not the authenticator handle, which is cleared on erase); never a display name, never client-supplied |
-| `kind` | `mind`, `guest`, `user`, `patron` or `member`, read from Bifrost's account state **at answer time**; the session carries identity, never role |
+| `recordId` | `<question-label>.a<N>`, N the receiver's per-question sequence |
+| `answerer` | the **Bifrost account id** (stable; the authenticator handle is cleared on erase); never a display name, never client-supplied |
+| `kind` | `Guest`, `User`, `Patron`, `Member` or `Mind`, read from Bifrost's account state **at answer time**; the session carries identity, never role |
+| `weightPermille` | stamped 0 for a guest, 1000 otherwise; **the page sums nothing** |
+| `choice` / `text` | an option label, free text up to 2000 characters, or both; at least one. Text exists only in the receiver's store and the projection, never in a mind |
 | `time` | when the receiver accepted it |
 
-Further records, all append-only and delivered to the owning Mind as input: **close request** (requester, kind), **report** (reporter, kind, answer
-id, reason code), **redaction** (answer id, content hash).
-
-Invariants: the receiver takes `answerer` and `kind` from the verified session and account state, never from the request body; an unknown option id is
-refused; the latest record per account is its standing answer, derived at read time; display names are looked up for display and are never keys.
-An account may answer only while its status is `active`, read at answer time. Nothing is edited or deleted, with the single exception in 7.
+Invariants: the receiver takes `answerer`, `kind` and weight from the verified session and account state, never from the request body; an unknown option
+label is refused; the latest record per account is its standing answer, derived at read time; display names are looked up for display and are never keys. An
+account may answer only while its status is `active`, read at answer time. A guest cannot request close, and a guest grant cannot be written. Answers to a
+settled question are kept. Nothing is edited or deleted, except the receiver's redaction on erase (section 7).
 
 ## 6. Flow
 
 ```
-owning Mind's mind --(Bifrost projection)--> page     page --(answer)--> Bifrost --(delivered)--> owning Mind
+owning Mind's mind --(Bifrost projection)--> page    page --(answer, Heimdall session)--> receiver (Bifrost; holds the text)
+receiver --(mouth delivery)--> owning Mind's Persona --(admits text-free feedback_answer)--> her mind
 the Mind decides and records the ruling herself --> status derives --> projection updates --> page moves it to Settled
 ```
 
-1. **View.** The page shows the projection of the questions the Mind opted in, filtered by the viewer's kind against `audience`. The mind stays the truth;
-   the projection is rebuilt, never hand-edited, and republished on a heartbeat so freshness is visible.
-2. **Answer.** The page submits a record with the person's Heimdall session; Bifrost stamps and appends it.
-3. **Return.** Bifrost hands new answers to the owning Mind as input in her own conversation. Each arrives as **quoted, attributed data** (record id,
-   author, kind, time), never in an instruction position: text from a guest, user or patron is untrusted, and she records a ruling from it, never an action.
-   This is a delivery rule; the receiver does no keyword screening.
+1. **View.** The page shows the projection of the questions with a `feedback_listing` in force, filtered by the viewer's kind against `audience`. The mind
+   stays the truth; the projection is rebuilt, never hand-edited, and republished on a heartbeat so freshness is visible.
+2. **Answer.** The page submits with the person's Heimdall session; the receiver stamps, stores the text and appends the record.
+3. **Return.** The receiver delivers by mouth; the Persona admits the text-free record and reads the text once. Each arrives as **quoted, attributed data**
+   (record id, author, kind, time), never in an instruction position: text from a guest, user or patron is untrusted, and she records a ruling from it, never
+   an action. The receiver does no keyword screening. She does not quote answer text into memory or a ruling; she cites the record id.
 4. **Decide.** She records the ruling in her mind. The next projection carries `answered` and the ruling link.
-5. **Close.** Close is a **request the owning Mind honours**. A grant holder's request is appended and delivered; the status becomes `closed` only when
-   the Mind records the resolution. The page shows who asked and never how many.
+5. **Close.** A grant holder's request is delivered as a `feedback_close_request`. The Mind honours it by resolving the question, or declines with a
+   `Recorded` resolution on the request; the request never changes the status itself. The page shows who asked and never how many.
 
 ## 7. Guests, erasure and hiding
 
-- **Guests may answer** and see what the Mind opted in for their audience; they may not close. A guest answer carries no weight by construction: guests
-  are on no roll and no tally. Guests see display name and kind only, never a Matrix id, provider handle or GitHub login.
-- **Erase redacts.** Records are append-only and are **never edited, but may be redacted**. When an account is erased, each of its answers keeps its
-  record id, kind, time and a content hash; the author shows as "erased account" and the text is dropped from storage and projection. This is the one
-  case that bends pure append-only, because the text is the person's own words and erasure lets them take it back.
-- **Only the owning Mind hides**, as a typed act with its admission receipt: target (an answer or a question), a reason code from a closed set
-  (`private_matter`, `abuse`, `spam`, `off_topic`, `author_request`, `erased_author`) and a line of at most 200 bytes. Unhide is a later document, never
-  an edit. No count of reports ever hides anything and there is no auto-hide threshold; the operator orders a hide in conversation and the Mind records it.
-- **Anyone with an account may report** an answer; an author reporting their own uses `author_request` and the Mind honours it. A report changes nothing
-  on the page and its count is never shown.
-- **What a hidden item shows.** A hidden answer keeps its row (author, kind, time, "Hidden by <Mind>, <date>, <reason code>") with its text withheld for
-  every reason; the body stays in the receiver's store for the Mind and operator to audit. A hidden question shows a stub with its title, body, options and
-  answers withheld, which is the remedy for a question wrongly opted in. The answer box says answers are visible to everyone who can see the question.
-- **Private matter** is never opted in. An answer carrying someone's private matter is hidden with `private_matter`.
+- **Guests may answer** and see what the Mind opted in for their audience; they may not close (refused at the receiver and again by Huginn, and no listing can
+  name a Guest grantee). A guest answer carries weight 0 by construction and is tallied nowhere. Guests see display name and kind only, never a Matrix id,
+  provider handle or GitHub login.
+- **Erase redacts.** Records are append-only and are **never edited, but may be redacted**. A mind cannot redact: every admission's receipt keeps its exact
+  payload bytes, which is why the text never enters one. When Bifrost erases an account, **the receiver drops that account's answer text** and keeps record
+  id, kind, time and content hash; the author shows as "erased account". The receiver delivers an erase notice and the Persona admits a `feedback_hide` with
+  reason `ErasedAuthor`, the Mind's acknowledgement rather than a moderation call. The honest residue: a Mind's own memory or ruling may already quote an
+  answer, and Huginn cannot redact it; the rule that she cites record ids, never text, is a prompt, not an invariant.
+- **Only the owning Mind hides**, as a `feedback_hide`: target (an answer or a question), reason from the closed set (`PrivateMatter`, `Abuse`, `Spam`,
+  `OffTopic`, `AuthorRequest`, `ErasedAuthor`) and a line of at most 200 bytes, with its admission receipt as the audit trail. Unhide is a `Withdrawn`
+  resolution on the hide. No count of reports ever hides anything and there is no auto-hide threshold; the operator orders a hide in conversation and the
+  Mind records it.
+- **Anyone with an account may report** an answer; the receiver delivers it to the Mind as input. The page shows nothing of it and never a count. An author
+  reporting their own answer uses `AuthorRequest` and the Mind honours it.
+- **What a hidden item shows.** A hidden answer keeps its row (author, kind, time, "Hidden by <Mind>, <date>, <reason>") with its text withheld for every
+  reason. A hidden question shows a stub with its title, body, options and answers withheld; taking a question off the page is a `Withdrawn` resolution on its
+  listing. The answer box says answers are visible to everyone who can see the question.
+- **Private matter** is never listed. An answer carrying someone's private matter is hidden with `PrivateMatter`.
 - Guest answers are collected for nothing but delivery to the owning Mind.
 
 ## 8. States
@@ -162,9 +177,10 @@ the Mind decides and records the ruling herself --> status derives --> projectio
 
 ## 9. Build order
 
-1. The typed interface (question, answer, close request, report) and **fixtures** for every state in section 8, plus the guest, erased and hidden rows.
-   The page renders from fixtures; no network.
-2. The Huginn kinds (Eureka) and the Bifrost account publisher and receiver (Heimdall). The page switches from fixtures to the projection.
+1. The client's typed interface, mirroring the proposal's shapes and the projections in section 5, and **fixtures** for every state in section 8 plus the
+   guest, erased and hidden rows. The page renders from fixtures; no network.
+2. The proposal's kinds and migration (Eureka: readers first, then the Persona organ), and the Bifrost account publisher, receiver and mouth delivery
+   (Heimdall). The page switches from fixtures to the projection.
 
 ## 10. Accessibility
 
@@ -180,7 +196,8 @@ the Mind decides and records the ruling herself --> status derives --> projectio
 
 1. **Emergency withhold.** If the owning Mind is away and an answer shows something illegal or dangerous, may the host withhold the text at the receiver?
    Heimdall leans no: it is a second owner. Meta's fork.
-2. **How a Mind authenticates to answer** (kind `mind`): a Heimdall session of its own, or delivered through the receiver. Bifrost has no `mind` role today.
-3. **Time precision.** `asked_on` is a date; `askedAt` takes the admission time, or the mind records a real timestamp (a schema change).
-4. **Kind vocabulary.** The page's `guest | user | patron | member` plus `mind` follows Bifrost's role words; the Bifrost account publisher that supplies them
-   does not exist yet.
+2. **How a Mind authenticates to answer** (kind `Mind`): Bifrost has no `Mind` role and the account publisher `gamecult.bifrost.account.v1` does not exist yet.
+3. **Erase is bounded.** Text a Mind has already quoted into her own documents cannot be redacted; absolute erase would mean the text never enters her turn.
+4. **`AccountId` grammar**, pinned to Bifrost's account id shape when that publisher lands.
+5. **Reader ordering.** Whether an old Huginn reader skips or fails on a mind holding a kind it does not know is unverified (proposal section 6.4); it decides
+   when the first Mind may list a question.
