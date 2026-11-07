@@ -1,10 +1,11 @@
 // Bundles entry.ts with the scene's ?raw GLSL imports into $OUT/bundle.js plus an index.html.
-// usage: node bundle.cjs <outdir> [demo]     (esbuild from NODE_PATH). `demo` bundles the standalone page.
+// usage: node bundle.cjs <outdir> [demo|terrain]     (esbuild from NODE_PATH). `demo` bundles the standalone page.
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 const out = process.argv[2];
 const demo = process.argv[3] === 'demo';
+const terrain = process.argv[3] === 'terrain';
 fs.mkdirSync(out, { recursive: true });
 const rawPlugin = {
   name: 'raw',
@@ -21,7 +22,7 @@ const rawPlugin = {
 };
 esbuild
   .build({
-    entryPoints: [path.join(__dirname, demo ? 'demo.ts' : 'entry.ts')],
+    entryPoints: [path.join(__dirname, terrain ? 'terrainDemo.ts' : demo ? 'demo.ts' : 'entry.ts')],
     bundle: true,
     outfile: path.join(out, 'bundle.js'),
     plugins: [rawPlugin],
@@ -29,6 +30,14 @@ esbuild
     target: 'es2020',
   })
   .then(() => {
+    if (terrain) {
+      // The terrain-tier spike: one page, one classic script, no fetch or storage.
+      fs.writeFileSync(
+        path.join(out, 'index.html'),
+        '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Ratatoskr terrain tier (spike)</title><body style="margin:0;background:#07111a"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas><pre id=out style="position:fixed;left:8px;top:8px;margin:0;padding:6px 8px;background:#000a;color:#ddd;font:12px monospace;white-space:pre-wrap;max-width:60vw"></pre><script src=bundle.js></script>'
+      );
+      return;
+    }
     fs.writeFileSync(
       path.join(out, 'index.html'),
       '<!doctype html><meta charset=utf-8><title>Ratatoskr scene: trace prepass</title><body style="margin:0;background:#000"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas>' +
