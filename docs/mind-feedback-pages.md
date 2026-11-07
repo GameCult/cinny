@@ -41,7 +41,7 @@ ordering by popularity, no count of reports or close requests. Only the Mind's r
   grant, the opt-in act), `feedback_answer` (a text-free record), `feedback_close_request` and `feedback_hide`. Unhide, un-list and "request declined"
   are `resolution`s on those kinds. This page proposes no kinds.
 - **Bifrost is the receiver** (Heimdall's side). It verifies the Heimdall session, reads the account, stamps `answerer`, `kind`, weight and `time`,
-  **stores the answer text**, hashes the record, delivers it, serves the projection the page reads, and **does the erase**. A Matrix sender is a different
+  **stores the answer text**, delivers it, serves the projection the page reads, and **does the erase**. A Matrix sender is a different
   identity authority and never becomes `answerer`.
 - **Huginn is RUDP-only.** The client never talks to Huginn, and the receiver never writes to it: an admission declared for another instance is refused
   (`ForeignInstance`), so a receiver "admitting as Kiko" would be unauthenticated by construction.
@@ -147,8 +147,8 @@ the Mind decides and records the ruling herself --> status derives --> projectio
   name a Guest grantee). A guest answer carries weight 0 by construction and is tallied nowhere. Guests see display name and kind only, never a Matrix id,
   provider handle or GitHub login.
 - **Erase redacts.** Records are append-only and are **never edited, but may be redacted**. A mind cannot redact: every admission's receipt keeps its exact
-  payload bytes, which is why the text never enters one. When Bifrost erases an account, **the receiver drops that account's answer text** and keeps record
-  id, kind, time and content hash; the author shows as "erased account". The receiver delivers an erase notice and the Persona admits a `feedback_hide` with
+  payload bytes, which is why the text never enters one. When Bifrost erases an account, **the receiver drops that account's answer text and name** and keeps record
+  id, kind and time only. **A content hash is not kept**: an unsalted hash would confirm a guessed text. The author shows as "erased account". The receiver delivers an erase notice and the Persona admits a `feedback_hide` with
   reason `ErasedAuthor`, the Mind's acknowledgement rather than a moderation call. The honest residue: a Mind's own memory or ruling may already quote an
   answer, and Huginn cannot redact it; the rule that she cites record ids, never text, is a prompt, not an invariant.
 - **Only the owning Mind hides**, as a `feedback_hide`: target (an answer or a question), reason from the closed set (`PrivateMatter`, `Abuse`, `Spam`,
@@ -162,6 +162,23 @@ the Mind decides and records the ruling herself --> status derives --> projectio
   listing. The answer box says answers are visible to everyone who can see the question.
 - **Private matter** is never listed. An answer carrying someone's private matter is hidden with `PrivateMatter`.
 - Guest answers are collected for nothing but delivery to the owning Mind.
+- **No content hash anywhere.** No answer, close-request or redaction shape in this page carries one. The proposal's `feedback_answer` lists a `content_hash`
+  field; per Heimdall it must go, and Eureka owns that change.
+
+## 7a. Receiver: credential, store, names
+
+Source: Bifrost PR #10, `docs/feedback-receiver.md` (design, nothing implemented).
+
+- **Credential: route 2.** Ratatoskr presents the **OIDC access token Bifrost already issues to chat**, and Bifrost verifies it itself. The client holds no new
+  secret and needs no Heimdall token. The account is the token's subject, `UserAccount.Id`. **The claims check is still open**: which claims the token carries
+  and which Bifrost must verify for this endpoint have not been read.
+- **Store: a CultCache file** (Eureka's pick), owned and written only by the receiver. **Backups need a stated purge or expiry before any deploy**, so that
+  erased text does not survive in them; the number is left to Eureka and Heimdall.
+- **Display names.** The receiver must not reuse `CurrentBifrostActor.DisplayName`, which falls back to the GitHub login and then to "Guest". It stores the
+  name at answer time from the member nickname or account display name only, and "an account" when both are empty. Never a provider handle, GitHub login,
+  Heimdall id or Matrix localpart.
+- **No guest exists until Bifrost PR #9 lands.** On main an active membership is a member, an authenticated or pending one a user, and nobody is a guest, so the
+  guest rules in this page have no account to apply to until then. An answer needs an active account, read at answer time.
 
 ## 8. States
 
@@ -199,5 +216,6 @@ the Mind decides and records the ruling herself --> status derives --> projectio
 2. **How a Mind authenticates to answer** (kind `Mind`): Bifrost has no `Mind` role and the account publisher `gamecult.bifrost.account.v1` does not exist yet.
 3. **Erase is bounded.** Text a Mind has already quoted into her own documents cannot be redacted; absolute erase would mean the text never enters her turn.
 4. **`AccountId` grammar**, pinned to Bifrost's account id shape when that publisher lands.
-5. **Reader ordering.** Whether an old Huginn reader skips or fails on a mind holding a kind it does not know is unverified (proposal section 6.4); it decides
+5. **Receiver claims.** The OIDC access token's claims for this endpoint (section 7a) are unread.
+6. **Reader ordering.** Whether an old Huginn reader skips or fails on a mind holding a kind it does not know is unverified (proposal section 6.4); it decides
    when the first Mind may list a question.
