@@ -1,5 +1,5 @@
 // The terrain scene's star layer: the ridge scene's starfield (ridge/stars.ts: placement, alpha, tint, the
-// rolling twinkle schedule) on a 2D overlay canvas above the WebGL canvas, shown only when the baked sky is dark.
+// rolling twinkle schedule) on a 2D overlay canvas above the WebGL canvas, faded by the sun's elevation (starGain).
 //
 // The WebGL canvas is opaque, so the overlay sits on top and is cut to the sky: it is only as tall as the
 // horizon line is low on screen. The camera has no roll and the eye (CAMERA.eye) is above the highest peak
@@ -13,9 +13,10 @@
 // the layer only paints when Terrain.ts draws, and a draw with no clock (reduced motion, still tier, resize)
 // paints every star at base brightness.
 
+import { baked } from '../../../../sky/baked';
 import type { SkyColours, Srgb } from '../ridge/skyColour';
-import { activeAt, isNight, makeStars, SKY_STOPS, Star } from '../ridge/stars';
-import { SkyData } from './skyData';
+import { activeAt, makeStars, SKY_STOPS, Star } from '../ridge/stars';
+import { SkyData } from './terrainSky';
 import { CAMERA } from './terrainWorld';
 
 /** Azimuth the star field repeats at (radians); wider than any horizontal field of view the layer is shown at. */
@@ -30,9 +31,19 @@ const TWINKLE_MS = 50;
 const hex = (h: string): Srgb =>
   [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as unknown as Srgb;
 
-/** The ridge star module's view of a baked terrain sky: zenith, the middle stop, and the horizon stop. */
-export function skyColoursOf(d: SkyData): SkyColours {
-  const g = d.gradient;
+/**
+ * How much of the starfield shows with the sun at `elevation` degrees: all of it below -12 (where the baked
+ * scattering goes dark: the planet's shadow covers every sunlit air path), none above -6 (civil twilight), a smooth
+ * fade between. Not a dark/day gate: a sun at -9 shows the stars at half.
+ */
+export function starGain(elevation: number): number {
+  const t = Math.min(1, Math.max(0, (elevation + 12) / 6));
+  return 1 - t * t * (3 - 2 * t);
+}
+
+/** The ridge star module's view of the night sky it places stars against: the baked midnight gradient's zenith, middle and horizon stops. */
+export function nightColours(): SkyColours {
+  const g = baked.midnight.gradient;
   return {
     top: hex(g[0]),
     mid: hex(g[Math.floor(g.length / 2)]),
@@ -84,11 +95,12 @@ export interface TerrainStars {
   dispose(): void;
 }
 
-/** The layer for `canvas`'s parent, or null: a day sky, no parent, no 2D context. */
+/** The layer for `canvas`'s parent, or null: the sun is too high for any star, no parent, no 2D context. */
 export function createTerrainStars(canvas: HTMLCanvasElement, sky: SkyData): TerrainStars | null {
-  const colours = skyColoursOf(sky);
+  const colours = nightColours();
+  const gain = starGain(sky.elevation);
   const parent = canvas.parentElement;
-  if (!parent || !isNight(colours)) return null;
+  if (!parent || gain <= 0) return null;
   const el = document.createElement('canvas');
   const ctx = el.getContext?.('2d');
   if (!ctx) return null;
@@ -129,8 +141,8 @@ export function createTerrainStars(canvas: HTMLCanvasElement, sky: SkyData): Ter
     const yaw = 2 * Math.PI * turns;
     lit.forEach(({ star, az, e }, i) => {
       const da = wrap(az - yaw);
-      const gain = seconds === undefined ? 1 : gains.get(i) ?? 1;
-      ctx.globalAlpha = Math.min(1, star.alpha * gain * BRIGHTEN);
+      const twinkle = seconds === undefined ? 1 : gains.get(i) ?? 1;
+      ctx.globalAlpha = Math.min(1, star.alpha * twinkle * BRIGHTEN) * gain;
       ctx.fillStyle = star.fill;
       [da, da > 0 ? da - PERIOD : da + PERIOD].forEach((d) => {
         const at = project(d, e, w, h);

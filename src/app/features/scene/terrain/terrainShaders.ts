@@ -8,6 +8,8 @@ import cultmath from '../shaders/CultMath.glsl?raw';
 import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
 import { ALBEDO } from './terrainAlbedo';
+import { SCATTER_GLSL } from './terrainScatter';
+import { GLOW_ZENITH, SKY_EXPOSURE } from './terrainSky';
 import { TERRAIN } from './terrainWorld';
 
 const HEADER =
@@ -107,7 +109,8 @@ void main() {
   gl_Position = uViewProj * vec4(v_world, 1.0);
 }`;
 
-// Lit by the baked sky: uSun (direction), uSunColour (linear, zero when the sun is down), uAmbient, uHaze (linear).
+// Lit by the baked sky: uSun (direction), uSunColour (linear, zero when the sun is down), uAmbient; hazed toward the
+// scattered sky at the horizon in the ray's azimuth (SKY_COLOUR_GLSL).
 // The same arithmetic as terrainSky.shade(); the normal comes from the height map so shading carries detail finer than the mesh.
 const ALBEDO_DEFINES = `
 #define ALB_SCREE_FROM ${lit(ALBEDO.screeFrom)}
@@ -120,10 +123,20 @@ const ALBEDO_DEFINES = `
 #define ALB_WOBBLE_H ${lit(ALBEDO.wobbleHeight)}
 #define ALB_WOBBLE_S ${lit(ALBEDO.wobbleSlope)}
 `;
-export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}
+// The sky colour along a unit direction: scattering lifted by the exposure, tone-mapped, plus the night glow. The
+// same arithmetic as terrainSky.skyColour(). uGlow is the baked horizon colour already scaled by how dark the sun is.
+const SKY_COLOUR_GLSL = `${SCATTER_GLSL}
+uniform vec3 uGlow;
+vec3 skyColour(vec3 d) {
+  return 1.0 - exp(-${lit(SKY_EXPOSURE)} * skyScatter(d)) + uGlow * mix(1.0, ${lit(
+  GLOW_ZENITH
+)}, sqrt(clamp(d.y, 0.0, 1.0)));
+}`;
+
+export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}${SKY_COLOUR_GLSL}
 in vec2 v_uv;
 in vec3 v_world;
-uniform vec3 uCamera, uSun, uSunColour, uAmbient, uHaze, uSoil, uScree, uRock, uSnow;
+uniform vec3 uCamera, uSunColour, uAmbient, uSoil, uScree, uRock, uSnow;
 uniform float uSpan, uHazeK, uSnowLine;
 out vec4 o;
 ${FETCH}
@@ -151,13 +164,21 @@ void main() {
   float rockW = 1.0 - smoothstep(ALB_ROCK_LO, ALB_ROCK_HI, flat_);
   vec3 albedo = mix(mix(ground, uSnow, snow), uRock, rockW);
   vec3 lit = albedo * (uSunColour * max(dot(n, uSun), 0.0) + uAmbient * (0.5 + 0.5 * n.y));
-  float T = exp(-uHazeK * length(v_world - uCamera));
-  o = vec4(pow(mix(uHaze, lit, T), vec3(1.0 / 2.2)), 1.0);
+  vec3 toSurface = v_world - uCamera;
+  float T = exp(-uHazeK * length(toSurface));
+  vec3 haze = skyColour(normalize(vec3(toSurface.x, 0.0, toSurface.z)));
+  o = vec4(pow(mix(haze, lit, T), vec3(1.0 / 2.2)), 1.0);
 }`;
 
-// The sky behind: the gradient's seven stops, zenith first, by the view ray's elevation (horizon stop at and below the horizon).
-export const SKY_FRAG = `${HEADER}
-uniform vec3 uGrad[7];
+// The sky behind: the baked scattering tables by the view ray's elevation and azimuth from the sun, a sun disc, and a
+// dither of +-0.5/255 on the 8-bit output so the dusk glow does not band.
+const DISC = {
+  inner: Math.cos((0.5 * Math.PI) / 180),
+  outer: Math.cos((1.1 * Math.PI) / 180),
+  gain: 6.0,
+};
+export const SKY_FRAG = `${HEADER}${SKY_COLOUR_GLSL}
+uniform vec3 uSunColour;
 uniform vec3 uRight, uUp, uForward;
 uniform vec2 uSize;
 uniform float uTanHalf;
@@ -165,8 +186,9 @@ out vec4 o;
 void main() {
   vec2 ndc = gl_FragCoord.xy / uSize * 2.0 - 1.0;
   vec3 d = normalize(uForward + ndc.x * uTanHalf * uSize.x / uSize.y * uRight + ndc.y * uTanHalf * uUp);
-  float s = (1.0 - sqrt(smoothstep(-0.15, 1.0, d.y))) * 6.0;
-  int i = int(min(floor(s), 5.0));
-  vec3 c = mix(uGrad[i], uGrad[i + 1], s - float(i));
-  o = vec4(pow(c, vec3(1.0 / 2.2)), 1.0);
+  vec3 c = skyColour(d) + uSunColour * ${lit(DISC.gain)} * smoothstep(${DISC.outer}, ${
+  DISC.inner
+}, dot(d, uSun));
+  float dither = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
+  o = vec4(pow(c, vec3(1.0 / 2.2)) + dither / 255.0, 1.0);
 }`;

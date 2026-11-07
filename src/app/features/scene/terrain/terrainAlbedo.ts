@@ -1,10 +1,9 @@
 // Terrain surface colour as a pure function of height, slope and world position, no texture reads: the shader
 // (terrainShaders.ts GRID_FRAG) does the same arithmetic with these numbers as uniforms and #defines. No DOM, no GL.
 // Rock where the face is steep, then by height soil, scree and snow; snow only settles on gentle faces. The per-sky
-// part reads the baked sky (./skyData.ts): the snow line drops and every material is tinted toward the sky's colour
+// part reads the baked sky (./terrainSky.ts): the snow line drops and every material is tinted toward the sky's colour
 // as the sun goes down, warm by the sun's own colour by day and cool by the horizon haze at night.
-import { SkyData, Vec3 } from './skyData';
-import { coldness, hazeColour, sunColour } from './terrainSky';
+import { coldness, hazeColour, SkyData, Vec3 } from './terrainSky';
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const smooth = (a: number, b: number, x: number) => {
@@ -58,7 +57,7 @@ const unit = (c: Vec3): Vec3 => {
 /** The palette one baked sky gives: base reflectances tinted toward the sky's colour, and its snow line. */
 export function albedoPalette(d: SkyData): AlbedoPalette {
   const cold = coldness(d);
-  const sun = unit(sunColour(d));
+  const sun = unit(d.direct);
   const haze = unit(hazeColour(d));
   const tint = [0, 1, 2].map((i) => mix(sun[i], haze[i], cold));
   const k = mix(0.15, 0.5, cold);

@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-syntax -- tests loop over skies, heights and slopes */
 import { describe, expect, it } from 'vitest';
-import { SKY } from './skyData';
+import { SKY } from './terrainSky';
 import { ALBEDO, albedoAt, albedoPalette, wobble } from './terrainAlbedo';
 import { GRID_FRAG } from './terrainShaders';
 
@@ -98,7 +98,7 @@ describe('shader agrees with the pure function on its numbers', () => {
     expect(GRID_FRAG).toContain(`#define ALB_SNOW_BAND ${ALBEDO.snowBand.toFixed(1)}`);
     expect(GRID_FRAG).toContain(`#define ALB_ROCK_LO ${ALBEDO.rockLo}`);
     expect(GRID_FRAG).toContain(`#define ALB_WOBBLE_S ${ALBEDO.wobbleSlope}`);
-    // the only fetch in the fragment shader is the height map's
-    expect(GRID_FRAG.match(/texelFetch|texture\(/g)).toHaveLength(1);
+    // the only fetch for colour-by-material would be a texture; the height map's texelFetch is the only other read, and the sky lookup is the baked scattering table's
+    expect(GRID_FRAG.match(/texelFetch|texture\((?!uSky)/g)).toHaveLength(1);
   });
 });

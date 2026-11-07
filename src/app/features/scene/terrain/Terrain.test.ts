@@ -2,8 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTerrainScene } from './Terrain';
 import { GRID, triangleCount } from './terrainWorld';
-import { SKY } from './skyData';
-import { ambientColour } from './terrainSky';
+import { SKY, skyAtSun } from './terrainSky';
+import { SKY_VIEW, skyViewWords } from './terrainScatter';
+import { SKY_FRAG } from './terrainShaders';
 import { startBackgroundScene } from '../index';
 
 /** A GL context that accepts every call, remembers them, reports success for compile, link and framebuffer. */
@@ -134,26 +135,58 @@ describe('createTerrainScene', () => {
   });
 
   it('lights with the sky chosen: option, then ?sky=, then the night default', () => {
-    const ambientUploaded = (opts: { sky?: 'midnight' | 'noonday' }) => {
+    const uploaded = (opts: { sky?: 'midnight' | 'noonday' }) => {
       const { gl, calls } = fakeGl();
       createTerrainScene({ canvas: canvasWith(gl), tier: 'still', ...opts })!.dispose();
-      const hit = calls.uniform3fv.filter((a) => (a[1] as ArrayLike<number>).length === 3);
-      // uniform3fv order in draw(): right, up, forward, then sun, sunColour, ambient, haze (+ camera)
-      return hit.map((a) => Array.from(a[1] as ArrayLike<number>));
+      // every vec3 uniform draw() sets: right, up, forward, sun, sunColour, glow, ambient, camera, soil...
+      return calls.uniform3fv
+        .filter((a) => (a[1] as ArrayLike<number>).length === 3)
+        .map((a) => Array.from(a[1] as ArrayLike<number>));
     };
-    const night = ambientUploaded({});
-    const day = ambientUploaded({ sky: 'noonday' });
-    const nightA = Array.from(ambientColour(SKY.midnight));
-    const dayA = Array.from(ambientColour(SKY.noonday));
+    const night = uploaded({});
+    const day = uploaded({ sky: 'noonday' });
+    const nightA = Array.from(SKY.midnight.ambient);
+    const dayA = Array.from(SKY.noonday.ambient);
     const has = (all: number[][], v: number[]) =>
       all.some((a) => a.every((x, i) => Math.abs(x - v[i]) < 1e-6));
     expect(has(night, nightA)).toBe(true);
     expect(has(night, dayA)).toBe(false);
     expect(has(day, dayA)).toBe(true);
     search = '?sky=noonday';
-    expect(has(ambientUploaded({}), dayA)).toBe(true);
+    expect(has(uploaded({}), dayA)).toBe(true);
     search = '?sky=garbage';
-    expect(has(ambientUploaded({}), nightA)).toBe(true);
+    expect(has(uploaded({}), nightA)).toBe(true);
+  });
+
+  it('a sun elevation (option or ?sun=&az=) lights between the bakes, and wins over ?sky=', () => {
+    const ambients = (opts: Record<string, unknown>) => {
+      const { gl, calls } = fakeGl();
+      createTerrainScene({ canvas: canvasWith(gl), tier: 'still', ...opts })!.dispose();
+      return calls.uniform3fv.map((a) => Array.from(a[1] as ArrayLike<number>));
+    };
+    const dusk = skyAtSun(-1, 300);
+    const has = (all: number[][], v: readonly number[]) =>
+      all.some((a) => a.length === 3 && a.every((x, i) => Math.abs(x - v[i]) < 1e-6));
+    expect(has(ambients({ sun: { elevation: -1, azimuth: 300 } }), dusk.ambient)).toBe(true);
+    search = '?sky=noonday&sun=-1&az=300';
+    expect(has(ambients({}), dusk.ambient)).toBe(true);
+    search = '?sun=garbage';
+    expect(has(ambients({}), SKY.midnight.ambient)).toBe(true);
+  });
+
+  it('uploads the baked scattering table once, as half floats, to a 3D texture', () => {
+    const { gl, calls } = fakeGl();
+    createTerrainScene({ canvas: canvasWith(gl), tier: 'full' })!.dispose();
+    expect(calls.texImage3D).toHaveLength(1);
+    const a = calls.texImage3D[0];
+    expect([a[3], a[4], a[5]]).toEqual([SKY_VIEW.width, SKY_VIEW.height, SKY_VIEW.depth]);
+    expect(a[9]).toEqual(skyViewWords());
+    expect(calls.deleteTexture).toHaveLength(2);
+  });
+
+  it('dithers the sky output by half an 8-bit step either way, and the terrain not at all', () => {
+    expect(SKY_FRAG).toContain('- 0.5');
+    expect(SKY_FRAG).toContain('dither / 255.0');
   });
 
   it('falls back to a still frame when the measured p95 is over 33 ms', () => {
@@ -208,7 +241,7 @@ describe('createTerrainScene', () => {
     createTerrainScene({ canvas: canvasWith(gl), tier: 'full' })!.dispose();
     expect(calls.deleteProgram).toHaveLength(3);
     expect(calls.deleteBuffer).toHaveLength(2);
-    expect(calls.deleteTexture).toHaveLength(1);
+    expect(calls.deleteTexture).toHaveLength(2);
     expect(rafQueue).toHaveLength(0);
   });
 });

@@ -1,17 +1,18 @@
 import type { Scene, SceneOptions } from '../Scene';
 import { FrameSampler, FrameStats } from '../ridge/probe';
 import { skyColours } from '../ridge/skyColour';
-import { SkyName } from './skyData';
 import { albedoPalette } from './terrainAlbedo';
+import { sunIndex } from '../../../../sky/scatter.js';
+import { SKY_VIEW, skyViewWords } from './terrainScatter';
 import {
-  ambientColour,
-  hazeColour,
+  glowColour,
   HAZE_K,
-  hexToLinear,
   isSkyName,
+  skyAtSun,
+  SkyData,
   skyData,
+  SkyName,
   skyNameFor,
-  sunColour,
   sunDirection,
 } from './terrainSky';
 import { buildGrid, CAMERA, GRID, seedOffset, TERRAIN, triangleCount, view } from './terrainWorld';
@@ -30,6 +31,8 @@ export type TerrainOptions = Pick<
 > & {
   /** Which baked sky lights and hazes the terrain. Default: `?sky=` in the page URL, else the night notion of `skyColours()`. */
   sky?: SkyName;
+  /** Put the sun at this elevation (degrees) and azimuth (clockwise from north; default: noonday's) instead of at the baked sky's: `?sun=` and `?az=` in the page URL. Lights between the two bakes, for dusk. */
+  sun?: { elevation: number; azimuth?: number };
   /** Terrain seed: the height map is sampled at an offset taken from it. Default 0. */
   seed?: number;
   /** Show the rAF median/p95 readout (plus triangle count). Default: the page URL has `?probe=1`. */
@@ -74,18 +77,25 @@ function program(gl: WebGL2RenderingContext, name: string, vs: string, fs: strin
   return p;
 }
 
-/** The sky to use: the option, then `?sky=midnight|noonday`, then the night notion of `skyColours()`. */
-function chooseSky(opt: SkyName | undefined): SkyName {
-  if (opt) return opt;
-  const q = new URLSearchParams(window.location.search).get('sky');
-  return isSkyName(q) ? q : skyNameFor(skyColours());
+/** The sky to use: a sun elevation from the option or `?sun=` (with `?az=`), else the baked sky from the option, then `?sky=midnight|noonday`, then the night notion of `skyColours()`. */
+function chooseSky(opts: Pick<TerrainOptions, 'sky' | 'sun'>): SkyData {
+  const q = new URLSearchParams(window.location.search);
+  const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
+  const elevation = opts.sun?.elevation ?? number('sun');
+  if (Number.isFinite(elevation)) {
+    const azimuth = opts.sun?.azimuth ?? number('az');
+    return skyAtSun(elevation, Number.isFinite(azimuth) ? azimuth : undefined);
+  }
+  if (opts.sky) return skyData(opts.sky);
+  const name = q.get('sky');
+  return skyData(isSkyName(name) ? name : skyNameFor(skyColours()));
 }
 
 /**
  * The terrain scene: same contract as `createRidgeScene`/`createScene` ({ login, dispose }, null for "keep the
  * CSS ground"). WebGL2 only. The height map is baked once on the GPU (Phacelle, see terrainShaders.ts) into an
- * RGBA8 texture; each frame is two draws: the baked gradient sky, then a displaced grid lit by the baked sun and
- * ambient and hazed toward the baked horizon colour. Cadence guard, pauses and the `?probe=1` readout match the
+ * RGBA8 texture; each frame is two draws: the sky from the baked scattering table, then a displaced grid lit by the
+ * baked sun and ambient and hazed toward that sky at the horizon. Cadence guard, pauses and the `?probe=1` readout match the
  * ridge scene.
  */
 export function createTerrainScene(opts: TerrainOptions): Scene | null {
@@ -101,7 +111,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const units = gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS);
   if (typeof units === 'number' && units < 1) return null;
 
-  const sky = skyData(chooseSky(opts.sky));
+  const sky = chooseSky(opts);
   const spec = GRID[tier];
 
   let skyProg: WebGLProgram;
@@ -123,6 +133,29 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, spec.tex, spec.tex, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  // The baked scattering table, RGB16F, uploaded as it is stored (half floats); the shader divides by the store scale.
+  const skyTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_3D, skyTex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage3D(
+    gl.TEXTURE_3D,
+    0,
+    gl.RGB16F,
+    SKY_VIEW.width,
+    SKY_VIEW.height,
+    SKY_VIEW.depth,
+    0,
+    gl.RGB,
+    gl.HALF_FLOAT,
+    skyViewWords()
+  );
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R].forEach((w) =>
+    gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE)
+  );
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.bindTexture(gl.TEXTURE_2D, heightTex);
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, heightTex, 0);
   const complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
@@ -130,6 +163,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const release = () => {
     free.forEach((f) => f());
     gl.deleteTexture(heightTex);
+    gl.deleteTexture(skyTex);
     gl.deleteFramebuffer(fbo);
     gl.deleteProgram(bakeProg);
     gl.deleteProgram(skyProg);
@@ -167,11 +201,11 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     () => gl.deleteBuffer(ibuf)
   );
 
-  const gradient = new Float32Array(sky.gradient.flatMap((h) => [...hexToLinear(h)]));
   const sun = [...sunDirection(sky)];
-  const sunLight = [...sunColour(sky)];
-  const ambient = [...ambientColour(sky)];
-  const haze = [...hazeColour(sky)];
+  const sunLight = [...sky.direct];
+  const ambient = [...sky.ambient];
+  const glow = [...glowColour(sky)];
+  const sunTexel = sunIndex(sky.elevation);
   const palette = albedoPalette(sky);
   const triangles = triangleCount(spec.grid);
 
@@ -201,7 +235,13 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.disable(gl.DEPTH_TEST);
     gl.useProgram(skyProg);
     const us = (n: string) => gl.getUniformLocation(skyProg, n);
-    gl.uniform3fv(us('uGrad'), gradient);
+    gl.uniform3fv(us('uSun'), sun);
+    gl.uniform3fv(us('uSunColour'), sunLight);
+    gl.uniform3fv(us('uGlow'), glow);
+    gl.uniform1f(us('uSunIndex'), sunTexel);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, skyTex);
+    gl.uniform1i(us('uSky'), 1);
     gl.uniform3fv(us('uRight'), v.right);
     gl.uniform3fv(us('uUp'), v.up);
     gl.uniform3fv(us('uForward'), v.forward);
@@ -220,7 +260,11 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.uniform3fv(u('uSun'), sun);
     gl.uniform3fv(u('uSunColour'), sunLight);
     gl.uniform3fv(u('uAmbient'), ambient);
-    gl.uniform3fv(u('uHaze'), haze);
+    gl.uniform3fv(u('uGlow'), glow);
+    gl.uniform1f(u('uSunIndex'), sunTexel);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, skyTex);
+    gl.uniform1i(u('uSky'), 1);
     gl.uniform1f(u('uHazeK'), HAZE_K);
     gl.uniform3fv(u('uSoil'), palette.soil);
     gl.uniform3fv(u('uScree'), palette.scree);

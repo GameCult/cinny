@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-function -- DOM stubs, as the other scene tests */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SKY } from './skyData';
+import { SKY, skyAtSun } from './terrainSky';
 import {
   BRIGHTEN,
   createTerrainStars,
@@ -9,12 +9,12 @@ import {
   FRAME_MS,
   horizonY,
   PERIOD,
+  nightColours,
   project,
-  skyColoursOf,
+  starGain,
 } from './terrainStars';
 import { CAMERA, view } from './terrainWorld';
 import { isNight, makeStars } from '../ridge/stars';
-import { skyNameFor } from './terrainSky';
 
 /** A 2D context that only counts: arcs painted and clears since the last reset. */
 function fakeCtx() {
@@ -64,15 +64,37 @@ const glCanvas = (w = 390, h = 844) =>
   ({ clientWidth: w, clientHeight: h, parentElement: parent } as any);
 
 describe('which skies get stars', () => {
-  it("midnight is dark, noonday is not, by the ridge module's own test", () => {
-    expect(isNight(skyColoursOf(SKY.midnight))).toBe(true);
-    expect(isNight(skyColoursOf(SKY.noonday))).toBe(false);
-    expect(skyNameFor(skyColoursOf(SKY.noonday))).toBe('noonday');
+  it('the field is placed against the baked night gradient, which the ridge module calls dark', () => {
+    expect(isNight(nightColours())).toBe(true);
+  });
+
+  it('starGain: full below -12 degrees, none above -6, smooth and monotone between', () => {
+    expect(starGain(-44.6)).toBe(1);
+    expect(starGain(-12)).toBe(1);
+    expect(starGain(-6)).toBe(0);
+    expect(starGain(45.2)).toBe(0);
+    expect(starGain(-9)).toBeCloseTo(0.5, 9);
+    let prev = 1;
+    for (let e = -12; e <= -6; e += 0.25) {
+      expect(starGain(e)).toBeLessThanOrEqual(prev);
+      prev = starGain(e);
+    }
   });
 
   it('noonday gets no layer and no element', () => {
     expect(createTerrainStars(glCanvas(), SKY.noonday)).toBeNull();
     expect(parent.appendChild).not.toHaveBeenCalled();
+  });
+
+  it('twilight is a fade, not a gate: a sun at -9 degrees paints the stars at half alpha', () => {
+    createTerrainStars(glCanvas(), skyAtSun(-9))?.draw(0);
+    const half = Math.max(...ctx2d.c.alphas);
+    ctx2d.c.alphas = [];
+    createTerrainStars(glCanvas(), SKY.midnight)?.draw(0);
+    expect(half).toBeGreaterThan(0);
+    expect(half / Math.max(...ctx2d.c.alphas)).toBeCloseTo(0.5, 6);
+    expect(createTerrainStars(glCanvas(), skyAtSun(-6.5))).not.toBeNull();
+    expect(createTerrainStars(glCanvas(), skyAtSun(-6))).toBeNull();
   });
 
   it('midnight adds one overlay to the canvas parent; dispose removes it', () => {
@@ -172,12 +194,10 @@ describe('turning with the camera', () => {
 describe('brightness', () => {
   it('draws every star at BRIGHTEN times its ridge-field alpha, capped at 1', () => {
     createTerrainStars(glCanvas(), SKY.midnight)?.draw(0);
-    const want = makeStars(skyColoursOf(SKY.midnight), 390, 844).map((st) =>
-      Math.min(1, st.alpha * BRIGHTEN)
-    );
+    const want = makeStars(nightColours(), 390, 844).map((st) => Math.min(1, st.alpha * BRIGHTEN));
     ctx2d.c.alphas.forEach((a) => expect(want.some((w) => Math.abs(w - a) < 1e-9)).toBe(true));
     // and it is brighter than the ridge field's own top alpha
-    const top = Math.max(...makeStars(skyColoursOf(SKY.midnight), 390, 844).map((st) => st.alpha));
+    const top = Math.max(...makeStars(nightColours(), 390, 844).map((st) => st.alpha));
     expect(Math.max(...ctx2d.c.alphas)).toBeGreaterThan(top * 1.5);
   });
 });
