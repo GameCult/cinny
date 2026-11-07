@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_NOTICE_VERSION,
   ROOM_NOTICE_EVENT_TYPE,
   TRAINING_NOTICE_TEXT,
   parseRoomNotice,
@@ -47,6 +48,16 @@ describe('training notice', () => {
   it('rejects a version written with leading zeros', () => {
     expect(lineFor({ version: '01', scope: 'train' })).toBeUndefined();
     expect(lineFor({ version: '007', scope: 'train' })).toBeUndefined();
+  });
+
+  it('bounds the version at 4294967295', () => {
+    expect(MAX_NOTICE_VERSION).toBe(4294967295);
+    expect(lineFor({ version: 4294967295, scope: 'train' })).toBe(TRAINING_NOTICE_TEXT);
+    expect(parseRoomNotice({ version: 4294967295, scope: 'train' })?.version).toBe(4294967295);
+    expect(lineFor({ version: 4294967296, scope: 'train' })).toBeUndefined();
+    expect(lineFor({ version: Number.MAX_SAFE_INTEGER, scope: 'train' })).toBeUndefined();
+    expect(lineFor({ version: 4294967295.5, scope: 'train' })).toBeUndefined();
+    expect(lineFor({ version: '4294967295', scope: 'train' })).toBeUndefined();
   });
 
   it('rejects an unknown or wrongly cased scope', () => {

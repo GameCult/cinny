@@ -5,9 +5,11 @@ export const TRAINING_NOTICE_TEXT =
 
 /**
  * Heimdall's ruling: a room's notice is a room state event, not a pinned message. Type below,
- * state_key '', content `{version, scope}`; version a positive integer, scope exactly one of
- * show, study or train. Absent or malformed in any way means no train line.
+ * state_key '', content `{version, scope}`; scope exactly one of show, study or train. Heimdall's
+ * one version rule: a positive integer, no leading zeros, no greater than 4294967295; anything
+ * else is malformed. Absent or malformed in any way means no train line.
  */
+export const MAX_NOTICE_VERSION = 4294967295;
 export const ROOM_NOTICE_EVENT_TYPE = StateEvent.GameCultNotice;
 
 export type RoomNotice = { version: number; scope: 'show' | 'study' | 'train' };
@@ -20,6 +22,7 @@ export const parseRoomNotice = (content: unknown): RoomNotice | undefined => {
     typeof version === 'number' &&
     Number.isSafeInteger(version) &&
     version > 0 &&
+    version <= MAX_NOTICE_VERSION &&
     (scope === 'show' || scope === 'study' || scope === 'train')
   ) {
     return { version, scope };
