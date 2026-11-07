@@ -27,7 +27,8 @@ jobs:
       - name: Set background scene tier
         run: node scripts/preview-config.js low
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        # Forgejo's fork: upstream upload-artifact v4+ refuses non-GitHub servers (GHESNotSupportedError).
+        uses: forgejo/upload-artifact@v4
         with:
           name: rat-dev-dist
           path: dist
