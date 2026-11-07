@@ -26,13 +26,10 @@ jobs:
         run: npm run build
       - name: Set background scene tier
         run: node scripts/preview-config.js low
-      - name: Show artifact URLs (no tokens)
-        run: env | grep -E '^(ACTIONS_RESULTS_URL|ACTIONS_RUNTIME_URL|ACTIONS_CACHE_URL|GITHUB_SERVER_URL|GITHUB_API_URL)=' || true
       - name: Upload artifact
-        # Forgejo's fork: upstream upload-artifact v4+ refuses non-GitHub servers (GHESNotSupportedError).
-        uses: forgejo/upload-artifact@v4
-        env:
-          ACTIONS_RESULTS_URL: https://eureka.gamecult.org/forge/
+        # v3 protocol: the v4 client keeps only the origin of ACTIONS_RESULTS_URL, dropping this forge's /forge subpath
+        # (nginx 404 page, runs 170-171), and upstream v4+ refuses non-GitHub servers outright (run 169).
+        uses: forgejo/upload-artifact@v3
         with:
           name: rat-dev-dist
           path: dist
