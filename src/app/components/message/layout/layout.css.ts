@@ -138,39 +138,12 @@ export const BubbleBefore = style({
   minWidth: toRem(36),
 });
 
-// Pose portraits: beside the bubble on wide screens; on phones the row stacks, so the
-// portrait costs a little height instead of a column of width, and the left arrow goes.
-export const BubblePose = style({
-  '@media': {
-    'screen and (max-width: 750px)': {
-      flexDirection: 'column',
-      gap: config.space.S100,
-    },
-  },
-});
-
-export const BubbleBeforePose = style({
-  minWidth: toRem(64),
-  '@media': {
-    'screen and (max-width: 750px)': {
-      minWidth: 0,
-    },
-  },
-});
-
-export const BubbleArrowPose = style({
-  '@media': {
-    'screen and (max-width: 750px)': {
-      display: 'none',
-    },
-  },
-});
-
 export const BubbleContent = style({
   maxWidth: toRem(800),
   padding: config.space.S200,
   backgroundColor: color.SurfaceVariant.Container,
   color: color.SurfaceVariant.OnContainer,
+  border: `1px solid ${color.SurfaceVariant.ContainerLine}`,
   borderRadius: config.radii.R500,
   position: 'relative',
 });
@@ -179,30 +152,171 @@ export const BubbleContentArrowLeft = style({
   borderTopLeftRadius: 0,
 });
 
-export const BubbleContentPoseStacked = style({
+// Look of the three-doors mock-up (chat.gamecult.org/mockups/three-doors): a Mind's pose sits
+// beside its bubble on wide screens; on phones it floats inside the bubble, overhanging the top
+// edge, and the text wraps around its silhouette (shape-outside on the alpha channel).
+const PHONE = 'screen and (max-width: 700px)';
+const PORTRAIT = toRem(124);
+const POSE_GUTTER = toRem(14);
+const BUBBLE_CORNER = toRem(6);
+const POP = 'cubic-bezier(0.34, 1.7, 0.64, 1)';
+const RISE = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
+
+export const BubbleRowPose = style({
+  position: 'relative',
+  paddingLeft: `calc(${PORTRAIT} + ${POSE_GUTTER})`,
   '@media': {
-    'screen and (max-width: 750px)': {
-      borderTopLeftRadius: config.radii.R500,
+    [PHONE]: {
+      paddingLeft: 0,
     },
   },
 });
 
+// A row that shows a portrait: room for it to hang above the bubble on phones.
+export const BubbleRowPortrait = style({
+  minHeight: PORTRAIT,
+  '@media': {
+    [PHONE]: {
+      minHeight: 0,
+      marginTop: toRem(58),
+    },
+  },
+});
+
+export const BubbleRowOwn = style({
+  justifyContent: 'flex-end',
+});
+
+export const BubbleColumnOwn = style({
+  alignItems: 'flex-end',
+  maxWidth: toRem(640),
+});
+
+export const BubbleHeaderOwn = style({
+  alignSelf: 'flex-end',
+});
+
+// Phone: the name is a pill straddling the bubble's top edge, on the side opposite the portrait.
+export const BubbleHeaderPose = style({
+  '@media': {
+    [PHONE]: {
+      position: 'absolute',
+      zIndex: 2,
+      top: toRem(-15),
+      right: toRem(14),
+      padding: `0 ${toRem(13)}`,
+      background: color.Secondary.Container,
+      border: `1px solid ${color.Secondary.ContainerLine}`,
+      borderRadius: toRem(999),
+      whiteSpace: 'nowrap',
+    },
+  },
+});
+
+export const BubbleHeaderPoseAlt = style({
+  '@media': {
+    [PHONE]: {
+      right: 'auto',
+      left: toRem(14),
+    },
+  },
+});
+
+export const BubbleColumnPose = style({
+  position: 'relative',
+});
+
+export const BubbleContentPose = style({
+  borderRadius: config.radii.R500,
+  borderTopLeftRadius: BUBBLE_CORNER,
+  '@media': {
+    [PHONE]: {
+      display: 'flow-root',
+      borderTopLeftRadius: config.radii.R500,
+      padding: `${toRem(24)} ${toRem(14)} ${toRem(14)}`,
+    },
+  },
+});
+
+export const BubbleContentOwn = style({
+  backgroundColor: color.Primary.Container,
+  color: color.Primary.OnContainer,
+  border: `1px solid ${color.Primary.ContainerLine}`,
+  borderRadius: config.radii.R500,
+  borderTopRightRadius: BUBBLE_CORNER,
+});
+
 export const PoseButton = style({
+  position: 'absolute',
+  top: 0,
+  left: `calc(-1 * (${PORTRAIT} + ${POSE_GUTTER}))`,
+  width: PORTRAIT,
+  height: PORTRAIT,
   padding: 0,
   border: 'none',
   background: 'none',
   cursor: 'pointer',
   lineHeight: 0,
+  transformOrigin: '50% 90%',
+  '@media': {
+    [PHONE]: {
+      position: 'static',
+      float: 'left',
+      width: 'min(50vw, 210px)',
+      height: 'auto',
+      margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
+      shapeMargin: toRem(7),
+      shapeImageThreshold: 0.35,
+      WebkitMaskImage: 'linear-gradient(#000 84%, transparent)',
+      maskImage: 'linear-gradient(#000 84%, transparent)',
+    },
+  },
+});
+
+export const PoseButtonAlt = style({
+  '@media': {
+    [PHONE]: {
+      float: 'right',
+      margin: `${toRem(-82)} ${toRem(-12)} 0 ${toRem(8)}`,
+    },
+  },
 });
 
 export const PosePortrait = style({
-  width: toRem(64),
-  height: toRem(64),
+  width: '100%',
+  height: '100%',
   objectFit: 'contain',
+  objectPosition: 'top',
   '@media': {
-    'screen and (max-width: 750px)': {
-      width: toRem(48),
-      height: toRem(48),
+    [PHONE]: {
+      height: 'auto',
+    },
+  },
+});
+
+const pop = keyframes({
+  from: { opacity: 0, transform: `translateY(${toRem(34)}) scale(0.42)` },
+  to: { opacity: 1, transform: 'none' },
+});
+const rise = keyframes({
+  from: { opacity: 0, transform: `translateY(${toRem(14)}) scale(0.96)` },
+  to: { opacity: 1, transform: 'none' },
+});
+
+// First appearance of a message: the portrait pops, the bubble rises just behind it. The delay
+// (a --enter-delay on the row) staggers messages that arrive together.
+export const EnterPortrait = style({
+  '@media': {
+    '(prefers-reduced-motion: no-preference)': {
+      animation: `${pop} 460ms ${POP} var(--enter-delay, 0ms) both`,
+    },
+  },
+});
+
+export const EnterBubble = style({
+  '@media': {
+    '(prefers-reduced-motion: no-preference)': {
+      animation: `${rise} 380ms ${RISE} calc(var(--enter-delay, 0ms) + 50ms) both`,
     },
   },
 });

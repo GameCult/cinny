@@ -5,12 +5,11 @@ import * as css from './layout.css';
 
 type BubbleArrowProps = {
   variant: ContainerColor;
-  pose?: boolean;
 };
-function BubbleLeftArrow({ variant, pose }: BubbleArrowProps) {
+function BubbleLeftArrow({ variant }: BubbleArrowProps) {
   return (
     <svg
-      className={classNames(css.BubbleLeftArrow, pose && css.BubbleArrowPose)}
+      className={css.BubbleLeftArrow}
       width="9"
       height="8"
       viewBox="0 0 9 8"
@@ -29,46 +28,80 @@ function BubbleLeftArrow({ variant, pose }: BubbleArrowProps) {
 
 type BubbleLayoutProps = {
   hideBubble?: boolean;
-  pose?: boolean;
+  /** The sender is the signed-in user: right-aligned, in the accent colour, no avatar. */
+  own?: boolean;
+  /** A Mind's pose portrait; it replaces the avatar and sits beside (wide) or inside (phone) the bubble. */
+  pose?: ReactNode;
+  /** On phones the portrait floats on the other side. */
+  alt?: boolean;
+  /** Delay in ms before the first-appearance animation; undefined plays none. */
+  enterDelay?: number;
   before?: ReactNode;
   header?: ReactNode;
 };
 
 export const BubbleLayout = as<'div', BubbleLayoutProps>(
-  ({ hideBubble, pose, before, header, children, ...props }, ref) => (
-    <Box
-      gap="300"
-      {...props}
-      className={classNames(pose && css.BubblePose, props.className)}
-      ref={ref}
-    >
-      <Box className={pose ? css.BubbleBeforePose : css.BubbleBefore} shrink="No">
-        {before}
-      </Box>
-      <Box grow="Yes" direction="Column">
-        {header}
-        {hideBubble ? (
-          children
-        ) : (
-          <Box>
-            <Box
-              className={
-                hideBubble
-                  ? undefined
-                  : classNames(
-                      css.BubbleContent,
-                      before ? css.BubbleContentArrowLeft : undefined,
-                      pose && css.BubbleContentPoseStacked
-                    )
-              }
-              direction="Column"
-            >
-              {before ? <BubbleLeftArrow variant="SurfaceVariant" pose={pose} /> : null}
-              {children}
-            </Box>
+  ({ hideBubble, own, pose, alt, enterDelay, before, header, children, style, ...props }, ref) => {
+    // `false` is a Mind's message continuing a run: aligned with the portraits, showing none.
+    const poseRow = pose !== undefined;
+    const arrow = !!before && !poseRow && !own;
+    const entering = enterDelay !== undefined;
+    return (
+      <Box
+        gap="300"
+        {...props}
+        className={classNames(
+          poseRow && css.BubbleRowPose,
+          pose && css.BubbleRowPortrait,
+          own && css.BubbleRowOwn,
+          props.className
+        )}
+        style={entering ? { ...style, ['--enter-delay' as string]: `${enterDelay}ms` } : style}
+        ref={ref}
+      >
+        {!poseRow && !own && (
+          <Box className={css.BubbleBefore} shrink="No">
+            {before}
           </Box>
         )}
+        <Box
+          grow={own ? 'No' : 'Yes'}
+          direction="Column"
+          className={classNames(poseRow && css.BubbleColumnPose, own && css.BubbleColumnOwn)}
+        >
+          {header && (
+            <div
+              className={classNames(
+                pose && css.BubbleHeaderPose,
+                pose && alt && css.BubbleHeaderPoseAlt,
+                own && css.BubbleHeaderOwn
+              )}
+            >
+              {header}
+            </div>
+          )}
+          {hideBubble ? (
+            children
+          ) : (
+            <Box>
+              <Box
+                className={classNames(
+                  css.BubbleContent,
+                  arrow && css.BubbleContentArrowLeft,
+                  poseRow && css.BubbleContentPose,
+                  own && css.BubbleContentOwn,
+                  entering && css.EnterBubble
+                )}
+                direction="Column"
+              >
+                {arrow ? <BubbleLeftArrow variant="SurfaceVariant" /> : null}
+                {pose}
+                {children}
+              </Box>
+            </Box>
+          )}
+        </Box>
       </Box>
-    </Box>
-  )
+    );
+  }
 );

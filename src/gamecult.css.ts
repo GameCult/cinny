@@ -18,3 +18,8 @@ globalStyle(scope, {
     [config.lineHeight.D400]: '1.7',
   },
 });
+
+// Nunito for the GameCult look (the three-doors mock-up); the stock themes keep Inter.
+globalStyle(scope, {
+  fontFamily: "'Nunito Variable', var(--font-secondary)",
+});
