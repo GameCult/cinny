@@ -22,10 +22,13 @@ jobs:
       - name: Build app
         env:
           CINNY_BASE: /void/rat-dev/
+          VITE_PREVIEW_DEMO: '1'
           NODE_OPTIONS: '--max_old_space_size=3072'
         run: npm run build
-      - name: Set background scene tier
-        run: node scripts/preview-config.js low
+      - name: Set background scene tier and the pretend homeserver
+        run: node scripts/preview-config.js low --demo
+      - name: Add the demo pose art
+        run: mkdir -p dist/public/poses && cp -r preview-demo/poses/. dist/public/poses/
       - name: Upload artifact
         # v3 protocol: the v4 client keeps only the origin of ACTIONS_RESULTS_URL, dropping this forge's /forge subpath
         # (nginx 404 page, runs 170-171), and upstream v4+ refuses non-GitHub servers outright (run 169).
