@@ -57,7 +57,7 @@ export const sunElevation = (time, lat, lon) => sunPosition(time, lat, lon).elev
 // Optical depth of the clear atmosphere at the zenith, per channel (R, G, B).
 // Rayleigh at 650/550/450 nm plus a little ozone and haze (EYEBALLED to keep
 // low sun orange rather than brown).
-const TAU = [0.06, 0.12, 0.26];
+export const TAU = [0.06, 0.12, 0.26];
 
 // Relative air mass, Kasten & Young 1989. Elevation in degrees, >= 0.
 const airMass = (el) => 1 / (Math.sin(el * RAD) + 0.50572 * Math.pow(el + 6.07995, -1.6364));
