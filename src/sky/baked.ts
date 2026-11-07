@@ -8,6 +8,13 @@ export const baked = {
       lon: 0,
     },
     elevation: -44.579021600011224,
+    sun: {
+      elevation_deg: -44.579021600011224,
+      azimuth_deg: 2.4988773054640205,
+      color_linear: [0, 0, 0],
+    },
+    ambient_linear: [0.018, 0.024, 0.04],
+    horizon_hex: '#484e64',
     gradient: ['#37446a', '#38456a', '#3b4669', '#3d4868', '#414a67', '#444c66', '#484e64'],
     tokens: {
       Background: {
@@ -117,6 +124,13 @@ export const baked = {
       lon: 0,
     },
     elevation: 45.16994813502928,
+    sun: {
+      elevation_deg: 45.16994813502928,
+      azimuth_deg: 182.58737070473103,
+      color_linear: [0.9189659216820631, 0.8444983652129638, 0.6933684802959983],
+    },
+    ambient_linear: [0.07, 0.132, 0.27],
+    horizon_hex: '#e2f4ff',
     gradient: ['#95c6ff', '#9ac9ff', '#a5cfff', '#b3d6ff', '#c2dfff', '#d2e9ff', '#e2f4ff'],
     tokens: {
       Background: {

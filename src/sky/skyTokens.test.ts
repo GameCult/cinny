@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AA, bakeSky, contrast } from './skyTokens.js';
+import { AA, AMBIENT_FLOOR, bakeSky, contrast } from './skyTokens.js';
+import { light } from './sun.js';
 import { baked } from './baked';
 
 const names = ['midnight', 'noonday'] as const;
@@ -16,6 +17,37 @@ describe.each(names)('%s sky', (name) => {
 
   it('is lit by the sun on the side of the horizon its name says', () => {
     expect(name === 'noonday' ? sky.elevation : -sky.elevation).toBeGreaterThan(40);
+  });
+
+  it('carries the sun, an ambient light and a horizon colour for consumers that light a scene', () => {
+    const { sun } = sky;
+    expect(Object.keys(sun).sort()).toEqual(['azimuth_deg', 'color_linear', 'elevation_deg']);
+    expect(sun.elevation_deg).toBe(sky.elevation);
+    expect(sun.color_linear).toHaveLength(3);
+    sun.color_linear.forEach((v: number) => {
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThanOrEqual(0);
+    });
+    expect(sky.ambient_linear).toHaveLength(3);
+    expect(sky.horizon_hex).toMatch(/^#[0-9a-f]{6}$/);
+    expect(sky.horizon_hex).toBe(sky.gradient[sky.gradient.length - 1]);
+  });
+
+  it('puts the sun where Nibu expects it, azimuth clockwise from north', () => {
+    const azimuth: number = sky.sun.azimuth_deg;
+    expect(azimuth).toBeGreaterThanOrEqual(0);
+    expect(azimuth).toBeLessThan(360);
+    expect(Math.abs(azimuth - (name === 'noonday' ? 182.6 : 2.5))).toBeLessThan(1);
+  });
+
+  it('keeps ambient above the night floor and leaves daylight alone', () => {
+    sky.ambient_linear.forEach((v: number, i: number) =>
+      expect(v).toBeGreaterThanOrEqual(AMBIENT_FLOOR[i])
+    );
+    if (name === 'noonday') {
+      sky.ambient_linear.forEach((v: number) => expect(v).toBeGreaterThan(0.05));
+      expect(sky.ambient_linear).toEqual(light(sky.moment).diffuse);
+    }
   });
 
   it('clears WCAG AA for text on every panel state', () => {
