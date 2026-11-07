@@ -22,6 +22,7 @@ import {
   heightFragmentSource,
   SKY_FRAG,
 } from './terrainShaders';
+import { createTerrainStars } from './terrainStars';
 
 export type TerrainOptions = Pick<
   SceneOptions,
@@ -174,6 +175,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const palette = albedoPalette(sky);
   const triangles = triangleCount(spec.grid);
 
+  const stars = createTerrainStars(canvas, sky);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
   const sampler = new FrameSampler();
   let still = tier === 'still';
@@ -231,6 +233,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.bindVertexArray(vao);
     gl.drawElements(gl.TRIANGLES, g.indices.length, gl.UNSIGNED_INT, 0);
     gl.bindVertexArray(null);
+    stars?.draw(turns % 1, moving() ? performance.now() / 1000 : undefined);
   };
 
   const moving = () =>
@@ -338,6 +341,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     resizeTimer = window.setTimeout(() => {
       if (disposed || lost) return;
       size();
+      stars?.resize();
       draw(turnsNow(performance.now()));
       sampler.reset();
     }, 250);
@@ -360,6 +364,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
       reducedMotion?.removeEventListener?.('change', onVisibility);
       canvas.removeEventListener('webglcontextlost', onLost);
       readout?.remove();
+      stars?.dispose();
       release();
     },
   };
