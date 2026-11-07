@@ -143,7 +143,12 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
         event: mk(
           'm.room.message',
           l.from,
-          { msgtype: 'm.text', body: l.body, ...(l.pose ? { [POSE_KEY]: l.pose } : {}) },
+          {
+            msgtype: 'm.text',
+            body: l.body,
+            ...(l.html ? { format: 'org.matrix.custom.html', formatted_body: l.html } : {}),
+            ...(l.pose ? { [POSE_KEY]: l.pose } : {}),
+          },
           now() - l.minutesAgo * 60 * 1000
         ),
       });
