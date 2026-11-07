@@ -48,6 +48,37 @@ const seedSettings = (storage: Storage) => {
   }
 };
 
+// The preview host's CSP sandbox has no allow-forms, so the browser cancels a native form
+// submission before its submit event fires and no login button works. Deliver the event ourselves;
+// nothing is submitted natively. Remove this when the host grants allow-forms to /void/rat-*.
+const deliverSubmitEvents = (doc: Document) => {
+  const submit = (form: HTMLFormElement) =>
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  doc.addEventListener(
+    'click',
+    (e) => {
+      const button = (e.target as Element | null)?.closest?.(
+        'button[type="submit"], input[type="submit"]'
+      );
+      const form = (button as HTMLButtonElement | null)?.form;
+      if (!form || (button as HTMLButtonElement).disabled) return;
+      e.preventDefault();
+      submit(form);
+    },
+    true
+  );
+  doc.addEventListener(
+    'keydown',
+    (e) => {
+      const target = e.target as HTMLInputElement | null;
+      if (e.key !== 'Enter' || e.isComposing || target?.tagName !== 'INPUT' || !target.form) return;
+      e.preventDefault();
+      submit(target.form);
+    },
+    true
+  );
+};
+
 const parseBody = (body: unknown): unknown => {
   if (typeof body !== 'string') return undefined;
   try {
@@ -116,6 +147,7 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
   }
 
   seedSettings(win.localStorage);
+  deliverSubmitEvents(document);
   const stored = win.localStorage.getItem('cinny_hs_base_url');
   showBanner(stored !== null && stored !== DEMO_ORIGIN ? FOREIGN_SESSION_TEXT : BANNER_TEXT);
   return server;

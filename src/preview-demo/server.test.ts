@@ -237,6 +237,7 @@ describe('the guard', () => {
     vi.stubGlobal('document', {
       createElement: () => ({ style: {}, setAttribute: vi.fn() }),
       body: { appendChild: vi.fn() },
+      addEventListener: vi.fn(),
     });
     const server = installDemo(win);
     live.push({ server, mx: clientFor(server) });
@@ -265,6 +266,7 @@ describe('the guard', () => {
     vi.stubGlobal('document', {
       createElement: () => ({ style: {}, setAttribute: vi.fn() }),
       body: { appendChild: vi.fn() },
+      addEventListener: vi.fn(),
     });
     const server = installDemo(win);
     live.push({ server, mx: clientFor(server) });
