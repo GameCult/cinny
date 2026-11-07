@@ -1,0 +1,103 @@
+/* eslint-disable no-restricted-syntax -- tests loop over skies, heights and slopes */
+import { describe, expect, it } from 'vitest';
+import { SKY } from './skyData';
+import { ALBEDO, albedoAt, albedoPalette, wobble } from './terrainAlbedo';
+import { GRID_FRAG } from './terrainShaders';
+
+const near = (a: readonly number[], b: readonly number[], eps = 1e-6) =>
+  a.every((v, i) => Math.abs(v - b[i]) < eps);
+const luma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+// A point where the wobble is zero, so band edges sit exactly where the palette says.
+const FLAT_X = Math.PI / 0.043;
+const at = (sky: keyof typeof SKY, h: number, ny: number) =>
+  albedoAt(albedoPalette(SKY[sky]), h, ny, FLAT_X, 0);
+
+describe('albedo by slope and height', () => {
+  it('the test point really has no wobble', () => {
+    expect(Math.abs(wobble(FLAT_X, 0))).toBeLessThan(1e-9);
+  });
+
+  it('steep faces are rock at every height, gentle low ones are soil, gentle high ones are snow', () => {
+    const p = albedoPalette(SKY.noonday);
+    for (const h of [10, 90, 160, 220]) expect(near(at('noonday', h, 0.3), p.rock)).toBe(true);
+    expect(near(at('noonday', 10, 1), p.soil)).toBe(true);
+    expect(near(at('noonday', 220, 1), p.snow)).toBe(true);
+  });
+
+  it('scree sits between soil and the snow line on gentle ground', () => {
+    const p = albedoPalette(SKY.noonday);
+    expect(near(at('noonday', ALBEDO.screeTo + 1, 1), p.scree)).toBe(true);
+  });
+
+  it('snow is shed as the face steepens: the same height goes snow, then mixed, then rock', () => {
+    const l = [1, 0.8, 0.5].map((ny) => luma(at('noonday', 220, ny)));
+    expect(l[0]).toBeGreaterThan(l[1]);
+    expect(l[1]).toBeGreaterThan(l[2]);
+  });
+
+  it('is continuous: a small step in height or slope never jumps a channel by more than a tenth', () => {
+    for (const sky of ['midnight', 'noonday'] as const)
+      for (let h = 0; h < 250; h += 1)
+        for (let ny = 0.3; ny <= 1; ny += 0.05) {
+          const a = at(sky, h, ny);
+          const b = at(sky, h + 1, ny + 0.01);
+          a.forEach((v, i) => expect(Math.abs(v - b[i])).toBeLessThan(0.1));
+        }
+  });
+
+  it('never returns a negative or a super-white channel', () => {
+    for (const sky of ['midnight', 'noonday'] as const)
+      for (let h = -20; h < 300; h += 7)
+        for (let ny = 0; ny <= 1; ny += 0.1)
+          for (const v of albedoAt(albedoPalette(SKY[sky]), h, ny, h * 3, ny * 91)) {
+            expect(v).toBeGreaterThanOrEqual(0);
+            expect(v).toBeLessThanOrEqual(1);
+          }
+  });
+
+  it('the wobble moves band edges but stays inside its stated amplitude', () => {
+    for (let i = 0; i < 400; i += 1)
+      expect(Math.abs(wobble(i * 13.7, i * -9.1))).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('per-sky palette', () => {
+  const mid = albedoPalette(SKY.midnight);
+  const noon = albedoPalette(SKY.noonday);
+
+  it('midnight snows lower than noonday', () => {
+    expect(mid.snowLine).toBeLessThan(noon.snowLine);
+  });
+
+  it('midnight is tinted toward the cool horizon haze, noonday toward the warm sun', () => {
+    // blue share of the same material is higher at night
+    const blueShare = (c: readonly number[]) => c[2] / (c[0] + c[1] + c[2]);
+    expect(blueShare(mid.scree)).toBeGreaterThan(blueShare(noon.scree));
+    expect(blueShare(mid.snow)).toBeGreaterThan(blueShare(noon.snow));
+  });
+
+  it('a sun at the horizon lands between the two palettes', () => {
+    const dusk = albedoPalette({ ...SKY.noonday, elevation: 2 });
+    expect(dusk.snowLine).toBeLessThan(noon.snowLine);
+    expect(dusk.snowLine).toBeGreaterThan(mid.snowLine);
+  });
+
+  it('keeps every material in 0..1', () => {
+    for (const p of [mid, noon])
+      for (const c of [p.soil, p.scree, p.rock, p.snow])
+        c.forEach((v) => {
+          expect(v).toBeGreaterThan(0);
+          expect(v).toBeLessThanOrEqual(1);
+        });
+  });
+});
+
+describe('shader agrees with the pure function on its numbers', () => {
+  it('takes every band number from ALBEDO, and reads no texture for colour', () => {
+    expect(GRID_FRAG).toContain(`#define ALB_SNOW_BAND ${ALBEDO.snowBand.toFixed(1)}`);
+    expect(GRID_FRAG).toContain(`#define ALB_ROCK_LO ${ALBEDO.rockLo}`);
+    expect(GRID_FRAG).toContain(`#define ALB_WOBBLE_S ${ALBEDO.wobbleSlope}`);
+    // the only fetch in the fragment shader is the height map's
+    expect(GRID_FRAG.match(/texelFetch|texture\(/g)).toHaveLength(1);
+  });
+});

@@ -2,6 +2,7 @@ import type { Scene, SceneOptions } from '../Scene';
 import { FrameSampler, FrameStats } from '../ridge/probe';
 import { skyColours } from '../ridge/skyColour';
 import { SkyName } from './skyData';
+import { albedoPalette } from './terrainAlbedo';
 import {
   ambientColour,
   hazeColour,
@@ -170,6 +171,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const sunLight = [...sunColour(sky)];
   const ambient = [...ambientColour(sky)];
   const haze = [...hazeColour(sky)];
+  const palette = albedoPalette(sky);
   const triangles = triangleCount(spec.grid);
 
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -218,6 +220,11 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.uniform3fv(u('uAmbient'), ambient);
     gl.uniform3fv(u('uHaze'), haze);
     gl.uniform1f(u('uHazeK'), HAZE_K);
+    gl.uniform3fv(u('uSoil'), palette.soil);
+    gl.uniform3fv(u('uScree'), palette.scree);
+    gl.uniform3fv(u('uRock'), palette.rock);
+    gl.uniform3fv(u('uSnow'), palette.snow);
+    gl.uniform1f(u('uSnowLine'), palette.snowLine);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, heightTex);
     gl.uniform1i(u('uHeight'), 0);

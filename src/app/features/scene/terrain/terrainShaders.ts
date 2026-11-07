@@ -7,11 +7,13 @@
 import cultmath from '../shaders/CultMath.glsl?raw';
 import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
+import { ALBEDO } from './terrainAlbedo';
 import { TERRAIN } from './terrainWorld';
 
 const HEADER =
   '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n';
 const f1 = (x: number) => x.toFixed(1);
+const lit = (x: number) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
 
 export const FULLSCREEN_VERT = `${HEADER}
 void main() {
@@ -107,11 +109,22 @@ void main() {
 
 // Lit by the baked sky: uSun (direction), uSunColour (linear, zero when the sun is down), uAmbient, uHaze (linear).
 // The same arithmetic as terrainSky.shade(); the normal comes from the height map so shading carries detail finer than the mesh.
-export const GRID_FRAG = `${HEADER}
+const ALBEDO_DEFINES = `
+#define ALB_SCREE_FROM ${lit(ALBEDO.screeFrom)}
+#define ALB_SCREE_TO ${lit(ALBEDO.screeTo)}
+#define ALB_SNOW_BAND ${lit(ALBEDO.snowBand)}
+#define ALB_ROCK_HI ${lit(ALBEDO.rockHi)}
+#define ALB_ROCK_LO ${lit(ALBEDO.rockLo)}
+#define ALB_SNOW_HI ${lit(ALBEDO.snowHi)}
+#define ALB_SNOW_LO ${lit(ALBEDO.snowLo)}
+#define ALB_WOBBLE_H ${lit(ALBEDO.wobbleHeight)}
+#define ALB_WOBBLE_S ${lit(ALBEDO.wobbleSlope)}
+`;
+export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}
 in vec2 v_uv;
 in vec3 v_world;
-uniform vec3 uCamera, uSun, uSunColour, uAmbient, uHaze;
-uniform float uSpan, uHazeK;
+uniform vec3 uCamera, uSun, uSunColour, uAmbient, uHaze, uSoil, uScree, uRock, uSnow;
+uniform float uSpan, uHazeK, uSnowLine;
 out vec4 o;
 ${FETCH}
 // Unnormalised normal at one texel, central differences over its neighbours.
@@ -129,10 +142,14 @@ void main() {
   vec3 n = normalize(mix(
     mix(nAt(t, texel), nAt(t + ivec2(1, 0), texel), f.x),
     mix(nAt(t + ivec2(0, 1), texel), nAt(t + ivec2(1, 1), texel), f.x), f.y));
-  float alt = clamp(v_world.y / 200.0, 0.0, 1.0);
-  vec3 rock = mix(vec3(0.07, 0.06, 0.05), vec3(0.28, 0.26, 0.22), alt);
-  vec3 grass = mix(vec3(0.03, 0.07, 0.025), vec3(0.14, 0.15, 0.07), alt);
-  vec3 albedo = mix(rock, grass, smoothstep(0.55, 0.9, n.y));
+  // Procedural albedo, no texture reads; the same arithmetic as terrainAlbedo.albedoAt().
+  float w = sin(v_world.x * 0.043 + v_world.z * 0.017) * sin(v_world.z * 0.051 - v_world.x * 0.023);
+  float h = v_world.y + ALB_WOBBLE_H * w;
+  float flat_ = n.y + ALB_WOBBLE_S * w;
+  vec3 ground = mix(uSoil, uScree, smoothstep(ALB_SCREE_FROM, ALB_SCREE_TO, h));
+  float snow = smoothstep(uSnowLine - ALB_SNOW_BAND, uSnowLine + ALB_SNOW_BAND, h) * smoothstep(ALB_SNOW_LO, ALB_SNOW_HI, flat_);
+  float rockW = 1.0 - smoothstep(ALB_ROCK_LO, ALB_ROCK_HI, flat_);
+  vec3 albedo = mix(mix(ground, uSnow, snow), uRock, rockW);
   vec3 lit = albedo * (uSunColour * max(dot(n, uSun), 0.0) + uAmbient * (0.5 + 0.5 * n.y));
   float T = exp(-uHazeK * length(v_world - uCamera));
   o = vec4(pow(mix(uHaze, lit, T), vec3(1.0 / 2.2)), 1.0);
