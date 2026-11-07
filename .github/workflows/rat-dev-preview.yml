@@ -1,0 +1,34 @@
+name: Rat dev preview
+
+on:
+  push:
+    branches: ['dev']
+
+jobs:
+  build:
+    name: Build dev preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".node-version"
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci
+      - name: Build app
+        env:
+          CINNY_BASE: /void/rat-dev/
+          NODE_OPTIONS: '--max_old_space_size=3072'
+        run: npm run build
+      - name: Set background scene tier
+        run: node scripts/preview-config.js low
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rat-dev-dist
+          path: dist
+          retention-days: 3
