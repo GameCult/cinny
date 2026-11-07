@@ -255,11 +255,16 @@ describe('the guard', () => {
 
   it('seeds pose portraits on for a first visit and keeps what a visitor already chose', () => {
     const fresh = new Map<string, string>();
-    seedDemoSettings({ getItem: (k: string) => fresh.get(k) ?? null, setItem: (k: string, v: string) => void fresh.set(k, v) } as Storage);
+    seedDemoSettings({
+      getItem: (k: string) => fresh.get(k) ?? null,
+      setItem: (k: string, v: string) => void fresh.set(k, v),
+    } as Storage);
     expect(JSON.parse(fresh.get('settings')!)).toEqual({ poseBubbles: true });
     const chosen = new Map([['settings', '{"poseBubbles":false}']]);
-    seedDemoSettings({ getItem: (k: string) => chosen.get(k) ?? null, setItem: (k: string, v: string) => void chosen.set(k, v) } as Storage);
+    seedDemoSettings({
+      getItem: (k: string) => chosen.get(k) ?? null,
+      setItem: (k: string, v: string) => void chosen.set(k, v),
+    } as Storage);
     expect(chosen.get('settings')).toBe('{"poseBubbles":false}');
   });
-});
 });

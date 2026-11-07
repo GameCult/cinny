@@ -4,7 +4,7 @@
 // only by a build with VITE_PREVIEW_DEMO=1 whose config.json says previewDemo: true (src/index.tsx).
 // Own-origin requests (the app's static files) pass; the demo origin is answered in-page; any
 // other origin is refused, so no real homeserver can be contacted while this is on.
-import { DEMO_ORIGIN, DEMO_SERVER } from './fixtures';
+import { DEMO_ORIGIN } from './fixtures';
 import { createDemoServer, DemoServer } from './server';
 
 export type Route = 'own' | 'demo' | 'refuse';
