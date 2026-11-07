@@ -84,7 +84,7 @@ export const guardedFetch =
 
 export const installDemo = (win: Window & typeof globalThis = window) => {
   const server = createDemoServer();
-  const origin = win.location.origin;
+  const { origin } = win.location;
   const realFetch = win.fetch.bind(win);
 
   win.fetch = guardedFetch(server, origin, realFetch);
