@@ -1,9 +1,10 @@
 import { JoinRule } from 'matrix-js-sdk';
-import { AvatarFallback, AvatarImage, Icon, Icons, color } from 'folds';
+import { AvatarFallback, AvatarImage, Icon, Icons } from 'folds';
 import React, { ComponentProps, ReactEventHandler, ReactNode, forwardRef, useState } from 'react';
 import * as css from './RoomAvatar.css';
 import { getRoomIconSrc } from '../../utils/room';
 import colorMXID from '../../../util/colorMXID';
+import { surfaceInk } from '../../features/scene/sceneShell.css';
 
 type RoomAvatarProps = {
   roomId: string;
@@ -21,7 +22,7 @@ export function RoomAvatar({ roomId, src, alt, renderFallback }: RoomAvatarProps
   if (!src || error) {
     return (
       <AvatarFallback
-        style={{ backgroundColor: colorMXID(roomId ?? ''), color: color.Surface.Container }}
+        style={{ backgroundColor: colorMXID(roomId ?? ''), color: surfaceInk }}
         className={css.RoomAvatar}
       >
         {renderFallback()}

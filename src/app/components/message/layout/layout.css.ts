@@ -1,4 +1,4 @@
-import { createVar, keyframes, style, styleVariants } from '@vanilla-extract/css';
+import { createVar, globalStyle, keyframes, style, styleVariants } from '@vanilla-extract/css';
 import { recipe, RecipeVariants } from '@vanilla-extract/recipes';
 import { DefaultReset, color, config, toRem } from 'folds';
 
@@ -375,3 +375,39 @@ export const MessageTextBody = recipe({
 });
 
 export type MessageTextBodyVariants = RecipeVariants<typeof MessageTextBody>;
+
+// The message content is a flex column, which forms its own block formatting context and so sits
+// whole beside the floated portrait: the text stays as narrow as the gap beside it for the
+// bubble's full height. As a plain block its lines wrap around the silhouette and then run the
+// bubble's full width below it.
+globalStyle(`${BubbleContentPose} > div`, {
+  '@media': {
+    [PHONE]: {
+      display: 'block',
+    },
+  },
+});
+
+// While the background scene runs (html[data-scene]) a chat bubble is the one filled surface in
+// the app: its own colour at half strength over a blur of the scene, so the words stay readable
+// and the ridge shows through. The arrow wedge is opaque, so it goes.
+const scene = ':root[data-scene]';
+const half = (c: string) => `color-mix(in srgb, ${c} 50%, transparent)`;
+globalStyle(`${scene} ${BubbleContent}`, {
+  backgroundColor: [color.SurfaceVariant.Container, half(color.SurfaceVariant.Container)],
+  backdropFilter: 'blur(12px)',
+});
+globalStyle(`${scene} ${BubbleContentOwn}`, {
+  backgroundColor: [color.Primary.Container, half(color.Primary.Container)],
+});
+globalStyle(`${scene} ${BubbleHeaderPose}`, {
+  '@media': {
+    [PHONE]: {
+      backgroundColor: [color.Secondary.Container, half(color.Secondary.Container)],
+      backdropFilter: 'blur(12px)',
+    },
+  },
+});
+globalStyle(`${scene} ${BubbleLeftArrow}`, {
+  display: 'none',
+});
