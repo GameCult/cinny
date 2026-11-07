@@ -40,9 +40,9 @@ const showBanner = (text: string) => {
 };
 
 // The pose portraits are a setting that defaults off; a first visit turns it on so the demo shows them.
-const seedSettings = () => {
-  if (localStorage.getItem('settings') === null) {
-    localStorage.setItem('settings', JSON.stringify({ poseBubbles: true }));
+const seedSettings = (storage: Storage) => {
+  if (storage.getItem('settings') === null) {
+    storage.setItem('settings', JSON.stringify({ poseBubbles: true }));
   }
 };
 
@@ -108,7 +108,7 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
       routeOf(String(url), origin) === 'own' ? realBeacon(url, data) : false;
   }
 
-  seedSettings();
+  seedSettings(win.localStorage);
   const stored = win.localStorage.getItem('cinny_hs_base_url');
   showBanner(stored !== null && stored !== DEMO_ORIGIN ? FOREIGN_SESSION_TEXT : BANNER_TEXT);
   return server;
