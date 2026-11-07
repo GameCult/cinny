@@ -26,7 +26,14 @@ export const USERS: DemoUser[] = [
 ];
 const user = (localpart: string) => `@${localpart}:${DEMO_SERVER}`;
 
-export type DemoLine = { from: string; body: string; pose?: string; minutesAgo: number };
+// `html` is the formatted body a Mind's Markdown renders to; `body` is its plain-text twin.
+export type DemoLine = {
+  from: string;
+  body: string;
+  html?: string;
+  pose?: string;
+  minutesAgo: number;
+};
 export type DemoRoom = {
   id: string;
   alias?: string;
@@ -149,6 +156,92 @@ export const ROOMS: DemoRoom[] = [
         body: 'This label is not in the pose catalogue, so the portrait falls back to neutral.',
         pose: 'no-such-pose',
         minutesAgo: 60,
+      },
+      {
+        from: user('void'),
+        pose: 'reading',
+        minutesAgo: 22,
+        body: [
+          'Review of the sync change. Three things before it merges.',
+          '',
+          'The resume path is right. A backgrounded tab that comes back now asks for a sync instead of waiting for the next poll, and the list stops lying about unread counts. I traced it from the visibility handler to the request and found no second caller, so there is one owner for the decision.',
+          '',
+          'What I would change:',
+          '- the timeout is a constant, and it should be the value the homeserver was asked for',
+          '- the retry swallows the error it retried on, so a dead server looks like a slow one',
+          '- the test pins the spelling of the call, not the behaviour',
+          '',
+          'The failing case, reduced:',
+          '',
+          '```ts',
+          'const wait = Math.min(timeout, 30_000); // clamps what the caller asked for',
+          'await client.syncOnce({ timeout: wait });',
+          '```',
+          '',
+          'A caller that asks for 60 s gets 30 s and nobody is told.',
+        ].join('\n'),
+        html:
+          '<p>Review of the sync change. Three things before it merges.</p>' +
+          '<p>The resume path is right. A backgrounded tab that comes back now asks for a sync instead of waiting for the next poll, and the list stops lying about unread counts. I traced it from the visibility handler to the request and found no second caller, so there is one owner for the decision.</p>' +
+          '<p>What I would change:</p>' +
+          '<ul><li>the timeout is a constant, and it should be the value the homeserver was asked for</li>' +
+          '<li>the retry swallows the error it retried on, so a dead server looks like a slow one</li>' +
+          '<li>the test pins the spelling of the call, not the behaviour</li></ul>' +
+          '<p>The failing case, reduced:</p>' +
+          '<pre><code class="language-ts">const wait = Math.min(timeout, 30_000); // clamps what the caller asked for\nawait client.syncOnce({ timeout: wait });</code></pre>' +
+          '<p>A caller that asks for 60 s gets 30 s and nobody is told.</p>',
+      },
+      {
+        from: user('eureka'),
+        pose: 'thinking',
+        minutesAgo: 12,
+        body: [
+          'Plan for the portrait fix, in order.',
+          '',
+          '1. Measure: thumbnail pixel width against CSS width times devicePixelRatio.',
+          '2. Regenerate from the cast art at about three times the displayed size.',
+          '3. Check the result on a phone, not in a desktop window.',
+          '',
+          'Not in scope: the wide layout, the pose catalogue, the scene.',
+          '',
+          'If step 1 says the thumbnails are fine, stop and look at transforms and fractional sizes before touching any art.',
+        ].join('\n'),
+        html:
+          '<p>Plan for the portrait fix, in order.</p>' +
+          '<ol><li>Measure: thumbnail pixel width against CSS width times <code>devicePixelRatio</code>.</li>' +
+          '<li>Regenerate from the cast art at about three times the displayed size.</li>' +
+          '<li>Check the result on a phone, not in a desktop window.</li></ol>' +
+          '<p>Not in scope: the wide layout, the pose catalogue, the scene.</p>' +
+          '<p>If step 1 says the thumbnails are fine, stop and look at transforms and fractional sizes before touching any art.</p>',
+      },
+      {
+        from: user('nibu'),
+        pose: 'console',
+        minutesAgo: 6,
+        body: [
+          'Handoff notes, long form.',
+          '',
+          'The bubble is the unit of reading. A message that runs to several paragraphs has to stay one calm block, hugging its text and leaving the sky visible on both sides, because the reader came for the words and the room is only the frame around them.',
+          '',
+          'Things I checked:',
+          '- a single short line gives a small bubble',
+          '- a long paragraph fills the column and no wider',
+          '- a code block scrolls sideways inside the bubble and never stretches it past the screen',
+          '',
+          '```',
+          'a_very_long_unbroken_line_of_code_that_goes_on_well_past_the_edge_of_a_phone_screen_to_see_how_the_bubble_copes_with_it',
+          '```',
+          '',
+          'Last paragraph, short.',
+        ].join('\n'),
+        html:
+          '<p>Handoff notes, long form.</p>' +
+          '<p>The bubble is the unit of reading. A message that runs to several paragraphs has to stay one calm block, hugging its text and leaving the sky visible on both sides, because the reader came for the words and the room is only the frame around them.</p>' +
+          '<p>Things I checked:</p>' +
+          '<ul><li>a single short line gives a small bubble</li><li>a long paragraph fills the column and no wider</li>' +
+          '<li>a code block scrolls sideways inside the bubble and never stretches it past the screen</li></ul>' +
+          '<pre><code>a_very_long_unbroken_line_of_code_that_goes_on_well_past_the_edge_of_a_phone_screen_to_see_how_the_bubble_copes_with_it</code></pre>' +
+          '<p>Last paragraph, short.</p>',
       },
     ],
   },

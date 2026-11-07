@@ -3,14 +3,15 @@ import { useClientConfig } from '../../hooks/useClientConfig';
 import { getFallbackSession } from '../../state/sessions';
 import { mountBackgroundScene } from './host';
 import { readCapabilities, resolveTier } from './tier';
+import './sceneShell.css';
 
 /** Set on <html> while a scene runs, so signed-out screens can let it show through. */
 export const SCENE_ACTIVE_ATTRIBUTE = 'data-scene';
 
 /**
  * The one host for the background scene, mounted once at the app root. Fixed behind everything
- * (z-index -1 sits above the body's background and below all normal content, so the opaque app
- * covers it and the signed-out screens see it through their transparent ground). The ridge scene
+ * (z-index -1 sits above the body's background and below all normal content; the signed-out
+ * screens and the signed-in shell, see sceneShell.css.ts, are clear so the scene shows through). The ridge scene
  * draws its layers into this wrapper beside the canvas, so the wrapper is the positioned box.
  * Tier 'off' renders nothing and loads nothing.
  */

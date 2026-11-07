@@ -1,8 +1,9 @@
-import { AvatarFallback, AvatarImage, color } from 'folds';
+import { AvatarFallback, AvatarImage } from 'folds';
 import React, { ReactEventHandler, ReactNode, useState } from 'react';
 import classNames from 'classnames';
 import * as css from './UserAvatar.css';
 import colorMXID from '../../../util/colorMXID';
+import { surfaceInk } from '../../features/scene/sceneShell.css';
 
 type UserAvatarProps = {
   className?: string;
@@ -21,7 +22,7 @@ export function UserAvatar({ className, userId, src, alt, renderFallback }: User
   if (!src || error) {
     return (
       <AvatarFallback
-        style={{ backgroundColor: colorMXID(userId), color: color.Surface.Container }}
+        style={{ backgroundColor: colorMXID(userId), color: surfaceInk }}
         className={classNames(css.UserAvatar, className)}
       >
         {renderFallback()}
