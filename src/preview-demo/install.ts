@@ -98,7 +98,7 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
   }
   win.WebSocket = GuardedSocket;
 
-  const realOpen = win.XMLHttpRequest.prototype.open;
+  const { open: realOpen } = win.XMLHttpRequest.prototype;
   win.XMLHttpRequest.prototype.open = function open(
     this: XMLHttpRequest,
     method: string,
