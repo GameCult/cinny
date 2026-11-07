@@ -26,6 +26,8 @@ jobs:
         run: npm run build
       - name: Set background scene tier
         run: node scripts/preview-config.js low
+      - name: Show artifact URLs (no tokens)
+        run: env | grep -E '^(ACTIONS_RESULTS_URL|ACTIONS_RUNTIME_URL|ACTIONS_CACHE_URL|GITHUB_SERVER_URL|GITHUB_API_URL)=' || true
       - name: Upload artifact
         # Forgejo's fork: upstream upload-artifact v4+ refuses non-GitHub servers (GHESNotSupportedError).
         uses: forgejo/upload-artifact@v4
