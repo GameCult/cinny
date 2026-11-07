@@ -20,7 +20,8 @@
     "commit": "git-cz",
     "bump": "node scripts/update-version.js",
     "bake:sky": "node scripts/bake-sky.mjs && prettier --write src/sky/baked.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sync:poses": "node scripts/sync-poses.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": "eslint",

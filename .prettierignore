@@ -4,3 +4,4 @@ package.json
 package-lock.json
 LICENSE
 harness
+src/app/components/message/pose/catalogue.json

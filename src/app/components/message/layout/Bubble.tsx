@@ -5,11 +5,12 @@ import * as css from './layout.css';
 
 type BubbleArrowProps = {
   variant: ContainerColor;
+  pose?: boolean;
 };
-function BubbleLeftArrow({ variant }: BubbleArrowProps) {
+function BubbleLeftArrow({ variant, pose }: BubbleArrowProps) {
   return (
     <svg
-      className={css.BubbleLeftArrow}
+      className={classNames(css.BubbleLeftArrow, pose && css.BubbleArrowPose)}
       width="9"
       height="8"
       viewBox="0 0 9 8"
@@ -28,14 +29,20 @@ function BubbleLeftArrow({ variant }: BubbleArrowProps) {
 
 type BubbleLayoutProps = {
   hideBubble?: boolean;
+  pose?: boolean;
   before?: ReactNode;
   header?: ReactNode;
 };
 
 export const BubbleLayout = as<'div', BubbleLayoutProps>(
-  ({ hideBubble, before, header, children, ...props }, ref) => (
-    <Box gap="300" {...props} ref={ref}>
-      <Box className={css.BubbleBefore} shrink="No">
+  ({ hideBubble, pose, before, header, children, ...props }, ref) => (
+    <Box
+      gap="300"
+      {...props}
+      className={classNames(pose && css.BubblePose, props.className)}
+      ref={ref}
+    >
+      <Box className={pose ? css.BubbleBeforePose : css.BubbleBefore} shrink="No">
         {before}
       </Box>
       <Box grow="Yes" direction="Column">
@@ -48,11 +55,15 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
               className={
                 hideBubble
                   ? undefined
-                  : classNames(css.BubbleContent, before ? css.BubbleContentArrowLeft : undefined)
+                  : classNames(
+                      css.BubbleContent,
+                      before ? css.BubbleContentArrowLeft : undefined,
+                      pose && css.BubbleContentPoseStacked
+                    )
               }
               direction="Column"
             >
-              {before ? <BubbleLeftArrow variant="SurfaceVariant" /> : null}
+              {before ? <BubbleLeftArrow variant="SurfaceVariant" pose={pose} /> : null}
               {children}
             </Box>
           </Box>
