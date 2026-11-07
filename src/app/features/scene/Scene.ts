@@ -100,8 +100,8 @@ export interface SceneOptions {
 }
 
 export interface Scene {
-  /** Texture format of the prepass start target. */
-  readonly startFormat: 'RGBA32F' | 'RGBA16F';
+  /** Texture format of the ray-march scene's prepass start target; the ridge scene has none. */
+  readonly startFormat?: 'RGBA32F' | 'RGBA16F';
   /** Start the camera pull-back from the tree. */
   login(): void;
   dispose(): void;

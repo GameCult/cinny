@@ -1,10 +1,12 @@
 // Bundles entry.ts with the scene's ?raw GLSL imports into $OUT/bundle.js plus an index.html.
-// usage: node bundle.cjs <outdir> [demo]     (esbuild from NODE_PATH). `demo` bundles the standalone page.
+// usage: node bundle.cjs <outdir> [demo|ridge]     (esbuild from NODE_PATH). `demo` bundles the ray-march
+// standalone page; `ridge` the ridge scene's page (open it with ?probe=1 for the cadence readout).
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 const out = process.argv[2];
 const demo = process.argv[3] === 'demo';
+const ridge = process.argv[3] === 'ridge';
 fs.mkdirSync(out, { recursive: true });
 const rawPlugin = {
   name: 'raw',
@@ -21,7 +23,7 @@ const rawPlugin = {
 };
 esbuild
   .build({
-    entryPoints: [path.join(__dirname, demo ? 'demo.ts' : 'entry.ts')],
+    entryPoints: [path.join(__dirname, ridge ? 'ridgeDemo.ts' : demo ? 'demo.ts' : 'entry.ts')],
     bundle: true,
     outfile: path.join(out, 'bundle.js'),
     plugins: [rawPlugin],
@@ -29,6 +31,13 @@ esbuild
     target: 'es2020',
   })
   .then(() => {
+    if (ridge) {
+      fs.writeFileSync(
+        path.join(out, 'index.html'),
+        '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Ratatoskr ridge scene</title><body style="margin:0;background:#07111a"><div id=stage style="position:relative;width:100vw;height:100vh;overflow:hidden"><canvas id=c style="width:100%;height:100%;display:block"></canvas></div><script src=bundle.js></script>'
+      );
+      return;
+    }
     fs.writeFileSync(
       path.join(out, 'index.html'),
       '<!doctype html><meta charset=utf-8><title>Ratatoskr scene: trace prepass</title><body style="margin:0;background:#000"><canvas id=c style="width:100vw;height:100vh;display:block"></canvas>' +
