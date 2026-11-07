@@ -1,8 +1,8 @@
-# Contributing to Cinny
+# Contributing to Ratatoskr
 
 First off, thanks for taking the time to contribute! ❤️
 
-This document describes the process of contributing to Cinny. It is intended
+This document describes the process of contributing to Ratatoskr. It is intended
 for anyone considering opening an **issue**, **discussion** or **pull request**.
 For people who are interested in developing Cinny and technical details behind
 it, please check out our ["Developing Cinny"](HACKING.md) document as well.
