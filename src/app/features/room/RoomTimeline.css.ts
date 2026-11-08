@@ -18,7 +18,7 @@ export const TimelineFloat = recipe({
         top: config.space.S400,
       },
       Bottom: {
-        bottom: config.space.S400,
+        bottom: config.space.S200,
       },
     },
   },

@@ -262,7 +262,7 @@ export const PoseButton = style({
     [PHONE]: {
       position: 'static',
       float: 'left',
-      width: 'min(50vw, 210px)',
+      width: 'min(38vw, 160px)',
       height: 'auto',
       margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
       shapeMargin: toRem(7),
@@ -383,6 +383,18 @@ globalStyle(`${BubbleContentPose} > div`, {
   '@media': {
     [PHONE]: {
       display: 'block',
+    },
+  },
+});
+
+// An outside list marker hangs left of its item's text and ignores the portrait's silhouette, so
+// beside a left portrait the number lands under the art. Inside, it is a word on the first line
+// and wraps around the silhouette like the rest.
+globalStyle(`${BubbleContentPose} ol, ${BubbleContentPose} ul`, {
+  '@media': {
+    [PHONE]: {
+      listStylePosition: 'inside',
+      paddingLeft: 0,
     },
   },
 });
