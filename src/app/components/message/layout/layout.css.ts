@@ -156,6 +156,8 @@ export const BubbleContentArrowLeft = style({
 // beside its bubble on wide screens; on phones it floats inside the bubble, overhanging the top
 // edge, and the text wraps around its silhouette (shape-outside on the alpha channel).
 const PHONE = 'screen and (max-width: 700px)';
+const PHONE_PORTRAIT = 'min(38vw, 160px)';
+const PHONE_TEXT_FLOOR = toRem(170);
 const PORTRAIT = toRem(124);
 const POSE_GUTTER = toRem(14);
 const BUBBLE_CORNER = toRem(6);
@@ -209,6 +211,10 @@ export const BubbleHeaderPose = style({
       border: `1px solid ${color.Secondary.ContainerLine}`,
       borderRadius: toRem(999),
       whiteSpace: 'nowrap',
+      // Never wider than the bubble minus the portrait, so it cannot reach the portrait's face.
+      maxWidth: `calc(100% - ${PHONE_PORTRAIT} - ${toRem(30)})`,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
     },
   },
 });
@@ -232,6 +238,9 @@ export const BubbleContentPose = style({
   '@media': {
     [PHONE]: {
       display: 'flow-root',
+      // A bubble with a portrait is at least portrait + a readable column wide, or the text
+      // beside the portrait collapses to a strip.
+      minWidth: `min(100%, calc(${PHONE_PORTRAIT} + ${PHONE_TEXT_FLOOR}))`,
       borderTopLeftRadius: config.radii.R500,
       padding: `${toRem(24)} ${toRem(14)} ${toRem(14)}`,
     },
@@ -262,7 +271,7 @@ export const PoseButton = style({
     [PHONE]: {
       position: 'static',
       float: 'left',
-      width: 'min(38vw, 160px)',
+      width: PHONE_PORTRAIT,
       height: 'auto',
       margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
       shapeMargin: toRem(7),
