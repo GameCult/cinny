@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTerrainScene } from './Terrain';
 import { GRID, triangleCount } from './terrainWorld';
-import { SKY, skyAtSun } from './terrainSky';
+import { groundLight, SKY, skyAtSun } from './terrainSky';
 import { SKY_VIEW, skyViewWords } from './terrainScatter';
 import { SKY_FRAG } from './terrainShaders';
 import { startBackgroundScene } from '../index';
@@ -145,8 +145,8 @@ describe('createTerrainScene', () => {
     };
     const night = uploaded({});
     const day = uploaded({ sky: 'noonday' });
-    const nightA = Array.from(SKY.midnight.ambient);
-    const dayA = Array.from(SKY.noonday.ambient);
+    const nightA = Array.from(groundLight(SKY.midnight).ambient);
+    const dayA = Array.from(groundLight(SKY.noonday).ambient);
     const has = (all: number[][], v: number[]) =>
       all.some((a) => a.every((x, i) => Math.abs(x - v[i]) < 1e-6));
     expect(has(night, nightA)).toBe(true);
@@ -167,11 +167,13 @@ describe('createTerrainScene', () => {
     const dusk = skyAtSun(-1, 300);
     const has = (all: number[][], v: readonly number[]) =>
       all.some((a) => a.length === 3 && a.every((x, i) => Math.abs(x - v[i]) < 1e-6));
-    expect(has(ambients({ sun: { elevation: -1, azimuth: 300 } }), dusk.ambient)).toBe(true);
+    expect(has(ambients({ sun: { elevation: -1, azimuth: 300 } }), groundLight(dusk).ambient)).toBe(
+      true
+    );
     search = '?sky=noonday&sun=-1&az=300';
-    expect(has(ambients({}), dusk.ambient)).toBe(true);
+    expect(has(ambients({}), groundLight(dusk).ambient)).toBe(true);
     search = '?sun=garbage';
-    expect(has(ambients({}), SKY.midnight.ambient)).toBe(true);
+    expect(has(ambients({}), groundLight(SKY.midnight).ambient)).toBe(true);
   });
 
   it('uploads the baked scattering table once, as half floats, to a 3D texture', () => {

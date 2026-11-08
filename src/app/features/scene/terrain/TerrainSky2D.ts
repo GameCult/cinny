@@ -1,7 +1,8 @@
 import type { Scene } from '../Scene';
 import type { TerrainOptions } from './Terrain';
-import { chooseSky, skyColour, Vec3 } from './terrainSky';
+import { chooseSky, skyColour, START_TURNS, Vec3 } from './terrainSky';
 import { createTerrainStars } from './terrainStars';
+import { showTierLabel } from './tierLabel';
 import { CAMERA, view } from './terrainWorld';
 
 /** The sky is smooth, so it is painted this many px wide and stretched by the canvas's CSS size. */
@@ -24,6 +25,7 @@ export function createTerrainSkyScene(opts: TerrainSkyOptions): Scene | null {
   if (!ctx) return null;
   const sky = chooseSky(opts);
   const stars = createTerrainStars(canvas, sky);
+  const heading = START_TURNS;
   const tanHalf = Math.tan(CAMERA.fov / 2);
   let disposed = false;
   let resizeTimer = 0;
@@ -35,7 +37,7 @@ export function createTerrainSkyScene(opts: TerrainSkyOptions): Scene | null {
     const h = Math.max(1, Math.round((w * ch) / cw));
     canvas.width = w;
     canvas.height = h;
-    const v = view(cw / ch, 0);
+    const v = view(cw / ch, heading);
     const image = ctx.createImageData(w, h);
     for (let y = 0; y < h; y += 1) {
       const ny = 1 - ((y + 0.5) / h) * 2;
@@ -54,7 +56,7 @@ export function createTerrainSkyScene(opts: TerrainSkyOptions): Scene | null {
       }
     }
     ctx.putImageData(image, 0, 0);
-    stars?.draw(0);
+    stars?.draw(heading);
   };
 
   const onResize = () => {
@@ -67,6 +69,7 @@ export function createTerrainSkyScene(opts: TerrainSkyOptions): Scene | null {
   };
   window.addEventListener('resize', onResize);
   paint();
+  const removeLabel = showTierLabel(canvas, 'sky-only');
 
   return {
     login() {
@@ -77,6 +80,7 @@ export function createTerrainSkyScene(opts: TerrainSkyOptions): Scene | null {
       disposed = true;
       clearTimeout(resizeTimer);
       window.removeEventListener('resize', onResize);
+      removeLabel?.();
       stars?.dispose();
     },
   };

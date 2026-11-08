@@ -128,25 +128,52 @@ export function skyColour(d: SkyData, dir: Vec3): Vec3 {
   ) as unknown as Vec3;
 }
 
-/** Haze: transmittance T = exp(-k d) at distance d metres. */
-export const HAZE_K = 0.0004;
+/**
+ * Haze: transmittance T = exp(-(k d)^HAZE_POWER) at distance d metres. The power above 1 keeps the near and middle
+ * ground at its own colour and lets only the far ridges melt toward the sky; a plain exp(-k d) greyed everything.
+ */
+export const HAZE_K = 0.0007;
+export const HAZE_POWER = 1.6;
 export const transmittance = (distance: number): number =>
-  Math.exp(-HAZE_K * Math.max(0, distance));
+  Math.exp(-((HAZE_K * Math.max(0, distance)) ** HAZE_POWER));
+
+/** Added to the ambient on a dark sky, scaled by `nightness`: the baked night floor is too dark to show any form on a phone. */
+export const NIGHT_AMBIENT_LIFT = 3;
+/** Cool light from the mirror of the sun's below-horizon position, linear, scaled by `nightness`: gives the terrain a lit side at night. */
+export const MOON_COLOUR: Vec3 = [0.05, 0.07, 0.13];
+
+/** The light on the ground: the sun, or at night the moon standing where the sun is mirrored above the horizon. Continuous through sunset. */
+export function groundLight(d: SkyData): { dir: Vec3; colour: Vec3; ambient: Vec3 } {
+  const sun = sunDirection(d);
+  const k = nightness(d.elevation);
+  return {
+    dir: [sun[0], Math.abs(sun[1]), sun[2]],
+    colour: [0, 1, 2].map((i) => d.direct[i] + MOON_COLOUR[i] * k) as unknown as Vec3,
+    ambient: [0, 1, 2].map((i) => d.ambient[i] * (1 + NIGHT_AMBIENT_LIFT * k)) as unknown as Vec3,
+  };
+}
+
+/**
+ * The heading the camera starts at, in turns from north: the noonday sun a hundred degrees to its right, so the light
+ * rakes across the relief instead of flattening it from behind. Fixed, so `?az=` still moves the sun in the picture.
+ */
+export const START_TURNS = ((SKY.noonday.azimuth - 100) / 360 + 1) % 1;
 
 /**
  * Linear colour of a surface seen along the unit direction `view` (from the eye to the surface): lambert from
- * the sun plus ambient (full on an upward face, half on a vertical one, none on a downward one: `0.5 + 0.5 n.y`),
+ * the ground light plus ambient (full on an upward face, half on a vertical one, none on a downward one: `0.5 + 0.5 n.y`),
  * then hazed by distance toward the sky at the horizon in that direction. `normal` is a unit vector. Never negative.
  */
 export function shade(d: SkyData, albedo: Vec3, normal: Vec3, distance: number, view: Vec3): Vec3 {
-  const sun = sunDirection(d);
+  const light = groundLight(d);
+  const sun = light.dir;
   const lambert = Math.max(0, normal[0] * sun[0] + normal[1] * sun[1] + normal[2] * sun[2]);
   const hemi = 0.5 + 0.5 * normal[1];
   const flat = Math.hypot(view[0], view[2]) || 1;
   const haze = skyColour(d, [view[0] / flat, 0, view[2] / flat]);
   const t = transmittance(distance);
   return [0, 1, 2].map((i) => {
-    const lit = albedo[i] * (d.direct[i] * lambert + d.ambient[i] * Math.max(0, hemi));
+    const lit = albedo[i] * (light.colour[i] * lambert + light.ambient[i] * Math.max(0, hemi));
     return lit * t + haze[i] * (1 - t);
   }) as unknown as Vec3;
 }

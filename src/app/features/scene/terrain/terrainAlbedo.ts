@@ -28,6 +28,13 @@ export const ALBEDO = {
   /** world-position wobble of the height edges (metres) and the slope edges, so bands are not contour lines. */
   wobbleHeight: 14,
   wobbleSlope: 0.05,
+  /** Albedo grain: relative swing of the two sine-product octaves (about 20 m and 5 m periods), and of the rock strata. */
+  grainCoarse: 0.35,
+  grainFine: 0.3,
+  /** The fine octave fades out between these distances (metres): beyond them it is under a pixel and only shimmers. */
+  fineNear: 250,
+  fineFar: 700,
+  strata: 0.22,
 } as const;
 
 export interface AlbedoPalette {
@@ -94,4 +101,37 @@ export function albedoAt(p: AlbedoPalette, height: number, ny: number, x: number
   return [0, 1, 2].map((i) =>
     mix(mix(ground(i), p.snow[i], snow), p.rock[i], rock)
   ) as unknown as Vec3;
+}
+
+/**
+ * The multiplier on albedo that gives the surface grain and the rock its layers, from world position (metres),
+ * height, `rock` (0..1, how much of the face is rock) and the distance from the eye. The shader's `ALB_GRAIN_*` block does the same arithmetic.
+ * The cavity term beside it in the shader reads the height map and has no twin here.
+ */
+export function grainAt(
+  x: number,
+  z: number,
+  height: number,
+  rock: number,
+  distance: number
+): number {
+  const waves = (k: ReadonlyArray<readonly [number, number]>) =>
+    k.reduce((sum, [kx, kz]) => sum + Math.sin(x * kx + z * kz), 0) / 3;
+  const coarse = waves([
+    [0.31, 0.27],
+    [-0.22, 0.35],
+    [0.38, -0.12],
+  ]);
+  const fine =
+    waves([
+      [1.1, 0.7],
+      [-0.8, 1.2],
+      [1.3, -0.6],
+    ]) *
+    (1 - smooth(ALBEDO.fineNear, ALBEDO.fineFar, distance));
+  const layers = Math.sin(height * 0.9 + wobble(x, z) * 3);
+  return Math.max(
+    0,
+    1 + ALBEDO.grainCoarse * coarse + ALBEDO.grainFine * fine + ALBEDO.strata * rock * layers
+  );
 }

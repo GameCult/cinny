@@ -8,7 +8,7 @@ export const TERRAIN = { span: 3000, hmax: 256 };
 /** Grid quads per side and height-map texels per side, by tier. 'still' draws one frame, so it takes the cheap pair. */
 export const GRID = {
   still: { grid: 128, tex: 512 },
-  low: { grid: 128, tex: 512 },
+  low: { grid: 128, tex: 1024 },
   full: { grid: 192, tex: 1024 },
 } as const;
 

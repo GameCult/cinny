@@ -3,7 +3,15 @@ import { FrameSampler, FrameStats } from '../ridge/probe';
 import { albedoPalette } from './terrainAlbedo';
 import { sunIndex } from '../../../../sky/scatter.js';
 import { SKY_VIEW, skyViewWords } from './terrainScatter';
-import { glowColour, HAZE_K, chooseSky, SkyName, sunDirection } from './terrainSky';
+import {
+  glowColour,
+  groundLight,
+  HAZE_K,
+  chooseSky,
+  SkyName,
+  START_TURNS,
+  sunDirection,
+} from './terrainSky';
 import { buildGrid, CAMERA, GRID, seedOffset, TERRAIN, triangleCount, view } from './terrainWorld';
 import {
   FULLSCREEN_VERT,
@@ -13,6 +21,7 @@ import {
   SKY_FRAG,
 } from './terrainShaders';
 import { createTerrainStars } from './terrainStars';
+import { showTierLabel } from './tierLabel';
 
 export type TerrainOptions = Pick<
   SceneOptions,
@@ -178,7 +187,9 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
 
   const sun = [...sunDirection(sky)];
   const sunLight = [...sky.direct];
-  const ambient = [...sky.ambient];
+  const ground = groundLight(sky);
+  const ambient = [...ground.ambient];
+  const heading = START_TURNS;
   const glow = [...glowColour(sky)];
   const sunTexel = sunIndex(sky.elevation);
   const palette = albedoPalette(sky);
@@ -206,7 +217,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const draw = (turns: number) => {
     if (lost) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
-    const v = view(canvas.width / canvas.height, turns % 1);
+    const v = view(canvas.width / canvas.height, (turns + heading) % 1);
     gl.disable(gl.DEPTH_TEST);
     gl.useProgram(skyProg);
     const us = (n: string) => gl.getUniformLocation(skyProg, n);
@@ -233,7 +244,8 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.uniform1f(u('uSpan'), TERRAIN.span);
     gl.uniform1i(u('uTex'), spec.tex);
     gl.uniform3fv(u('uSun'), sun);
-    gl.uniform3fv(u('uSunColour'), sunLight);
+    gl.uniform3fv(u('uLightDir'), ground.dir);
+    gl.uniform3fv(u('uLight'), ground.colour);
     gl.uniform3fv(u('uAmbient'), ambient);
     gl.uniform3fv(u('uGlow'), glow);
     gl.uniform1f(u('uSunIndex'), sunTexel);
@@ -252,7 +264,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.bindVertexArray(vao);
     gl.drawElements(gl.TRIANGLES, g.indices.length, gl.UNSIGNED_INT, 0);
     gl.bindVertexArray(null);
-    stars?.draw(turns % 1, moving() ? performance.now() / 1000 : undefined);
+    stars?.draw((turns + heading) % 1, moving() ? performance.now() / 1000 : undefined);
   };
 
   const moving = () =>
@@ -347,6 +359,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     });
     canvas.parentElement.appendChild(readout);
   }
+  const removeLabel = showTierLabel(canvas, tier);
   if (still) settleToStill();
   else wake();
   if (!still && !moving()) draw(0);
@@ -383,6 +396,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
       reducedMotion?.removeEventListener?.('change', onVisibility);
       canvas.removeEventListener('webglcontextlost', onLost);
       readout?.remove();
+      removeLabel?.();
       stars?.dispose();
       release();
     },

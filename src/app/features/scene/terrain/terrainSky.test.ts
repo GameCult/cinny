@@ -14,6 +14,10 @@ import {
   skyNameFor,
   sunDirection,
   transmittance,
+  groundLight,
+  HAZE_K,
+  HAZE_POWER,
+  START_TURNS,
   Vec3,
 } from './terrainSky';
 import { skyColours } from '../ridge/skyColour';
@@ -121,14 +125,14 @@ describe('lighting', () => {
     const m = (n: readonly [number, number, number]) =>
       shade(SKY.midnight, [0.5, 0.5, 0.5], n, 0, view);
     expect(luma(m(UP))).toBeGreaterThan(0); // moonlit fill, not black
-    expect(luma(m(UP))).toBeLessThan(0.05);
+    expect(luma(m(UP))).toBeLessThan(0.12);
   });
 
   it('noon is much brighter than midnight, ambient included', () => {
     expect(luma(SKY.noonday.ambient)).toBeGreaterThan(2 * luma(SKY.midnight.ambient));
     const view = look(-5, 0);
     expect(luma(shade(SKY.noonday, [0.4, 0.4, 0.4], UP, 0, view))).toBeGreaterThan(
-      10 * luma(shade(SKY.midnight, [0.4, 0.4, 0.4], UP, 0, view))
+      3 * luma(shade(SKY.midnight, [0.4, 0.4, 0.4], UP, 0, view))
     );
   });
 
@@ -222,5 +226,38 @@ describe('haze', () => {
     const dark = (x: number) => luma(shade(d, [0.02, 0.02, 0.02], UP, x, view));
     expect(dark(2000)).toBeGreaterThan(dark(200));
     expect(dark(2000)).toBeLessThan(h);
+  });
+});
+
+describe('ground light and haze', () => {
+  it("at night the ground has a moon above the horizon on the sun's mirrored side, and a lifted ambient; by day it is the sun", () => {
+    const night = groundLight(SKY.midnight);
+    expect(night.dir[1]).toBeGreaterThan(0.5);
+    expect(luma(night.colour)).toBeGreaterThan(0.03);
+    expect(luma(night.ambient)).toBeGreaterThan(2 * luma(SKY.midnight.ambient));
+    const day = groundLight(SKY.noonday);
+    expect(Array.from(day.dir)).toEqual(Array.from(sunDirection(SKY.noonday)));
+    expect(Array.from(day.colour)).toEqual(Array.from(SKY.noonday.direct));
+    expect(Array.from(day.ambient)).toEqual(Array.from(SKY.noonday.ambient));
+  });
+
+  it('the ground light is continuous through sunset', () => {
+    const at = (e: number) => luma(groundLight(skyAtSun(e)).colour);
+    for (let e = -10; e < 10; e += 0.5) expect(Math.abs(at(e + 0.5) - at(e))).toBeLessThan(0.35);
+  });
+
+  it('haze leaves the near ground nearly clear and takes the far ridges: a power law, not plain exp(-k d)', () => {
+    expect(transmittance(300)).toBeGreaterThan(0.85);
+    expect(transmittance(300)).toBeGreaterThan(Math.exp(-HAZE_K * 300));
+    expect(transmittance(2500)).toBeLessThan(0.15);
+    expect(HAZE_POWER).toBeGreaterThan(1);
+  });
+
+  it('the camera starts with the noon sun off its axis, so the light rakes the relief', () => {
+    const yaw = 2 * Math.PI * START_TURNS;
+    const forward = [Math.sin(yaw), 0, -Math.cos(yaw)];
+    const sun = sunDirection(SKY.noonday);
+    const along = (forward[0] * sun[0] + forward[2] * sun[2]) / Math.hypot(sun[0], sun[2]);
+    expect(Math.abs(along)).toBeLessThan(0.4);
   });
 });

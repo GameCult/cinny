@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-syntax -- tests loop over skies, heights and slopes */
 import { describe, expect, it } from 'vitest';
 import { SKY } from './terrainSky';
-import { ALBEDO, albedoAt, albedoPalette, wobble } from './terrainAlbedo';
+import { ALBEDO, albedoAt, albedoPalette, grainAt, wobble } from './terrainAlbedo';
 import { GRID_FRAG } from './terrainShaders';
 
 const near = (a: readonly number[], b: readonly number[], eps = 1e-6) =>
@@ -98,7 +98,35 @@ describe('shader agrees with the pure function on its numbers', () => {
     expect(GRID_FRAG).toContain(`#define ALB_SNOW_BAND ${ALBEDO.snowBand.toFixed(1)}`);
     expect(GRID_FRAG).toContain(`#define ALB_ROCK_LO ${ALBEDO.rockLo}`);
     expect(GRID_FRAG).toContain(`#define ALB_WOBBLE_S ${ALBEDO.wobbleSlope}`);
+    expect(GRID_FRAG).toContain(`#define ALB_GRAIN_COARSE ${ALBEDO.grainCoarse}`);
+    expect(GRID_FRAG).toContain(`#define ALB_STRATA ${ALBEDO.strata}`);
     // the only fetch for colour-by-material would be a texture; the height map's texelFetch is the only other read, and the sky lookup is the baked scattering table's
     expect(GRID_FRAG.match(/texelFetch|texture\((?!uSky)/g)).toHaveLength(1);
+  });
+});
+
+describe('grain', () => {
+  const samples = (rock: number, distance: number) =>
+    Array.from({ length: 400 }, (_, i) => grainAt(i * 1.7, i * 0.9, 100 + i * 0.3, rock, distance));
+  const spread = (v: number[]) => Math.max(...v) - Math.min(...v);
+
+  it('varies the surface near the eye, never goes negative, and averages about 1', () => {
+    const v = samples(0, 50);
+    expect(spread(v)).toBeGreaterThan(0.4);
+    expect(Math.min(...v)).toBeGreaterThanOrEqual(0);
+    expect(v.reduce((a, b) => a + b, 0) / v.length).toBeGreaterThan(0.85);
+  });
+
+  it('drops its fine octave with distance, so far ground does not shimmer', () => {
+    const rangeOf = (d: number) =>
+      spread(Array.from({ length: 400 }, (_, i) => grainAt(i * 0.37, i * 0.21, 100, 0, d)));
+    expect(rangeOf(900)).toBeLessThan(rangeOf(50));
+  });
+
+  it('layers the rock: strata show only where the face is rock', () => {
+    const height = (rock: number) =>
+      spread(Array.from({ length: 400 }, (_, i) => grainAt(0, 0, 100 + i * 0.05, rock, 2000)));
+    expect(height(1)).toBeGreaterThan(0.2);
+    expect(height(0)).toBeLessThan(1e-9);
   });
 });

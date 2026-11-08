@@ -9,7 +9,7 @@ import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
 import { ALBEDO } from './terrainAlbedo';
 import { SCATTER_GLSL } from './terrainScatter';
-import { GLOW_ZENITH, SKY_EXPOSURE } from './terrainSky';
+import { GLOW_ZENITH, HAZE_POWER, SKY_EXPOSURE } from './terrainSky';
 import { TERRAIN } from './terrainWorld';
 
 const HEADER =
@@ -122,6 +122,11 @@ const ALBEDO_DEFINES = `
 #define ALB_SNOW_LO ${lit(ALBEDO.snowLo)}
 #define ALB_WOBBLE_H ${lit(ALBEDO.wobbleHeight)}
 #define ALB_WOBBLE_S ${lit(ALBEDO.wobbleSlope)}
+#define ALB_GRAIN_COARSE ${lit(ALBEDO.grainCoarse)}
+#define ALB_GRAIN_FINE ${lit(ALBEDO.grainFine)}
+#define ALB_STRATA ${lit(ALBEDO.strata)}
+#define ALB_FINE_NEAR ${lit(ALBEDO.fineNear)}
+#define ALB_FINE_FAR ${lit(ALBEDO.fineFar)}
 `;
 // The sky colour along a unit direction: scattering lifted by the exposure, tone-mapped, plus the night glow. The
 // same arithmetic as terrainSky.skyColour(). uGlow is the baked horizon colour already scaled by how dark the sun is.
@@ -136,7 +141,7 @@ vec3 skyColour(vec3 d) {
 export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}${SKY_COLOUR_GLSL}
 in vec2 v_uv;
 in vec3 v_world;
-uniform vec3 uCamera, uSunColour, uAmbient, uSoil, uScree, uRock, uSnow;
+uniform vec3 uCamera, uLightDir, uLight, uAmbient, uSoil, uScree, uRock, uSnow;
 uniform float uSpan, uHazeK, uSnowLine;
 out vec4 o;
 ${FETCH}
@@ -163,9 +168,21 @@ void main() {
   float snow = smoothstep(uSnowLine - ALB_SNOW_BAND, uSnowLine + ALB_SNOW_BAND, h) * smoothstep(ALB_SNOW_LO, ALB_SNOW_HI, flat_);
   float rockW = 1.0 - smoothstep(ALB_ROCK_LO, ALB_ROCK_HI, flat_);
   vec3 albedo = mix(mix(ground, uSnow, snow), uRock, rockW);
-  vec3 lit = albedo * (uSunColour * max(dot(n, uSun), 0.0) + uAmbient * (0.5 + 0.5 * n.y));
+  // Surface grain and rock strata, the same arithmetic as terrainAlbedo.grainAt().
+  vec2 q = v_world.xz;
+  float coarse = (sin(dot(q, vec2(0.31, 0.27))) + sin(dot(q, vec2(-0.22, 0.35))) + sin(dot(q, vec2(0.38, -0.12)))) / 3.0;
+  float fine = (sin(dot(q, vec2(1.1, 0.7))) + sin(dot(q, vec2(-0.8, 1.2))) + sin(dot(q, vec2(1.3, -0.6)))) / 3.0;
+  float near = 1.0 - smoothstep(ALB_FINE_NEAR, ALB_FINE_FAR, length(v_world - uCamera));
+  float layers = sin(v_world.y * 0.9 + w * 3.0);
+  albedo *= max(0.0, 1.0 + ALB_GRAIN_COARSE * coarse + ALB_GRAIN_FINE * near * fine + ALB_STRATA * rockW * layers);
+  // Cavity: a point lower than its surroundings sits in shade, one higher catches light. Shader-only, from the height map.
+  int r = max(1, int(12.0 / texel));
+  ivec2 c = ivec2(p + 0.5);
+  float curv = 0.25 * (hAt(c + ivec2(r, 0)) + hAt(c - ivec2(r, 0)) + hAt(c + ivec2(0, r)) + hAt(c - ivec2(0, r))) - hAt(c);
+  float cavity = 1.0 - 0.55 * clamp(curv / 12.0, 0.0, 1.0) + 0.3 * clamp(-curv / 12.0, 0.0, 1.0);
+  vec3 lit = albedo * cavity * (uLight * max(dot(n, uLightDir), 0.0) + uAmbient * (0.5 + 0.5 * n.y));
   vec3 toSurface = v_world - uCamera;
-  float T = exp(-uHazeK * length(toSurface));
+  float T = exp(-pow(uHazeK * length(toSurface), ${lit(HAZE_POWER)}));
   vec3 haze = skyColour(normalize(vec3(toSurface.x, 0.0, toSurface.z)));
   o = vec4(pow(mix(haze, lit, T), vec3(1.0 / 2.2)), 1.0);
 }`;
