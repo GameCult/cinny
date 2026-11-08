@@ -143,6 +143,8 @@ export type ContentUploadOptions = {
   onProgress?: (progress: UploadProgress) => void;
   onSuccess: (mxc: string) => void;
   onError: (error: MatrixError) => void;
+  /** Read at failure time: what the owning component did since the upload attached. */
+  describeLifecycle?: () => string;
 };
 
 let lastUserActivity = Date.now();
@@ -155,6 +157,8 @@ if (typeof window !== 'undefined') {
   );
 }
 
+export type AbortCall = { api: string; frames: string };
+
 /** What the progress handler saw of one upload, for the failure text. */
 export type UploadTrace = {
   startedAt: number;
@@ -163,6 +167,98 @@ export type UploadTrace = {
   total?: number;
   /** Summary of an earlier attempt of the same upload, when this one is a retry. */
   previous?: string;
+  /** abort() calls the page made while this attempt ran; absent when not probed. */
+  aborts?: AbortCall[];
+  /** What the owning component did since the upload attached. */
+  lifecycle?: string;
+};
+
+const MAX_FRAMES = 6;
+const MAX_ABORT_CALLS = 4;
+
+/**
+ * An Error stack as `file:line:col < file:line:col`, at most six frames. The error line and the
+ * probe's own frame are dropped; origins and function names are not kept.
+ */
+export const formatAbortStack = (stack: string): string => {
+  const frames = stack
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('at ') || l.includes('@'))
+    .map((l) => {
+      const m = /([^/\s()@]+):(\d+):(\d+)\)?$/.exec(l);
+      return m ? `${m[1]}:${m[2]}:${m[3]}` : undefined;
+    })
+    .filter((f): f is string => f !== undefined)
+    .slice(1, 1 + MAX_FRAMES);
+  return frames.length > 0 ? frames.join(' < ') : 'no stack';
+};
+
+export type ComponentLifecycle = {
+  attachedAt: number;
+  rendersAtAttach: number;
+  renders: number[];
+  unmountedAt?: number;
+};
+
+/** What the component that owns an upload did after the upload attached to it. */
+export const describeComponentLifecycle = (life: ComponentLifecycle): string => {
+  const since = life.renders.slice(life.rendersAtAttach);
+  const quick = since.filter((t) => t - life.attachedAt <= 300).length;
+  const unmount =
+    life.unmountedAt === undefined
+      ? 'not unmounted'
+      : `unmounted +${life.unmountedAt - life.attachedAt}ms`;
+  return `component: ${since.length} renders since attach (${quick} within 300ms), ${unmount}`;
+};
+
+const collectors = new Set<AbortCall[]>();
+let restoreProbe: (() => void) | undefined;
+
+/* eslint-disable no-param-reassign */
+const patchAbort = (proto: { abort: (...a: any[]) => any }, api: string) => {
+  const original = proto.abort;
+  const wrapper = function abortProbe(this: unknown, ...args: any[]) {
+    const frames = formatAbortStack(new Error().stack ?? '');
+    collectors.forEach((calls) => {
+      if (calls.length < MAX_ABORT_CALLS) calls.push({ api, frames });
+    });
+    return original.apply(this, args);
+  };
+  proto.abort = wrapper;
+  return () => {
+    if (proto.abort === wrapper) proto.abort = original;
+  };
+};
+/* eslint-enable no-param-reassign */
+
+/**
+ * Records every XMLHttpRequest.abort and AbortController.abort the page makes until stopped. The
+ * prototypes are wrapped while at least one probe runs and restored when the last one stops.
+ */
+export const startAbortProbe = () => {
+  const calls: AbortCall[] = [];
+  if (collectors.size === 0) {
+    const restores: (() => void)[] = [];
+    if (typeof XMLHttpRequest !== 'undefined') {
+      restores.push(patchAbort(XMLHttpRequest.prototype, 'XHR.abort'));
+    }
+    if (typeof AbortController !== 'undefined') {
+      restores.push(patchAbort(AbortController.prototype, 'AbortController.abort'));
+    }
+    restoreProbe = () => restores.forEach((r) => r());
+  }
+  collectors.add(calls);
+  return {
+    calls,
+    stop: () => {
+      collectors.delete(calls);
+      if (collectors.size === 0) {
+        restoreProbe?.();
+        restoreProbe = undefined;
+      }
+    },
+  };
 };
 
 const describeNetwork = (): string => {
@@ -209,6 +305,14 @@ export const uploadFailure = async (
           }B`
     );
     parts.push(`failed after ${now - trace.startedAt}ms`);
+    if (trace.aborts) {
+      parts.push(
+        trace.aborts.length === 0
+          ? 'abort calls: none'
+          : `abort calls: ${trace.aborts.map((a) => `${a.api} ${a.frames}`).join('; ')}`
+      );
+    }
+    if (trace.lifecycle) parts.push(trace.lifecycle);
     if (trace.previous) parts.push(`retried (attempt 1: ${trace.previous})`);
   }
   const error = `Upload failed: ${message ? `${name}: ${message}` : name} (${parts.join(', ')})`;
@@ -227,46 +331,65 @@ export const uploadContent = async (
   file: TUploadContent,
   options: ContentUploadOptions
 ) => {
-  const { name, fileType, hideFilename, onProgress, onPromise, onSuccess, onError } = options;
+  const {
+    name,
+    fileType,
+    hideFilename,
+    onProgress,
+    onPromise,
+    onSuccess,
+    onError,
+    describeLifecycle,
+  } = options;
 
   let previous: string | undefined;
   for (let attempt = 1; ; attempt += 1) {
-    const trace: UploadTrace = { startedAt: Date.now(), previous };
+    const probe = startAbortProbe();
+    const trace: UploadTrace = { startedAt: Date.now(), previous, aborts: probe.calls };
     const abortController = new AbortController();
-    const uploadPromise = mx.uploadContent(file, {
-      name,
-      type: fileType,
-      includeFilename: !hideFilename,
-      abortController,
-      progressHandler: (progress) => {
-        if (trace.firstProgressAt === undefined) trace.firstProgressAt = Date.now();
-        trace.loaded = progress.loaded;
-        trace.total = progress.total;
-        onProgress?.(progress);
-      },
-    });
-    onPromise?.(uploadPromise);
     try {
-      // eslint-disable-next-line no-await-in-loop
-      const data = await uploadPromise;
-      const mxc = data.content_uri;
-      if (mxc) onSuccess(mxc);
-      else onError(new MatrixError(data));
-      return;
-    } catch (e: any) {
-      const elapsed = Date.now() - trace.startedAt;
-      const retry =
-        attempt === 1 &&
-        e?.name === 'AbortError' &&
-        !abortController.signal.aborted &&
-        trace.firstProgressAt === undefined &&
-        elapsed < RETRY_WINDOW_MS;
-      if (!retry) {
+      const uploadPromise = mx.uploadContent(file, {
+        name,
+        type: fileType,
+        includeFilename: !hideFilename,
+        abortController,
+        progressHandler: (progress) => {
+          if (trace.firstProgressAt === undefined) trace.firstProgressAt = Date.now();
+          trace.loaded = progress.loaded;
+          trace.total = progress.total;
+          onProgress?.(progress);
+        },
+      });
+      onPromise?.(uploadPromise);
+      try {
         // eslint-disable-next-line no-await-in-loop
-        onError(await uploadFailure(e, file, trace));
+        const data = await uploadPromise;
+        const mxc = data.content_uri;
+        if (mxc) onSuccess(mxc);
+        else onError(new MatrixError(data));
         return;
+      } catch (e: any) {
+        const elapsed = Date.now() - trace.startedAt;
+        const retry =
+          attempt === 1 &&
+          e?.name === 'AbortError' &&
+          !abortController.signal.aborted &&
+          trace.firstProgressAt === undefined &&
+          elapsed < RETRY_WINDOW_MS;
+        if (!retry) {
+          trace.lifecycle = describeLifecycle?.();
+          // eslint-disable-next-line no-await-in-loop
+          onError(await uploadFailure(e, file, trace));
+          return;
+        }
+        previous = `AbortError after ${elapsed}ms, no progress, ${
+          trace.aborts?.length
+            ? `abort calls: ${trace.aborts.map((a) => `${a.api} ${a.frames}`).join('; ')}`
+            : 'abort calls: none'
+        }`;
       }
-      previous = `AbortError after ${elapsed}ms, no progress`;
+    } finally {
+      probe.stop();
     }
   }
 };

@@ -1,9 +1,14 @@
 import { atom, useAtom } from 'jotai';
 import { atomFamily } from 'jotai/utils';
 import { MatrixClient, UploadResponse, UploadProgress, MatrixError } from 'matrix-js-sdk';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useThrottle } from '../hooks/useThrottle';
-import { uploadContent, TUploadContent } from '../utils/matrix';
+import {
+  ComponentLifecycle,
+  describeComponentLifecycle,
+  uploadContent,
+  TUploadContent,
+} from '../utils/matrix';
 
 export enum UploadStatus {
   Idle = 'idle',
@@ -105,22 +110,34 @@ export const useBindUploadAtom = (
   const [upload, setUpload] = useAtom(uploadAtom);
   const { file } = upload;
 
+  // For the failure text: renders and unmount of the component that owns this upload.
+  const life = useRef<ComponentLifecycle>({ attachedAt: 0, rendersAtAttach: 0, renders: [] });
+  if (life.current.renders.length < 50) life.current.renders.push(Date.now());
+  useEffect(() => {
+    const tracked = life.current;
+    tracked.unmountedAt = undefined;
+    return () => {
+      tracked.unmountedAt = Date.now();
+    };
+  }, []);
+
   const handleProgress = useThrottle(
     useCallback((progress: UploadProgress) => setUpload({ progress }), [setUpload]),
     { immediate: true, wait: 200 }
   );
 
-  const startUpload = useCallback(
-    () =>
-      uploadContent(mx, file, {
-        hideFilename,
-        onPromise: (promise: Promise<UploadResponse>) => setUpload({ promise }),
-        onProgress: handleProgress,
-        onSuccess: (mxc) => setUpload({ mxc }),
-        onError: (error) => setUpload({ error }),
-      }),
-    [mx, file, hideFilename, setUpload, handleProgress]
-  );
+  const startUpload = useCallback(() => {
+    life.current.attachedAt = Date.now();
+    life.current.rendersAtAttach = life.current.renders.length;
+    return uploadContent(mx, file, {
+      hideFilename,
+      describeLifecycle: () => describeComponentLifecycle(life.current),
+      onPromise: (promise: Promise<UploadResponse>) => setUpload({ promise }),
+      onProgress: handleProgress,
+      onSuccess: (mxc) => setUpload({ mxc }),
+      onError: (error) => setUpload({ error }),
+    });
+  }, [mx, file, hideFilename, setUpload, handleProgress]);
 
   const cancelUpload = useCallback(async () => {
     if (upload.status === UploadStatus.Loading) {
