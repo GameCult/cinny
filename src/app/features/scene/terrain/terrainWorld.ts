@@ -8,8 +8,8 @@ export const TERRAIN = { span: 3000, hmax: 256 };
 /** Grid quads per side and height-map texels per side, by tier. 'still' draws one frame, so it takes the cheap pair. */
 export const GRID = {
   still: { grid: 128, tex: 512 },
-  low: { grid: 128, tex: 1024 },
-  full: { grid: 192, tex: 1024 },
+  low: { grid: 192, tex: 1024 },
+  full: { grid: 256, tex: 1024 },
 } as const;
 
 /** The camera: at the patch centre, above the highest peak, turning slowly and looking a little down. */
@@ -28,6 +28,16 @@ export function seedOffset(seed: number): [number, number] {
   const s = Math.trunc(seed);
   return [(s * 7919) % 65536, (s * 104729) % 65536];
 }
+
+/**
+ * Where grid coordinate `u` (0..1 across the patch) lands in the patch, 0..1. The camera stands at the centre, so the
+ * grid is packed toward it: with s = 2u - 1 the spacing grows as 0.5 + |s| of the plain grid's, about half of it at the
+ * centre and half again as much at the rim. The vertex shader does the same arithmetic (terrainShaders.ts GRID_VERT).
+ */
+export const warpUv = (u: number): number => {
+  const s = 2 * u - 1;
+  return 0.5 + 0.5 * (0.5 * s + 0.5 * s * Math.abs(s));
+};
 
 export const triangleCount = (grid: number): number => 2 * grid * grid;
 

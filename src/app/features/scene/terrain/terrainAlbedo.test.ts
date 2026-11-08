@@ -1,7 +1,15 @@
 /* eslint-disable no-restricted-syntax -- tests loop over skies, heights and slopes */
 import { describe, expect, it } from 'vitest';
 import { SKY } from './terrainSky';
-import { ALBEDO, albedoAt, albedoPalette, grainAt, wobble } from './terrainAlbedo';
+import {
+  ALBEDO,
+  albedoAt,
+  albedoPalette,
+  grainAt,
+  triWeights,
+  wobble,
+  wobbleAt,
+} from './terrainAlbedo';
 import { GRID_FRAG } from './terrainShaders';
 
 const near = (a: readonly number[], b: readonly number[], eps = 1e-6) =>
@@ -9,8 +17,10 @@ const near = (a: readonly number[], b: readonly number[], eps = 1e-6) =>
 const luma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 // A point where the wobble is zero, so band edges sit exactly where the palette says.
 const FLAT_X = Math.PI / 0.043;
+// A normal for the xz plane alone (all the weight on it), carrying `ny` for the slope bands.
+const facing = (ny: number) => [0, ny, 0] as const;
 const at = (sky: keyof typeof SKY, h: number, ny: number) =>
-  albedoAt(albedoPalette(SKY[sky]), h, ny, FLAT_X, 0);
+  albedoAt(albedoPalette(SKY[sky]), h, facing(ny), FLAT_X, 0);
 
 describe('albedo by slope and height', () => {
   it('the test point really has no wobble', () => {
@@ -50,7 +60,7 @@ describe('albedo by slope and height', () => {
     for (const sky of ['midnight', 'noonday'] as const)
       for (let h = -20; h < 300; h += 7)
         for (let ny = 0; ny <= 1; ny += 0.1)
-          for (const v of albedoAt(albedoPalette(SKY[sky]), h, ny, h * 3, ny * 91)) {
+          for (const v of albedoAt(albedoPalette(SKY[sky]), h, facing(ny), h * 3, ny * 91)) {
             expect(v).toBeGreaterThanOrEqual(0);
             expect(v).toBeLessThanOrEqual(1);
           }
@@ -105,9 +115,14 @@ describe('shader agrees with the pure function on its numbers', () => {
   });
 });
 
+const UP = [0, 1, 0] as const;
+const EAST = [1, 0, 0] as const;
+
 describe('grain', () => {
   const samples = (rock: number, distance: number) =>
-    Array.from({ length: 400 }, (_, i) => grainAt(i * 1.7, i * 0.9, 100 + i * 0.3, rock, distance));
+    Array.from({ length: 400 }, (_, i) =>
+      grainAt(i * 1.7, 100 + i * 0.3, i * 0.9, UP, rock, distance)
+    );
   const spread = (v: number[]) => Math.max(...v) - Math.min(...v);
 
   it('varies the surface near the eye, never goes negative, and averages about 1', () => {
@@ -119,14 +134,41 @@ describe('grain', () => {
 
   it('drops its fine octave with distance, so far ground does not shimmer', () => {
     const rangeOf = (d: number) =>
-      spread(Array.from({ length: 400 }, (_, i) => grainAt(i * 0.37, i * 0.21, 100, 0, d)));
+      spread(Array.from({ length: 400 }, (_, i) => grainAt(i * 0.37, 100, i * 0.21, UP, 0, d)));
     expect(rangeOf(900)).toBeLessThan(rangeOf(50));
   });
 
   it('layers the rock: strata show only where the face is rock', () => {
     const height = (rock: number) =>
-      spread(Array.from({ length: 400 }, (_, i) => grainAt(0, 0, 100 + i * 0.05, rock, 2000)));
+      spread(Array.from({ length: 400 }, (_, i) => grainAt(0, 100 + i * 0.05, 0, UP, rock, 2000)));
     expect(height(1)).toBeGreaterThan(0.2);
     expect(height(0)).toBeLessThan(1e-9);
+  });
+});
+
+describe('triplanar projection', () => {
+  it('weights sum to 1 and go to the plane the face looks along', () => {
+    for (const n of [UP, EAST, [0.6, 0.6, 0.529], [0, 0, 1]] as const) {
+      const w = triWeights(n);
+      expect(w[0] + w[1] + w[2]).toBeCloseTo(1, 9);
+    }
+    expect(triWeights(UP)).toEqual([0, 1, 0]);
+    expect(triWeights(EAST)).toEqual([1, 0, 0]);
+    expect(triWeights([0.8, 0.5, 0.33])[0]).toBeGreaterThan(0.7);
+  });
+
+  it('a cliff facing east takes its pattern over (z, y), so it varies with height and not with x: no vertical smear', () => {
+    const col = (x: number, y: number) => grainAt(x, y, 40, EAST, 0, 50);
+    const alongY = Array.from({ length: 200 }, (_, i) => col(10, 50 + i * 0.7));
+    const alongX = Array.from({ length: 200 }, (_, i) => col(i * 0.7, 50));
+    expect(Math.max(...alongY) - Math.min(...alongY)).toBeGreaterThan(0.3);
+    expect(Math.max(...alongX) - Math.min(...alongX)).toBeLessThan(1e-9);
+    expect(wobbleAt(5, 80, 40, EAST)).toBeCloseTo(wobbleAt(500, 80, 40, EAST), 12);
+    expect(wobbleAt(5, 80, 40, EAST)).not.toBeCloseTo(wobbleAt(5, 120, 40, EAST), 3);
+  });
+
+  it('level ground takes its pattern over (x, z) alone, as before', () => {
+    expect(grainAt(12, 10, 30, UP, 0, 50)).toBeCloseTo(grainAt(12, 900, 30, UP, 0, 50), 12);
+    expect(wobbleAt(12, 10, 30, UP)).toBeCloseTo(wobble(12, 30), 12);
   });
 });

@@ -1,6 +1,15 @@
 /* eslint-disable no-restricted-syntax -- tests loop over skies, normals and distances */
 import { describe, expect, it } from 'vitest';
-import { buildGrid, CAMERA, GRID, seedOffset, TERRAIN, triangleCount, view } from './terrainWorld';
+import {
+  buildGrid,
+  CAMERA,
+  GRID,
+  seedOffset,
+  TERRAIN,
+  triangleCount,
+  view,
+  warpUv,
+} from './terrainWorld';
 import { heightFragmentSource } from './terrainShaders';
 
 describe('seed', () => {
@@ -32,7 +41,7 @@ describe('grid', () => {
   });
 
   it('each tier fits a 32-bit index and the cheap tiers stay cheap', () => {
-    expect(triangleCount(GRID.low.grid)).toBeLessThan(40000);
+    expect(triangleCount(GRID.low.grid)).toBeLessThan(80000);
     expect(GRID.full.grid).toBeGreaterThan(GRID.low.grid);
     expect(GRID.still.tex).toBeLessThanOrEqual(GRID.low.tex);
   });
@@ -77,5 +86,21 @@ describe('camera', () => {
     expect(dot(v.right, v.forward)).toBeCloseTo(0, 9);
     expect(dot(v.up, v.forward)).toBeCloseTo(0, 9);
     expect(Math.hypot(...v.up)).toBeCloseTo(1, 9);
+  });
+});
+
+describe('warpUv', () => {
+  it('maps the patch onto itself, monotonic, centre fixed', () => {
+    expect(warpUv(0)).toBe(0);
+    expect(warpUv(1)).toBe(1);
+    expect(warpUv(0.5)).toBe(0.5);
+    for (let i = 0; i < 100; i += 1) expect(warpUv((i + 1) / 100)).toBeGreaterThan(warpUv(i / 100));
+  });
+
+  it('packs the vertices toward the camera at the centre: finer there, coarser at the rim, than a plain grid', () => {
+    const plain = 1 / 192;
+    const step = (u: number) => warpUv(u + 1 / 192) - warpUv(u);
+    expect(step(0.5)).toBeLessThan(0.6 * plain);
+    expect(step(0.99)).toBeGreaterThan(1.3 * plain);
   });
 });

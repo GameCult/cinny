@@ -90,6 +90,12 @@ float hAt(ivec2 t) {
   return (floor(s.r * 255.0 + 0.5) * 256.0 + floor(s.g * 255.0 + 0.5)) / 65535.0 * ${f1(
     TERRAIN.hmax
   )};
+}
+// The height at a point in texel units, bilinear over the four texels around it (the packed texture cannot be filtered by the GPU).
+float hBil(vec2 p) {
+  ivec2 i = ivec2(floor(p));
+  vec2 f = fract(p);
+  return mix(mix(hAt(i), hAt(i + ivec2(1, 0)), f.x), mix(hAt(i + ivec2(0, 1)), hAt(i + ivec2(1, 1)), f.x), f.y);
 }`;
 
 export const GRID_VERT = `${HEADER}
@@ -100,12 +106,14 @@ out vec2 v_uv;
 out vec3 v_world;
 ${FETCH}
 void main() {
-  ivec2 t = ivec2(a_uv * float(uTex - 1) + 0.5);
+  // The grid is packed toward the centre, where the camera stands (terrainWorld.warpUv): s = 2u - 1, 0.5 + 0.5 (0.5 s + 0.5 s |s|).
+  vec2 s = a_uv * 2.0 - 1.0;
+  vec2 uv = 0.5 + 0.5 * (0.5 * s + 0.5 * s * abs(s));
   // The patch's rim sinks to zero so the grid has no cliff edge to show through the haze.
-  float rim = 1.0 - smoothstep(0.78, 1.0, 2.0 * max(abs(a_uv.x - 0.5), abs(a_uv.y - 0.5)));
-  float h = hAt(t) * rim;
-  v_uv = a_uv;
-  v_world = vec3((a_uv.x - 0.5) * uSpan, h, (a_uv.y - 0.5) * uSpan);
+  float rim = 1.0 - smoothstep(0.78, 1.0, 2.0 * max(abs(uv.x - 0.5), abs(uv.y - 0.5)));
+  float h = hBil(uv * float(uTex - 1)) * rim;
+  v_uv = uv;
+  v_world = vec3((uv.x - 0.5) * uSpan, h, (uv.y - 0.5) * uSpan);
   gl_Position = uViewProj * vec4(v_world, 1.0);
 }`;
 
@@ -145,23 +153,21 @@ uniform vec3 uCamera, uLightDir, uLight, uAmbient, uSoil, uScree, uRock, uSnow;
 uniform float uSpan, uHazeK, uSnowLine;
 out vec4 o;
 ${FETCH}
-// Unnormalised normal at one texel, central differences over its neighbours.
-vec3 nAt(ivec2 t, float texel) {
-  float dx = hAt(t + ivec2(1, 0)) - hAt(t - ivec2(1, 0));
-  float dz = hAt(t + ivec2(0, 1)) - hAt(t - ivec2(0, 1));
-  return normalize(vec3(-dx, 2.0 * texel, -dz));
-}
+// Triplanar patterns: each projection plane's value, blended by the weights of the face's normal (terrainAlbedo.triWeights).
+float wob2(vec2 q) { return sin(q.x * 0.043 + q.y * 0.017) * sin(q.y * 0.051 - q.x * 0.023); }
+float waves3(vec2 q, vec2 a, vec2 b, vec2 c) { return (sin(dot(q, a)) + sin(dot(q, b)) + sin(dot(q, c))) / 3.0; }
 void main() {
-  // The four texels around this fragment, blended, so the shading is continuous and not one flat square per texel.
+  // Normal from the bilinear height at a continuous position, a stencil 1.5 texels each side: smooth across texel borders.
   vec2 p = v_uv * float(uTex - 1);
-  ivec2 t = ivec2(floor(p));
-  vec2 f = fract(p);
   float texel = uSpan / float(uTex - 1);
-  vec3 n = normalize(mix(
-    mix(nAt(t, texel), nAt(t + ivec2(1, 0), texel), f.x),
-    mix(nAt(t + ivec2(0, 1), texel), nAt(t + ivec2(1, 1), texel), f.x), f.y));
+  float dx = hBil(p + vec2(1.5, 0.0)) - hBil(p - vec2(1.5, 0.0));
+  float dz = hBil(p + vec2(0.0, 1.5)) - hBil(p - vec2(0.0, 1.5));
+  vec3 n = normalize(vec3(-dx, 3.0 * texel, -dz));
+  vec3 tw = pow(abs(n), vec3(4.0));
+  tw /= tw.x + tw.y + tw.z;
+  vec2 qx = v_world.zy, qy = v_world.xz, qz = v_world.xy;
   // Procedural albedo, no texture reads; the same arithmetic as terrainAlbedo.albedoAt().
-  float w = sin(v_world.x * 0.043 + v_world.z * 0.017) * sin(v_world.z * 0.051 - v_world.x * 0.023);
+  float w = tw.x * wob2(qx) + tw.y * wob2(qy) + tw.z * wob2(qz);
   float h = v_world.y + ALB_WOBBLE_H * w;
   float flat_ = n.y + ALB_WOBBLE_S * w;
   vec3 ground = mix(uSoil, uScree, smoothstep(ALB_SCREE_FROM, ALB_SCREE_TO, h));
@@ -169,15 +175,14 @@ void main() {
   float rockW = 1.0 - smoothstep(ALB_ROCK_LO, ALB_ROCK_HI, flat_);
   vec3 albedo = mix(mix(ground, uSnow, snow), uRock, rockW);
   // Surface grain and rock strata, the same arithmetic as terrainAlbedo.grainAt().
-  vec2 q = v_world.xz;
-  float coarse = (sin(dot(q, vec2(0.31, 0.27))) + sin(dot(q, vec2(-0.22, 0.35))) + sin(dot(q, vec2(0.38, -0.12)))) / 3.0;
-  float fine = (sin(dot(q, vec2(1.1, 0.7))) + sin(dot(q, vec2(-0.8, 1.2))) + sin(dot(q, vec2(1.3, -0.6)))) / 3.0;
+  float coarse = tw.x * waves3(qx, vec2(0.31, 0.27), vec2(-0.22, 0.35), vec2(0.38, -0.12)) + tw.y * waves3(qy, vec2(0.31, 0.27), vec2(-0.22, 0.35), vec2(0.38, -0.12)) + tw.z * waves3(qz, vec2(0.31, 0.27), vec2(-0.22, 0.35), vec2(0.38, -0.12));
+  float fine = tw.x * waves3(qx, vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6)) + tw.y * waves3(qy, vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6)) + tw.z * waves3(qz, vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6));
   float near = 1.0 - smoothstep(ALB_FINE_NEAR, ALB_FINE_FAR, length(v_world - uCamera));
   float layers = sin(v_world.y * 0.9 + w * 3.0);
   albedo *= max(0.0, 1.0 + ALB_GRAIN_COARSE * coarse + ALB_GRAIN_FINE * near * fine + ALB_STRATA * rockW * layers);
   // Cavity: a point lower than its surroundings sits in shade, one higher catches light. Shader-only, from the height map.
   int r = max(1, int(12.0 / texel));
-  ivec2 c = ivec2(p + 0.5);
+  ivec2 c = ivec2(floor(p + 0.5));
   float curv = 0.25 * (hAt(c + ivec2(r, 0)) + hAt(c - ivec2(r, 0)) + hAt(c + ivec2(0, r)) + hAt(c - ivec2(0, r))) - hAt(c);
   float cavity = 1.0 - 0.55 * clamp(curv / 12.0, 0.0, 1.0) + 0.3 * clamp(-curv / 12.0, 0.0, 1.0);
   vec3 lit = albedo * cavity * (uLight * max(dot(n, uLightDir), 0.0) + uAmbient * (0.5 + 0.5 * n.y));

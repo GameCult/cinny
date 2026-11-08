@@ -79,19 +79,36 @@ export function albedoPalette(d: SkyData): AlbedoPalette {
   };
 }
 
-/** Cheap two-sine value in -1..1 from world position; stands in for noise so no texture or hash is read. */
+/** Cheap two-sine value in -1..1 from a 2D world position; stands in for noise so no texture or hash is read. */
 export const wobble = (x: number, z: number): number =>
   Math.sin(x * 0.043 + z * 0.017) * Math.sin(z * 0.051 - x * 0.023);
 
 /**
- * Linear albedo at a surface point. `height` in metres, `ny` the unit normal's y, `x`/`z` world metres.
+ * How much each axis-aligned projection plane counts at a surface with unit normal `n`: weights for (yz, xz, xy), summing
+ * to 1, sharply favouring the plane the face looks along. Procedural patterns are evaluated on all three and blended by
+ * these (triplanar), so a cliff is not the floor pattern smeared down it.
+ */
+export function triWeights(n: Vec3): Vec3 {
+  const w = n.map((c) => Math.abs(c) ** 4);
+  const sum = w[0] + w[1] + w[2] || 1;
+  return [w[0] / sum, w[1] / sum, w[2] / sum];
+}
+
+/** `wobble` blended over the three projection planes, at a surface point with unit normal `n`. */
+export function wobbleAt(x: number, y: number, z: number, n: Vec3): number {
+  const w = triWeights(n);
+  return w[0] * wobble(z, y) + w[1] * wobble(x, z) + w[2] * wobble(x, y);
+}
+
+/**
+ * Linear albedo at a surface point. `y` the height in metres, `n` the unit normal, `x`/`z` world metres.
  * Rock takes the steep faces at any height; on the rest, soil to scree by height, then snow above the snow
  * line, thinning to nothing as the face steepens.
  */
-export function albedoAt(p: AlbedoPalette, height: number, ny: number, x: number, z: number): Vec3 {
-  const w = wobble(x, z);
-  const h = height + ALBEDO.wobbleHeight * w;
-  const flat = ny + ALBEDO.wobbleSlope * w;
+export function albedoAt(p: AlbedoPalette, y: number, n: Vec3, x: number, z: number): Vec3 {
+  const w = wobbleAt(x, y, z, n);
+  const h = y + ALBEDO.wobbleHeight * w;
+  const flat = n[1] + ALBEDO.wobbleSlope * w;
   const ground = (i: number) =>
     mix(p.soil[i], p.scree[i], smooth(ALBEDO.screeFrom, ALBEDO.screeTo, h));
   const snow =
@@ -103,33 +120,39 @@ export function albedoAt(p: AlbedoPalette, height: number, ny: number, x: number
   ) as unknown as Vec3;
 }
 
+const COARSE = [
+  [0.31, 0.27],
+  [-0.22, 0.35],
+  [0.38, -0.12],
+] as const;
+const FINE = [
+  [1.1, 0.7],
+  [-0.8, 1.2],
+  [1.3, -0.6],
+] as const;
+const waves = (k: ReadonlyArray<readonly [number, number]>, a: number, b: number) =>
+  k.reduce((sum, [ka, kb]) => sum + Math.sin(a * ka + b * kb), 0) / 3;
+
 /**
- * The multiplier on albedo that gives the surface grain and the rock its layers, from world position (metres),
- * height, `rock` (0..1, how much of the face is rock) and the distance from the eye. The shader's `ALB_GRAIN_*` block does the same arithmetic.
- * The cavity term beside it in the shader reads the height map and has no twin here.
+ * The multiplier on albedo that gives the surface grain and the rock its layers, at a surface point (metres) with unit
+ * normal `n`, `rock` (0..1, how much of the face is rock) and the distance from the eye. Grain is triplanar like the
+ * wobble. The shader's `ALB_GRAIN_*` block does the same arithmetic. The cavity term beside it in the shader reads the
+ * height map and has no twin here.
  */
 export function grainAt(
   x: number,
+  y: number,
   z: number,
-  height: number,
+  n: Vec3,
   rock: number,
   distance: number
 ): number {
-  const waves = (k: ReadonlyArray<readonly [number, number]>) =>
-    k.reduce((sum, [kx, kz]) => sum + Math.sin(x * kx + z * kz), 0) / 3;
-  const coarse = waves([
-    [0.31, 0.27],
-    [-0.22, 0.35],
-    [0.38, -0.12],
-  ]);
-  const fine =
-    waves([
-      [1.1, 0.7],
-      [-0.8, 1.2],
-      [1.3, -0.6],
-    ]) *
-    (1 - smooth(ALBEDO.fineNear, ALBEDO.fineFar, distance));
-  const layers = Math.sin(height * 0.9 + wobble(x, z) * 3);
+  const w = triWeights(n);
+  const over = (k: ReadonlyArray<readonly [number, number]>) =>
+    w[0] * waves(k, z, y) + w[1] * waves(k, x, z) + w[2] * waves(k, x, y);
+  const coarse = over(COARSE);
+  const fine = over(FINE) * (1 - smooth(ALBEDO.fineNear, ALBEDO.fineFar, distance));
+  const layers = Math.sin(y * 0.9 + wobbleAt(x, y, z, n) * 3);
   return Math.max(
     0,
     1 + ALBEDO.grainCoarse * coarse + ALBEDO.grainFine * fine + ALBEDO.strata * rock * layers
