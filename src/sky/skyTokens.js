@@ -1,7 +1,8 @@
 // Midnight Sky and Noonday Sky: theme tokens as albedo x irradiance.
 // Dependency-free apart from sun.js, so scripts/bake-sky.mjs and the tests run it under plain node.
 //
-//   bakeSky('midnight' | 'noonday') -> { moment, elevation, gradient: [hex x GRADIENT_STOPS], tokens }
+//   bakeSky('midnight' | 'noonday') -> { moment, elevation, sun, ambient_linear, horizon_hex,
+//                                        gradient: [hex x GRADIENT_STOPS], tokens, ... }
 //
 // The sky is lit by sun.js at a fixed moment (clear weather: a build-time bake has no feed).
 // A surface is `albedo * irradiance`, where irradiance is the sun and sky on an upward-facing
@@ -23,6 +24,11 @@ export const MOMENTS = {
   noonday: { time: '2026-09-22T12:00:00Z', lat: 45, lon: 0 },
   midnight: { time: '2026-09-22T00:00:00Z', lat: 45, lon: 0 },
 };
+
+// Lowest ambient a baked sky reports, linear RGB. sun.js's night sky is ~0.004, which is
+// starlight-true but too dark to see by on a screen; this lifts it to a bluish moonlit-skyglow
+// level. Daylight ambient is far above it, so the floor only ever touches the night.
+export const AMBIENT_FLOOR = [0.018, 0.024, 0.04];
 
 // Linear-RGB albedos of the things Yggdrasil is made of. EYEBALLED around measured ranges
 // (dark bark 0.05-0.1, birch bark ~0.6, leaves ~0.05 red/0.15 green/0.03 blue, wet soil ~0.1).
@@ -193,6 +199,11 @@ export function bakeSky(name) {
   return {
     moment,
     elevation: l.elevation,
+    // Sun for consumers that light a scene themselves: direction in degrees (azimuth clockwise
+    // from north) and the direct light's colour at normal incidence (black while it is below the horizon).
+    sun: { elevation_deg: l.elevation, azimuth_deg: l.azimuth, color_linear: l.direct },
+    ambient_linear: l.diffuse.map((v, i) => Math.max(v, AMBIENT_FLOOR[i])),
+    horizon_hex: gradient[GRADIENT_STOPS - 1], // last stop: the horizon end of the gradient
     gradient,
     tokens,
     bubbles,

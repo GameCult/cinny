@@ -1,6 +1,7 @@
 import type { Scene, SceneOptions } from '../Scene';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
+import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import {
   LAYERS,
   LayerSpec,
@@ -130,7 +131,12 @@ function paintLayer(
 interface Built {
   layers: HTMLCanvasElement[];
   anims: Animation[];
+  /** The twinkling stars' own canvas, between the sky and the ridges; absent in a day sky and in 'still'. */
+  twinkle?: HTMLCanvasElement;
 }
+
+/** The twinkle overlay redraws at most this often: the swings are 2 to 7 s, no need for 60 fps. */
+const TWINKLE_FRAME_MS = 50;
 
 /**
  * The ridge scene: same contract as `createScene` ({ login, dispose }, null for "keep the CSS
@@ -149,6 +155,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   let built: Built | undefined;
+  let field: Star[] = [];
+  let twRaf = 0;
+  let twLast = 0;
   let still = tier === 'still';
   let disposed = false;
   let raf = 0;
@@ -165,6 +174,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   const teardownLayers = () => {
     built?.anims.forEach((a) => a.cancel());
     built?.layers.forEach((l) => l.remove());
+    built?.twinkle?.remove();
+    cancelAnimationFrame(twRaf);
+    twRaf = 0;
     built = undefined;
   };
 
@@ -177,10 +189,33 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     canvas.height = Math.round(h * scale);
     if (!paintSky(canvas, sky)) return false;
     const layers: HTMLCanvasElement[] = [];
+    // Every star is baked into the sky; the twinkling ones get their own canvas, which a per-frame
+    // pass clears and paints over. 'still' has no overlay.
+    const stars = makeStars(sky, w, h);
+    const skyCtx = context2d(canvas);
+    if (skyCtx) drawStars(skyCtx, stars, canvas.width, canvas.height, scale);
+    let twinkle: HTMLCanvasElement | undefined;
+    if (stars.length && tier !== 'still') {
+      twinkle = document.createElement('canvas');
+      twinkle.width = canvas.width;
+      twinkle.height = canvas.height;
+      twinkle.setAttribute('aria-hidden', 'true');
+      Object.assign(twinkle.style, {
+        position: 'absolute',
+        left: '0',
+        top: '0',
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+      });
+      parent.appendChild(twinkle);
+    }
+    field = stars;
     for (const spec of LAYERS) {
       const el = paintLayer(spec, sky, size, canvas.height, scale);
       if (!el) {
         layers.forEach((l) => l.remove());
+        twinkle?.remove();
         return false;
       }
       el.setAttribute('aria-hidden', 'true');
@@ -208,7 +243,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         )
       )
       .filter((a): a is Animation => !!a);
-    built = { layers, anims };
+    built = { layers, anims, twinkle };
     syncPlayState();
     return true;
   };
@@ -219,8 +254,37 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     !(reducedMotion?.matches ?? false) &&
     document.visibilityState === 'visible';
 
+  /** Paint the overlay at t seconds (stars away from base), or just clear it with no t (all at base). */
+  const drawTwinkle = (t?: number) => {
+    const el = built?.twinkle;
+    const ctx = el && context2d(el);
+    if (!el || !ctx) return;
+    const active = t === undefined ? [] : activeAt(field.length, t);
+    paintTwinkle(ctx, field, active, el.width, el.height, viewSize().scale);
+  };
+
+  // The same guard as the drift: not still, not disposed, not reduced motion, tab visible. Not moving
+  // stops the loop and leaves the stars steady at base brightness.
+  const twTick = (now: number) => {
+    twRaf = 0;
+    if (!moving() || !built?.twinkle) return;
+    if (now - twLast >= TWINKLE_FRAME_MS) {
+      twLast = now;
+      drawTwinkle(now / 1000);
+    }
+    twRaf = requestAnimationFrame(twTick);
+  };
+
   function syncPlayState() {
     built?.anims.forEach((a) => (moving() ? a.play() : a.pause()));
+    if (!built?.twinkle) return;
+    if (moving()) {
+      if (!twRaf) twRaf = requestAnimationFrame(twTick);
+    } else {
+      cancelAnimationFrame(twRaf);
+      twRaf = 0;
+      drawTwinkle();
+    }
   }
 
   /** Flatten the sky and layers into the host canvas and drop the layers: a still image, no compositor layers left. */

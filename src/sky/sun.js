@@ -2,13 +2,14 @@
 // no imports, so a build-time token script and a runtime shader can share it.
 //
 //   light({ time, lat, lon, cloud_cover = 0, precipitation = 0 })
-//     -> { elevation, direct: [r,g,b], diffuse: [r,g,b], wetness }
+//     -> { elevation, azimuth, direct: [r,g,b], diffuse: [r,g,b], wetness }
 //
 //   time           Date, epoch milliseconds, or an ISO string (read as UTC)
 //   lat, lon       degrees, north and east positive
 //   cloud_cover    0..1 (Open-Meteo reports percent: divide by 100)
 //   precipitation  mm/h
 //   elevation      degrees above the horizon, no refraction
+//   azimuth        degrees clockwise from north (0 N, 90 E, 180 S), 0..360, no refraction
 //   direct         sun colour at normal incidence, linear RGB. Clear zenith sun ~ 1.
 //                  The consumer multiplies by max(0, dot(normal, toSun)).
 //   diffuse        sky ambient on an upward surface, linear RGB
@@ -28,8 +29,8 @@ const mix = (a, b, t) => a + (b - a) * t;
 
 const toMs = (time) => (time instanceof Date ? time.getTime() : typeof time === 'string' ? Date.parse(time) : Number(time));
 
-/** Sun elevation in degrees at a UTC moment and place. */
-export function sunElevation(time, lat, lon) {
+/** Sun elevation and azimuth in degrees at a UTC moment and place. Azimuth runs clockwise from north. */
+export function sunPosition(time, lat, lon) {
   const d = toMs(time) / 86400000 - 10957.5; // days since J2000.0 (2000-01-01 12:00 UTC)
   const L = (280.46 + 0.9856474 * d) * RAD; // mean longitude
   const g = (357.528 + 0.9856003 * d) * RAD; // mean anomaly
@@ -41,13 +42,22 @@ export function sunElevation(time, lat, lon) {
   const hourAngle = gmst + lon * RAD - ra;
   const phi = lat * RAD;
   const sinEl = Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(hourAngle);
-  return Math.asin(clamp(sinEl, -1, 1)) / RAD;
+  // Hour angle is westward-positive, so atan2 gives azimuth from south, westward; +180 turns it into
+  // clockwise from north.
+  const south = Math.atan2(Math.sin(hourAngle), Math.cos(hourAngle) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
+  return {
+    elevation: Math.asin(clamp(sinEl, -1, 1)) / RAD,
+    azimuth: (((south / RAD + 180) % 360) + 360) % 360,
+  };
 }
+
+/** Sun elevation in degrees at a UTC moment and place. */
+export const sunElevation = (time, lat, lon) => sunPosition(time, lat, lon).elevation;
 
 // Optical depth of the clear atmosphere at the zenith, per channel (R, G, B).
 // Rayleigh at 650/550/450 nm plus a little ozone and haze (EYEBALLED to keep
 // low sun orange rather than brown).
-const TAU = [0.06, 0.12, 0.26];
+export const TAU = [0.06, 0.12, 0.26];
 
 // Relative air mass, Kasten & Young 1989. Elevation in degrees, >= 0.
 const airMass = (el) => 1 / (Math.sin(el * RAD) + 0.50572 * Math.pow(el + 6.07995, -1.6364));
@@ -62,7 +72,7 @@ const GREY_TINT = [0.95, 1, 1.08]; // cool overcast. EYEBALLED
 const luma = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
 export function light({ time, lat, lon, cloud_cover = 0, precipitation = 0 }) {
-  const elevation = sunElevation(time, lat, lon);
+  const { elevation, azimuth } = sunPosition(time, lat, lon);
   const cloud = clamp(cloud_cover, 0, 1);
   const rain = Math.max(0, precipitation);
 
@@ -95,5 +105,5 @@ export function light({ time, lat, lon, cloud_cover = 0, precipitation = 0 }) {
   // 0 dry, ~0.63 at 1 mm/h, ~0.98 at 4 mm/h. EYEBALLED.
   const wetness = 1 - Math.exp(-rain);
 
-  return { elevation, direct, diffuse, wetness };
+  return { elevation, azimuth, direct, diffuse, wetness };
 }
