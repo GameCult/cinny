@@ -171,6 +171,9 @@ export type UploadTrace = {
   aborts?: AbortCall[];
   /** What the owning component did since the upload attached. */
   lifecycle?: string;
+  /** Upload XHR events and end state, and whether our own signal was aborted. */
+  xhr?: string;
+  signalAborted?: boolean;
 };
 
 const MAX_FRAMES = 6;
@@ -212,15 +215,29 @@ export const describeComponentLifecycle = (life: ComponentLifecycle): string => 
   return `component: ${since.length} renders since attach (${quick} within 300ms), ${unmount}`;
 };
 
-const collectors = new Set<AbortCall[]>();
+export type XhrRecord = {
+  xhr: XMLHttpRequest;
+  method: string;
+  path: string;
+  startedAt: number;
+  events: string[];
+};
+
+type Probe = { calls: AbortCall[]; xhrs: XhrRecord[] };
+
+const probes = new Set<Probe>();
 let restoreProbe: (() => void) | undefined;
+const xhrTargets = new WeakMap<object, { method: string; path: string }>();
+
+const XHR_EVENTS = ['loadstart', 'error', 'abort', 'timeout', 'load', 'loadend'];
+const MAX_XHR_EVENTS = 12;
 
 /* eslint-disable no-param-reassign */
 const patchAbort = (proto: { abort: (...a: any[]) => any }, api: string) => {
   const original = proto.abort;
   const wrapper = function abortProbe(this: unknown, ...args: any[]) {
     const frames = formatAbortStack(new Error().stack ?? '');
-    collectors.forEach((calls) => {
+    probes.forEach(({ calls }) => {
       if (calls.length < MAX_ABORT_CALLS) calls.push({ api, frames });
     });
     return original.apply(this, args);
@@ -230,30 +247,87 @@ const patchAbort = (proto: { abort: (...a: any[]) => any }, api: string) => {
     if (proto.abort === wrapper) proto.abort = original;
   };
 };
+
+// Upload XHRs only; the path is kept and the query (it holds the access token) is dropped.
+const patchXhr = (proto: XMLHttpRequest) => {
+  const { open, send } = proto;
+  const openWrapper = function openProbe(this: XMLHttpRequest, ...args: any[]) {
+    try {
+      const url = new URL(String(args[1]), 'http://x');
+      if (url.pathname.includes('/upload')) {
+        xhrTargets.set(this, { method: String(args[0]).toUpperCase(), path: url.pathname });
+      }
+    } catch {
+      // not a URL we can read; the request is not recorded
+    }
+    return (open as any).apply(this, args);
+  };
+  const sendWrapper = function sendProbe(this: XMLHttpRequest, ...args: any[]) {
+    const target = xhrTargets.get(this);
+    if (target && probes.size > 0) {
+      const startedAt = Date.now();
+      const events: string[] = [];
+      const note = (name: string) => () => {
+        if (events.length < MAX_XHR_EVENTS) events.push(`${name} +${Date.now() - startedAt}ms`);
+      };
+      XHR_EVENTS.forEach((ev) => this.addEventListener(ev, note(ev)));
+      XHR_EVENTS.forEach((ev) => this.upload?.addEventListener(ev, note(`upload.${ev}`)));
+      this.upload?.addEventListener(
+        'progress',
+        (() => {
+          let first = true;
+          return () => {
+            if (first) note('upload.progress')();
+            first = false;
+          };
+        })()
+      );
+      const record: XhrRecord = { xhr: this, ...target, startedAt, events };
+      probes.forEach((probe) => probe.xhrs.push(record));
+    }
+    return (send as any).apply(this, args);
+  };
+  (proto as any).open = openWrapper;
+  (proto as any).send = sendWrapper;
+  return () => {
+    if ((proto as any).open === openWrapper) (proto as any).open = open;
+    if ((proto as any).send === sendWrapper) (proto as any).send = send;
+  };
+};
 /* eslint-enable no-param-reassign */
 
+const describeXhr = (r: XhrRecord): string =>
+  `${r.method} ${r.path} readyState ${r.xhr.readyState} status ${
+    r.xhr.status
+  } events [${r.events.join(', ')}]`;
+
 /**
- * Records every XMLHttpRequest.abort and AbortController.abort the page makes until stopped. The
- * prototypes are wrapped while at least one probe runs and restored when the last one stops.
+ * Records, until stopped, every XMLHttpRequest.abort and AbortController.abort the page makes and
+ * the lifecycle events and end state of upload XHRs. The prototypes are wrapped while at least one
+ * probe runs and restored when the last one stops; the wrappers change no behaviour.
  */
 export const startAbortProbe = () => {
-  const calls: AbortCall[] = [];
-  if (collectors.size === 0) {
+  const probe: Probe = { calls: [], xhrs: [] };
+  if (probes.size === 0) {
     const restores: (() => void)[] = [];
     if (typeof XMLHttpRequest !== 'undefined') {
       restores.push(patchAbort(XMLHttpRequest.prototype, 'XHR.abort'));
+      restores.push(patchXhr(XMLHttpRequest.prototype));
     }
     if (typeof AbortController !== 'undefined') {
       restores.push(patchAbort(AbortController.prototype, 'AbortController.abort'));
     }
     restoreProbe = () => restores.forEach((r) => r());
   }
-  collectors.add(calls);
+  probes.add(probe);
   return {
-    calls,
+    calls: probe.calls,
+    xhrs: probe.xhrs,
+    describeXhrs: () =>
+      probe.xhrs.length === 0 ? 'xhr: none seen' : `xhr: ${probe.xhrs.map(describeXhr).join('; ')}`,
     stop: () => {
-      collectors.delete(calls);
-      if (collectors.size === 0) {
+      probes.delete(probe);
+      if (probes.size === 0) {
         restoreProbe?.();
         restoreProbe = undefined;
       }
@@ -312,6 +386,8 @@ export const uploadFailure = async (
           : `abort calls: ${trace.aborts.map((a) => `${a.api} ${a.frames}`).join('; ')}`
       );
     }
+    if (trace.xhr) parts.push(trace.xhr);
+    if (trace.signalAborted !== undefined) parts.push(`signal.aborted ${trace.signalAborted}`);
     if (trace.lifecycle) parts.push(trace.lifecycle);
     if (trace.previous) parts.push(`retried (attempt 1: ${trace.previous})`);
   }
@@ -325,6 +401,13 @@ export const uploadFailure = async (
 // a reused connection before a byte left, and the failed attempt discards that connection. Nothing
 // here has shown that is the cause; the failure text records both attempts so it can be checked.
 const RETRY_WINDOW_MS = 3000;
+
+const copyInMemory = async (file: TUploadContent): Promise<TUploadContent> => {
+  const bytes = await file.arrayBuffer();
+  return typeof File !== 'undefined' && file instanceof File
+    ? new File([bytes], file.name, { type: file.type, lastModified: file.lastModified })
+    : new Blob([bytes], { type: file.type });
+};
 
 export const uploadContent = async (
   mx: MatrixClient,
@@ -344,11 +427,29 @@ export const uploadContent = async (
 
   let previous: string | undefined;
   for (let attempt = 1; ; attempt += 1) {
+    // The browser may hold a picked file as a handle it cannot always re-read (e.g. content://), so
+    // each attempt uploads a copy held in memory; a file that cannot be read fails here, named.
+    let body: TUploadContent;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      body = await copyInMemory(file);
+    } catch (readErr: any) {
+      const errcode = readErr?.name || 'Error';
+      onError(
+        new MatrixError({
+          error: `Upload failed: file unreadable before upload (${errcode}) (${file.size} bytes, ${
+            file.type || 'unknown type'
+          })`,
+          errcode,
+        })
+      );
+      return;
+    }
     const probe = startAbortProbe();
     const trace: UploadTrace = { startedAt: Date.now(), previous, aborts: probe.calls };
     const abortController = new AbortController();
     try {
-      const uploadPromise = mx.uploadContent(file, {
+      const uploadPromise = mx.uploadContent(body, {
         name,
         type: fileType,
         includeFilename: !hideFilename,
@@ -370,6 +471,8 @@ export const uploadContent = async (
         return;
       } catch (e: any) {
         const elapsed = Date.now() - trace.startedAt;
+        trace.xhr = probe.describeXhrs();
+        trace.signalAborted = abortController.signal.aborted;
         const retry =
           attempt === 1 &&
           e?.name === 'AbortError' &&
@@ -386,7 +489,7 @@ export const uploadContent = async (
           trace.aborts?.length
             ? `abort calls: ${trace.aborts.map((a) => `${a.api} ${a.frames}`).join('; ')}`
             : 'abort calls: none'
-        }`;
+        }, ${trace.xhr}`;
       }
     } finally {
       probe.stop();
