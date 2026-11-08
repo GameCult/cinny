@@ -23,19 +23,37 @@ First use (Aqua): listen to audio in place, mark each clip keep / fix / drop wit
 A mark is a **thread reply to the file it judges**, so it lives in the same thread, is readable in any client, and needs no custom event type:
 
 - `m.room.message`, `msgtype` `m.text`, `body` = `keep: <reason>` (or `fix:` / `drop:`), `m.relates_to` = `{ rel_type: "m.thread", event_id: <album root>, "m.in_reply_to": { event_id: <file event> } }`.
-- Plus one structured key for the zone to read without parsing prose: `org.gamecult.mark: { verdict: "keep"|"fix"|"drop", reason: "<one line>", target: <file event id> }`. Unknown keys survive servers and are ignored by other clients; the `body` is the fallback if the key is stripped or absent. **UNKNOWN:** whether to also parse a bare `keep: ...` reply from a client that cannot send the key; recommend yes, as a tolerant reader of `body`.
+- Plus one structured key for the zone to read without parsing prose: `org.gamecult.mark: { clip: "<clip id>", verdict: "keep"|"fix"|"drop", reason: "<one line>", landed: 1-5|null, device: "headphones"|"speakers"|null, target: <file event id> }`. `clip` is the kit's clip id (see Export); `landed` (how well the sound met its intended feel) and `device` are optional and null when unanswered. The `body` stays `verdict: reason` for other clients. Unknown keys survive servers and are ignored by other clients; the `body` is the fallback if the key is stripped or absent. **UNKNOWN:** whether to also parse a bare `keep: ...` reply from a client that cannot send the key; recommend yes, as a tolerant reader of `body`.
 - Latest mark by a given sender on a given file wins; changing a mark is a new reply (or an `m.replace` of the old one; prefer replace so the thread does not grow). The zone shows the latest per sender, and everyone's marks are visible on the file.
 - **Why replies and not `m.annotation`**: an annotation key is a short string with no room for the reason line, and stock clients show reactions as chips with no text. Annotations stay available for a lightweight unreasoned ack, if wanted (**UNKNOWN**, not recommended in v1).
 - **Local marks**: the client keeps an unsent mark draft in IndexedDB so playback and marking stay instant and survive a dropped connection; "send" publishes the reply. Marks are visible to the room once sent (the room is the shared store). **UNKNOWN:** whether Aqua wants a "private until I export" mode; if so it is local-only and the draft never publishes.
 
 ## Export
 
-Client-side only. "Export marks" builds a file from the mark replies in one album (the viewer's own, or everyone's) and either downloads it or uploads it into the album as another file:
+Client-side only. "Export" builds Aqua's verdict file from the mark replies in one album (one listener's marks per export; the sender is the `listener`) and either downloads it or uploads it into the album. Two files, as the kits write them: `verdict.json` and `verdict.md`.
 
-- `verdict.json`: `{ album, exported_at, marks: [{ file, sha256?, name, verdict, reason, by }] }`
-- `verdict.md`: human table of the same.
+`verdict.json` is schema **`aqua.listen.verdict.v1`**, field for field what `buildVerdict` in the kit (`dings/listen.html`, section `buildVerdict`) emits, so Aqua's tooling reads it unchanged:
 
-Matches the shape the `aqua-listen` kits already emit (`verdict.json` + `verdict.md`), so downstream tooling does not change. **UNKNOWN:** exact field names of the kits' `verdict.json`; read `tools/aqua-listen` in GameCult/AquaSynth (PR #16) before fixing the schema. Per ruling hygiene, JSON here is a xenos-boundary export, not state.
+```
+{ schema: "aqua.listen.verdict.v1",
+  kit: { id, title },            // album root: id = root event id (or the kit id if the upload carried one), title = root body
+  exportedAt,                    // ISO time of export
+  seed, consent,                 // kit-only: zone writes seed: 0 (or omits), consent: true for the sender's own export (see UNKNOWN)
+  listener,                      // sender display name
+  device,                        // headphones|speakers|null, the sender's most-used mark device, or null
+  notes,                         // free text; zone leaves "" in v1
+  summary: { total, keep, fix, drop, unanswered },
+  clips: [{ position, id, title, group, feel, file, pair, slot, verdict, reason, landed, device }],
+  pairs: [{ a, b, preferred }] } // empty array when the album has no pairs
+```
+
+- `clips` has one row per file post in the album, in thread order (`position` = 1-based). `verdict` null and `reason` "" where the sender left no mark; those count as `unanswered`. `landed` is 1-5 or null; `device` is `headphones`, `speakers` or null (a mark's own value; per-clip, not the file-level `device`).
+- `pairs`, `seed`, `consent` are optional for the zone: `pairs: []`, no `slot`/`pair` (null) unless the clip metadata supplies them.
+- **Where clip metadata comes from.** A mark gets `id`, `verdict`, `reason`, `landed`, `device` from the reply. `title` = file post `body`; `file` = the post's `filename`/`body`. `group`, `feel`, `pair`, `slot` are kit data that Matrix has no slot for: carry them on the file post as one extra key `org.gamecult.clip: { id, group, feel, pair, slot }` written by whoever uploads the kit (a small uploader script, **UNKNOWN**, not in the first slice; without it those columns export as ""/null and the id falls back to the filename stem).
+- `verdict.md` follows `verdictMarkdown` from the same file: header line, count line, the clip table (`# | clip | group | intended feel | verdict | landed (1-5) | device | reason`), pairs table when `pairs` is nonempty, notes.
+- To avoid drift, the exporter should be a port of `buildVerdict`/`verdictMarkdown` with the schema string and field order pinned by a test that compares against a fixture produced by the kit. **UNKNOWN:** whether to share code (the kit's `logic.cjs`) rather than port; recommend port, ~80 lines, because the kit is a standalone page.
+- **UNKNOWN:** `consent` is a kit-side checkbox before listening. The zone has no such step; recommend writing `true` only if the sender ticks a one-time "include my name in exports" toggle, else `false` and `listener: ""`.
+- JSON here is a xenos-boundary export, not state; the room events are the state.
 
 ## Mobile-first layout
 
@@ -74,7 +92,7 @@ Nothing named "gallery" exists as a feature; `AudioContent` takes its controls a
 Rough lines of TypeScript, tests excluded.
 
 1. **Read-only albums + album view** (~250 lines): list the room's thread roots as albums (grouped or filterable by author = Mind), open one to list its file posts, rehost `AudioContent` and `ImageContent`. One route/panel plus a header entry. Depends on the thread list the SDK already keeps.
-2. **Marks + export** (~220 lines): three buttons and a reason field per audio row, sent as the thread reply above (with an IndexedDB draft), latest-per-sender merge on read, `verdict.json`/`verdict.md` download. This is Aqua's workflow end to end.
+2. **Marks + export** (~260 lines, with the schema port): three buttons, a landed 1-5 chip row, a headphones/speakers toggle and a reason field per audio row, sent as the thread reply above (with an IndexedDB draft), latest-per-sender merge on read, `verdict.json`/`verdict.md` download. This is Aqua's workflow end to end.
 3. **Upload into an album** (~150 lines): thread-related send through the existing upload atoms, "new album".
 
 Slices 1+2 serve the first use case. Each is its own PR. Because marks are ordinary thread replies, there is no separate "publish" slice.
