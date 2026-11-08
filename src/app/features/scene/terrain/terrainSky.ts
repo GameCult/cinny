@@ -2,6 +2,7 @@
 // bake, GameCult/Void PR #22). No DOM, no GL. The fragment shaders do the same arithmetic with these results as uniforms.
 import { baked } from '../../../../sky/baked';
 import { isNight } from '../ridge/stars';
+import { skyColours } from '../ridge/skyColour';
 import type { SkyColours } from '../ridge/skyColour';
 import { HORIZON_FLOOR, scatterRadiance, transmittanceAt } from './terrainScatter';
 
@@ -148,4 +149,21 @@ export function shade(d: SkyData, albedo: Vec3, normal: Vec3, distance: number, 
     const lit = albedo[i] * (d.direct[i] * lambert + d.ambient[i] * Math.max(0, hemi));
     return lit * t + haze[i] * (1 - t);
   }) as unknown as Vec3;
+}
+
+/** The sky to use: a sun elevation from the option or `?sun=` (with `?az=`), else the baked sky from the option, then `?sky=midnight|noonday`, then the night notion of `skyColours()`. */
+export function chooseSky(opts: {
+  sky?: SkyName;
+  sun?: { elevation: number; azimuth?: number };
+}): SkyData {
+  const q = new URLSearchParams(window.location.search);
+  const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
+  const elevation = opts.sun?.elevation ?? number('sun');
+  if (Number.isFinite(elevation)) {
+    const azimuth = opts.sun?.azimuth ?? number('az');
+    return skyAtSun(elevation, Number.isFinite(azimuth) ? azimuth : undefined);
+  }
+  if (opts.sky) return skyData(opts.sky);
+  const name = q.get('sky');
+  return skyData(isSkyName(name) ? name : skyNameFor(skyColours()));
 }

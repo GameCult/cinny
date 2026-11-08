@@ -51,6 +51,11 @@ Page URL: `?sky=midnight|noonday` picks a bake; `?sun=<elevation deg>&az=<deg fr
 (`skyAtSun`: baked transmittance for the sun's colour, ambient and horizon blended from the midnight bake to the noonday one as
 the sun climbs from -8 to 25 degrees). `?sun=` wins over `?sky=`.
 
+Without WebGL2 (`createTerrainScene` returns null) the door mounts `terrain/TerrainSky2D.ts` on the same canvas: the sky alone, painted once on a
+96 px wide 2D canvas from `skyColour` (the CPU twin of `SKY_FRAG`, same `?sky=` `?sun=` `?az=` choice via `chooseSky`), the star layer on
+top when the sky is dark, nothing moving, no sun disc. Below the horizon the image continues in the horizon's colour. A canvas that already
+holds a GL context gives no 2D one, so a GL failure after context creation (compile, framebuffer) still ends in the CSS ground.
+
 - Sky: `1 - exp(-SKY_EXPOSURE * radiance)` plus a night glow (the midnight horizon colour, `nightness` 1 below -4 degrees, 0 above 4), a
   sun disc from the sun's colour, and a +-0.5/255 dither on the 8-bit output. The table is single scattering only (no ground bounce,
   no multiple scattering), so the noon horizon is pale yellow-green and a sun just under the horizon colours the whole sky orange,

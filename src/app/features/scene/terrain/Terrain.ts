@@ -1,20 +1,9 @@
 import type { Scene, SceneOptions } from '../Scene';
 import { FrameSampler, FrameStats } from '../ridge/probe';
-import { skyColours } from '../ridge/skyColour';
 import { albedoPalette } from './terrainAlbedo';
 import { sunIndex } from '../../../../sky/scatter.js';
 import { SKY_VIEW, skyViewWords } from './terrainScatter';
-import {
-  glowColour,
-  HAZE_K,
-  isSkyName,
-  skyAtSun,
-  SkyData,
-  skyData,
-  SkyName,
-  skyNameFor,
-  sunDirection,
-} from './terrainSky';
+import { glowColour, HAZE_K, chooseSky, SkyName, sunDirection } from './terrainSky';
 import { buildGrid, CAMERA, GRID, seedOffset, TERRAIN, triangleCount, view } from './terrainWorld';
 import {
   FULLSCREEN_VERT,
@@ -75,20 +64,6 @@ function program(gl: WebGL2RenderingContext, name: string, vs: string, fs: strin
     throw new ShaderCompileError('vertex', `terrain ${name} link: ${log}`);
   }
   return p;
-}
-
-/** The sky to use: a sun elevation from the option or `?sun=` (with `?az=`), else the baked sky from the option, then `?sky=midnight|noonday`, then the night notion of `skyColours()`. */
-function chooseSky(opts: Pick<TerrainOptions, 'sky' | 'sun'>): SkyData {
-  const q = new URLSearchParams(window.location.search);
-  const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
-  const elevation = opts.sun?.elevation ?? number('sun');
-  if (Number.isFinite(elevation)) {
-    const azimuth = opts.sun?.azimuth ?? number('az');
-    return skyAtSun(elevation, Number.isFinite(azimuth) ? azimuth : undefined);
-  }
-  if (opts.sky) return skyData(opts.sky);
-  const name = q.get('sky');
-  return skyData(isSkyName(name) ? name : skyNameFor(skyColours()));
 }
 
 /**
