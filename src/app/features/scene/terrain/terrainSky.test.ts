@@ -15,6 +15,7 @@ import {
   skyNameFor,
   sunDirection,
   aerialPerspective,
+  SKY_FADE,
   metresToKm,
   groundLight,
   HAZE_K,
@@ -195,7 +196,7 @@ describe('aerial perspective', () => {
   it('opacity grows with distance from nothing at the eye toward the far value, never past 1', () => {
     let prev = along(SKY.noonday, -2, 200, 0).alpha;
     expect(prev).toBe(0);
-    for (const m of [10, 100, 400, 1000, 2000, 2500]) {
+    for (const m of [10, 100, 400, 800, 1000, 1300]) {
       const a = along(SKY.noonday, -2, 200, m).alpha;
       expect(a).toBeGreaterThan(prev);
       expect(a).toBeLessThanOrEqual(1);
@@ -205,34 +206,34 @@ describe('aerial perspective', () => {
 
   it('leaves the near ground its own colour and takes the far ridges', () => {
     expect(along(SKY.noonday, -2, 200, 100).alpha).toBeLessThan(0.15);
-    expect(along(SKY.noonday, -2, 200, 2000).alpha).toBeGreaterThan(0.3);
+    expect(along(SKY.noonday, -2, 200, SKY_FADE[0]).alpha).toBeGreaterThan(0.1);
   });
 
   it('the in-scatter is a function of the baked volume: its colour is bluer than the sun far by day', () => {
-    const far = along(SKY.noonday, -2, 90, 2400).colour;
+    const far = along(SKY.noonday, -2, 90, SKY_FADE[0]).colour;
     expect(far[2]).toBeGreaterThan(far[0]);
   });
 
   it('haze toward a setting sun is brighter than away from it, and red, not blue (the sun is reddened on its way)', () => {
     const dusk = skyAtSun(2, 270);
-    const toward = along(dusk, -1, 270, 2000).colour;
-    const away = along(dusk, -1, 90, 2000).colour;
+    const toward = along(dusk, -1, 270, SKY_FADE[0]).colour;
+    const away = along(dusk, -1, 90, SKY_FADE[0]).colour;
     expect(luma(toward)).toBeGreaterThan(3 * luma(away));
     expect(toward[0]).toBeGreaterThan(toward[2]);
   });
 
   it('night haze is a deep blue floor, not grey: dark, blue over red by a wide margin, brighter than black', () => {
-    const c = along(SKY.midnight, -2, 0, 2400).colour;
-    expect(luma(c)).toBeGreaterThan(0.001);
+    const c = along(SKY.midnight, -2, 0, SKY_FADE[0]).colour;
+    expect(luma(c)).toBeGreaterThan(0.0003);
     expect(luma(c)).toBeLessThan(0.08);
     expect(c[2]).toBeGreaterThan(2.5 * c[0]);
-    expect(luma(along(SKY.noonday, -2, 0, 2400).colour)).toBeGreaterThan(5 * luma(c));
+    expect(luma(along(SKY.noonday, -2, 0, SKY_FADE[0]).colour)).toBeGreaterThan(5 * luma(c));
   });
 
   it('moonlight lights the night haze toward the moon more than away from it', () => {
     const moon = groundLight(SKY.midnight).dir;
-    const toward = aerialPerspective(SKY.midnight, [moon[0], -0.02, moon[2]], 2400).colour;
-    const away = aerialPerspective(SKY.midnight, [-moon[0], -0.02, -moon[2]], 2400).colour;
+    const toward = aerialPerspective(SKY.midnight, [moon[0], -0.02, moon[2]], SKY_FADE[0]).colour;
+    const away = aerialPerspective(SKY.midnight, [-moon[0], -0.02, -moon[2]], SKY_FADE[0]).colour;
     expect(luma(toward)).toBeGreaterThan(luma(away));
   });
 
@@ -240,14 +241,30 @@ describe('aerial perspective', () => {
     const d = SKY.noonday;
     const view = ray(-4, 200);
     const dark = (x: number) => luma(shade(d, [0.02, 0.02, 0.02], UP, x, view));
-    expect(dark(2000)).toBeGreaterThan(dark(100));
+    expect(dark(SKY_FADE[0])).toBeGreaterThan(dark(100));
     const own = (x: number) => 1 - aerialPerspective(d, view, x).alpha;
-    expect(own(2000)).toBeLessThan(0.7 * own(100));
+    expect(own(SKY_FADE[0])).toBeLessThan(0.9 * own(100));
   });
 
   it('is continuous in the sun elevation through dusk: no step between neighbours', () => {
-    const at = (e: number) => luma(along(skyAtSun(e, 270), -1, 270, 2000).colour);
+    const at = (e: number) => luma(along(skyAtSun(e, 270), -1, 270, SKY_FADE[0]).colour);
     for (let e = -12; e < 12; e += 0.5) expect(Math.abs(at(e + 0.5) - at(e))).toBeLessThan(0.45);
+  });
+
+  it('far terrain is the sky: past the fade it is the horizon sky colour in its azimuth, by day, dusk and night, whatever it was', () => {
+    for (const [d, az] of [
+      [SKY.midnight, 0],
+      [skyAtSun(-1, 90), 90],
+      [skyAtSun(2, 270), 200],
+      [SKY.noonday, 120],
+    ] as const) {
+      const view = ray(-0.5, az);
+      const hz = skyColour(d, [view[0], 0, view[2]]);
+      const far = aerialPerspective(d, view, SKY_FADE[1]);
+      expect(far.alpha).toBe(1);
+      for (let i = 0; i < 3; i += 1) expect(far.colour[i]).toBeCloseTo(hz[i], 9);
+      expect(shade(d, [0.5, 0.5, 0.5], UP, SKY_FADE[1] + 500, view)).toEqual(far.colour);
+    }
   });
 
   it('the metres-to-km law is the scene metres times the baked distance scale', () => {

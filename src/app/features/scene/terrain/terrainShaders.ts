@@ -9,7 +9,7 @@ import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
 import { ALBEDO } from './terrainAlbedo';
 import { AERIAL_GLSL, AP_DISTANCE_SCALE, SCATTER_GLSL } from './terrainScatter';
-import { GLOW_ZENITH, MOON_HAZE, SKY_EXPOSURE, STAR_FLOOR } from './terrainSky';
+import { GLOW_ZENITH, MOON_HAZE, SKY_EXPOSURE, SKY_FADE, STAR_FLOOR } from './terrainSky';
 import { TERRAIN } from './terrainWorld';
 
 const HEADER =
@@ -203,7 +203,10 @@ void main() {
   vec3 haze = 1.0 - exp(-${lit(SKY_EXPOSURE)} * L) + uNight * ap.a * vec3(${STAR_FLOOR.map(
   lit
 ).join(', ')});
-  o = vec4(pow(lit * (1.0 - ap.a) + haze, vec3(1.0 / 2.2)), 1.0);
+  // Past SKY_FADE the surface is the sky at the horizon in this ray's azimuth, the colour the sky pass draws there (terrainSky.aerialPerspective).
+  float toSky = smoothstep(${lit(SKY_FADE[0])}, ${lit(SKY_FADE[1])}, dist);
+  vec3 horizon = skyColour(vec3(ray.x, 0.0, ray.z));
+  o = vec4(pow(mix(lit * (1.0 - ap.a) + haze, horizon, toSky), vec3(1.0 / 2.2)), 1.0);
 }`;
 
 // The sky behind: the baked scattering tables by the view ray's elevation and azimuth from the sun, a sun disc, and a

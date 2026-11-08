@@ -149,6 +149,13 @@ export const MOON_HAZE: Vec3 = [0.0004, 0.0007, 0.0018];
 /** Starlight and airglow scattered by the air, added to the in-scatter in proportion to alpha, at full night: a deep blue floor, not grey. EYEBALLED. */
 export const STAR_FLOOR: Vec3 = [0.0006, 0.0012, 0.0045];
 
+/**
+ * Metres from the eye over which the terrain gives itself up to the sky: past the far end a surface is the sky's own
+ * colour at the horizon in its azimuth (`skyColour` flat along the horizon, night glow included), so the patch's rim
+ * meets the sky above and beyond it with no seam. The volume alone is only ~40% opaque by then. EYEBALLED.
+ */
+export const SKY_FADE: readonly [number, number] = [600, 1350];
+
 /** Haze in front of a surface seen along `dir` (unit, eye to surface) `distance` metres away: the colour it adds and the surface's loss. */
 export function aerialPerspective(
   d: SkyData,
@@ -172,10 +179,14 @@ export function aerialPerspective(
     const moon = aerialAt(Math.abs(d.elevation), el, az, km);
     for (let i = 0; i < 3; i += 1) L[i] += MOON_HAZE[i] * night * moon.L[i];
   }
+  const horizon = skyColour(d, [dir[0], 0, dir[2]]);
+  const f = smooth(SKY_FADE[0], SKY_FADE[1], distance);
   const colour = [0, 1, 2].map(
-    (i) => 1 - Math.exp(-SKY_EXPOSURE * L[i]) + STAR_FLOOR[i] * night * day.alpha
+    (i) =>
+      (1 - f) * (1 - Math.exp(-SKY_EXPOSURE * L[i]) + STAR_FLOOR[i] * night * day.alpha) +
+      f * horizon[i]
   ) as unknown as Vec3;
-  return { colour, alpha: day.alpha };
+  return { colour, alpha: (1 - f) * day.alpha + f };
 }
 
 /** Added to the ambient on a dark sky, scaled by `nightness`: the baked night floor is too dark to show any form on a phone. */
