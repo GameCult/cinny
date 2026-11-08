@@ -6,32 +6,31 @@ Source: Meta ruling 2026-10-31, eureka mind `ratatoskr:ruling:file-zone-looks-li
 
 ## What it is
 
-A file-sharing space beside the room timeline, not a view of it. A room's files appear as **albums**: a browsable grid or list with title, item count and date, opening into the files, with inline players and previews. The Matrix room (and its threads) is the storage and the fallback: other clients see ordinary messages and threads, and never need to know the zone exists. No homeserver change.
+A file-sharing space beside the room timeline, not a view of it. The zone is **one ordinary Matrix room with threaded discussions, one thread per Mind**. The UI presents each thread as an **album** (title, item count, date) and each post in it as a **file** with an inline player or preview. Matrix is the storage and the fallback: another client sees a normal room with threads and never needs the zone. No homeserver change.
 
-First use (Aqua): listen to audio in place, mark each clip keep / fix / drop with a one-line reason, export the marks as a file. See `/opt/commons/handoff/aqua-listen-kits-20261108/` (static `listen.html` kits that emit `verdict.json` + `verdict.md`); the zone replaces emailing that page around.
+First use (Aqua): listen to audio in place, mark each clip keep / fix / drop with a one-line reason, export the marks as a file. See `/opt/commons/handoff/aqua-listen-kits-20261108/` (static `listen.html` kits that emit `verdict.json` + `verdict.md`); the zone replaces sending that page around.
 
 ## Matrix event shapes (stock events only)
 
-- **File** = an ordinary `m.room.message` with `msgtype` `m.audio` / `m.image` / `m.video` / `m.file`, uploaded to the media repo. The existing builders in `src/app/features/room/msgContent.ts` already produce these (`getAudioMsgContent`, `getImageMsgContent`, `getVideoMsgContent`, `getFileMsgContent`). Unchanged.
-- **Album** = a thread. The root is a text `m.room.message` whose `body` is the title (`m.text`), and files are posted with `m.relates_to: { rel_type: "m.thread", event_id: <root> }`. Other clients see a normal thread; its count and last-event time come from the SDK's thread summary (`unsigned.m.relations.m.thread`: `count`, `latest_event`). Album date = root `origin_server_ts`. Cover = first image child, if any.
-  - Why a thread and not a custom state event or a space: needs no power-level or server change, degrades to something readable, and the SDK already tracks it. Cost: any member can add to it; an album is only as structured as its root.
-- **Loose files** (no thread) fall into an implicit "Unsorted" album, newest first.
-- **Custom marker on the root** so the zone can tell albums from chat threads: an extra content key, e.g. `org.gamecult.album: { v: 1 }`. Unknown keys are preserved by servers and ignored by other clients. **UNKNOWN:** whether to show every thread as an album instead and skip the marker; the marker is cleaner but is the one bit of non-stock shape.
-- **Edits/redaction**: renaming = `m.replace` on the root; deleting a file = redact the child. Stock.
+- **Zone** = one room, chosen by the client (**UNKNOWN:** how the client knows which room is the zone: a room-account-data flag, a `m.room.create` type, or a configured room id in `config.json`; config is simplest).
+- **Album** = a thread root: a text `m.room.message` posted by a Mind, `body` = the album title (the Mind's name, e.g. `void`). One thread per Mind, owned by authorship (the root's sender). **UNKNOWN:** whether a Mind may open more than one (e.g. per kit); the shape allows it with no change, the zone would then list several albums per author. Count and last-activity come from the SDK's thread summary (`unsigned.m.relations.m.thread`); album date = root `origin_server_ts`. Rename = `m.replace` on the root.
+- **File** = a post in the thread: an `m.room.message` with `msgtype` `m.audio` / `m.image` / `m.video` / `m.file` and `m.relates_to: { rel_type: "m.thread", event_id: <root>, is_falling_back: true, "m.in_reply_to": { event_id: <last thread event> } }`. The builders in `src/app/features/room/msgContent.ts` already make the content. Delete = redact.
+- **Album vs chat thread**: with a single-purpose room, every thread is an album. No marker key is needed. A non-media reply in a thread (chat, a mark) is not a file and is not listed as one.
+- **Cover** = first image file in the thread, if any. Loose room messages outside any thread are not shown in the zone; they remain in the timeline.
 
 ## Marks (keep / fix / drop + one line)
 
-Two options; recommend a hybrid.
+A mark is a **thread reply to the file it judges**, so it lives in the same thread, is readable in any client, and needs no custom event type:
 
-1. **Local only**: marks live in the client (IndexedDB), never sent. Zero room noise, private, lost with the browser. Fine for a lone listener, wrong for "Aqua hears it, others see the verdict".
-2. **Room events**: one small event per mark, related to the file event. Recommended shape: `m.room.message` `m.notice` in the same thread is visible to everyone but is chat spam. Better is an event type of our own, `org.gamecult.file_mark`, content `{ "m.relates_to": { "rel_type": "m.reference", "event_id": <file event> }, "verdict": "keep"|"fix"|"drop", "reason": "<one line>" }`. Latest mark per (sender, file) wins; changing one means sending a new event. Other clients ignore unknown event types, so no spam, and the room history stays the store.
-   - Alternative: `m.annotation` reactions with a key of `keep`/`fix`/`drop`, which stock clients already render; but a reaction key has no room for the reason line. Rejected for that.
-   - **UNKNOWN:** do the room's power levels allow custom event types for ordinary members (default `events_default` covers them); do synapse/tuwunel/conduwuit servers send unknown types through sync to us; encrypted rooms carry them as `m.room.encrypted` like any other (fine, expected).
-3. **Hybrid (proposed)**: write marks locally first (instant, offline), publish to the room only on explicit "share marks". Keeps the player responsive and the room quiet.
+- `m.room.message`, `msgtype` `m.text`, `body` = `keep: <reason>` (or `fix:` / `drop:`), `m.relates_to` = `{ rel_type: "m.thread", event_id: <album root>, "m.in_reply_to": { event_id: <file event> } }`.
+- Plus one structured key for the zone to read without parsing prose: `org.gamecult.mark: { verdict: "keep"|"fix"|"drop", reason: "<one line>", target: <file event id> }`. Unknown keys survive servers and are ignored by other clients; the `body` is the fallback if the key is stripped or absent. **UNKNOWN:** whether to also parse a bare `keep: ...` reply from a client that cannot send the key; recommend yes, as a tolerant reader of `body`.
+- Latest mark by a given sender on a given file wins; changing a mark is a new reply (or an `m.replace` of the old one; prefer replace so the thread does not grow). The zone shows the latest per sender, and everyone's marks are visible on the file.
+- **Why replies and not `m.annotation`**: an annotation key is a short string with no room for the reason line, and stock clients show reactions as chips with no text. Annotations stay available for a lightweight unreasoned ack, if wanted (**UNKNOWN**, not recommended in v1).
+- **Local marks**: the client keeps an unsent mark draft in IndexedDB so playback and marking stay instant and survive a dropped connection; "send" publishes the reply. Marks are visible to the room once sent (the room is the shared store). **UNKNOWN:** whether Aqua wants a "private until I export" mode; if so it is local-only and the draft never publishes.
 
 ## Export
 
-Client-side only. "Export marks" builds a file from the marks the viewer can see for one album and either downloads it or uploads it into the album as another file:
+Client-side only. "Export marks" builds a file from the mark replies in one album (the viewer's own, or everyone's) and either downloads it or uploads it into the album as another file:
 
 - `verdict.json`: `{ album, exported_at, marks: [{ file, sha256?, name, verdict, reason, by }] }`
 - `verdict.md`: human table of the same.
@@ -51,8 +50,8 @@ Matches the shape the `aqua-listen` kits already emit (`verdict.json` + `verdict
 Reuse the composer's pipeline, pointed at an album instead of the main timeline:
 
 - `createUploadAtom` / `useBindUploadAtom` (`src/app/state/upload.ts`), `UploadCard`, `upload-board` for progress.
-- On success, the msgContent builder produces the event; the zone adds `m.relates_to` thread to the album root before sending (the composer already does this for thread replies, `RoomInput.tsx`).
-- "New album" = send the root text event first (with the marker), then upload into it. Multi-file drop = N events, sent in order.
+- On success, the msgContent builder produces the event; the zone adds the thread relation to the album root before sending (the composer already does this for thread replies, `RoomInput.tsx`).
+- "New album" = send the root text event, then upload into its thread. Multi-file drop = N events, sent in order. 
 - Size limit from `MediaConfigLoader` (server `m.upload.size`). **UNKNOWN:** whether the 32 MB `shelf` kit's clips (42 x ~0.75 MB) should be uploaded individually or batched; individually is the only option without a server change.
 
 ## Existing code to reuse (verified present in the repo)
@@ -72,17 +71,16 @@ Nothing named "gallery" exists as a feature; `AudioContent` takes its controls a
 
 ## First slice (what to build first)
 
-Goal: Aqua can open a room, see an album of clips, play them, mark them, export. Estimates are rough lines of TypeScript, tests excluded.
+Rough lines of TypeScript, tests excluded.
 
-1. **Read-only album list + album view** (~250 lines): derive albums from threads (marker or all-threads, see UNKNOWN), list/grid, rehost `AudioContent` and `ImageContent`. No upload, no marks. One new route/panel plus entry in the room header. This alone replaces "scroll the timeline".
-2. **Local marks + export** (~200 lines): IndexedDB store keyed (room, file event id), three buttons and a reason field, `verdict.json`/`verdict.md` download. This is Aqua's actual workflow and needs no room writes.
+1. **Read-only albums + album view** (~250 lines): list the room's thread roots as albums (grouped or filterable by author = Mind), open one to list its file posts, rehost `AudioContent` and `ImageContent`. One route/panel plus a header entry. Depends on the thread list the SDK already keeps.
+2. **Marks + export** (~220 lines): three buttons and a reason field per audio row, sent as the thread reply above (with an IndexedDB draft), latest-per-sender merge on read, `verdict.json`/`verdict.md` download. This is Aqua's workflow end to end.
 3. **Upload into an album** (~150 lines): thread-related send through the existing upload atoms, "new album".
-4. **Publish marks as room events** (~120 lines): `org.gamecult.file_mark`, read-back merge of other people's marks.
 
-Each is its own PR. Slices 1+2 serve the first use case; 3 and 4 follow once someone other than the listener needs to see the result.
+Slices 1+2 serve the first use case. Each is its own PR. Because marks are ordinary thread replies, there is no separate "publish" slice.
 
 ## Open questions for the Meta
 
-- Album = thread with a marker, or any thread? (above)
-- Marks private-by-default with explicit share, or shared by default? (above: private)
-- Is one flat album level enough, or do albums nest under a room's space structure? Proposed: flat, one level, per room.
+- How the client identifies the zone room (config id recommended).
+- Edit-in-place (`m.replace`) versus new reply for changing a mark (replace recommended).
+- Whether a private, never-published marking mode is wanted.
