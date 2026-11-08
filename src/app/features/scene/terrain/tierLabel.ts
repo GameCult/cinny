@@ -12,8 +12,8 @@ export function showTierLabel(canvas: HTMLCanvasElement, text: string): (() => v
   el.textContent = `terrain · ${text}`;
   Object.assign(el.style, {
     position: 'absolute',
-    right: '6px',
-    bottom: '6px',
+    left: '2px',
+    top: '16px',
     font: '10px monospace',
     color: 'rgba(255,255,255,.75)',
     background: 'rgba(0,0,0,.4)',
