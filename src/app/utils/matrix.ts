@@ -145,6 +145,28 @@ export type ContentUploadOptions = {
   onError: (error: MatrixError) => void;
 };
 
+/**
+ * Describe why an upload died. The SDK reports an XHR with status 0 as an
+ * AbortError DOMException with an empty message, so name, size, type and
+ * whether the browser can still read the file all go into the message.
+ */
+export const uploadFailure = async (e: any, file: TUploadContent): Promise<MatrixError> => {
+  const name = typeof e?.name === 'string' && e.name ? e.name : 'Error';
+  const message = typeof e?.message === 'string' ? e.message : '';
+  let readable: string;
+  try {
+    await file.arrayBuffer();
+    readable = 'file readable';
+  } catch (readErr: any) {
+    readable = `file unreadable (${readErr?.name ?? 'unknown'})`;
+  }
+  const detail = `${file.size} bytes, ${file.type || 'unknown type'}, ${readable}`;
+  const error = `Upload failed: ${message ? `${name}: ${message}` : name} (${detail})`;
+  const err = new MatrixError({ error, errcode: name });
+  (err as any).cause = e;
+  return err;
+};
+
 export const uploadContent = async (
   mx: MatrixClient,
   file: TUploadContent,
@@ -165,9 +187,7 @@ export const uploadContent = async (
     if (mxc) onSuccess(mxc);
     else onError(new MatrixError(data));
   } catch (e: any) {
-    const error = typeof e?.message === 'string' ? e.message : undefined;
-    const errcode = typeof e?.name === 'string' ? e.message : undefined;
-    onError(new MatrixError({ error, errcode }));
+    onError(await uploadFailure(e, file));
   }
 };
 
