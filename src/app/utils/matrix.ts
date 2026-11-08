@@ -145,12 +145,48 @@ export type ContentUploadOptions = {
   onError: (error: MatrixError) => void;
 };
 
+let lastUserActivity = Date.now();
+export const noteUserActivity = () => {
+  lastUserActivity = Date.now();
+};
+if (typeof window !== 'undefined') {
+  ['pointerdown', 'keydown', 'touchstart'].forEach((type) =>
+    window.addEventListener(type, noteUserActivity, { capture: true, passive: true })
+  );
+}
+
+/** What the progress handler saw of one upload, for the failure text. */
+export type UploadTrace = {
+  startedAt: number;
+  firstProgressAt?: number;
+  loaded?: number;
+  total?: number;
+};
+
+const describeNetwork = (): string => {
+  const online =
+    typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'online';
+  const c = typeof navigator !== 'undefined' ? (navigator as any).connection : undefined;
+  const net = c
+    ? `${c.effectiveType ?? '?'} rtt ${c.rtt ?? '?'}ms down ${c.downlink ?? '?'}Mbps saveData ${
+        c.saveData ? 'on' : 'off'
+      }`
+    : 'n/a';
+  const tab = typeof document !== 'undefined' ? document.visibilityState : 'n/a';
+  return `${online}, net ${net}, tab ${tab}`;
+};
+
 /**
- * Describe why an upload died. The SDK reports an XHR with status 0 as an
- * AbortError DOMException with an empty message, so name, size, type and
- * whether the browser can still read the file all go into the message.
+ * Describe why an upload died. The SDK reports an XHR with status 0 as an AbortError
+ * DOMException with an empty message, so the text carries what the client can observe: file
+ * size, type and readability, connectivity, tab visibility, idle time, progress, time to fail.
  */
-export const uploadFailure = async (e: any, file: TUploadContent): Promise<MatrixError> => {
+export const uploadFailure = async (
+  e: any,
+  file: TUploadContent,
+  trace?: UploadTrace
+): Promise<MatrixError> => {
+  const now = Date.now();
   const name = typeof e?.name === 'string' && e.name ? e.name : 'Error';
   const message = typeof e?.message === 'string' ? e.message : '';
   let readable: string;
@@ -160,8 +196,19 @@ export const uploadFailure = async (e: any, file: TUploadContent): Promise<Matri
   } catch (readErr: any) {
     readable = `file unreadable (${readErr?.name ?? 'unknown'})`;
   }
-  const detail = `${file.size} bytes, ${file.type || 'unknown type'}, ${readable}`;
-  const error = `Upload failed: ${message ? `${name}: ${message}` : name} (${detail})`;
+  const parts = [`${file.size} bytes`, file.type || 'unknown type', readable, describeNetwork()];
+  parts.push(`idle ${now - lastUserActivity}ms`);
+  if (trace) {
+    parts.push(
+      trace.firstProgressAt === undefined
+        ? 'no progress'
+        : `first progress ${trace.firstProgressAt - trace.startedAt}ms ${trace.loaded ?? 0}/${
+            trace.total ?? '?'
+          }B`
+    );
+    parts.push(`failed after ${now - trace.startedAt}ms`);
+  }
+  const error = `Upload failed: ${message ? `${name}: ${message}` : name} (${parts.join(', ')})`;
   const err = new MatrixError({ error, errcode: name });
   (err as any).cause = e;
   return err;
@@ -174,11 +221,17 @@ export const uploadContent = async (
 ) => {
   const { name, fileType, hideFilename, onProgress, onPromise, onSuccess, onError } = options;
 
+  const trace: UploadTrace = { startedAt: Date.now() };
   const uploadPromise = mx.uploadContent(file, {
     name,
     type: fileType,
     includeFilename: !hideFilename,
-    progressHandler: onProgress,
+    progressHandler: (progress) => {
+      if (trace.firstProgressAt === undefined) trace.firstProgressAt = Date.now();
+      trace.loaded = progress.loaded;
+      trace.total = progress.total;
+      onProgress?.(progress);
+    },
   });
   onPromise?.(uploadPromise);
   try {
@@ -187,7 +240,7 @@ export const uploadContent = async (
     if (mxc) onSuccess(mxc);
     else onError(new MatrixError(data));
   } catch (e: any) {
-    onError(await uploadFailure(e, file));
+    onError(await uploadFailure(e, file, trace));
   }
 };
 
