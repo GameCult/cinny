@@ -193,6 +193,87 @@ export function skyRadiance(sunElevationDeg, viewElevationDeg, azimuthDeg) {
   return radiance;
 }
 
+// ---- Aerial perspective ------------------------------------------------------------------------------------------
+// After Hillaire, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique", EGSR 2020 (section 5.4, the
+// aerial perspective "camera volume"), and its reference implementation, sebh/UnrealEngineSkyAtmosphere
+// Resources/RenderSkyRayMarching.hlsl `RenderCameraVolumePS`: a volume of AP_SLICES slices whose depth grows with the
+// square of the slice index (`Slice *= Slice`), each texel holding the single-scattered luminance L accumulated along
+// the view ray to that depth, and in alpha the opacity 1 - mean(rgb transmittance) (a grey transmittance, as the paper).
+// Applied to a surface as out = surface * (1 - alpha) + L, with L the in-scatter along that ray.
+//
+// What differs from the paper, and why:
+// - the volume is indexed by the view ray relative to the sun (azimuth from the sun, elevation) and sun elevation, not by
+//   screen position, because the terrain camera turns and the sky tables here are sun-relative too;
+// - the path lengths are the scene's length times AP_DISTANCE_SCALE: a real atmosphere is nearly clear over the 3 km patch,
+//   so the baked path is that many times longer (EYEBALLED); it sets how fast far ridges go to the sky;
+// - the ray ignores the ground: below the observer's altitude the density is held at its ground value, and the sun's
+//   visibility is tested from the ground sphere; the terrain is the ground;
+// - single scattering with the sky tables' own air (no multi-scattering LUT, which the paper adds for dusk);
+// - AP_SLICES = 12 slices, 8 view elevations and 7 azimuths, not 32 x 32 x 32 screen froxels, to stay phone-sized.
+export const AP_SLICES = 12;
+export const AP_ELEVATIONS = 8;
+/** The view elevations the volume holds run from this down to 0 degrees, finest at 0: -AP_ELEVATION_MIN_DEG * (1 - i / 7)^2. */
+export const AP_ELEVATION_MIN_DEG = 50;
+/** Scene metres a slice volume covers: the patch's far corner (about 2.1 km) with margin. */
+export const AP_SCENE_MAX_M = 2500;
+export const AP_DISTANCE_SCALE = 8;
+/** Physical kilometres the last slice stands for. */
+export const AP_MAX_KM = (AP_SCENE_MAX_M * AP_DISTANCE_SCALE) / 1000;
+const AP_SUBSTEPS = 4;
+
+export const apElevation = (i) => -AP_ELEVATION_MIN_DEG * (1 - i / (AP_ELEVATIONS - 1)) ** 2;
+/** Fractional elevation index of a view elevation in degrees (clamped to 0 degrees and below). */
+export const apElevationIndex = (deg) =>
+  (AP_ELEVATIONS - 1) * (1 - Math.sqrt(clamp(-deg / AP_ELEVATION_MIN_DEG, 0, 1)));
+/** Distance in km at the far side of slice k (k = 0 .. AP_SLICES - 1): the squared distribution. */
+export const apSliceKm = (k) => AP_MAX_KM * ((k + 1) / AP_SLICES) ** 2;
+/** Fractional slice index of a distance in km: below 0 the volume fades to nothing at the observer. */
+export const apSliceIndex = (km) => AP_SLICES * Math.sqrt(Math.max(km, 0) / AP_MAX_KM) - 1;
+
+/**
+ * In-scatter luminance per channel (for a sun of unit irradiance) and opacity along a view ray from the observer,
+ * at the far side of each of AP_SLICES slices: [[r, g, b, alpha] x AP_SLICES].
+ */
+export function aerialRay(sunElevationDeg, viewElevationDeg, azimuthDeg) {
+  const v = viewDirection(viewElevationDeg, azimuthDeg);
+  const s = sunDirection(sunElevationDeg);
+  const cosTheta = v[0] * s[0] + v[1] * s[1] + v[2] * s[2];
+  const pr = rayleighPhase(cosTheta);
+  const pm = miePhase(cosTheta);
+  const out = [];
+  const along = [0, 0, 0];
+  const radiance = [0, 0, 0];
+  let from = 0;
+  for (let k = 0; k < AP_SLICES; k += 1) {
+    const to = apSliceKm(k);
+    const dt = (to - from) / AP_SUBSTEPS;
+    for (let j = 0; j < AP_SUBSTEPS; j += 1) {
+      const t = from + (j + 0.5) * dt;
+      let q = [observer[0] + v[0] * t, observer[1] + v[1] * t, observer[2] + v[2] * t];
+      const r = Math.hypot(...q);
+      if (r < PLANET_RADIUS_KM) q = q.map((x) => (x * PLANET_RADIUS_KM) / r);
+      const h = Math.max(r - PLANET_RADIUS_KM, 0);
+      const e = extinction(h);
+      const toSun = opticalDepthToSpace(q, s, 12);
+      const rm = Math.exp(-h / H_RAYLEIGH);
+      const mm = Math.exp(-h / H_MIE);
+      for (let c = 0; c < 3; c += 1) {
+        // The step's own extinction is integrated analytically (Hillaire eq. 6): S (1 - exp(-e dt)) / e.
+        const step = Math.exp(-e[c] * dt);
+        if (toSun) {
+          const scatter = BETA_RAYLEIGH[c] * rm * pr + BETA_MIE_SCA * mm * pm;
+          radiance[c] += Math.exp(-along[c] - toSun[c]) * ((scatter * (1 - step)) / e[c]);
+        }
+        along[c] += e[c] * dt;
+      }
+    }
+    from = to;
+    const mean = along.reduce((a, x) => a + Math.exp(-x), 0) / 3;
+    out.push([...radiance, 1 - mean]);
+  }
+  return out;
+}
+
 const base64 = (halves) => {
   const bytes = new Uint8Array(halves.length * 2);
   halves.forEach((h, i) => {
@@ -226,6 +307,26 @@ export function bakeScatter() {
     })
   );
 
+  // x = azimuth from the sun, y = elevation block k * AP_ELEVATIONS + i (slice-major), z = sun elevation: four half floats per texel (L rgb, alpha).
+  const aerial = new Uint16Array(
+    SUN_ELEVATIONS_DEG.length * AP_SLICES * AP_ELEVATIONS * AZIMUTH_SAMPLES * 4
+  );
+  let ap = 0;
+  SUN_ELEVATIONS_DEG.forEach((sun) => {
+    const rays = Array.from({ length: AP_ELEVATIONS }, (_, i) =>
+      Array.from({ length: AZIMUTH_SAMPLES }, (_, a) =>
+        aerialRay(sun, apElevation(i), a * AZIMUTH_STEP_DEG)
+      )
+    );
+    for (let k = 0; k < AP_SLICES; k += 1)
+      for (let i = 0; i < AP_ELEVATIONS; i += 1)
+        for (let a = 0; a < AZIMUTH_SAMPLES; a += 1)
+          rays[i][a][k].forEach((x) => {
+            aerial[ap] = encode(x);
+            ap += 1;
+          });
+  });
+
   return {
     planet_radius_km: PLANET_RADIUS_KM,
     atmosphere_height_km: ATMOSPHERE_HEIGHT_KM,
@@ -244,6 +345,18 @@ export function bakeScatter() {
       depth: SUN_ELEVATIONS_DEG.length,
       channels: 3,
       data: base64(sky),
+    },
+    aerial_perspective: {
+      slices: AP_SLICES,
+      elevations: AP_ELEVATIONS,
+      elevation_min_deg: -AP_ELEVATION_MIN_DEG,
+      max_km: AP_MAX_KM,
+      distance_scale: AP_DISTANCE_SCALE,
+      width: AZIMUTH_SAMPLES,
+      height: AP_SLICES * AP_ELEVATIONS,
+      depth: SUN_ELEVATIONS_DEG.length,
+      channels: 4,
+      data: base64(aerial),
     },
   };
 }

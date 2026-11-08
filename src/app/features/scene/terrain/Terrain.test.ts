@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTerrainScene } from './Terrain';
 import { GRID, triangleCount } from './terrainWorld';
 import { groundLight, SKY, skyAtSun } from './terrainSky';
-import { SKY_VIEW, skyViewWords } from './terrainScatter';
+import { AP_VOLUME, apVolumeWords, SKY_VIEW, skyViewWords } from './terrainScatter';
 import { SKY_FRAG } from './terrainShaders';
 import { startBackgroundScene } from '../index';
 
@@ -176,14 +176,17 @@ describe('createTerrainScene', () => {
     expect(has(ambients({}), groundLight(SKY.midnight).ambient)).toBe(true);
   });
 
-  it('uploads the baked scattering table once, as half floats, to a 3D texture', () => {
+  it('uploads the baked sky table and the aerial perspective volume once each, as half floats, to 3D textures', () => {
     const { gl, calls } = fakeGl();
     createTerrainScene({ canvas: canvasWith(gl), tier: 'full' })!.dispose();
-    expect(calls.texImage3D).toHaveLength(1);
+    expect(calls.texImage3D).toHaveLength(2);
     const a = calls.texImage3D[0];
     expect([a[3], a[4], a[5]]).toEqual([SKY_VIEW.width, SKY_VIEW.height, SKY_VIEW.depth]);
     expect(a[9]).toEqual(skyViewWords());
-    expect(calls.deleteTexture).toHaveLength(2);
+    const ap = calls.texImage3D[1];
+    expect([ap[3], ap[4], ap[5]]).toEqual([AP_VOLUME.width, AP_VOLUME.height, AP_VOLUME.depth]);
+    expect(ap[9]).toEqual(apVolumeWords());
+    expect(calls.deleteTexture).toHaveLength(3);
   });
 
   it('dithers the sky output by half an 8-bit step either way, and the terrain not at all', () => {
@@ -243,7 +246,7 @@ describe('createTerrainScene', () => {
     createTerrainScene({ canvas: canvasWith(gl), tier: 'full' })!.dispose();
     expect(calls.deleteProgram).toHaveLength(3);
     expect(calls.deleteBuffer).toHaveLength(2);
-    expect(calls.deleteTexture).toHaveLength(2);
+    expect(calls.deleteTexture).toHaveLength(3);
     expect(rafQueue).toHaveLength(0);
   });
 });

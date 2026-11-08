@@ -4,7 +4,13 @@ import { baked } from '../../../../sky/baked';
 import { isNight } from '../ridge/stars';
 import { skyColours } from '../ridge/skyColour';
 import type { SkyColours } from '../ridge/skyColour';
-import { HORIZON_FLOOR, scatterRadiance, transmittanceAt } from './terrainScatter';
+import {
+  AP_DISTANCE_SCALE,
+  aerialAt,
+  HORIZON_FLOOR,
+  scatterRadiance,
+  transmittanceAt,
+} from './terrainScatter';
 
 export type SkyName = 'midnight' | 'noonday';
 export type Vec3 = readonly [number, number, number];
@@ -129,13 +135,48 @@ export function skyColour(d: SkyData, dir: Vec3): Vec3 {
 }
 
 /**
- * Haze: transmittance T = exp(-(k d)^HAZE_POWER) at distance d metres. The power above 1 keeps the near and middle
- * ground at its own colour and lets only the far ridges melt toward the sky; a plain exp(-k d) greyed everything.
+ * Aerial perspective: the baked volume of src/sky/scatter.js (after Hillaire 2020, see there for what follows the paper
+ * and what does not), looked up by the view ray relative to the light and the metres to the surface. The surface keeps
+ * (1 - alpha) of its own colour (alpha = 1 - mean transmittance, a grey transmittance as the paper) and gains the in-scatter L,
+ * lifted by the sky's exposure and tone-mapped the way the sky is, so far ground meets the sky's colour. SHORTCUT: the path is
+ * the scene's metres times AP_DISTANCE_SCALE (a real atmosphere is nearly clear over 3 km).
  */
-export const HAZE_K = 0.0007;
-export const HAZE_POWER = 1.6;
-export const transmittance = (distance: number): number =>
-  Math.exp(-((HAZE_K * Math.max(0, distance)) ** HAZE_POWER));
+export const metresToKm = (metres: number): number =>
+  (Math.max(0, metres) / 1000) * AP_DISTANCE_SCALE;
+
+/** Moonlight's irradiance on the haze, relative to the sun's 1, at full night. EYEBALLED, far above a real moon (about 3e-6) as the sky exposure is. */
+export const MOON_HAZE: Vec3 = [0.0004, 0.0007, 0.0018];
+/** Starlight and airglow scattered by the air, added to the in-scatter in proportion to alpha, at full night: a deep blue floor, not grey. EYEBALLED. */
+export const STAR_FLOOR: Vec3 = [0.0006, 0.0012, 0.0045];
+
+/** Haze in front of a surface seen along `dir` (unit, eye to surface) `distance` metres away: the colour it adds and the surface's loss. */
+export function aerialPerspective(
+  d: SkyData,
+  dir: Vec3,
+  distance: number
+): { colour: Vec3; alpha: number } {
+  const el = Math.min(0, Math.asin(Math.min(1, Math.max(-1, dir[1]))) / RAD);
+  const sun = sunDirection(d);
+  const h = Math.hypot(dir[0], dir[2]);
+  const s = Math.hypot(sun[0], sun[2]);
+  const az =
+    h < 1e-4 || s < 1e-4
+      ? 0
+      : Math.acos(Math.min(1, Math.max(-1, (dir[0] * sun[0] + dir[2] * sun[2]) / (h * s)))) / RAD;
+  const km = metresToKm(distance);
+  const night = nightness(d.elevation);
+  const day = aerialAt(d.elevation, el, az, km);
+  const L = [...day.L];
+  if (night > 0) {
+    // The moon stands where the sun is mirrored above the horizon (groundLight), so it shares the sun's azimuth.
+    const moon = aerialAt(Math.abs(d.elevation), el, az, km);
+    for (let i = 0; i < 3; i += 1) L[i] += MOON_HAZE[i] * night * moon.L[i];
+  }
+  const colour = [0, 1, 2].map(
+    (i) => 1 - Math.exp(-SKY_EXPOSURE * L[i]) + STAR_FLOOR[i] * night * day.alpha
+  ) as unknown as Vec3;
+  return { colour, alpha: day.alpha };
+}
 
 /** Added to the ambient on a dark sky, scaled by `nightness`: the baked night floor is too dark to show any form on a phone. */
 export const NIGHT_AMBIENT_LIFT = 3;
@@ -162,19 +203,17 @@ export const START_TURNS = ((SKY.noonday.azimuth - 100) / 360 + 1) % 1;
 /**
  * Linear colour of a surface seen along the unit direction `view` (from the eye to the surface): lambert from
  * the ground light plus ambient (full on an upward face, half on a vertical one, none on a downward one: `0.5 + 0.5 n.y`),
- * then hazed by distance toward the sky at the horizon in that direction. `normal` is a unit vector. Never negative.
+ * then aerial perspective (`aerialPerspective`). `normal` is a unit vector. Never negative.
  */
 export function shade(d: SkyData, albedo: Vec3, normal: Vec3, distance: number, view: Vec3): Vec3 {
   const light = groundLight(d);
   const sun = light.dir;
   const lambert = Math.max(0, normal[0] * sun[0] + normal[1] * sun[1] + normal[2] * sun[2]);
   const hemi = 0.5 + 0.5 * normal[1];
-  const flat = Math.hypot(view[0], view[2]) || 1;
-  const haze = skyColour(d, [view[0] / flat, 0, view[2] / flat]);
-  const t = transmittance(distance);
+  const haze = aerialPerspective(d, view, distance);
   return [0, 1, 2].map((i) => {
     const lit = albedo[i] * (light.colour[i] * lambert + light.ambient[i] * Math.max(0, hemi));
-    return lit * t + haze[i] * (1 - t);
+    return lit * (1 - haze.alpha) + haze.colour[i];
   }) as unknown as Vec3;
 }
 

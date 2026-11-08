@@ -81,3 +81,25 @@ Size: 16,128 bytes for `sky_view` (21.5 KB as base64) and 192 bytes for `transmi
 twice the "few KB" of an 8-bit table, the price of not quantising the glow. `scatter.test.ts` pins the
 layout, the encoding, the checksums and a set of physical anchors (blue noon sky, red sunset toward the sun,
 black below the planet's shadow limit).
+
+### `aerial_perspective`: the camera volume for ground seen through the air
+
+After Hillaire, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique", EGSR 2020, section 5.4, and its
+reference code (sebh/UnrealEngineSkyAtmosphere, `RenderCameraVolumePS` in `RenderSkyRayMarching.hlsl`). RGBA half floats
+(same encoding, `store_scale` 64), `width` 7, `height` 96, `depth` 12, 4 channels; one 3D texture, `x` fastest:
+
+- `x`: azimuth of the view ray from the light, 0, 30, ... 180 degrees (as `sky_view`).
+- `y`: `slice * 8 + elevation`: 12 slices, each a block of 8 view elevations, `-50 * (1 - i / 7)^2` degrees (finest at 0,
+  rays at or above the horizon are clamped to 0). Keep the filter inside a block: sample at `(slice * 8 + e + 0.5) / 96`, `e` in 0..7.
+- `z`: light elevation, `sun_elevations_deg`, as `sky_view`. The same volume serves the moon: look up at the moon's elevation.
+- Slice `k` is the far side of `max_km * ((k + 1) / 12)^2` km (the paper's squared distribution; `max_km` 20). Between slices interpolate
+  linearly; below slice 0 fade to zero at the observer, as the reference does for `Slice < 0.5`.
+- RGB: in-scatter luminance per steradian for a light of unit irradiance. A: opacity `1 - mean(rgb transmittance)`, the paper's grey
+  transmittance. Apply as `surface * (1 - A) + L * exposure`.
+
+Follows the paper: the squared slice distribution, the in-scatter integral with each step's extinction integrated analytically
+(`S (1 - exp(-e dt)) / e`), single scattering with Rayleigh and Mie (g 0.8) phase, and the grey opacity in alpha.
+Shortcuts: sun-relative azimuth and elevation instead of screen position; 12 x 8 x 7 texels, not 32 x 32 x 32; path lengths are the
+scene's metres times `distance_scale` (8), because a real atmosphere is nearly clear across a 3 km patch; the ray ignores the ground
+(density held at its ground value, sun visibility tested from the ground sphere); no multi-scattering LUT (the paper's dusk fix);
+observer at 100 m. Units: distances in km, radiance per unit sun irradiance, as `sky_view`. 86 KB as base64.

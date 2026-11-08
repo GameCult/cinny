@@ -1,4 +1,5 @@
 /* eslint-disable no-restricted-syntax -- tests loop over skies, normals and distances */
+import { AP_DISTANCE_SCALE } from './terrainScatter';
 import { describe, expect, it } from 'vitest';
 import { baked } from '../../../../sky/baked';
 import {
@@ -13,7 +14,8 @@ import {
   skyColour,
   skyNameFor,
   sunDirection,
-  transmittance,
+  aerialPerspective,
+  metresToKm,
   groundLight,
   HAZE_K,
   HAZE_POWER,
@@ -185,47 +187,72 @@ describe('the scattered sky', () => {
   });
 });
 
-describe('haze', () => {
-  it('transmittance falls monotonically from 1 toward 0', () => {
-    let prev = transmittance(0);
-    expect(prev).toBe(1);
-    for (const d of [10, 100, 400, 1000, 3000, 8000]) {
-      const t = transmittance(d);
-      expect(t).toBeLessThan(prev);
-      expect(t).toBeGreaterThan(0);
-      prev = t;
+describe('aerial perspective', () => {
+  const ray = (el: number, az: number): Vec3 => look(el, az);
+  const along = (d: typeof SKY.midnight, el: number, az: number, m: number) =>
+    aerialPerspective(d, ray(el, az), m);
+
+  it('opacity grows with distance from nothing at the eye toward the far value, never past 1', () => {
+    let prev = along(SKY.noonday, -2, 200, 0).alpha;
+    expect(prev).toBe(0);
+    for (const m of [10, 100, 400, 1000, 2000, 2500]) {
+      const a = along(SKY.noonday, -2, 200, m).alpha;
+      expect(a).toBeGreaterThan(prev);
+      expect(a).toBeLessThanOrEqual(1);
+      prev = a;
     }
   });
 
-  it('far surfaces take the scattered sky at the horizon in their azimuth, at both skies', () => {
-    for (const d of [...Object.values(SKY), skyAtSun(2, 270)]) {
-      const far = shade(d, [0.9, 0.2, 0.1], UP, 100000, look(-3, 200));
-      const sky = skyColour(d, look(0, 200));
-      for (let i = 0; i < 3; i += 1) expect(far[i]).toBeCloseTo(sky[i], 6);
-    }
+  it('leaves the near ground its own colour and takes the far ridges', () => {
+    expect(along(SKY.noonday, -2, 200, 100).alpha).toBeLessThan(0.15);
+    expect(along(SKY.noonday, -2, 200, 2000).alpha).toBeGreaterThan(0.3);
   });
 
-  it('haze toward the dusk sun is warmer and brighter than haze away from it', () => {
-    const dusk = skyAtSun(-1, 270);
-    const toward = shade(dusk, [0, 0, 0], UP, 100000, look(-3, 270));
-    const away = shade(dusk, [0, 0, 0], UP, 100000, look(-3, 90));
-    const blueShare = (c: Vec3) => c[2] / (c[0] + c[1] + c[2]);
+  it('the in-scatter is a function of the baked volume: its colour is bluer than the sun far by day', () => {
+    const far = along(SKY.noonday, -2, 90, 2400).colour;
+    expect(far[2]).toBeGreaterThan(far[0]);
+  });
+
+  it('haze toward a setting sun is brighter than away from it, and red, not blue (the sun is reddened on its way)', () => {
+    const dusk = skyAtSun(2, 270);
+    const toward = along(dusk, -1, 270, 2000).colour;
+    const away = along(dusk, -1, 90, 2000).colour;
     expect(luma(toward)).toBeGreaterThan(3 * luma(away));
-    expect(blueShare(toward)).toBeLessThan(blueShare(away));
+    expect(toward[0]).toBeGreaterThan(toward[2]);
   });
 
-  it('haze colour differs between the two skies: pale day horizon, dim night one', () => {
-    const far = (d: typeof SKY.midnight) => luma(shade(d, [0, 0, 0], UP, 1e6, look(-3, 180)));
-    expect(far(SKY.noonday)).toBeGreaterThan(5 * far(SKY.midnight));
+  it('night haze is a deep blue floor, not grey: dark, blue over red by a wide margin, brighter than black', () => {
+    const c = along(SKY.midnight, -2, 0, 2400).colour;
+    expect(luma(c)).toBeGreaterThan(0.001);
+    expect(luma(c)).toBeLessThan(0.08);
+    expect(c[2]).toBeGreaterThan(2.5 * c[0]);
+    expect(luma(along(SKY.noonday, -2, 0, 2400).colour)).toBeGreaterThan(5 * luma(c));
   });
 
-  it('with distance a dark surface rises toward the haze and a bright one falls toward it', () => {
+  it('moonlight lights the night haze toward the moon more than away from it', () => {
+    const moon = groundLight(SKY.midnight).dir;
+    const toward = aerialPerspective(SKY.midnight, [moon[0], -0.02, moon[2]], 2400).colour;
+    const away = aerialPerspective(SKY.midnight, [-moon[0], -0.02, -moon[2]], 2400).colour;
+    expect(luma(toward)).toBeGreaterThan(luma(away));
+  });
+
+  it('with distance a dark surface rises toward the haze and its own colour is lost', () => {
     const d = SKY.noonday;
-    const view = look(-4, 200);
-    const h = luma(skyColour(d, look(0, 200)));
+    const view = ray(-4, 200);
     const dark = (x: number) => luma(shade(d, [0.02, 0.02, 0.02], UP, x, view));
-    expect(dark(2000)).toBeGreaterThan(dark(200));
-    expect(dark(2000)).toBeLessThan(h);
+    expect(dark(2000)).toBeGreaterThan(dark(100));
+    const own = (x: number) => 1 - aerialPerspective(d, view, x).alpha;
+    expect(own(2000)).toBeLessThan(0.7 * own(100));
+  });
+
+  it('is continuous in the sun elevation through dusk: no step between neighbours', () => {
+    const at = (e: number) => luma(along(skyAtSun(e, 270), -1, 270, 2000).colour);
+    for (let e = -12; e < 12; e += 0.5) expect(Math.abs(at(e + 0.5) - at(e))).toBeLessThan(0.45);
+  });
+
+  it('the metres-to-km law is the scene metres times the baked distance scale', () => {
+    expect(metresToKm(1000)).toBeCloseTo(AP_DISTANCE_SCALE, 9);
+    expect(metresToKm(-5)).toBe(0);
   });
 });
 
@@ -244,13 +271,6 @@ describe('ground light and haze', () => {
   it('the ground light is continuous through sunset', () => {
     const at = (e: number) => luma(groundLight(skyAtSun(e)).colour);
     for (let e = -10; e < 10; e += 0.5) expect(Math.abs(at(e + 0.5) - at(e))).toBeLessThan(0.35);
-  });
-
-  it('haze leaves the near ground nearly clear and takes the far ridges: a power law, not plain exp(-k d)', () => {
-    expect(transmittance(300)).toBeGreaterThan(0.85);
-    expect(transmittance(300)).toBeGreaterThan(Math.exp(-HAZE_K * 300));
-    expect(transmittance(2500)).toBeLessThan(0.15);
-    expect(HAZE_POWER).toBeGreaterThan(1);
   });
 
   it('the camera starts with the noon sun off its axis, so the light rakes the relief', () => {

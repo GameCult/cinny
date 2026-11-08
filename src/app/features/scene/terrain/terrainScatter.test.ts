@@ -1,8 +1,21 @@
 /* eslint-disable no-restricted-syntax -- tests walk table texels */
 import { describe, expect, it } from 'vitest';
 import { baked } from '../../../../sky/baked';
-import { decode, viewElevation } from '../../../../sky/scatter.js';
 import {
+  aerialRay,
+  AP_ELEVATIONS,
+  AP_SLICES,
+  apElevation,
+  apSliceKm,
+  decode,
+  SUN_ELEVATIONS_DEG,
+  viewElevation,
+} from '../../../../sky/scatter.js';
+import {
+  AERIAL_GLSL,
+  aerialAt,
+  AP_VOLUME,
+  apVolumeWords,
   SCATTER_GLSL,
   scatterRadiance,
   skyViewWords,
@@ -84,5 +97,45 @@ describe('the GLSL sampler', () => {
     expect(SCATTER_GLSL).toContain('/ 64.0');
     expect(SCATTER_GLSL).toContain('sqrt(clamp((el - (-4.0)) / 94.0, 0.0, 1.0)) * 31.0');
     expect(SCATTER_GLSL).toContain('* 6.0');
+  });
+});
+
+describe('the aerial perspective volume as the terrain reads it', () => {
+  it('uploads RGBA half floats in the baked layout', () => {
+    const a = baked.scatter.aerial_perspective;
+    expect(apVolumeWords()).toHaveLength(a.width * a.height * a.depth * 4);
+    expect(AP_VOLUME).toEqual({ width: a.width, height: a.height, depth: a.depth });
+  });
+
+  it('on a texel centre the CPU twin returns the baked ray exactly (to half-float precision)', () => {
+    const sunI = 8;
+    const ei = 5;
+    const slice = 6;
+    const want = aerialRay(SUN_ELEVATIONS_DEG[sunI], apElevation(ei), 90)[slice];
+    const got = aerialAt(SUN_ELEVATIONS_DEG[sunI], apElevation(ei), 90, apSliceKm(slice));
+    for (let c = 0; c < 3; c += 1) expect(got.L[c]).toBeCloseTo(want[c], 3);
+    expect(got.alpha).toBeCloseTo(want[3], 3);
+  });
+
+  it('between texels it is near the model: the filtering error is small against the signal', () => {
+    const want = aerialRay(10, -1.3, 75)[AP_SLICES - 2];
+    const got = aerialAt(10, -1.3, 75, apSliceKm(AP_SLICES - 2));
+    expect(Math.abs(got.alpha - want[3])).toBeLessThan(0.03);
+    expect(got.L[0] / want[0]).toBeGreaterThan(0.6);
+    expect(got.L[0] / want[0]).toBeLessThan(1.6);
+  });
+
+  it('fades to nothing at the observer, and clamps past the last slice', () => {
+    expect(aerialAt(45, -2, 90, 0)).toEqual({ L: [0, 0, 0], alpha: 0 });
+    const last = aerialAt(45, -2, 90, apSliceKm(AP_SLICES - 1));
+    const beyond = aerialAt(45, -2, 90, 1e6);
+    expect(beyond.alpha).toBeCloseTo(last.alpha, 9);
+  });
+
+  it('the shader lookup carries the same constants as the table', () => {
+    const a = baked.scatter.aerial_perspective;
+    expect(AERIAL_GLSL).toContain(`/ ${a.height}.0`);
+    expect(AERIAL_GLSL).toContain(`${a.max_km.toFixed(1)}`);
+    expect(AERIAL_GLSL).toContain(`${AP_ELEVATIONS}.0 +`);
   });
 });

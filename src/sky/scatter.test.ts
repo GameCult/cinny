@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AP_ELEVATIONS,
+  AP_MAX_KM,
+  AP_SLICES,
+  apElevation,
+  apElevationIndex,
+  apSliceIndex,
+  apSliceKm,
+  aerialRay,
   AZIMUTH_SAMPLES,
   AZIMUTH_STEP_DEG,
   STORE_SCALE,
@@ -156,5 +164,63 @@ describe('scattering tables', () => {
   it('are the same bytes as when pinned', () => {
     const sum = (a: Uint16Array) => a.reduce((x, y) => (x * 31 + y) % 2147483647, 7);
     expect([sum(sky), sum(trans)]).toEqual([SKY_CHECKSUM, TRANS_CHECKSUM]);
+  });
+});
+
+describe('aerial perspective volume', () => {
+  const ap = scatter.aerial_perspective;
+
+  it('has the documented layout and size: RGBA half floats, x azimuth, y slice-major elevations, z sun elevation', () => {
+    expect([ap.width, ap.height, ap.depth, ap.channels]).toEqual([
+      AZIMUTH_SAMPLES,
+      AP_SLICES * AP_ELEVATIONS,
+      SUN_ELEVATIONS_DEG.length,
+      4,
+    ]);
+    expect(table(ap.data)).toHaveLength(ap.width * ap.height * ap.depth * 4);
+  });
+
+  it("slices follow the paper's squared distribution, ending at the covered distance", () => {
+    expect(apSliceKm(AP_SLICES - 1)).toBeCloseTo(AP_MAX_KM, 9);
+    expect(apSliceKm(0)).toBeCloseTo(AP_MAX_KM / AP_SLICES ** 2, 9);
+    for (let k = 0; k < AP_SLICES; k += 1) expect(apSliceIndex(apSliceKm(k))).toBeCloseTo(k, 9);
+    expect(apSliceIndex(0)).toBeCloseTo(-1, 9);
+  });
+
+  it('elevations are finest at the horizon and the index inverts them', () => {
+    expect(apElevation(AP_ELEVATIONS - 1)).toBeCloseTo(0, 12);
+    for (let i = 0; i < AP_ELEVATIONS; i += 1)
+      expect(apElevationIndex(apElevation(i))).toBeCloseTo(i, 9);
+    expect(apElevation(AP_ELEVATIONS - 1) - apElevation(AP_ELEVATIONS - 2)).toBeLessThan(
+      apElevation(1) - apElevation(0)
+    );
+  });
+
+  it("opacity grows with path, in-scatter grows with path, and a sun under the planet's shadow scatters nothing", () => {
+    const r = aerialRay(45, -2, 90);
+    for (let k = 1; k < AP_SLICES; k += 1) {
+      expect(r[k][3]).toBeGreaterThan(r[k - 1][3]);
+      expect(r[k][0]).toBeGreaterThan(r[k - 1][0]);
+    }
+    for (const slice of aerialRay(-18, -2, 0)) expect(slice.slice(0, 3)).toEqual([0, 0, 0]);
+  });
+
+  it('is brighter toward a low sun than away, and redder toward it (Rayleigh and Mie phase)', () => {
+    const toward = aerialRay(2, -2, 0)[AP_SLICES - 1];
+    const away = aerialRay(2, -2, 180)[AP_SLICES - 1];
+    expect(toward[0]).toBeGreaterThan(20 * away[0]);
+    expect(toward[0] / toward[2]).toBeGreaterThan(away[0] / away[2]);
+  });
+
+  it('opacity does not depend on the sun, only on the path', () => {
+    expect(aerialRay(45, -2, 0)[5][3]).toBeCloseTo(aerialRay(-18, -2, 90)[5][3], 12);
+  });
+
+  it("the baked table is the model's output: spot texels equal aerialRay, to half-float precision", () => {
+    const t = table(ap.data);
+    const at = (sun: number, slice: number, el: number, az: number, c: number) =>
+      decode(t[((sun * ap.height + slice * AP_ELEVATIONS + el) * ap.width + az) * 4 + c]);
+    const r = aerialRay(SUN_ELEVATIONS_DEG[8], apElevation(6), 60)[7];
+    for (let c = 0; c < 4; c += 1) expect(at(8, 7, 6, 2, c)).toBeCloseTo(r[c], 3);
   });
 });

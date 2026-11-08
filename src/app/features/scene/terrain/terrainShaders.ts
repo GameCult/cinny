@@ -8,8 +8,8 @@ import cultmath from '../shaders/CultMath.glsl?raw';
 import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
 import { ALBEDO } from './terrainAlbedo';
-import { SCATTER_GLSL } from './terrainScatter';
-import { GLOW_ZENITH, HAZE_POWER, SKY_EXPOSURE } from './terrainSky';
+import { AERIAL_GLSL, AP_DISTANCE_SCALE, SCATTER_GLSL } from './terrainScatter';
+import { GLOW_ZENITH, MOON_HAZE, SKY_EXPOSURE, STAR_FLOOR } from './terrainSky';
 import { TERRAIN } from './terrainWorld';
 
 const HEADER =
@@ -146,11 +146,11 @@ vec3 skyColour(vec3 d) {
 )}, sqrt(clamp(d.y, 0.0, 1.0)));
 }`;
 
-export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}${SKY_COLOUR_GLSL}
+export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}${SKY_COLOUR_GLSL}${AERIAL_GLSL}
 in vec2 v_uv;
 in vec3 v_world;
 uniform vec3 uCamera, uLightDir, uLight, uAmbient, uSoil, uScree, uRock, uSnow;
-uniform float uSpan, uHazeK, uSnowLine;
+uniform float uSpan, uSnowLine, uNight, uMoonIndex;
 out vec4 o;
 ${FETCH}
 // Triplanar patterns: each projection plane's value, blended by the weights of the face's normal (terrainAlbedo.triWeights).
@@ -187,9 +187,23 @@ void main() {
   float cavity = 1.0 - 0.55 * clamp(curv / 12.0, 0.0, 1.0) + 0.3 * clamp(-curv / 12.0, 0.0, 1.0);
   vec3 lit = albedo * cavity * (uLight * max(dot(n, uLightDir), 0.0) + uAmbient * (0.5 + 0.5 * n.y));
   vec3 toSurface = v_world - uCamera;
-  float T = exp(-pow(uHazeK * length(toSurface), ${lit(HAZE_POWER)}));
-  vec3 haze = skyColour(normalize(vec3(toSurface.x, 0.0, toSurface.z)));
-  o = vec4(pow(mix(haze, lit, T), vec3(1.0 / 2.2)), 1.0);
+  float dist = length(toSurface);
+  // Aerial perspective (terrainSky.aerialPerspective): the baked volume by this ray's elevation, azimuth from the light and path.
+  vec3 ray = toSurface / dist;
+  float el = min(degrees(asin(clamp(ray.y, -1.0, 1.0))), 0.0);
+  vec2 hz = ray.xz, sz = uSun.xz;
+  float az = (length(hz) < 1e-4 || length(sz) < 1e-4) ? 0.0 : degrees(acos(clamp(dot(normalize(hz), normalize(sz)), -1.0, 1.0)));
+  float km = dist * ${lit(AP_DISTANCE_SCALE / 1000)};
+  vec4 ap = aerial(uSunIndex, el, az, km);
+  vec3 L = ap.rgb;
+  // The moon lights the haze from where the sun is mirrored above the horizon, sharing its azimuth; a starlight floor stays.
+  if (uNight > 0.0) L += uNight * vec3(${MOON_HAZE.map(lit).join(
+    ', '
+  )}) * aerial(uMoonIndex, el, az, km).rgb;
+  vec3 haze = 1.0 - exp(-${lit(SKY_EXPOSURE)} * L) + uNight * ap.a * vec3(${STAR_FLOOR.map(
+  lit
+).join(', ')});
+  o = vec4(pow(lit * (1.0 - ap.a) + haze, vec3(1.0 / 2.2)), 1.0);
 }`;
 
 // The sky behind: the baked scattering tables by the view ray's elevation and azimuth from the sun, a sun disc, and a

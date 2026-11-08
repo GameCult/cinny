@@ -111,7 +111,7 @@ describe('shader agrees with the pure function on its numbers', () => {
     expect(GRID_FRAG).toContain(`#define ALB_GRAIN_COARSE ${ALBEDO.grainCoarse}`);
     expect(GRID_FRAG).toContain(`#define ALB_STRATA ${ALBEDO.strata}`);
     // the only fetch for colour-by-material would be a texture; the height map's texelFetch is the only other read, and the sky lookup is the baked scattering table's
-    expect(GRID_FRAG.match(/texelFetch|texture\((?!uSky)/g)).toHaveLength(1);
+    expect(GRID_FRAG.match(/texelFetch|texture\((?!uSky|uAP)/g)).toHaveLength(1);
   });
 });
 

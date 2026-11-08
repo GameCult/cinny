@@ -2,11 +2,11 @@ import type { Scene, SceneOptions } from '../Scene';
 import { FrameSampler, FrameStats } from '../ridge/probe';
 import { albedoPalette } from './terrainAlbedo';
 import { sunIndex } from '../../../../sky/scatter.js';
-import { SKY_VIEW, skyViewWords } from './terrainScatter';
+import { AP_VOLUME, apVolumeWords, SKY_VIEW, skyViewWords } from './terrainScatter';
 import {
+  nightness,
   glowColour,
   groundLight,
-  HAZE_K,
   chooseSky,
   SkyName,
   START_TURNS,
@@ -138,6 +138,26 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R].forEach((w) =>
     gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE)
   );
+  // The aerial perspective volume, RGBA16F, half floats as stored (src/sky/scatter.js).
+  const apTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_3D, apTex);
+  gl.texImage3D(
+    gl.TEXTURE_3D,
+    0,
+    gl.RGBA16F,
+    AP_VOLUME.width,
+    AP_VOLUME.height,
+    AP_VOLUME.depth,
+    0,
+    gl.RGBA,
+    gl.HALF_FLOAT,
+    apVolumeWords()
+  );
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R].forEach((w) =>
+    gl.texParameteri(gl.TEXTURE_3D, w, gl.CLAMP_TO_EDGE)
+  );
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
@@ -148,6 +168,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     free.forEach((f) => f());
     gl.deleteTexture(heightTex);
     gl.deleteTexture(skyTex);
+    gl.deleteTexture(apTex);
     gl.deleteFramebuffer(fbo);
     gl.deleteProgram(bakeProg);
     gl.deleteProgram(skyProg);
@@ -192,6 +213,8 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const heading = START_TURNS;
   const glow = [...glowColour(sky)];
   const sunTexel = sunIndex(sky.elevation);
+  const night = nightness(sky.elevation);
+  const moonTexel = sunIndex(Math.abs(sky.elevation));
   const palette = albedoPalette(sky);
   const triangles = triangleCount(spec.grid);
 
@@ -252,7 +275,11 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_3D, skyTex);
     gl.uniform1i(u('uSky'), 1);
-    gl.uniform1f(u('uHazeK'), HAZE_K);
+    gl.uniform1f(u('uNight'), night);
+    gl.uniform1f(u('uMoonIndex'), moonTexel);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_3D, apTex);
+    gl.uniform1i(u('uAP'), 2);
     gl.uniform3fv(u('uSoil'), palette.soil);
     gl.uniform3fv(u('uScree'), palette.scree);
     gl.uniform3fv(u('uRock'), palette.rock);
