@@ -161,6 +161,8 @@ export type UploadTrace = {
   firstProgressAt?: number;
   loaded?: number;
   total?: number;
+  /** Summary of an earlier attempt of the same upload, when this one is a retry. */
+  previous?: string;
 };
 
 const describeNetwork = (): string => {
@@ -207,12 +209,18 @@ export const uploadFailure = async (
           }B`
     );
     parts.push(`failed after ${now - trace.startedAt}ms`);
+    if (trace.previous) parts.push(`retried (attempt 1: ${trace.previous})`);
   }
   const error = `Upload failed: ${message ? `${name}: ${message}` : name} (${parts.join(', ')})`;
   const err = new MatrixError({ error, errcode: name });
   (err as any).cause = e;
   return err;
 };
+
+// An abort before any progress, within this long, is retried once: the request most likely died on
+// a reused connection before a byte left, and the failed attempt discards that connection. Nothing
+// here has shown that is the cause; the failure text records both attempts so it can be checked.
+const RETRY_WINDOW_MS = 3000;
 
 export const uploadContent = async (
   mx: MatrixClient,
@@ -221,26 +229,45 @@ export const uploadContent = async (
 ) => {
   const { name, fileType, hideFilename, onProgress, onPromise, onSuccess, onError } = options;
 
-  const trace: UploadTrace = { startedAt: Date.now() };
-  const uploadPromise = mx.uploadContent(file, {
-    name,
-    type: fileType,
-    includeFilename: !hideFilename,
-    progressHandler: (progress) => {
-      if (trace.firstProgressAt === undefined) trace.firstProgressAt = Date.now();
-      trace.loaded = progress.loaded;
-      trace.total = progress.total;
-      onProgress?.(progress);
-    },
-  });
-  onPromise?.(uploadPromise);
-  try {
-    const data = await uploadPromise;
-    const mxc = data.content_uri;
-    if (mxc) onSuccess(mxc);
-    else onError(new MatrixError(data));
-  } catch (e: any) {
-    onError(await uploadFailure(e, file, trace));
+  let previous: string | undefined;
+  for (let attempt = 1; ; attempt += 1) {
+    const trace: UploadTrace = { startedAt: Date.now(), previous };
+    const abortController = new AbortController();
+    const uploadPromise = mx.uploadContent(file, {
+      name,
+      type: fileType,
+      includeFilename: !hideFilename,
+      abortController,
+      progressHandler: (progress) => {
+        if (trace.firstProgressAt === undefined) trace.firstProgressAt = Date.now();
+        trace.loaded = progress.loaded;
+        trace.total = progress.total;
+        onProgress?.(progress);
+      },
+    });
+    onPromise?.(uploadPromise);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const data = await uploadPromise;
+      const mxc = data.content_uri;
+      if (mxc) onSuccess(mxc);
+      else onError(new MatrixError(data));
+      return;
+    } catch (e: any) {
+      const elapsed = Date.now() - trace.startedAt;
+      const retry =
+        attempt === 1 &&
+        e?.name === 'AbortError' &&
+        !abortController.signal.aborted &&
+        trace.firstProgressAt === undefined &&
+        elapsed < RETRY_WINDOW_MS;
+      if (!retry) {
+        // eslint-disable-next-line no-await-in-loop
+        onError(await uploadFailure(e, file, trace));
+        return;
+      }
+      previous = `AbortError after ${elapsed}ms, no progress`;
+    }
   }
 };
 
