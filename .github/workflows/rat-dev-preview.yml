@@ -4,6 +4,13 @@ on:
   push:
     branches: ['dev']
 
+# One run per ref wins: a newer push to dev cancels the older queued or running one, so the run
+# that builds rat-dev-dist is always the newest. Pull-request runs are other workflows and other
+# groups; they never cancel it.
+concurrency:
+  group: rat-dev-preview
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build dev preview
