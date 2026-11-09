@@ -56,9 +56,9 @@ export const AuthFooter = style({
 // signed-out ground is clear and the card is a translucent, blurred pane shaped like a message
 // bubble (BubbleContent: radius R500, no border), filled with the sky's bubble colour. The
 // --sky-bubble variables come from the sky theme (PR #22); the plain colours are the fallback
-// until it lands. The fill is 50%: the 18px blur carries the readability, flattening the sky and
-// ridges behind the text. Without the blur, text is 4.15:1 over the brightest backdrop (the horizon
-// glow; 4.5:1 needs 54%) and >= 7.3:1 elsewhere in the scene.
+// until it lands. The fill is 54%, the least that gives 4.5:1 text over the brightest backdrop (the
+// horizon glow) without depending on the blur; it is >= 7.3:1 elsewhere in the scene. The 18px blur
+// only softens the sky and ridges behind the text.
 // The card is also made shorter so it leaves more of the scene visible on a phone.
 const scene = ':root[data-scene]';
 globalStyle(`${scene} ${AuthLayout}`, {
@@ -67,8 +67,8 @@ globalStyle(`${scene} ${AuthLayout}`, {
 });
 globalStyle(`${scene} ${AuthCard}`, {
   backgroundColor: [
-    'rgba(13, 26, 38, 0.5)',
-    'color-mix(in srgb, var(--sky-bubble, #0d1a26) 50%, transparent)',
+    'rgba(13, 26, 38, 0.54)',
+    'color-mix(in srgb, var(--sky-bubble, #0d1a26) 54%, transparent)',
   ],
   color: 'var(--sky-bubble-text, #b7c7d9)',
   borderRadius: config.radii.R500,
