@@ -63,7 +63,7 @@ export interface SkyBackdrop {
 // bounds all three fixed states.
 const BACKDROPS: Record<SkyState, SkyBackdrop> = {
   auto: { darkest: 0.016727, lightest: 0.967912 },
-  day: { darkest: 0.237309, lightest: 0.92805 },
+  day: { darkest: 0.237309, lightest: 0.928052 },
   dusk: { darkest: 0.016727, lightest: 0.967912 },
   night: { darkest: 0.058099, lightest: 0.077467 },
 };

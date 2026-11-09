@@ -121,7 +121,7 @@ export function terrainDrawn(state: SkyState): Range {
     });
   const refine = (from: Point, sign: 1 | -1) => {
     let best = from;
-    for (let step = 1; step > 0.0005; step /= 2) {
+    for (let step = 1; step > 5e-7; step /= 2) {
       let improved = true;
       while (improved) {
         const cur = best;
