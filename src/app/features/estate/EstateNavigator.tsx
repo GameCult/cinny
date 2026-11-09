@@ -10,6 +10,7 @@ import {
   NavItem,
   NavItemContent,
 } from '../../components/nav';
+import { NavAction, NavLabel } from '../../components/nav/styles.css';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { JoinAddressPrompt } from '../../components/join-address-prompt';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
@@ -80,7 +81,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
             <Avatar size="200" radii="400">
               <Icon src={Icons.Hash} size="100" style={{ opacity: config.opacity.P300 }} />
             </Avatar>
-            <Text as="span" size="Inherit" truncate>
+            <Text className={NavLabel} as="span" size="Inherit" truncate>
               {room.name}
             </Text>
           </Box>
@@ -95,6 +96,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           </Text>
         )}
         <Chip
+          className={NavAction}
           variant={room.state === 'invited' ? 'Primary' : 'Secondary'}
           fill="Soft"
           radii="Pill"
@@ -281,6 +283,8 @@ export function EstateNavigator() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const mx = useMatrixClient();
   const title = (rootId && mx.getRoom(rootId)?.name) || 'GameCult';
+  // A phone's list is the estate and nothing else: no Create Room, no Join with Address.
+  const mobile = useScreenSizeContext() === ScreenSize.Mobile;
 
   return (
     <PageNav>
@@ -302,7 +306,7 @@ export function EstateNavigator() {
       </PageNavHeader>
       <PageNavContent scrollRef={scrollRef}>
         <Box direction="Column" gap="300" className={css.Targets}>
-          <EntryPoints />
+          {!mobile && <EntryPoints />}
           {rootId && <EstateTiers rootId={rootId} />}
           {!rootId && error && (
             <EstateError message="Could not find the GameCult space. Check your connection and reload." />

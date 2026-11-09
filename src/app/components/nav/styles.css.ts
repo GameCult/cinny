@@ -1,4 +1,4 @@
-import { ComplexStyleRule, createVar, style } from '@vanilla-extract/css';
+import { ComplexStyleRule, StyleRule, createVar, globalStyle, style } from '@vanilla-extract/css';
 import { RecipeVariants, recipe } from '@vanilla-extract/recipes';
 import { ContainerColor, DefaultReset, Disabled, RadiiVariant, color, config, toRem } from 'folds';
 import { surfaceInk } from '../../features/scene/sceneShell.css';
@@ -20,11 +20,16 @@ export const NavCategory = style([
 
 export const NavCategoryHeader = style({
   gap: config.space.S100,
-  selectors: {
-    // Category labels sit on the scene like the rows do, and need a wash to be read.
-    ':root[data-scene] &': {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_LABEL}, transparent)`,
-      borderRadius: config.radii.R400,
+  '@media': {
+    // Category labels sit on the scene like the rows do, and need a wash to be read (wide screens;
+    // a phone's list is plain text).
+    'screen and (min-width: 751px)': {
+      selectors: {
+        ':root[data-scene] &': {
+          backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_LABEL}, transparent)`,
+          borderRadius: config.radii.R400,
+        },
+      },
     },
   },
 });
@@ -60,6 +65,12 @@ const getVariant = (variant: ContainerColor): ComplexStyleRule => ({
   },
 });
 
+// The room list is plain text on a phone: no pill, slab or border behind any row, and hover,
+// selected and pressed show in the label (NavLabel), never in a box. Wider screens keep the rows
+// and the wash.
+const WIDE = 'screen and (min-width: 751px)';
+const PHONE = 'screen and (max-width: 750px)';
+
 const NavItemBase = style({
   width: '100%',
   display: 'flex',
@@ -70,35 +81,45 @@ const NavItemBase = style({
   outline: 'none',
   minHeight: toRem(36),
 
-  selectors: {
-    '&:hover, &:focus-visible': {
-      backgroundColor: ContainerHover,
+  '@media': {
+    [PHONE]: {
+      backgroundColor: 'transparent',
+      borderRadius: 0,
     },
-    '&[data-hover=true]': {
-      backgroundColor: ContainerHover,
-    },
-    // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a faint
-    // wash of the theme's own surface: the terrain stays visible, the text stays readable. Hover,
-    // the selected row and a press each strengthen it a step.
-    ':root[data-scene] &': {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_ROW}, transparent)`,
-    },
-    ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true]':
-      {
-        backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_HOVER}, transparent)`,
+    [WIDE]: {
+      selectors: {
+        '&:hover, &:focus-visible': {
+          backgroundColor: ContainerHover,
+        },
+        '&[data-hover=true]': {
+          backgroundColor: ContainerHover,
+        },
+        // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a faint
+        // wash of the theme's own surface: the terrain stays visible, the text stays readable.
+        // Hover, the selected row and a press each strengthen it a step.
+        ':root[data-scene] &': {
+          backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_ROW}, transparent)`,
+        },
+        ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true]':
+          {
+            backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_HOVER}, transparent)`,
+          },
+        ':root[data-scene] &[aria-selected=true]': {
+          backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_SELECTED}, transparent)`,
+        },
+        [`:root[data-scene] &:has(.${NavLink}:active)`]: {
+          backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_PRESSED}, transparent)`,
+        },
+        [`&:has(.${NavLink}:active)`]: {
+          backgroundColor: ContainerActive,
+        },
+        '&[aria-selected=true]': {
+          backgroundColor: ContainerActive,
+        },
       },
-    ':root[data-scene] &[aria-selected=true]': {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_SELECTED}, transparent)`,
     },
-    [`:root[data-scene] &:has(.${NavLink}:active)`]: {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_PRESSED}, transparent)`,
-    },
-    [`&:has(.${NavLink}:active)`]: {
-      backgroundColor: ContainerActive,
-    },
-    '&[aria-selected=true]': {
-      backgroundColor: ContainerActive,
-    },
+  },
+  selectors: {
     [`&:has(.${NavLink}:focus-visible)`]: {
       outline: `${config.borderWidth.B600} solid ${ContainerLine}`,
       outlineOffset: `calc(-1 * ${config.borderWidth.B600})`,
@@ -157,4 +178,77 @@ export const NavItemContent = style({
 
 export const NavItemOptions = style({
   paddingRight: config.space.S200,
+});
+
+// A room's name on a phone wears the section headings' type (small caps-height, uppercase, 600,
+// at heading strength) and states itself in the text: hover and focus underline it, the selected
+// row is bolder and underlined, a press dims it, an unread room is at full strength. Over the scene
+// a halo of the theme's own surface keeps it readable without a box.
+export const NavLabel = style({});
+const label = `.${NavLabel}.${NavLabel}`;
+const phoneLabel = (selector: string, rule: StyleRule) =>
+  globalStyle(selector, { '@media': { [PHONE]: rule } });
+
+phoneLabel(label, {
+  fontSize: toRem(12),
+  lineHeight: toRem(16),
+  fontWeight: config.fontWeight.W600,
+  textTransform: 'uppercase',
+  opacity: 0.75,
+  textDecorationThickness: '1px',
+  textUnderlineOffset: toRem(4),
+});
+phoneLabel(
+  [
+    `.${NavItemBase}:hover ${label}`,
+    `.${NavItemBase}:focus-visible ${label}`,
+    `.${NavItemBase}[data-hover=true] ${label}`,
+    `.${NavItemBase}[data-highlight=true] ${label}`,
+  ].join(', '),
+  { opacity: 1 }
+);
+phoneLabel(`.${NavItemBase}:hover ${label}, .${NavItemBase}:focus-visible ${label}`, {
+  textDecorationLine: 'underline',
+});
+phoneLabel(`.${NavItemBase}[aria-selected=true] ${label}`, {
+  opacity: 1,
+  fontWeight: config.fontWeight.W700,
+  textDecorationLine: 'underline',
+  textDecorationThickness: '2px',
+});
+phoneLabel(`.${NavItemBase}:has(.${NavLink}:active) ${label}`, {
+  opacity: 0.6,
+  textDecorationLine: 'underline',
+});
+phoneLabel(`:root[data-scene] ${label}`, {
+  textShadow: `0 0 3px ${surfaceInk}, 0 0 8px ${surfaceInk}`,
+});
+
+// Icons, dots and the Join action share the label's halo over the scene.
+globalStyle(`:root[data-scene] ${NavItemBase} svg, :root[data-scene] ${NavItemBase} button`, {
+  '@media': {
+    [PHONE]: {
+      filter: `drop-shadow(0 0 3px ${surfaceInk})`,
+    },
+  },
+});
+
+// The Join action on a phone is a plain underlined word, not a pill.
+export const NavAction = style({
+  '@media': {
+    [PHONE]: {
+      selectors: {
+        '&&': {
+          backgroundColor: 'transparent',
+          boxShadow: 'none',
+          border: 'none',
+          borderRadius: 0,
+          minWidth: 0,
+          textDecoration: 'underline',
+          textUnderlineOffset: toRem(4),
+          flexShrink: 0,
+        },
+      },
+    },
+  },
 });
