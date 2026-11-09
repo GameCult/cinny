@@ -156,6 +156,8 @@ export const BubbleContentArrowLeft = style({
 // beside its bubble on wide screens; on phones it floats inside the bubble, overhanging the top
 // edge, and the text wraps around its silhouette (shape-outside on the alpha channel).
 const PHONE = 'screen and (max-width: 700px)';
+const PHONE_PORTRAIT = 'min(38vw, 160px)';
+const PHONE_TEXT_FLOOR = toRem(170);
 const PORTRAIT = toRem(124);
 const POSE_GUTTER = toRem(14);
 const BUBBLE_CORNER = toRem(6);
@@ -196,19 +198,19 @@ export const BubbleHeaderOwn = style({
   alignSelf: 'flex-end',
 });
 
-// Phone: the name is a pill straddling the bubble's top edge, on the side opposite the portrait.
+// Phone: name and time are one plain line in flow above the bubble, on the side opposite the
+// portrait. It is as wide as the full name needs, up to the room beside the portrait; only a name
+// longer than that wraps (and then the time drops below it). It is capped by the viewport, not by
+// the column: a short bubble's column is narrower than its own name, and a percentage cap there
+// truncated names to one letter.
 export const BubbleHeaderPose = style({
   '@media': {
     [PHONE]: {
-      position: 'absolute',
-      zIndex: 2,
-      top: toRem(-15),
-      right: toRem(14),
-      padding: `0 ${toRem(13)}`,
-      background: color.Secondary.Container,
-      border: `1px solid ${color.Secondary.ContainerLine}`,
-      borderRadius: toRem(999),
-      whiteSpace: 'nowrap',
+      alignSelf: 'flex-end',
+      margin: `0 ${toRem(14)} ${toRem(2)}`,
+      width: 'max-content',
+      maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
+      textAlign: 'right',
     },
   },
 });
@@ -216,8 +218,8 @@ export const BubbleHeaderPose = style({
 export const BubbleHeaderPoseAlt = style({
   '@media': {
     [PHONE]: {
-      right: 'auto',
-      left: toRem(14),
+      alignSelf: 'flex-start',
+      textAlign: 'left',
     },
   },
 });
@@ -232,6 +234,9 @@ export const BubbleContentPose = style({
   '@media': {
     [PHONE]: {
       display: 'flow-root',
+      // A bubble with a portrait is at least portrait + a readable column wide, or the text
+      // beside the portrait collapses to a strip.
+      minWidth: `min(100%, calc(${PHONE_PORTRAIT} + ${PHONE_TEXT_FLOOR}))`,
       borderTopLeftRadius: config.radii.R500,
       padding: `${toRem(24)} ${toRem(14)} ${toRem(14)}`,
     },
@@ -262,11 +267,10 @@ export const PoseButton = style({
     [PHONE]: {
       position: 'static',
       float: 'left',
-      width: 'min(50vw, 210px)',
+      width: PHONE_PORTRAIT,
       height: 'auto',
       margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
       shapeMargin: toRem(7),
-      shapeImageThreshold: 0.35,
       WebkitMaskImage: 'linear-gradient(#000 84%, transparent)',
       maskImage: 'linear-gradient(#000 84%, transparent)',
     },
@@ -388,6 +392,51 @@ globalStyle(`${BubbleContentPose} > div`, {
   },
 });
 
+// The name wraps instead of ellipsising: the header already caps its own width, and Username's own
+// nowrap + ellipsis, and the truncate on the Text inside it, clipped long names to "Heimdall o…".
+globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`, {
+  '@media': {
+    [PHONE]: {
+      whiteSpace: 'normal',
+      overflow: 'visible',
+      textOverflow: 'clip',
+      overflowWrap: 'break-word',
+    },
+  },
+});
+
+// A name too long for one line takes its own lines and the time drops below it, instead of the
+// name shrinking to a sliver beside the time (the header's one child is the flex row of both). The
+// row hugs the side the header sits on, so a dropped time stays under the name's edge.
+globalStyle(`${BubbleHeaderPose} > div`, {
+  '@media': {
+    [PHONE]: {
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
+    },
+  },
+});
+
+globalStyle(`${BubbleHeaderPoseAlt} > div`, {
+  '@media': {
+    [PHONE]: {
+      justifyContent: 'flex-start',
+    },
+  },
+});
+
+// An outside list marker hangs left of its item's text and ignores the portrait's silhouette, so
+// beside a left portrait the number lands under the art. Inside, it is a word on the first line
+// and wraps around the silhouette like the rest.
+globalStyle(`${BubbleContentPose} ol, ${BubbleContentPose} ul`, {
+  '@media': {
+    [PHONE]: {
+      listStylePosition: 'inside',
+      paddingLeft: 0,
+    },
+  },
+});
+
 // While the background scene runs (html[data-scene]) a chat bubble is the one filled surface in
 // the app: its own colour at half strength over a blur of the scene, so the words stay readable
 // and the ridge shows through. The arrow wedge is opaque, so it goes.
@@ -399,14 +448,6 @@ globalStyle(`${scene} ${BubbleContent}`, {
 });
 globalStyle(`${scene} ${BubbleContentOwn}`, {
   backgroundColor: [color.Primary.Container, half(color.Primary.Container)],
-});
-globalStyle(`${scene} ${BubbleHeaderPose}`, {
-  '@media': {
-    [PHONE]: {
-      backgroundColor: [color.Secondary.Container, half(color.Secondary.Container)],
-      backdropFilter: 'blur(12px)',
-    },
-  },
 });
 globalStyle(`${scene} ${BubbleLeftArrow}`, {
   display: 'none',

@@ -68,6 +68,17 @@ export const poseStatuses = (events: PoseEvent[]): PoseStatus[] => {
   });
 };
 
+// The status that changed last, and the rest in their given order (phones show only the first).
+export const splitNewestStatus = (
+  statuses: PoseStatus[]
+): { newest: PoseStatus | undefined; rest: PoseStatus[] } => {
+  let newest: PoseStatus | undefined;
+  statuses.forEach((st) => {
+    if (!newest || st.since > newest.since) newest = st;
+  });
+  return { newest, rest: statuses.filter((st) => st !== newest) };
+};
+
 const two = (n: number) => String(n).padStart(2, '0');
 
 // Client-status text. Rendered locally only; it is never sent to a room.
