@@ -10,6 +10,10 @@ export type { SceneStyle, SceneTier } from './tier';
 export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompileFail'> & {
   /** A shader failed to compile, or the scene chunk failed to load. The host keeps its ground. */
   onCompileFail?: (e: Error) => void;
+  /** A rebuild for a new sky state made no scene: the host puts the CSS ground back (as on a lost context). */
+  onInactive?: () => void;
+  /** A rebuild made a scene again: the host lets it show. */
+  onActive?: () => void;
 };
 
 async function create(
@@ -78,7 +82,11 @@ export async function startBackgroundScene(
       return;
     }
     inner = next;
-    if (loggedIn) inner?.login();
+    if (!next) options.onInactive?.();
+    else {
+      options.onActive?.();
+      if (loggedIn) next.login();
+    }
   });
   return {
     login() {

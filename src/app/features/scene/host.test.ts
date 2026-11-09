@@ -108,6 +108,20 @@ describe('mountBackgroundScene', () => {
     expect(scene.login).toHaveBeenCalledOnce();
   });
 
+  it('hands the door its onInactive and onActive, for a sky-state rebuild that makes no scene', async () => {
+    startBackgroundScene.mockResolvedValue(fakeScene());
+    const onInactive = vi.fn();
+    const onActive = vi.fn();
+    mountBackgroundScene(config, caps, canvas, { loggedIn: false, onInactive, onActive });
+    await flush();
+    const given = startBackgroundScene.mock.calls[0][2];
+    onActive.mockClear();
+    given.onInactive();
+    given.onActive();
+    expect(onInactive).toHaveBeenCalledOnce();
+    expect(onActive).toHaveBeenCalledOnce();
+  });
+
   describe('a lost WebGL context', () => {
     const lose = () =>
       startBackgroundScene.mock.calls[

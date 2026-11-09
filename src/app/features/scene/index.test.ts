@@ -77,6 +77,34 @@ describe('startBackgroundScene follows the sky state', () => {
     scene?.dispose();
   });
 
+  it('puts the ground back when a rebuild makes no scene, and lets it show when one returns', async () => {
+    const [a, c] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(null).mockReturnValueOnce(c);
+    const onInactive = vi.fn();
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onInactive, onActive });
+    expect(onInactive).not.toHaveBeenCalled();
+    setSkyState('day');
+    await flush();
+    expect(onInactive).toHaveBeenCalledOnce();
+    expect(onActive).not.toHaveBeenCalled();
+    setSkyState('dusk');
+    await flush();
+    expect(onActive).toHaveBeenCalledOnce();
+    expect(onInactive).toHaveBeenCalledOnce();
+    scene?.dispose();
+  });
+
+  it('does not report a dropped rebuild as inactive', async () => {
+    createRidgeScene.mockReturnValueOnce(fakeScene()).mockReturnValueOnce(null);
+    const onInactive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onInactive });
+    setSkyState('day');
+    scene?.dispose();
+    await flush();
+    expect(onInactive).not.toHaveBeenCalled();
+  });
+
   it('removes the subscription on dispose', async () => {
     const first = fakeScene();
     createRidgeScene.mockReturnValue(first);

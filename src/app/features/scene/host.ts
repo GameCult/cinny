@@ -40,6 +40,8 @@ export function mountBackgroundScene(
     startBackgroundScene(config, capabilities, {
       canvas,
       onCompileFail: onFail,
+      onInactive,
+      onActive,
       onContextLost: () => {
         if (stale()) return;
         generation += 1;
