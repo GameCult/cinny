@@ -1,7 +1,9 @@
+import classNames from 'classnames';
 import React, { useCallback, useState } from 'react';
 import { Avatar, Box, Button, Spinner, Text, as } from 'folds';
 import { Room } from 'matrix-js-sdk';
 import { useAtomValue } from 'jotai';
+import { SkyPlate } from '../../features/scene/skyPlate.css';
 import { IRoomCreateContent, Membership, StateEvent } from '../../../types/matrix/room';
 import { getMemberDisplayName, getStateEvent } from '../../utils/room';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
@@ -23,7 +25,7 @@ export type RoomIntroProps = {
   room: Room;
 };
 
-export const RoomIntro = as<'div', RoomIntroProps>(({ room, ...props }, ref) => {
+export const RoomIntro = as<'div', RoomIntroProps>(({ room, className, ...props }, ref) => {
   const mx = useMatrixClient();
   const useAuthentication = useMediaAuthentication();
   const { navigateRoom } = useRoomNavigate();
@@ -50,7 +52,7 @@ export const RoomIntro = as<'div', RoomIntroProps>(({ room, ...props }, ref) => 
   const [hour24Clock] = useSetting(settingsAtom, 'hour24Clock');
 
   return (
-    <Box direction="Column" grow="Yes" gap="500" {...props} ref={ref}>
+    <Box direction="Column" grow="Yes" gap="500" className={classNames(SkyPlate, className)} {...props} ref={ref}>
       <Box>
         <Avatar size="500">
           <RoomAvatar

@@ -39,19 +39,21 @@ describe('skyThemeId', () => {
 });
 
 describe('ink of the theme a state picks, on bare sky', () => {
-  // [state, text ratio, link ratio]; a theme's own ink is not chosen for bare sky, so only day
-  // and night text pass (Nibu's measurement, skyState.test.ts). Links never rest on bare sky.
-  const cells: [SkyState, string, string, string, string][] = [
-    ['day', 'noonday-sky', '#342d25', '7.62', '#2a4f27'],
-    ['dusk', 'noonday-sky', '#342d25', '1.00', '#2a4f27'],
-    ['night', 'midnight-sky', '#aeccff', '5.05', '#609385'],
+  // Per state: the picked theme, its ink and link, and their ratios on bare sky. A theme's own
+  // ink is not chosen for bare sky, so only day and night text pass (skyState.test.ts), and no
+  // link does (night 2.36): links never rest on bare sky, they sit on the plate below.
+  const cells: [SkyState, string, string, string, string, string][] = [
+    ['day', 'noonday-sky', '#342d25', '7.62', '#2a4f27', '5.25'],
+    ['dusk', 'noonday-sky', '#342d25', '1.00', '#2a4f27', '1.00'],
+    ['night', 'midnight-sky', '#aeccff', '5.05', '#609385', '2.36'],
   ];
 
-  it.each(cells)('%s with %s: ink %s measures %s', (state, id, ink, want, link) => {
+  it.each(cells)('%s with %s: ink %s is %s, link %s is %s', (state, id, ink, want, link, wantLink) => {
     const sky = SKY[id as keyof typeof SKY];
     expect(sky.tokens.Background.OnContainer).toBe(ink);
     expect(sky.link).toBe(link);
     expect(r2(ratio(ink, skyBackdrop(state)))).toBe(want);
+    expect(r2(ratio(link, skyBackdrop(state)))).toBe(wantLink);
   });
 
   it('only the cells that clear AA on bare sky carry text there', () => {

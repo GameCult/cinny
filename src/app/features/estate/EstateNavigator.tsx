@@ -2,7 +2,6 @@ import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } fro
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color, config } from 'folds';
-import classNames from 'classnames';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
 import {
   NavButton,
@@ -43,7 +42,6 @@ import { EstateRoom, EstateTier } from './buildEstate';
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
-import { SkyPlate } from '../scene/skyPlate.css';
 import { SkyStateControl } from '../scene/SkyStateControl';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
@@ -292,7 +290,7 @@ export function EstateNavigator() {
   return (
     <PageNav>
       <PageNavHeader>
-        <Box alignItems="Center" grow="Yes" gap="300" className={classNames(css.Targets, SkyPlate)}>
+        <Box alignItems="Center" grow="Yes" gap="300" className={css.Targets}>
           <Box grow="Yes">
             <Text size="H4" truncate>
               {title}
