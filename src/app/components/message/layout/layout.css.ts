@@ -214,7 +214,9 @@ export const BubbleHeaderPose = style({
       // narrower than its own name, and a percentage cap there truncated names to one letter.
       width: 'max-content',
       maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
-      overflowWrap: 'anywhere',
+      // A name too long for one line takes its own lines and the time drops below it, instead of
+      // the name shrinking to a sliver beside the time.
+      flexWrap: 'wrap',
       borderRadius: toRem(14),
     },
   },
@@ -406,7 +408,7 @@ globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`
       whiteSpace: 'normal',
       overflow: 'visible',
       textOverflow: 'clip',
-      overflowWrap: 'anywhere',
+      overflowWrap: 'break-word',
     },
   },
 });
