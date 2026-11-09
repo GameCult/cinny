@@ -28,7 +28,7 @@ export type TerrainOptions = Pick<
   SceneOptions,
   'canvas' | 'tier' | 'onCompileFail' | 'onContextLost'
 > & {
-  /** Which baked sky lights and hazes the terrain. Default: `?sky=` in the page URL, else the night notion of `skyColours()`. */
+  /** Which baked sky lights and hazes the terrain. Default: `?sky=` in the page URL, else midnight. */
   sky?: SkyName;
   /** Put the sun at this elevation (degrees) and azimuth (clockwise from north; default: noonday's) instead of at the baked sky's: `?sun=` and `?az=` in the page URL. Lights between the two bakes, for dusk. */
   sun?: { elevation: number; azimuth?: number };

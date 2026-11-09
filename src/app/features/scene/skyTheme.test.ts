@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, contrast, luminance } from '../../../sky/skyTokens.js';
 import { Editor } from '../../components/editor/Editor.css';
@@ -8,7 +9,7 @@ import { MembersDrawer } from '../room/MembersDrawer.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { SKY_PLATE_FALLBACK } from './skyPlate';
 import { SkyPlate, plateRegions } from './skyPlate.css';
-import { setSkyClock, skyBackdrop } from './skyState';
+import { getResolvedSkyState, setSkyClock, skyBackdrop } from './skyState';
 import type { SkyBackdrop } from './skyState';
 import type { FixedSkyState } from './skyBand';
 import { skyThemeId } from './skyTheme';
@@ -32,17 +33,25 @@ const ratio = (ink: string, b: SkyBackdrop) =>
 const r2 = (n: number) => n.toFixed(2);
 
 describe('skyThemeId', () => {
-  it('picks a theme for every fixed state, and for auto the theme of the sky it resolves to', () => {
+  it('picks a theme for each explicit state', () => {
     expect(skyThemeId('day')).toBe('noonday-sky');
     expect(skyThemeId('dusk')).toBe('noonday-sky');
     expect(skyThemeId('night')).toBe('midnight-sky');
-    const at = (h: number, m = 0) => setSkyClock(() => new Date(2026, 8, 22, h, m));
-    at(12);
-    expect(skyThemeId('auto')).toBe('noonday-sky');
-    at(0);
-    expect(skyThemeId('auto')).toBe('midnight-sky');
-    at(18, 10);
-    expect(skyThemeId('auto')).toBe('noonday-sky');
+  });
+
+  it('picks none for auto, at any hour: auto never overrides a signed-in theme', () => {
+    [0, 6, 12, 18, 23].forEach((h) => {
+      setSkyClock(() => atStandardTime(h, 10));
+      expect(skyThemeId('auto')).toBeUndefined();
+    });
+    setSkyClock();
+  });
+
+  it('is what a wiring that follows the sky reads: the resolved state names a theme', () => {
+    setSkyClock(() => atStandardTime(12));
+    expect(skyThemeId(getResolvedSkyState())).toBe('noonday-sky');
+    setSkyClock(() => atStandardTime(0));
+    expect(skyThemeId(getResolvedSkyState())).toBe('midnight-sky');
     setSkyClock();
   });
 });
@@ -54,9 +63,9 @@ describe('ink of the theme a state picks, on bare sky', () => {
   // numbers are recorded as they are measured (Night's #609385 would clear 4.5 at a luminance of about 0.53 or more).
   // 'auto' resolves from the clock to one of these three and has the same numbers.
   const cells: [FixedSkyState, string, string, string, string, string][] = [
-    ['day', 'noonday-sky', '#342d25', '6.68', '#2a4f27', '4.60'],
-    ['dusk', 'noonday-sky', '#342d25', '4.57', '#2a4f27', '3.15'],
-    ['night', 'midnight-sky', '#aeccff', '4.97', '#609385', '2.32'],
+    ['day', 'noonday-sky', '#342d25', '6.64', '#2a4f27', '4.57'],
+    ['dusk', 'noonday-sky', '#342d25', '4.60', '#2a4f27', '3.17'],
+    ['night', 'midnight-sky', '#aeccff', '4.91', '#609385', '2.29'],
   ];
 
   it.each(cells)(
@@ -86,8 +95,8 @@ describe('ink of the theme a state picks, on bare sky', () => {
     [18, 'dusk'],
     [0, 'night'],
   ] as const)('auto at %s:00 has the numbers of %s', (hour, state) => {
-    setSkyClock(() => new Date(2026, 8, 22, hour, hour === 18 ? 10 : 0));
-    const id = skyThemeId('auto');
+    setSkyClock(() => atStandardTime(hour, hour === 18 ? 10 : 0));
+    const id = skyThemeId(getResolvedSkyState()) as keyof typeof SKY;
     expect(id).toBe(skyThemeId(state));
     const { tokens, link } = SKY[id];
     const text = tokens.Background.OnContainer;

@@ -1,7 +1,7 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
-import { getResolvedSkyState, subscribe } from './skyState';
-import type { FixedSkyState } from './skyState';
+import { getResolvedSkyState, getSkyState, subscribe } from './skyState';
+import type { SkyState } from './skyState';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -18,7 +18,7 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 async function create(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier },
-  state: FixedSkyState
+  state: SkyState
 ): Promise<Scene | null> {
   let createScene: (o: SceneOptions) => Scene | null;
   try {
@@ -64,21 +64,25 @@ export async function startBackgroundScene(
 ): Promise<Scene | null> {
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
-  const build = (state: FixedSkyState) => create(config, { ...options, tier }, state);
-  const state = getResolvedSkyState();
+  const build = (state: SkyState) => create(config, { ...options, tier }, state);
+  const state = getSkyState();
+  const key0 = `${state}:${getResolvedSkyState()}`;
   const first = await build(state);
   if (!first || config?.style === 'raymarch') return first;
 
   let inner: Scene | null = first;
-  let built = state;
+  let built = key0;
   let loggedIn = false;
   let disposed = false;
   let generation = 0;
-  const rebuild = async (next: FixedSkyState) => {
-    if (next === built) return;
+  // A rebuild is for a new choice or a new resolved sky ('auto' crossing a boundary), not for a repeat of either.
+  const rebuild = async () => {
+    const next = getSkyState();
+    const key = `${next}:${getResolvedSkyState()}`;
+    if (key === built) return;
     generation += 1;
     const mine = generation;
-    built = next;
+    built = key;
     inner?.dispose();
     inner = null;
     const scene = await build(next);
@@ -95,7 +99,7 @@ export async function startBackgroundScene(
   };
   const off = subscribe(rebuild);
   // A change that landed while the first build was awaited was missed by the subscription.
-  rebuild(getResolvedSkyState());
+  rebuild();
   return {
     login() {
       loggedIn = true;

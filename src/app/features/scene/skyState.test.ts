@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { luminance } from '../../../sky/skyTokens.js';
 import {
@@ -123,7 +124,7 @@ describe('skyBackdrop', () => {
   });
 
   it('is the band of the sky auto resolves to, not the union of all three', () => {
-    const at = (h: number) => setSkyClock(() => new Date(2026, 8, 22, h, 0));
+    const at = (h: number) => setSkyClock(() => atStandardTime(h, 0));
     at(12);
     expect(skyBackdrop('auto')).toEqual(skyBackdrop('day'));
     at(0);
@@ -139,7 +140,7 @@ describe('skyBackdrop', () => {
 });
 
 describe('auto follows the clock', () => {
-  const local = (h: number, m = 0) => new Date(2026, 8, 22, h, m); // local solar time ~ local clock
+  const local = (h: number, m = 0) => atStandardTime(h, m); // local solar time ~ local clock
   let storage: ReturnType<typeof fakeStorage>;
   beforeEach(() => {
     vi.useFakeTimers();
@@ -172,6 +173,24 @@ describe('auto follows the clock', () => {
     vi.advanceTimersByTime(5 * 60_000);
     expect(cb).toHaveBeenCalledTimes(1);
     off();
+  });
+
+  it('still tells everyone when a listener comes or goes inside the window before the clock crosses', async () => {
+    const m = await fresh();
+    let now = local(17, 0);
+    m.setSkyClock(() => now);
+    const [a, b, late] = [vi.fn(), vi.fn(), vi.fn()];
+    m.subscribe(a);
+    const offB = m.subscribe(b);
+    vi.advanceTimersByTime(30_000);
+    now = local(18, 10); // the clock has crossed; no tick has seen it yet
+    const offLate = m.subscribe(late);
+    offB();
+    vi.advanceTimersByTime(60_000);
+    expect(a.mock.calls).toEqual([['dusk']]);
+    expect(b).not.toHaveBeenCalled();
+    expect(late.mock.calls).toEqual([['dusk']]);
+    offLate();
   });
 
   it('keeps no timer without listeners or when a fixed state is chosen', async () => {

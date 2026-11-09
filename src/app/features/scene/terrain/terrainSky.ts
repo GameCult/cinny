@@ -221,10 +221,25 @@ export function shade(d: SkyData, albedo: Vec3, normal: Vec3, distance: number, 
   }) as unknown as Vec3;
 }
 
+/** What the page URL asks of the sky, if anything: `?sun=` (with `?az=`) wins over `?sky=midnight|noonday`; a bad value asks nothing. */
+export function urlSky():
+  | { sky?: SkyName; sun?: { elevation: number; azimuth?: number } }
+  | undefined {
+  const q = new URLSearchParams(window.location.search);
+  const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
+  const elevation = number('sun');
+  if (Number.isFinite(elevation)) {
+    const azimuth = number('az');
+    return { sun: { elevation, azimuth: Number.isFinite(azimuth) ? azimuth : undefined } };
+  }
+  const name = q.get('sky');
+  return isSkyName(name) ? { sky: name } : undefined;
+}
+
 /**
  * The sky to use. An explicit option wins over the page URL, so a person who picked a sky sees it: a sun
- * elevation (with its azimuth, default noonday's), else a baked sky. Only without either does the URL steer:
- * `?sun=` (with `?az=`), then `?sky=midnight|noonday`, then midnight. (The door always names a sky and a band; these are for callers that do not.)
+ * elevation (with its azimuth, default noonday's), else a baked sky. Only without either does the URL steer
+ * (`urlSky`), else midnight. A band, when given, shapes whichever sky that is.
  */
 export function chooseSky(opts: {
   sky?: SkyName;
@@ -232,15 +247,7 @@ export function chooseSky(opts: {
   band?: SkyBand;
 }): SkyData {
   const banded = (d: SkyData): SkyData => (opts.band ? { ...d, band: opts.band } : d);
-  if (opts.sun) return banded(skyAtSun(opts.sun.elevation, opts.sun.azimuth));
-  if (opts.sky) return banded(skyData(opts.sky));
-  const q = new URLSearchParams(window.location.search);
-  const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
-  const elevation = number('sun');
-  if (Number.isFinite(elevation)) {
-    const azimuth = number('az');
-    return banded(skyAtSun(elevation, Number.isFinite(azimuth) ? azimuth : undefined));
-  }
-  const name = q.get('sky');
-  return banded(skyData(isSkyName(name) ? name : 'midnight'));
+  const want = opts.sun || opts.sky ? opts : urlSky() ?? { sky: 'midnight' as const };
+  if (want.sun) return banded(skyAtSun(want.sun.elevation, want.sun.azimuth));
+  return banded(skyData(want.sky ?? 'midnight'));
 }

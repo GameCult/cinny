@@ -13,7 +13,7 @@ import '../../sky.css';
 import { settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
 import { skyThemeId } from '../features/scene/skyTheme';
-import { useResolvedSkyState } from './useSkyState';
+import { useSkyState } from './useSkyState';
 
 export enum ThemeKind {
   Light = 'light',
@@ -102,9 +102,9 @@ export const useSystemThemeKind = (): ThemeKind => {
   return themeKind;
 };
 
-/** The theme the sky being drawn asks for ('auto' asks for the one of the sky it resolves to). */
+/** The theme the sky state asks for, or undefined while it is 'auto': auto never overrides a person's theme. */
 export const useSkyTheme = (): Theme | undefined => {
-  const id = skyThemeId(useResolvedSkyState());
+  const id = skyThemeId(useSkyState());
   return id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
 };
 

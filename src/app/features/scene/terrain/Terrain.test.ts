@@ -5,6 +5,8 @@ import { GRID, triangleCount } from './terrainWorld';
 import { groundLight, SKY, skyAtSun } from './terrainSky';
 import { AP_VOLUME, apVolumeWords, SKY_VIEW, skyViewWords } from './terrainScatter';
 import { SKY_FRAG } from './terrainShaders';
+import { SKY_BAND } from '../skyBand';
+import { terrainSkyFor } from '../skyForState';
 import { startBackgroundScene } from '../index';
 
 /** A GL context that accepts every call, remembers them, reports success for compile, link and framebuffer. */
@@ -156,6 +158,32 @@ describe('createTerrainScene', () => {
     expect(has(uploaded({}), dayA)).toBe(true);
     search = '?sky=garbage';
     expect(has(uploaded({}), nightA)).toBe(true);
+  });
+
+  it.each(['day', 'dusk', 'night'] as const)(
+    'uploads the %s band as uBand (floor, ceiling) and uLift, in the sky pass and the grid pass',
+    (state) => {
+      const { gl, calls } = fakeGl();
+      const opts = terrainSkyFor(state);
+      createTerrainScene({ canvas: canvasWith(gl), tier: 'still', ...opts })!.dispose();
+      const { floor, ceiling, lift } = SKY_BAND[state];
+      const pairs = calls.uniform2fv.filter(
+        (a) =>
+          Math.abs((a[1] as number[])[0] - floor) < 1e-6 &&
+          Math.abs((a[1] as number[])[1] - ceiling) < 1e-6
+      );
+      expect(pairs).toHaveLength(2);
+      const lifts = calls.uniform3fv.filter((a) =>
+        Array.from(a[1] as ArrayLike<number>).every((x, i) => Math.abs(x - lift[i]) < 1e-6)
+      );
+      expect(lifts).toHaveLength(2);
+    }
+  );
+
+  it('uploads no band (0, 1) and a zero lift without one', () => {
+    const { gl, calls } = fakeGl();
+    createTerrainScene({ canvas: canvasWith(gl), tier: 'still' })!.dispose();
+    expect(calls.uniform2fv.filter((a) => (a[1] as number[])[1] === 1)).toHaveLength(2);
   });
 
   it('a sun elevation (option or ?sun=&az=) lights between the bakes, and wins over ?sky=', () => {

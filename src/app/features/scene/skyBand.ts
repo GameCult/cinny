@@ -28,13 +28,20 @@ export function hexToLinear(hex: string): Linear {
   return [ch(1), ch(3), ch(5)];
 }
 
+/** How a displayed colour is read: as encoded, or as the 8-bit screen can show it, the sky pass dithers by half a step either way ('low', 'high'). */
+export type Reading = 'exact' | 'low' | 'high';
+
 /**
  * Relative luminance of what the terrain shaders put on screen for a linear colour: they encode with
- * pow(1/2.2), not the sRGB curve, so the screen colour is read back through the sRGB curve.
+ * pow(1/2.2), not the sRGB curve, so the screen colour is read back through the sRGB curve. 'low' and 'high' read
+ * it after 8-bit quantisation with the dither at its worst, so the bounds they give hold on the screen.
  */
-export function displayedLuminance(c: Linear): number {
+export function displayedLuminance(c: Linear, reading: Reading = 'exact'): number {
   const ch = (v: number) => {
-    const e = Math.min(1, Math.max(0, v)) ** (1 / 2.2);
+    let e = Math.min(1, Math.max(0, v)) ** (1 / 2.2);
+    if (reading !== 'exact') {
+      e = Math.min(255, Math.max(0, Math.round(e * 255 + (reading === 'low' ? -0.5 : 0.5)))) / 255;
+    }
     return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4;
   };
   return luma([ch(c[0]), ch(c[1]), ch(c[2])]);
@@ -50,13 +57,14 @@ export interface SkyBand {
 }
 
 /**
- * The shaping targets, in linear luma. The floor sits 0.01 above the text bound (0.2983) because the
- * screen encoding is gamma 2.2, which reads about 0.006 darker through the sRGB curve at this level.
+ * The shaping targets, in linear luma. The floor sits 0.019 above the text bound (0.2983): the screen encoding is
+ * gamma 2.2, which reads about 0.006 darker through the sRGB curve at this level, and 8-bit rounding with the sky
+ * pass's dither at its worst takes about 0.006 more.
  */
 export const SKY_BAND: Record<FixedSkyState, SkyBand> = {
-  day: { floor: 0.31, ceiling: 1, lift: hexToLinear('#e2f4ff') },
-  dusk: { floor: 0.31, ceiling: 1, lift: hexToLinear('#eba0b9') },
-  night: { floor: 0, ceiling: 0.09, lift: hexToLinear('#484e64') },
+  day: { floor: 0.317, ceiling: 1, lift: hexToLinear('#e2f4ff') },
+  dusk: { floor: 0.317, ceiling: 1, lift: hexToLinear('#eba0b9') },
+  night: { floor: 0, ceiling: 0.085, lift: hexToLinear('#5a6a9a') },
 };
 
 /**

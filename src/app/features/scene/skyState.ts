@@ -30,10 +30,17 @@ const LAT = 45;
 export const DAY_FROM = 6;
 
 let clock: () => Date = () => new Date();
+/** Minutes west of UTC of this timezone's standard time (the larger of its January and July offsets), so daylight saving does not move the sun. */
+export const standardOffsetMinutes = (now: Date): number =>
+  Math.max(
+    new Date(now.getFullYear(), 0, 1).getTimezoneOffset(),
+    new Date(now.getFullYear(), 6, 1).getTimezoneOffset()
+  );
+
 /** The fixed sky a choice draws now: itself, or for 'auto' the sky the sun's elevation here calls for. */
 export function resolveSkyState(s: SkyState, now: Date = clock()): FixedSkyState {
   if (s !== 'auto') return s;
-  const lon = -now.getTimezoneOffset() / 4;
+  const lon = -standardOffsetMinutes(now) / 4;
   const el = sunElevation(now, LAT, lon) as number;
   if (el >= DAY_FROM) return 'day';
   return el <= -DAY_FROM ? 'night' : 'dusk';
@@ -60,12 +67,12 @@ const emit = () => {
 };
 
 // While anyone listens and the choice is 'auto', one timer checks the clock each minute and tells
-// listeners when the resolved sky changes. Otherwise there is no timer.
+// listeners when the resolved sky changes from the one last told (`shown`, set when telling and when the
+// first listener arrives, never by a later arrival or departure). Otherwise there is no timer.
 function sync(): void {
   clearTimeout(timer);
   timer = undefined;
   if (listeners.size === 0 || getSkyState() !== 'auto') return;
-  shown = getResolvedSkyState();
   const tick = () => {
     if (getResolvedSkyState() !== shown) emit();
     timer = setTimeout(tick, TICK_MS);
@@ -96,6 +103,7 @@ export function setSkyState(s: SkyState): void {
 
 /** Listeners hear the resolved sky: on a change of choice, and while 'auto', when the clock crosses a boundary. */
 export function subscribe(cb: (s: FixedSkyState) => void): () => void {
+  if (listeners.size === 0) shown = getResolvedSkyState();
   listeners.add(cb);
   sync();
   return () => {
@@ -119,11 +127,11 @@ export interface SkyBackdrop {
 // this module, which the main chunk loads, does not pull in the terrain sky and the baked scattering
 // tables with it; skyForState.test.ts fails when they drift from the computed union. The ridge sky counts
 // over its whole range, the terrain sky over what its frozen camera reaches (TERRAIN_REACH_DEG, skyForState.ts).
-// Rounded outward to six places.
+// Bounds what the 8-bit screen shows too (dither at its worst), rounded outward to six places.
 const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
-  day: { darkest: 0.466725, lightest: 0.892734 },
-  dusk: { darkest: 0.303835, lightest: 0.967298 },
-  night: { darkest: 0.05987, lightest: 0.079657 },
+  day: { darkest: 0.463644, lightest: 0.898318 },
+  dusk: { darkest: 0.306293, lightest: 0.968113 },
+  night: { darkest: 0.05987, lightest: 0.081133 },
 };
 
 export const skyBackdrop = (state: SkyState): SkyBackdrop => BACKDROPS[resolveSkyState(state)];

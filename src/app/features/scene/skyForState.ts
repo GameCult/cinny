@@ -4,7 +4,7 @@
 // it, the terrain sky shaped into it downstream of the scatter function. `skyBackdrop` bounds what comes out,
 // and the login text was checked against that bound.
 import { baked } from '../../../sky/baked';
-import { chooseSky, skyColour } from './terrain/terrainSky';
+import { chooseSky, skyColour, urlSky } from './terrain/terrainSky';
 import type { SkyName } from './terrain/terrainSky';
 import type { SkyColours, Srgb } from './ridge/skyColour';
 import { skyColours } from './ridge/skyColour';
@@ -41,14 +41,22 @@ export function ridgeSkyFor(state: SkyState): SkyColours {
   }
 }
 
-/** The terrain scene's `sky`, `sun` and `band` options: the state's sky ('auto': the sky it resolves to), shaped into the state's band. */
+/**
+ * The terrain scene's `sky`, `sun` and `band` options. An explicit state draws its own sky and ignores the URL. 'auto'
+ * draws the sky it resolves to, unless the page URL steers (`?sun=` `?az=` `?sky=`, see `urlSky`): then the URL's sky,
+ * shaped into the band of the state the clock resolves to, which keeps any sun the URL picks inside that band.
+ */
 export function terrainSkyFor(state: SkyState): {
   sky?: SkyName;
-  sun?: { elevation: number };
+  sun?: { elevation: number; azimuth?: number };
   band: SkyBand;
 } {
   const fixed = resolveSkyState(state);
   const band = SKY_BAND[fixed];
+  if (state === 'auto') {
+    const url = urlSky();
+    if (url) return { ...url, band };
+  }
   switch (fixed) {
     case 'day':
       return { sky: 'noonday', band };
@@ -113,12 +121,16 @@ const REFINE_FROM = 6;
 export function terrainDrawn(state: SkyState): Range {
   const sky = chooseSky(terrainSkyFor(state));
   const rad = Math.PI / 180;
+  // Every point looked at is also read as the 8-bit screen would show it, dither at its worst, so the range bounds that too.
+  let screenDarkest = Infinity;
+  let screenLightest = -Infinity;
   const lum = (el: number, az: number) => {
     const e = Math.min(TERRAIN_REACH_DEG, Math.max(0, el)) * rad;
     const a = az * rad;
-    return displayedLuminance(
-      skyColour(sky, [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)])
-    );
+    const c = skyColour(sky, [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)]);
+    screenDarkest = Math.min(screenDarkest, displayedLuminance(c, 'low'));
+    screenLightest = Math.max(screenLightest, displayedLuminance(c, 'high'));
+    return displayedLuminance(c);
   };
   const seen: { el: number; az: number; l: number }[] = [];
   const at = (el: number, az: number) => seen.push({ el, az, l: lum(el, az) });
@@ -164,5 +176,8 @@ export function terrainDrawn(state: SkyState): Range {
     byLight[byLight.length - 1].l,
     ...byLight.slice(-REFINE_FROM).map((p) => refine(p, -1))
   );
-  return { darkest, lightest };
+  return {
+    darkest: Math.min(darkest, screenDarkest),
+    lightest: Math.max(lightest, screenLightest),
+  };
 }

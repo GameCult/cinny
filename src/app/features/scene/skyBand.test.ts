@@ -52,9 +52,9 @@ describe('the bands', () => {
     Object.values(SKY_BAND).forEach((b) => expect(luma(b.lift)).toBeGreaterThan(b.floor));
   });
 
-  it('keep the floor 0.01 above the 0.2983 text bound: gamma 2.2 reads darker than sRGB by less', () => {
+  it('keep the floor above the 0.2983 text bound by what gamma 2.2, 8-bit rounding and dither can take', () => {
     const grey = shapeToBand([0, 0, 0], SKY_BAND.day);
-    const shown = displayedLuminance(grey);
+    const shown = displayedLuminance(grey, 'low');
     expect(shown).toBeGreaterThanOrEqual(0.2983);
     expect(shown).toBeLessThan(SKY_BAND.day.floor);
   });

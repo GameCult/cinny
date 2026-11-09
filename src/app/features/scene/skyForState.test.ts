@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, luminance } from '../../../sky/skyTokens.js';
 import { skyColours } from './ridge/skyColour';
@@ -33,7 +34,19 @@ const needs = (state: FixedSkyState) => {
     : { floor: AA * (l + 0.05) - 0.05, ceiling: 1 };
 };
 
-afterEach(() => setSkyClock());
+let search = '';
+beforeEach(() => {
+  search = '';
+  vi.stubGlobal('window', {
+    get location() {
+      return { search };
+    },
+  });
+});
+afterEach(() => {
+  setSkyClock();
+  vi.unstubAllGlobals();
+});
 
 describe('the bands the text ink needs', () => {
   it('are the numbers the shaping was set from', () => {
@@ -45,11 +58,11 @@ describe('the bands the text ink needs', () => {
 
 describe('ridgeSkyFor', () => {
   it('draws the gradient of the sky auto resolves to, never nothing', () => {
-    setSkyClock(() => new Date(2026, 8, 22, 12, 0));
+    setSkyClock(() => atStandardTime(12, 0));
     expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('day'));
-    setSkyClock(() => new Date(2026, 8, 22, 0, 0));
+    setSkyClock(() => atStandardTime(0, 0));
     expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('night'));
-    setSkyClock(() => new Date(2026, 8, 22, 18, 10));
+    setSkyClock(() => atStandardTime(18, 10));
     expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('dusk'));
   });
 
@@ -82,6 +95,38 @@ describe('ridgeSkyFor', () => {
   });
 });
 
+// Not the generator's grid: a golden-angle spiral over the upper sphere (no shared rows or columns)
+// plus a 0.05 degree grid across the sun, five times finer than the generator's.
+const dirAt = (el: number, az: number): [number, number, number] => {
+  const rad = Math.PI / 180;
+  return [
+    Math.cos(el * rad) * Math.sin(az * rad),
+    Math.sin(el * rad),
+    -Math.cos(el * rad) * Math.cos(az * rad),
+  ];
+};
+/** Over the sweep: the darkest the 8-bit screen can show (dither at its worst), the lightest, and the darkest as encoded. */
+const sweepOf = (sky: ReturnType<typeof chooseSky>, N = 4000, maxEl = TERRAIN_REACH_DEG) => {
+  const rad = Math.PI / 180;
+  const out = { low: Infinity, high: -Infinity, exactMin: Infinity };
+  const see = (el: number, az: number) => {
+    const c = skyColour(sky, dirAt(el, az));
+    out.low = Math.min(out.low, displayedLuminance(c, 'low'));
+    out.high = Math.max(out.high, displayedLuminance(c, 'high'));
+    out.exactMin = Math.min(out.exactMin, displayedLuminance(c));
+  };
+  for (let i = 0; i < N; i += 1) {
+    const y = ((i + 0.5) / N) * Math.sin(maxEl * rad); // sin(elevation): uniform from the horizon to maxEl
+    see(Math.asin(y) / rad, (i * 137.50776405) % 360);
+  }
+  for (let dEl = -3; dEl <= 3; dEl += 0.05) {
+    for (let dAz = -3; dAz <= 3; dAz += 0.05) {
+      see(Math.min(maxEl, Math.max(0, sky.elevation + dEl)), sky.azimuth + dAz);
+    }
+  }
+  return out;
+};
+
 describe('the terrain camera reach', () => {
   it('covers the highest ray the frozen camera sees, at any aspect, with a small margin', () => {
     const tanHalf = Math.tan((55 * Math.PI) / 360);
@@ -105,10 +150,43 @@ describe('the terrain camera reach', () => {
 
 describe('terrainSkyFor', () => {
   it('draws the sky auto resolves to, with that state band', () => {
-    setSkyClock(() => new Date(2026, 8, 22, 12, 0));
+    setSkyClock(() => atStandardTime(12, 0));
     expect(terrainSkyFor('auto')).toEqual(terrainSkyFor('day'));
-    setSkyClock(() => new Date(2026, 8, 22, 0, 0));
+    setSkyClock(() => atStandardTime(0, 0));
     expect(terrainSkyFor('auto')).toEqual(terrainSkyFor('night'));
+  });
+
+  it('lets the page URL steer auto, shaped into the band of the state the clock resolves to', () => {
+    setSkyClock(() => atStandardTime(0, 0)); // night
+    search = '?sun=30&az=120';
+    expect(terrainSkyFor('auto')).toEqual({
+      sun: { elevation: 30, azimuth: 120 },
+      band: SKY_BAND.night,
+    });
+    search = '?sky=noonday';
+    expect(terrainSkyFor('auto')).toEqual({ sky: 'noonday', band: SKY_BAND.night });
+    search = '?sky=garbage';
+    expect(terrainSkyFor('auto')).toEqual(terrainSkyFor('night'));
+    setSkyClock(() => atStandardTime(18, 10)); // dusk, URL azimuth honoured
+    search = '?sun=2&az=250';
+    expect(terrainSkyFor('auto').sun).toEqual({ elevation: 2, azimuth: 250 });
+  });
+
+  it('keeps a URL-chosen sun inside the band of the resolved state', () => {
+    setSkyClock(() => atStandardTime(12, 0)); // day: floor
+    search = '?sun=-30';
+    const day = sweepOf(chooseSky(terrainSkyFor('auto')));
+    expect(day.low).toBeGreaterThanOrEqual(needs('day').floor);
+    setSkyClock(() => atStandardTime(0, 0)); // night: ceiling
+    search = '?sun=60';
+    const night = sweepOf(chooseSky(terrainSkyFor('auto')));
+    expect(night.high).toBeLessThanOrEqual(needs('night').ceiling);
+  });
+
+  it('lets an explicit state beat the URL, as before auto had one', () => {
+    search = '?sun=30&az=120&sky=midnight';
+    expect(terrainSkyFor('day')).toEqual({ sky: 'noonday', band: SKY_BAND.day });
+    expect(terrainSkyFor('dusk').sun).toEqual({ elevation: DUSK_SUN_ELEVATION });
   });
 
   it('names the baked sky for day and night, and a low sun for dusk, each with its band', () => {
@@ -121,63 +199,28 @@ describe('terrainSkyFor', () => {
   });
 });
 
-// Not the generator's grid: a golden-angle spiral over the upper sphere (no shared rows or columns)
-// plus a 0.05 degree grid across the sun, five times finer than the generator's.
-const dirAt = (el: number, az: number): [number, number, number] => {
-  const rad = Math.PI / 180;
-  return [
-    Math.cos(el * rad) * Math.sin(az * rad),
-    Math.sin(el * rad),
-    -Math.cos(el * rad) * Math.cos(az * rad),
-  ];
-};
-const sweepOf = (sky: ReturnType<typeof chooseSky>, N = 4000, maxEl = TERRAIN_REACH_DEG) => {
-  const rad = Math.PI / 180;
-  const out: number[] = [];
-  for (let i = 0; i < N; i += 1) {
-    const y = ((i + 0.5) / N) * Math.sin(maxEl * rad); // sin(elevation): uniform from the horizon to maxEl
-    out.push(
-      displayedLuminance(skyColour(sky, dirAt(Math.asin(y) / rad, (i * 137.50776405) % 360)))
-    );
-  }
-  for (let dEl = -3; dEl <= 3; dEl += 0.05) {
-    for (let dAz = -3; dAz <= 3; dAz += 0.05) {
-      out.push(
-        displayedLuminance(
-          skyColour(
-            sky,
-            dirAt(Math.min(maxEl, Math.max(0, sky.elevation + dEl)), sky.azimuth + dAz)
-          )
-        )
-      );
-    }
-  }
-  return out;
-};
-
 describe('the terrain sky lies in the band its text ink needs', () => {
   const sweep = (state: FixedSkyState) => sweepOf(chooseSky(terrainSkyFor(state)));
 
   it('dusk needs its lift: the scatter sky alone dips below the text bound within the reach', () => {
     const { sun } = terrainSkyFor('dusk');
-    const l = sweepOf(chooseSky({ sun }));
-    expect(Math.min(...l)).toBeLessThan(needs('dusk').floor - 0.02);
-    expect(Math.min(...sweep('dusk'))).toBeGreaterThanOrEqual(needs('dusk').floor);
+    expect(sweepOf(chooseSky({ sun })).exactMin).toBeLessThan(needs('dusk').floor - 0.02);
+    expect(sweep('dusk').low).toBeGreaterThanOrEqual(needs('dusk').floor);
   });
 
   it.each(STATES)('%s', (state) => {
     const { floor, ceiling } = needs(state);
     const l = sweep(state);
-    expect(Math.min(...l)).toBeGreaterThanOrEqual(floor);
-    expect(Math.max(...l)).toBeLessThanOrEqual(ceiling);
+    expect(l.low).toBeGreaterThanOrEqual(floor);
+    expect(l.high).toBeLessThanOrEqual(ceiling);
   });
 
   it.each(STATES)('%s holds for a sun at any elevation, as ?sun= can put it', (state) => {
     const { floor, ceiling } = needs(state);
     for (let e = -90; e <= 90; e += 10) {
       const l = sweepOf(chooseSky({ sun: { elevation: e }, band: SKY_BAND[state] }), 4000, 90);
-      expect(Math.min(...l)).toBeGreaterThanOrEqual(floor);
-      expect(Math.max(...l)).toBeLessThanOrEqual(ceiling);
+      expect(l.low).toBeGreaterThanOrEqual(floor);
+      expect(l.high).toBeLessThanOrEqual(ceiling);
     }
   });
 
@@ -212,9 +255,9 @@ describe('skyBackdrop holds the union of what the scenes draw', () => {
     const l = sweepOf(chooseSky(terrainSkyFor(state)), 20000);
     const b = skyBackdrop(state);
     const r = ridgeDrawn(state);
-    expect(Math.min(...l)).toBeGreaterThanOrEqual(b.darkest - EPS);
-    expect(Math.max(...l)).toBeLessThanOrEqual(b.lightest + EPS);
-    expect(b.lightest - Math.max(Math.max(...l), r.lightest)).toBeLessThan(5e-4);
-    expect(Math.min(Math.min(...l), r.darkest) - b.darkest).toBeLessThan(5e-4);
+    expect(l.low).toBeGreaterThanOrEqual(b.darkest - EPS);
+    expect(l.high).toBeLessThanOrEqual(b.lightest + EPS);
+    expect(b.lightest - Math.max(l.high, r.lightest)).toBeLessThan(5e-4);
+    expect(Math.min(l.low, r.darkest) - b.darkest).toBeLessThan(5e-4);
   });
 });
