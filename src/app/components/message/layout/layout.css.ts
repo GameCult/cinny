@@ -198,25 +198,19 @@ export const BubbleHeaderOwn = style({
   alignSelf: 'flex-end',
 });
 
-// Phone: the name is a pill straddling the bubble's top edge, on the side opposite the portrait.
+// Phone: name and time are one plain line in flow above the bubble, on the side opposite the
+// portrait. It is as wide as the full name needs, up to the room beside the portrait; only a name
+// longer than that wraps (and then the time drops below it). It is capped by the viewport, not by
+// the column: a short bubble's column is narrower than its own name, and a percentage cap there
+// truncated names to one letter.
 export const BubbleHeaderPose = style({
   '@media': {
     [PHONE]: {
-      position: 'absolute',
-      zIndex: 2,
-      // Anchored by its bottom edge, 13px inside the bubble: a name that wraps grows upward, out of
-      // the bubble, instead of down over the first line of text.
-      bottom: `calc(100% - ${toRem(13)})`,
-      right: toRem(14),
-      padding: `0 ${toRem(13)}`,
-      background: color.Secondary.Container,
-      border: `1px solid ${color.Secondary.ContainerLine}`,
-      // The pill is as wide as the full name needs, up to the room beside the portrait, then the
-      // name wraps. It is capped by the viewport, not by the column: a short bubble's column is
-      // narrower than its own name, and a percentage cap there truncated names to one letter.
+      alignSelf: 'flex-end',
+      margin: `0 ${toRem(14)} ${toRem(2)}`,
       width: 'max-content',
       maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
-      borderRadius: toRem(14),
+      textAlign: 'right',
     },
   },
 });
@@ -224,8 +218,8 @@ export const BubbleHeaderPose = style({
 export const BubbleHeaderPoseAlt = style({
   '@media': {
     [PHONE]: {
-      right: 'auto',
-      left: toRem(14),
+      alignSelf: 'flex-start',
+      textAlign: 'left',
     },
   },
 });
@@ -398,9 +392,8 @@ globalStyle(`${BubbleContentPose} > div`, {
   },
 });
 
-// The name inside the pill wraps instead of ellipsising: the pill already caps its own width, and
-// Username's own nowrap + ellipsis, and the truncate on the Text inside it, clipped long names to
-// "Heimdall o…" inside it.
+// The name wraps instead of ellipsising: the header already caps its own width, and Username's own
+// nowrap + ellipsis, and the truncate on the Text inside it, clipped long names to "Heimdall o…".
 globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`, {
   '@media': {
     [PHONE]: {
@@ -413,11 +406,21 @@ globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`
 });
 
 // A name too long for one line takes its own lines and the time drops below it, instead of the
-// name shrinking to a sliver beside the time (the pill's one child is the flex row of both).
+// name shrinking to a sliver beside the time (the header's one child is the flex row of both). The
+// row hugs the side the header sits on, so a dropped time stays under the name's edge.
 globalStyle(`${BubbleHeaderPose} > div`, {
   '@media': {
     [PHONE]: {
       flexWrap: 'wrap',
+      justifyContent: 'flex-end',
+    },
+  },
+});
+
+globalStyle(`${BubbleHeaderPoseAlt} > div`, {
+  '@media': {
+    [PHONE]: {
+      justifyContent: 'flex-start',
     },
   },
 });
@@ -445,14 +448,6 @@ globalStyle(`${scene} ${BubbleContent}`, {
 });
 globalStyle(`${scene} ${BubbleContentOwn}`, {
   backgroundColor: [color.Primary.Container, half(color.Primary.Container)],
-});
-globalStyle(`${scene} ${BubbleHeaderPose}`, {
-  '@media': {
-    [PHONE]: {
-      backgroundColor: [color.Secondary.Container, half(color.Secondary.Container)],
-      backdropFilter: 'blur(12px)',
-    },
-  },
 });
 globalStyle(`${scene} ${BubbleLeftArrow}`, {
   display: 'none',
