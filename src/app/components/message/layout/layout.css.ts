@@ -209,12 +209,13 @@ export const BubbleHeaderPose = style({
       padding: `0 ${toRem(13)}`,
       background: color.Secondary.Container,
       border: `1px solid ${color.Secondary.ContainerLine}`,
-      borderRadius: toRem(999),
-      whiteSpace: 'nowrap',
-      // Never wider than the bubble minus the portrait, so it cannot reach the portrait's face.
-      maxWidth: `calc(100% - ${PHONE_PORTRAIT} - ${toRem(30)})`,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
+      // The pill is as wide as the full name needs, up to the room beside the portrait, then the
+      // name wraps. It is capped by the viewport, not by the column: a short bubble's column is
+      // narrower than its own name, and a percentage cap there truncated names to one letter.
+      width: 'max-content',
+      maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
+      overflowWrap: 'anywhere',
+      borderRadius: toRem(14),
     },
   },
 });
