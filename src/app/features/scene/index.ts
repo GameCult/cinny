@@ -64,30 +64,36 @@ export async function startBackgroundScene(
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
   const build = (state: SkyState) => create(config, { ...options, tier }, state);
-  const first = await build(getSkyState());
+  const state = getSkyState();
+  const first = await build(state);
   if (!first || config?.style === 'raymarch') return first;
 
   let inner: Scene | null = first;
+  let built = state;
   let loggedIn = false;
   let disposed = false;
   let generation = 0;
-  const off = subscribe(async (state) => {
+  const rebuild = async (next: SkyState) => {
     generation += 1;
     const mine = generation;
+    built = next;
     inner?.dispose();
     inner = null;
-    const next = await build(state);
+    const scene = await build(next);
     if (disposed || mine !== generation) {
-      next?.dispose();
+      scene?.dispose();
       return;
     }
-    inner = next;
-    if (!next) options.onInactive?.();
+    inner = scene;
+    if (!scene) options.onInactive?.();
     else {
       options.onActive?.();
-      if (loggedIn) next.login();
+      if (loggedIn) scene.login();
     }
-  });
+  };
+  const off = subscribe(rebuild);
+  // A change that landed while the first build was awaited was missed by the subscription.
+  if (getSkyState() !== built) rebuild(getSkyState());
   return {
     login() {
       loggedIn = true;

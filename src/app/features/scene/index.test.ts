@@ -62,6 +62,20 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(second.dispose).toHaveBeenCalledOnce();
   });
 
+  it('rebuilds for a change that landed while the first build was awaited', async () => {
+    const [a, b] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b);
+    const started = startBackgroundScene(config, caps, { canvas });
+    setSkyState('day');
+    const scene = await started;
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(baked.noonday.gradient[0]);
+    expect(a.dispose).toHaveBeenCalledOnce();
+    scene?.dispose();
+    expect(b.dispose).toHaveBeenCalledOnce();
+  });
+
   it('replays a login onto the rebuilt scene, but only if one happened', async () => {
     const [a, b, c] = [fakeScene(), fakeScene(), fakeScene()];
     createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b).mockReturnValueOnce(c);
