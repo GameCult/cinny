@@ -38,6 +38,36 @@ Integration (a canvas under the app, `startBackgroundScene`, `login()` when the 
 are later cuts. This PR is the render core plus the contract the host needs: flag, tier, failure
 callbacks and the creature sizing rule. Nothing has drawn a creature.
 
+## Terrain scene (`style: 'terrain'`): the baked sky
+
+`terrain/` draws a Phacelle-displaced grid under a sky read from Void's bake (`src/sky/baked.ts`, layout in
+`src/sky/README.md`); nothing is vendored. `terrainSky.ts` reads each moment's `sun.{elevation_deg, azimuth_deg,
+color_linear}`, `ambient_linear` and `horizon_hex`; `terrainScatter.ts` decodes `baked.scatter` and uploads `sky_view` as an
+RGB16F 3D texture (the transmittance table stays on the CPU, for the sun's colour at an elevation the bake does not hold).
+Both fragment shaders sample it: `SKY_FRAG` for the sky, `GRID_FRAG` for the haze, which is the sky's colour at the horizon in the
+fragment's azimuth, so far ground fades into the sky behind it at dusk too.
+
+Page URL: `?sky=midnight|noonday` picks a bake; `?sun=<elevation deg>&az=<deg from north>` puts the sun anywhere between them
+(`skyAtSun`: baked transmittance for the sun's colour, ambient and horizon blended from the midnight bake to the noonday one as
+the sun climbs from -8 to 25 degrees). `?sun=` wins over `?sky=`.
+
+Without WebGL2 (`createTerrainScene` returns null) the door mounts `terrain/TerrainSky2D.ts` on the same canvas: the sky alone, painted once on a
+96 px wide 2D canvas from `skyColour` (the CPU twin of `SKY_FRAG`, same `?sky=` `?sun=` `?az=` choice via `chooseSky`), the star layer on
+top when the sky is dark, nothing moving, no sun disc. Below the horizon the image continues in the horizon's colour. A canvas that already
+holds a GL context gives no 2D one, so a GL failure after context creation (compile, framebuffer) still ends in the CSS ground.
+
+- Sky: `1 - exp(-SKY_EXPOSURE * radiance)` plus a night glow (the midnight horizon colour, `nightness` 1 below -4 degrees, 0 above 4), a
+  sun disc from the sun's colour, and a +-0.5/255 dither on the 8-bit output. The table is single scattering only (no ground bounce,
+  no multiple scattering), so the noon horizon is pale yellow-green and a sun just under the horizon colours the whole sky orange,
+  where the real one keeps a blue-violet zenith. Within `HORIZON_FLOOR` (1.5 degrees) of the horizon the sky takes one flat colour,
+  because the table dips toward the ground there and would draw a seam against the haze.
+- Stars: faded by the sun's elevation, `starGain` 1 below -12 degrees (where the table goes dark), 0 above -6, smooth between;
+  the field is placed against the midnight gradient and no longer gated on the sky being dark. At a baked sky that is the same as
+  before (midnight shows, noonday does not).
+- Changed numbers: haze colour (was the gradient's horizon stop; now the scattered sky), ambient (was the gradient's zenith stop
+  x `AMBIENT_GAIN` 0.25 x `NIGHT_LIFT` up to 4; now `ambient_linear` as baked, so midnight's fill is about 2.5 to 3.5 times darker than
+  the lifted one). `HAZE_K` (0.0004 per metre) is unchanged.
+
 ## Entry points
 
 - `index.ts` `startBackgroundScene(config.backgroundScene, capabilities, options)` is the host's
