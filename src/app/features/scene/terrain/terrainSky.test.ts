@@ -1,8 +1,9 @@
 /* eslint-disable no-restricted-syntax -- tests loop over skies, normals and distances */
 import { AP_DISTANCE_SCALE } from './terrainScatter';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { baked } from '../../../../sky/baked';
 import {
+  chooseSky,
   coldness,
   glowColour,
   hazeColour,
@@ -11,6 +12,7 @@ import {
   shade,
   SKY,
   skyAtSun,
+  skyData,
   skyColour,
   skyNameFor,
   sunDirection,
@@ -296,5 +298,32 @@ describe('ground light and haze', () => {
     const sun = sunDirection(SKY.noonday);
     const along = (forward[0] * sun[0] + forward[2] * sun[2]) / Math.hypot(sun[0], sun[2]);
     expect(Math.abs(along)).toBeLessThan(0.4);
+  });
+});
+
+describe('chooseSky: an explicit sky wins over the page URL', () => {
+  const at = (search: string) => vi.stubGlobal('window', { location: { search } });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('lets the URL steer when no option is given', () => {
+    at('?sun=40&az=90');
+    expect(chooseSky({})).toEqual(skyAtSun(40, 90));
+    at('?sky=noonday');
+    expect(chooseSky({})).toEqual(skyData('noonday'));
+  });
+
+  it('prefers an explicit baked sky to ?sun= and ?sky=', () => {
+    at('?sun=40&az=90&sky=noonday');
+    expect(chooseSky({ sky: 'midnight' })).toEqual(skyData('midnight'));
+    at('?sky=noonday');
+    expect(chooseSky({ sky: 'midnight' })).toEqual(skyData('midnight'));
+  });
+
+  it('prefers an explicit sun to ?sun=, and takes no azimuth from ?az=', () => {
+    at('?sun=40&az=90&sky=noonday');
+    expect(chooseSky({ sun: { elevation: 2 } })).toEqual(skyAtSun(2, undefined));
+    expect(chooseSky({ sun: { elevation: 2, azimuth: 10 } })).toEqual(skyAtSun(2, 10));
   });
 });

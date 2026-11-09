@@ -105,15 +105,20 @@ describe('sky state', () => {
 });
 
 describe('skyBackdrop', () => {
-  it('orders the fixed skies night < dusk < day by their lightest sky', () => {
+  it('puts night below day and dusk, which spans from dark to the sun glow', () => {
+    expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('day').darkest);
     expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('dusk').lightest);
-    expect(skyBackdrop('dusk').lightest).toBeLessThan(skyBackdrop('day').lightest);
+    expect(skyBackdrop('dusk').darkest).toBeLessThan(skyBackdrop('day').darkest);
   });
 
-  it('is the luminance of the baked gradients for day and night', () => {
+  it('holds the baked gradients for day and night', () => {
     const lum = (g: readonly string[]) => g.map(luminance);
-    expect(skyBackdrop('day').lightest).toBe(Math.max(...lum(baked.noonday.gradient)));
-    expect(skyBackdrop('night').darkest).toBe(Math.min(...lum(baked.midnight.gradient)));
+    expect(skyBackdrop('day').lightest).toBeGreaterThanOrEqual(
+      Math.max(...lum(baked.noonday.gradient)) - 1e-9
+    );
+    expect(skyBackdrop('night').darkest).toBeLessThanOrEqual(
+      Math.min(...lum(baked.midnight.gradient)) + 1e-9
+    );
   });
 
   it('bounds every fixed sky when auto', () => {
@@ -171,11 +176,9 @@ describe('login ink against the sky backdrop', () => {
   });
 
   // Bare sky does not hold either ink in most states: the card behind the login form stays opaque
-  // (pages/auth/styles.css.ts) for that reason. These are the cells that clear AA; every other
+  // (pages/auth/styles.css.ts) for that reason. These are the cells that clear AA, with the sky range the scenes can draw; every other
   // cell is asserted to fail, so a sky or theme change that fixes one turns it red until listed.
   const clears = new Set([
-    'day|Noonday Sky|text',
-    'day|Noonday Sky|link',
     'night|Light/Silver/Dark/Butter|text',
     'night|Light/Silver/Dark/Butter|link',
     'night|Midnight Sky|text',

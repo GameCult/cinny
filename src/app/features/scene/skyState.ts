@@ -2,9 +2,7 @@
 // localStorage key; whoever draws the sky (the scene, the title bar's control) reads it here, and
 // `skyBackdrop` says how light or dark the sky behind the login text can be in each state, so the
 // text colours can be checked against it.
-import { baked } from '../../../sky/baked';
-import { luminance } from '../../../sky/skyTokens.js';
-import { skyColours } from './ridge/skyColour';
+import { ridgeDrawn, terrainDrawn } from './skyForState';
 
 export type SkyState = 'auto' | 'day' | 'dusk' | 'night';
 
@@ -59,26 +57,28 @@ export interface SkyBackdrop {
   readonly lightest: number;
 }
 
-const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-const bound = (colours: readonly string[]): SkyBackdrop => {
-  const l = colours.map(luminance);
-  return { darkest: Math.min(...l), lightest: Math.max(...l) };
+// The union of every sky a scene draws for the state: the ridge sky and the terrain sky, each from
+// the function its scene uses. 'auto' follows the clock (and a URL), so it bounds all three fixed
+// states. Computed on first use: the terrain range samples its sky.
+const union = (ranges: readonly (SkyBackdrop | undefined)[]): SkyBackdrop => {
+  const r = ranges.filter((x): x is SkyBackdrop => !!x);
+  return {
+    darkest: Math.min(...r.map((x) => x.darkest)),
+    lightest: Math.max(...r.map((x) => x.lightest)),
+  };
 };
 
-const FIXED: Record<Exclude<SkyState, 'auto'>, SkyBackdrop> = (() => {
-  const dusk = skyColours();
-  return {
-    day: bound(baked.noonday.gradient),
-    dusk: bound([dusk.top, dusk.mid, dusk.horizon].map(hex)),
-    night: bound(baked.midnight.gradient),
-  };
-})();
+const FIXED_STATES = ['day', 'dusk', 'night'] as const;
+const cache = new Map<SkyState, SkyBackdrop>();
 
 export function skyBackdrop(state: SkyState): SkyBackdrop {
-  if (state !== 'auto') return FIXED[state];
-  const all = Object.values(FIXED);
-  return {
-    darkest: Math.min(...all.map((b) => b.darkest)),
-    lightest: Math.max(...all.map((b) => b.lightest)),
-  };
+  let b = cache.get(state);
+  if (!b) {
+    b =
+      state === 'auto'
+        ? union(FIXED_STATES.map(skyBackdrop))
+        : union([ridgeDrawn(state), terrainDrawn(state)]);
+    cache.set(state, b);
+  }
+  return b;
 }

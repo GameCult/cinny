@@ -228,19 +228,24 @@ export function shade(d: SkyData, albedo: Vec3, normal: Vec3, distance: number, 
   }) as unknown as Vec3;
 }
 
-/** The sky to use: a sun elevation from the option or `?sun=` (with `?az=`), else the baked sky from the option, then `?sky=midnight|noonday`, then the night notion of `skyColours()`. */
+/**
+ * The sky to use. An explicit option wins over the page URL, so a person who picked a sky sees it: a sun
+ * elevation (with its azimuth, default noonday's), else a baked sky. Only without either does the URL steer:
+ * `?sun=` (with `?az=`), then `?sky=midnight|noonday`, then the night notion of `skyColours()`.
+ */
 export function chooseSky(opts: {
   sky?: SkyName;
   sun?: { elevation: number; azimuth?: number };
 }): SkyData {
+  if (opts.sun) return skyAtSun(opts.sun.elevation, opts.sun.azimuth);
+  if (opts.sky) return skyData(opts.sky);
   const q = new URLSearchParams(window.location.search);
   const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
-  const elevation = opts.sun?.elevation ?? number('sun');
+  const elevation = number('sun');
   if (Number.isFinite(elevation)) {
-    const azimuth = opts.sun?.azimuth ?? number('az');
+    const azimuth = number('az');
     return skyAtSun(elevation, Number.isFinite(azimuth) ? azimuth : undefined);
   }
-  if (opts.sky) return skyData(opts.sky);
   const name = q.get('sky');
   return skyData(isSkyName(name) ? name : skyNameFor(skyColours()));
 }
