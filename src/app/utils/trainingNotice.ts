@@ -3,12 +3,12 @@ import { StateEvent } from '../../types/matrix/room';
 export const TRAINING_NOTICE_TEXT =
   "Everything said here may be used to train GameCult's AI stewards.";
 
-// The agreed rule is an acknowledgment that Minds on the server read what is said and learn from it;
-// it is not consent to training. TRAINING_NOTICE_TEXT still reads 'may be used to train', and that
-// wording is Meta's to settle. It never mentions Discord (the test pins this). It renders in two
-// places: the registration acknowledgement (PasswordRegisterForm.tsx, via TrainingNotice.tsx) and
-// the line in any room whose org.gamecult.notice state event has scope 'train' (roomTrainingLine,
-// shown by RoomTrainingLine.tsx from RoomView.tsx).
+// The agreed rule is an acknowledgment that Minds on the server read what is said and learn from
+// it; it is not consent to training. TRAINING_NOTICE_TEXT still reads 'may be used to train', and
+// that wording is Meta's to settle. It never mentions Discord (the test pins this). It renders in
+// two places: the registration acknowledgement (PasswordRegisterForm.tsx, via TrainingNotice.tsx)
+// and the line in any room whose org.gamecult.notice state event has scope 'train'
+// (roomTrainingLine, shown by RoomTrainingLine.tsx from RoomView.tsx).
 // The preview build runs against a pretend server where nothing is trained, so the real sentence
 // would be false there.
 export const PREVIEW_NOTICE_TEXT =
