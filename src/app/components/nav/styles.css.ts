@@ -70,15 +70,21 @@ const NavItemBase = style({
       backgroundColor: ContainerHover,
     },
     // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a steady
-    // scrim of the theme's own surface, so ridges never show through its text. Hover and the
-    // selected row strengthen it.
+    // scrim of the theme's own surface, so ridges never show through its text. Hover, the selected row and a
+    // press each strengthen it a step.
     ':root[data-scene] &': {
       backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
     },
-    ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true], :root[data-scene] &[aria-selected=true]':
+    ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true]':
       {
-        backgroundColor: `color-mix(in srgb, ${surfaceInk} 80%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${surfaceInk} 74%, transparent)`,
       },
+    ':root[data-scene] &[aria-selected=true]': {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 84%, transparent)`,
+    },
+    [`:root[data-scene] &:has(.${NavLink}:active)`]: {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 92%, transparent)`,
+    },
     [`&:has(.${NavLink}:active)`]: {
       backgroundColor: ContainerActive,
     },
