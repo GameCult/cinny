@@ -188,6 +188,48 @@ describe('mountBackgroundScene', () => {
       expect(startBackgroundScene).toHaveBeenCalledOnce();
     });
 
+    it('removes the exact restore listener it added when it is disposed', async () => {
+      const add = vi.spyOn(canvas, 'addEventListener');
+      const remove = vi.spyOn(canvas, 'removeEventListener');
+      startBackgroundScene.mockResolvedValue(fakeScene());
+      const dispose = mountBackgroundScene(config, caps, canvas, { loggedIn: false });
+      await flush();
+      const added = add.mock.calls.find(([type]) => type === 'webglcontextrestored');
+      expect(added).toBeDefined();
+      expect(remove).not.toHaveBeenCalled();
+      dispose();
+      expect(remove).toHaveBeenCalledWith('webglcontextrestored', added?.[1]);
+    });
+
+    it('treats a second loss from the same scene as nothing', async () => {
+      const scene = fakeScene();
+      startBackgroundScene.mockResolvedValue(scene);
+      const onInactive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onInactive });
+      await flush();
+      lose();
+      lose();
+      expect(onInactive).toHaveBeenCalledOnce();
+      expect(scene.dispose).toHaveBeenCalledOnce();
+    });
+
+    it('ignores the old scene loss callback once a new scene has started', async () => {
+      const first = fakeScene();
+      const second = fakeScene();
+      startBackgroundScene.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const onInactive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onInactive });
+      await flush();
+      const oldLost = startBackgroundScene.mock.calls[0][2].onContextLost;
+      lose();
+      restore();
+      await flush();
+      onInactive.mockClear();
+      oldLost();
+      expect(second.dispose).not.toHaveBeenCalled();
+      expect(onInactive).not.toHaveBeenCalled();
+    });
+
     it('drops a scene that resolves after a loss that arrived while it started', async () => {
       const late = fakeScene();
       let resolve!: (s: Scene) => void;
