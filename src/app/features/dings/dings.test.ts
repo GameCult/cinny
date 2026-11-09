@@ -23,6 +23,38 @@ describe('dings manifest', () => {
   });
 });
 
+describe('manifest guards', () => {
+  it('rejects a dot segment in the middle of a path', () => {
+    const m = parseManifest({
+      neutral: { message: 'a/../b.ogg', mention: 'a/b.ogg' },
+      senders: {},
+    })!;
+    expect(m.neutral).toEqual({ mention: 'a/b.ogg' });
+  });
+
+  it('is not fooled by an array of senders', () => {
+    expect(parseManifest({ neutral: { message: 'a.ogg' }, senders: [] })).toBeUndefined();
+  });
+
+  it('ignores motifs a clip set only inherits', () => {
+    const inherited = Object.create({ message: 'x/message.ogg' });
+    const m = parseManifest({ neutral: inherited, senders: {} })!;
+    expect(m.neutral).toEqual({});
+  });
+
+  it('gives object-prototype names no clip of their own', () => {
+    const m = parseManifest({ neutral: { message: 'n/message.ogg' }, senders: {} })!;
+    ['__proto__', 'constructor', 'toString', 'hasOwnProperty'].forEach((who) => {
+      expect(pickDing(m, who, 'message')?.path).toBe('n/message.ogg');
+    });
+  });
+
+  it('reports the motif volume in the pick itself', () => {
+    expect(pickDing(manifest, 'eureka', 'message')?.volume).toBe(DING_VOLUME.message);
+    expect(pickDing(manifest, 'stranger', 'mention')?.volume).toBe(1);
+  });
+});
+
 describe('which ding plays', () => {
   it('uses the sender instrument for the motif', () => {
     expect(pickDing(manifest, 'eureka', 'mention')).toEqual({
