@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { baked } from '../../../sky/baked';
-import { AA, luminance } from '../../../sky/skyTokens.js';
+import { luminance } from '../../../sky/skyTokens.js';
 import {
   SKY_STATES,
   SKY_STATE_KEY,
+  resolveSkyState,
+  setSkyClock,
   skyBackdrop,
-  type SkyBackdrop,
   type SkyState,
 } from './skyState';
 
@@ -105,10 +106,10 @@ describe('sky state', () => {
 });
 
 describe('skyBackdrop', () => {
-  it('puts night below day and dusk, which spans from dark to the sun glow', () => {
+  it('puts night below day and dusk, and dusk reaches the sun glow', () => {
     expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('day').darkest);
     expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('dusk').lightest);
-    expect(skyBackdrop('dusk').darkest).toBeLessThan(skyBackdrop('day').darkest);
+    expect(skyBackdrop('dusk').lightest).toBeGreaterThan(skyBackdrop('day').lightest);
   });
 
   it('holds the baked gradients for day and night', () => {
@@ -121,12 +122,13 @@ describe('skyBackdrop', () => {
     );
   });
 
-  it('bounds every fixed sky when auto', () => {
-    const a = skyBackdrop('auto');
-    (['day', 'dusk', 'night'] as const).forEach((s) => {
-      expect(a.lightest).toBeGreaterThanOrEqual(skyBackdrop(s).lightest);
-      expect(a.darkest).toBeLessThanOrEqual(skyBackdrop(s).darkest);
-    });
+  it('is the band of the sky auto resolves to, not the union of all three', () => {
+    const at = (h: number) => setSkyClock(() => new Date(2026, 8, 22, h, 0));
+    at(12);
+    expect(skyBackdrop('auto')).toEqual(skyBackdrop('day'));
+    at(0);
+    expect(skyBackdrop('auto')).toEqual(skyBackdrop('night'));
+    setSkyClock();
   });
 
   it('never has darkest above lightest', () => {
@@ -136,57 +138,61 @@ describe('skyBackdrop', () => {
   });
 });
 
-// Login text and link, per theme, from the card variables in pages/auth/styles.css.ts and the sky
-// themes' baked bubble text and link. The Light/Silver/Dark/Butter row uses the ink those themes
-// actually render: under data-scene the auth card text is var(--sky-bubble-text, #b7c7d9), not each
-// theme's own OnContainer.
-const inks = [
-  { theme: 'Light/Silver/Dark/Butter', text: '#b7c7d9', link: '#99c7ff' },
-  { theme: 'Midnight Sky', text: baked.midnight.bubbles.OtherText, link: baked.midnight.link },
-  { theme: 'Noonday Sky', text: baked.noonday.bubbles.OtherText, link: baked.noonday.link },
-];
-// WCAG contrast of an ink against the sky it is worst on. The sky can show any luminance between
-// its darkest and lightest, and contrast is lowest where the backdrop is closest to the ink: the
-// ink's own luminance clamped into that range. An ink inside the range can land on a backdrop of
-// exactly its own luminance (1.00); an ink outside it is worst on the nearer end.
-const against = (ink: string, bg: number) => {
-  const li = luminance(ink);
-  const [hi, lo] = li > bg ? [li, bg] : [bg, li];
-  return (hi + 0.05) / (lo + 0.05);
-};
-const ratio = (ink: string, b: SkyBackdrop) =>
-  against(ink, Math.min(b.lightest, Math.max(b.darkest, luminance(ink))));
-
-describe('login ink against the sky backdrop', () => {
-  const rows = SKY_STATES.flatMap((state) =>
-    inks.flatMap(({ theme, text, link }) =>
-      (
-        [
-          ['text', text],
-          ['link', link],
-        ] as const
-      ).map(([role, ink]) => ({ state, theme, role, ratio: ratio(ink, skyBackdrop(state)) }))
-    )
-  );
-
-  it('prints the measured ratios', () => {
-    // eslint-disable-next-line no-console
-    console.table(rows.map((r) => ({ ...r, ratio: r.ratio.toFixed(2), ok: r.ratio >= AA })));
-    expect(rows).toHaveLength(SKY_STATES.length * inks.length * 2);
+describe('auto follows the clock', () => {
+  const local = (h: number, m = 0) => new Date(2026, 8, 22, h, m); // local solar time ~ local clock
+  let storage: ReturnType<typeof fakeStorage>;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    storage = fakeStorage();
+    vi.stubGlobal('localStorage', storage);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  // Bare sky does not hold either ink in most states: the card behind the login form stays opaque
-  // (pages/auth/styles.css.ts) for that reason. These are the cells that clear AA, with the sky range the scenes can draw; every other
-  // cell is asserted to fail, so a sky or theme change that fixes one turns it red until listed.
-  const clears = new Set([
-    'night|Light/Silver/Dark/Butter|text',
-    'night|Light/Silver/Dark/Butter|link',
-    'night|Midnight Sky|text',
-  ]);
-  describe.each(rows)('$theme $role in $state', (r) => {
-    const holds = clears.has(`${r.state}|${r.theme}|${r.role}`);
-    (holds ? it : it.fails)(holds ? 'is at least AA' : 'is below AA (known)', () => {
-      expect(r.ratio).toBeGreaterThanOrEqual(AA);
-    });
+  it('resolves noon to day, midnight to night and the twilight after sunset to dusk', () => {
+    expect(resolveSkyState('auto', local(12))).toBe('day');
+    expect(resolveSkyState('auto', local(0))).toBe('night');
+    expect(resolveSkyState('auto', local(18, 10))).toBe('dusk');
+    expect(resolveSkyState('auto', local(5, 50))).toBe('dusk');
+    expect(resolveSkyState('day', local(0))).toBe('day');
+  });
+
+  it('tells listeners the resolved sky when the clock crosses a boundary, and only then', async () => {
+    const m = await fresh();
+    let now = local(17, 0);
+    m.setSkyClock(() => now);
+    const cb = vi.fn();
+    const off = m.subscribe(cb);
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(cb).not.toHaveBeenCalled();
+    now = local(18, 10);
+    vi.advanceTimersByTime(60_000);
+    expect(cb.mock.calls).toEqual([['dusk']]);
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(cb).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it('keeps no timer without listeners or when a fixed state is chosen', async () => {
+    const m = await fresh();
+    const off = m.subscribe(() => undefined);
+    expect(vi.getTimerCount()).toBe(1);
+    m.setSkyState('night');
+    expect(vi.getTimerCount()).toBe(0);
+    m.setSkyState('auto');
+    expect(vi.getTimerCount()).toBe(1);
+    off();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('notifies a change of choice with the resolved sky', async () => {
+    const m = await fresh();
+    m.setSkyClock(() => local(12));
+    const cb = vi.fn();
+    m.subscribe(cb);
+    m.setSkyState('night');
+    m.setSkyState('auto');
+    expect(cb.mock.calls).toEqual([['night'], ['day']]);
   });
 });

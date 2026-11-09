@@ -14,7 +14,6 @@ import {
   skyAtSun,
   skyData,
   skyColour,
-  skyNameFor,
   sunDirection,
   aerialPerspective,
   SKY_FADE,
@@ -25,7 +24,6 @@ import {
   START_TURNS,
   Vec3,
 } from './terrainSky';
-import { skyColours } from '../ridge/skyColour';
 
 const UP = [0, 1, 0] as const;
 const luma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -67,11 +65,6 @@ describe('the baked sky is read, not copied', () => {
     expect(hexToLinear('#000000')).toEqual([0, 0, 0]);
     expect(hexToLinear('#ffffff')).toEqual([1, 1, 1]);
     expect(hexToLinear('#808080')[0]).toBeCloseTo(0.2158, 3);
-  });
-
-  it('the default sky from skyColours() is a night one, as the stars see it', () => {
-    expect(skyNameFor(skyColours())).toBe('midnight');
-    expect(skyNameFor({ ...skyColours(), top: [150, 198, 255] })).toBe('noonday');
   });
 });
 

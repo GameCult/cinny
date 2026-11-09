@@ -1,7 +1,9 @@
 // The one place the sky's colours come from. Void's `src/sky/sun.js` (`light({ time, lat, lon,
 // cloud_cover, precipitation })`, PR #20) is the intended source; until it lands this returns a
-// fixed dusk drawn from GameCult's nebula inputs (see ../palette.ts). Replace the body, keep the
-// signature: the scene calls it once, at startup, and bakes the result.
+// fixed twilight: lavender zenith, rose mid-sky, orange horizon. Its darkest blend stays above the dusk
+// floor of ../skyBand.ts (the dark ink of Noonday Sky needs a backdrop of at least 0.2983 luminance), which
+// skyForState.test.ts sweeps. Replace the body, keep the signature: the scene calls it once, at startup,
+// and bakes the result.
 
 export type Srgb = readonly [number, number, number];
 
@@ -20,9 +22,9 @@ export interface SkyColours {
 
 export function skyColours(_now: Date = new Date()): SkyColours {
   return {
-    top: [24, 30, 78],
-    mid: [78, 66, 150],
-    horizon: [226, 130, 74],
+    top: [170, 145, 220],
+    mid: [225, 130, 165],
+    horizon: [240, 150, 80],
     ground: [7, 17, 26],
     sunAzimuth: 0.3,
   };

@@ -41,9 +41,10 @@ describe('star placement', () => {
     expect(makeStars(skyColours(), 390, 844)).toEqual(makeStars(skyColours(), 390, 844));
   });
 
-  it('draws none in a day sky, and the dusk default is dark enough for some', () => {
+  it('draws none in a day sky or the lavender dusk, and some in a night one', () => {
     expect(makeStars(DAY, 390, 844)).toHaveLength(0);
-    expect(makeStars(skyColours(), 390, 844).length).toBeGreaterThan(50);
+    expect(makeStars(skyColours(), 390, 844)).toHaveLength(0);
+    expect(makeStars(NIGHT, 390, 844).length).toBeGreaterThan(50);
   });
 
   it('is a few hundred at most: bounded by MAX_STARS and by the viewport', () => {

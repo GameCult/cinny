@@ -1,7 +1,7 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
-import { getSkyState, subscribe } from './skyState';
-import type { SkyState } from './skyState';
+import { getResolvedSkyState, subscribe } from './skyState';
+import type { FixedSkyState } from './skyState';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -18,7 +18,7 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 async function create(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier },
-  state: SkyState
+  state: FixedSkyState
 ): Promise<Scene | null> {
   let createScene: (o: SceneOptions) => Scene | null;
   try {
@@ -52,7 +52,7 @@ async function create(
  * "keep the CSS ground", including when that chunk fails to load (offline, stale deploy): the
  * failure goes to onCompileFail and nothing throws.
  *
- * The ridge and terrain scenes bake their sky once, so they follow the sky state (`skyState.ts`) by
+ * The ridge and terrain scenes bake their sky once, so they follow the sky (`skyState.ts`: the choice, resolved, so 'auto' follows the clock) by
  * being rebuilt on the same canvas when it changes: the door subscribes on start and the returned
  * scene's `dispose` unsubscribes. The pull-back restarts from the tree; a later `login()` is
  * replayed on the new scene. The ray-march scene has one fixed dusk and ignores the state.
@@ -64,8 +64,8 @@ export async function startBackgroundScene(
 ): Promise<Scene | null> {
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
-  const build = (state: SkyState) => create(config, { ...options, tier }, state);
-  const state = getSkyState();
+  const build = (state: FixedSkyState) => create(config, { ...options, tier }, state);
+  const state = getResolvedSkyState();
   const first = await build(state);
   if (!first || config?.style === 'raymarch') return first;
 
@@ -74,7 +74,8 @@ export async function startBackgroundScene(
   let loggedIn = false;
   let disposed = false;
   let generation = 0;
-  const rebuild = async (next: SkyState) => {
+  const rebuild = async (next: FixedSkyState) => {
+    if (next === built) return;
     generation += 1;
     const mine = generation;
     built = next;
@@ -94,7 +95,7 @@ export async function startBackgroundScene(
   };
   const off = subscribe(rebuild);
   // A change that landed while the first build was awaited was missed by the subscription.
-  if (getSkyState() !== built) rebuild(getSkyState());
+  rebuild(getResolvedSkyState());
   return {
     login() {
       loggedIn = true;

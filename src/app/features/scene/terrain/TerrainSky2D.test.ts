@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTerrainSkyScene, SKY_WIDTH } from './TerrainSky2D';
 import { startBackgroundScene } from '../index';
+import { terrainSkyFor } from '../skyForState';
 
 let search: string;
 let arcs: number;
@@ -216,5 +217,34 @@ describe('startBackgroundScene, terrain style', () => {
     expect(
       await startBackgroundScene({ tier: 'low', style: 'terrain' }, {}, { canvas })
     ).toBeNull();
+  });
+});
+
+describe('the 2D sky lies in the band of its state', () => {
+  // The painted pixels, read back through the sRGB curve as a screen shows them.
+  const lumOf = (rgb: number[]) => {
+    const [r, g, b] = rgb.map((v) => {
+      const e = v / 255;
+      return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const painted = (state: 'day' | 'dusk' | 'night') => {
+    const c = canvasWith();
+    createTerrainSkyScene({ canvas: c.canvas, tier: 'low', ...terrainSkyFor(state) })!.dispose();
+    const img = c.painted[0];
+    const out: number[] = [];
+    for (let y = 0; y < img.height; y += 1) {
+      for (let x = 0; x < img.width; x += 1) out.push(lumOf(pixel(img, x, y)));
+    }
+    return out;
+  };
+
+  it.each([['day'], ['dusk']] as const)('%s: no pixel below the text bound 0.2983', (state) => {
+    expect(Math.min(...painted(state))).toBeGreaterThanOrEqual(0.2983);
+  });
+
+  it('night: no pixel above the text bound 0.0931', () => {
+    expect(Math.max(...painted('night'))).toBeLessThanOrEqual(0.0931);
   });
 });

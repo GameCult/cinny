@@ -1,14 +1,17 @@
-// What each scene is told for a sky state. 'auto' returns nothing: the scene chooses for itself
-// (the ridges' fixed dusk, the terrain's clock with `?sky=` `?sun=` `?az=`), exactly as before
-// there was a state. The other states name a sky explicitly, drawn from the same gradients
-// `skyBackdrop` bounds, so the colours a scene paints lie inside the luminance range the login
-// text was checked against.
+// What each scene is told for a sky state. 'auto' is a choice, not a sky: both functions draw the sky it
+// resolves to (`resolveSkyState`, the clock), so every scene paints one of day, dusk or night. Each is drawn
+// inside that state's luminance band (skyBand.ts): the ridge sky from gradients whose stops and blends lie in
+// it, the terrain sky shaped into it downstream of the scatter function. `skyBackdrop` bounds what comes out,
+// and the login text was checked against that bound.
 import { baked } from '../../../sky/baked';
 import { chooseSky, skyColour } from './terrain/terrainSky';
-import type { SkyName, Vec3 } from './terrain/terrainSky';
+import type { SkyName } from './terrain/terrainSky';
 import type { SkyColours, Srgb } from './ridge/skyColour';
 import { skyColours } from './ridge/skyColour';
+import { resolveSkyState } from './skyState';
 import type { SkyState } from './skyState';
+import { displayedLuminance, SKY_BAND } from './skyBand';
+import type { SkyBand } from './skyBand';
 import { luminance } from '../../../sky/skyTokens.js';
 
 const rgb = (hex: string): Srgb =>
@@ -24,32 +27,34 @@ const fromGradient = (g: readonly string[], ground: Srgb): SkyColours => ({
 /** Sun elevation in degrees for the terrain's dusk: just above the horizon, between the two bakes (as `?sun=` puts it). */
 export const DUSK_SUN_ELEVATION = 2;
 
-/** The ridge scene's `sky` option; undefined leaves the scene on `skyColours()`. */
-export function ridgeSkyFor(state: SkyState): SkyColours | undefined {
+/** The ridge scene's `sky` option: the gradient of the state's sky ('auto': of the sky it resolves to). */
+export function ridgeSkyFor(state: SkyState): SkyColours {
   const { ground } = skyColours();
-  switch (state) {
+  switch (resolveSkyState(state)) {
     case 'dusk':
       return skyColours();
     case 'day':
       return fromGradient(baked.noonday.gradient, ground);
-    case 'night':
-      return fromGradient(baked.midnight.gradient, ground);
     default:
-      return undefined;
+      return fromGradient(baked.midnight.gradient, ground);
   }
 }
 
-/** The terrain scene's `sky` and `sun` options; `{}` leaves the scene on its clock and URL choice. */
-export function terrainSkyFor(state: SkyState): { sky?: SkyName; sun?: { elevation: number } } {
-  switch (state) {
+/** The terrain scene's `sky`, `sun` and `band` options: the state's sky ('auto': the sky it resolves to), shaped into the state's band. */
+export function terrainSkyFor(state: SkyState): {
+  sky?: SkyName;
+  sun?: { elevation: number };
+  band: SkyBand;
+} {
+  const fixed = resolveSkyState(state);
+  const band = SKY_BAND[fixed];
+  switch (fixed) {
     case 'day':
-      return { sky: 'noonday' };
+      return { sky: 'noonday', band };
     case 'night':
-      return { sky: 'midnight' };
-    case 'dusk':
-      return { sun: { elevation: DUSK_SUN_ELEVATION } };
+      return { sky: 'midnight', band };
     default:
-      return {};
+      return { sun: { elevation: DUSK_SUN_ELEVATION }, band };
   }
 }
 
@@ -61,11 +66,26 @@ export interface Range {
   readonly lightest: number;
 }
 
-/** The ridge sky's range: its top, middle and horizon stops (the canvas blends between them). */
-export function ridgeDrawn(state: SkyState): Range | undefined {
-  const sky = ridgeSkyFor(state === 'auto' ? 'dusk' : state);
-  if (!sky) return undefined;
-  const l = [sky.top, sky.mid, sky.horizon].map((c) => luminance(rgbHex(c)));
+/**
+ * The ridge sky's range: its top, middle and horizon stops and the blends between them (the canvas interpolates
+ * encoded sRGB, and luminance is convex in it, so a blend can be darker than both ends: each stop pair is sampled).
+ */
+export function ridgeDrawn(state: SkyState): Range {
+  const { top, mid, horizon } = ridgeSkyFor(state);
+  const l: number[] = [];
+  [
+    [top, mid],
+    [mid, horizon],
+    [top, horizon],
+  ].forEach(([a, b]) => {
+    for (let k = 0; k <= 100; k += 1) {
+      l.push(
+        luminance(
+          rgbHex(a.map((v, i) => Math.round(v + ((b[i] - v) * k) / 100)) as unknown as Srgb)
+        )
+      );
+    }
+  });
   return { darkest: Math.min(...l), lightest: Math.max(...l) };
 }
 
@@ -74,13 +94,9 @@ const SUN_DEG = 0.25;
 const SUN_SPAN_DEG = 8;
 const HORIZON_DEG = 0.5;
 const REFINE_FROM = 6;
-const linearLuminance = (c: Vec3) => {
-  const [r, g, b] = c.map((v) => Math.min(1, Math.max(0, v)));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
 
 /**
- * The terrain sky's range: `skyColour` (the CPU twin of its sky shader) over the whole upper sphere, which the camera
+ * The terrain sky's range, as displayed (`displayedLuminance`): `skyColour` (the CPU twin of its sky shader) over the whole upper sphere, which the camera
  * sweeps as it turns, for the sky the scene picks for this state. A 3 degree grid, a 0.5 degree ring of the horizon, the
  * zenith and a 0.25 degree patch around the sun find where the extremes are; each of the best few is then refined by a
  * compass search whose step halves from 1 degree to under 0.001, because the sun's glow peaks (and the sky's darkest
@@ -92,7 +108,7 @@ export function terrainDrawn(state: SkyState): Range {
   const lum = (el: number, az: number) => {
     const e = Math.min(90, Math.max(0, el)) * rad;
     const a = az * rad;
-    return linearLuminance(
+    return displayedLuminance(
       skyColour(sky, [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)])
     );
   };

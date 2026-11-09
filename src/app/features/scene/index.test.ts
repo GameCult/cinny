@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { baked } from '../../../sky/baked';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
-import { setSkyState } from './skyState';
+import { setSkyClock, setSkyState } from './skyState';
 
 const { createRidgeScene, createScene } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
@@ -23,21 +23,24 @@ const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
+  // Local midnight: 'auto' resolves to night.
+  setSkyClock(() => new Date(2026, 8, 22, 0, 0));
   setSkyState('auto');
   createRidgeScene.mockReset();
   createScene.mockReset();
 });
 afterEach(() => {
+  setSkyClock();
   setSkyState('auto');
   vi.unstubAllGlobals();
 });
 
 describe('startBackgroundScene follows the sky state', () => {
-  it('hands the ridge scene no sky for auto, as before there was a state', async () => {
+  it('hands the ridge scene the sky auto resolves to (night at midnight)', async () => {
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     expect(createRidgeScene).toHaveBeenCalledOnce();
-    expect(createRidgeScene.mock.calls[0][0].sky).toBeUndefined();
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(baked.midnight.gradient[0]);
     scene?.dispose();
   });
 
