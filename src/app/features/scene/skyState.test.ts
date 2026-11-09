@@ -131,22 +131,26 @@ describe('skyBackdrop', () => {
   });
 });
 
-// Login text and link, per theme, from the card variables in pages/auth/styles.css.ts (the
-// fallback pair serves Light, Silver, Dark and Butter) and the sky themes' baked bubble text and
-// link. Light ink is measured against the lightest sky it can sit on, dark ink against the darkest.
+// Login text and link, per theme, from the card variables in pages/auth/styles.css.ts and the sky
+// themes' baked bubble text and link. The Light/Silver/Dark/Butter row uses the ink those themes
+// actually render: under data-scene the auth card text is var(--sky-bubble-text, #b7c7d9), not each
+// theme's own OnContainer.
 const inks = [
   { theme: 'Light/Silver/Dark/Butter', text: '#b7c7d9', link: '#99c7ff' },
   { theme: 'Midnight Sky', text: baked.midnight.bubbles.OtherText, link: baked.midnight.link },
   { theme: 'Noonday Sky', text: baked.noonday.bubbles.OtherText, link: baked.noonday.link },
 ];
-// WCAG contrast of an ink against a backdrop of the given luminance, with the ink's polarity
-// deciding which end of the sky is its worst case.
-const ratio = (ink: string, b: SkyBackdrop) => {
+// WCAG contrast of an ink against the sky it is worst on. The sky can show any luminance between
+// its darkest and lightest, and contrast is lowest where the backdrop is closest to the ink: the
+// ink's own luminance clamped into that range. An ink inside the range can land on a backdrop of
+// exactly its own luminance (1.00); an ink outside it is worst on the nearer end.
+const against = (ink: string, bg: number) => {
   const li = luminance(ink);
-  const bg = li > 0.18 ? b.lightest : b.darkest;
   const [hi, lo] = li > bg ? [li, bg] : [bg, li];
   return (hi + 0.05) / (lo + 0.05);
 };
+const ratio = (ink: string, b: SkyBackdrop) =>
+  against(ink, Math.min(b.lightest, Math.max(b.darkest, luminance(ink))));
 
 describe('login ink against the sky backdrop', () => {
   const rows = SKY_STATES.flatMap((state) =>
