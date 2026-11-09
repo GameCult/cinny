@@ -12,6 +12,8 @@ import '../../gamecult.css';
 import '../../sky.css';
 import { settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
+import { skyThemeId } from '../features/scene/skyTheme';
+import { useSkyState } from './useSkyState';
 
 export enum ThemeKind {
   Light = 'light',
@@ -100,13 +102,22 @@ export const useSystemThemeKind = (): ThemeKind => {
   return themeKind;
 };
 
+/** The theme the sky state asks for, or undefined while it is 'auto'. */
+export const useSkyTheme = (): Theme | undefined => {
+  const id = skyThemeId(useSkyState());
+  return id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
+};
+
 export const useActiveTheme = (): Theme => {
+  const skyTheme = useSkyTheme();
   const systemThemeKind = useSystemThemeKind();
   const themes = useThemes();
   const [systemTheme] = useSetting(settingsAtom, 'useSystemTheme');
   const [themeId] = useSetting(settingsAtom, 'themeId');
   const [lightThemeId] = useSetting(settingsAtom, 'lightThemeId');
   const [darkThemeId] = useSetting(settingsAtom, 'darkThemeId');
+
+  if (skyTheme) return skyTheme;
 
   if (!systemTheme) {
     const selectedTheme = themes.find((theme) => theme.id === themeId) ?? MidnightSkyTheme;
