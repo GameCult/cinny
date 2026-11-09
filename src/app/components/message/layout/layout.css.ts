@@ -204,7 +204,9 @@ export const BubbleHeaderPose = style({
     [PHONE]: {
       position: 'absolute',
       zIndex: 2,
-      top: toRem(-15),
+      // Anchored by its bottom edge, 13px inside the bubble: a name that wraps grows upward, out of
+      // the bubble, instead of down over the first line of text.
+      bottom: `calc(100% - ${toRem(13)})`,
       right: toRem(14),
       padding: `0 ${toRem(13)}`,
       background: color.Secondary.Container,
