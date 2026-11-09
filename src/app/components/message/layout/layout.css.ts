@@ -398,8 +398,9 @@ globalStyle(`${BubbleContentPose} > div`, {
 });
 
 // The name inside the pill wraps instead of ellipsising: the pill already caps its own width, and
-// Username's own nowrap + ellipsis clipped long names to "Heimdall o…" inside it.
-globalStyle(`${BubbleHeaderPose} ${Username}`, {
+// Username's own nowrap + ellipsis, and the truncate on the Text inside it, clipped long names to
+// "Heimdall o…" inside it.
+globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`, {
   '@media': {
     [PHONE]: {
       whiteSpace: 'normal',
