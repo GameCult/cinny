@@ -3,6 +3,9 @@ import { StateEvent } from '../../types/matrix/room';
 export const TRAINING_NOTICE_TEXT =
   "Everything said here may be used to train GameCult's AI stewards.";
 
+// Source: Meta, 2026-11-09: server-wide, human-to-human DMs excepted, estate-room exception open.
+// Neither exception is implemented here: the registration notice is unconditional, and the room
+// line follows only the room's notice event, with no check for direct messages or estate rooms.
 // The agreed rule is an acknowledgment that Minds on the server read what is said and learn from
 // it; it is not consent to training. TRAINING_NOTICE_TEXT still reads 'may be used to train', and
 // that wording is Meta's to settle. It never mentions Discord (the test pins this). It renders in
