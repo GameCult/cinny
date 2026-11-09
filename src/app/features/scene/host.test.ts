@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Scene } from './index';
 import { mountBackgroundScene } from './host';
 
 const { startBackgroundScene } = vi.hoisted(() => ({ startBackgroundScene: vi.fn() }));
 vi.mock('./index', () => ({ startBackgroundScene }));
 
-const canvas = {} as HTMLCanvasElement;
+let canvas: HTMLCanvasElement;
 const config = { tier: 'low' as const };
 const caps = { hardwareConcurrency: 8 };
 
@@ -19,6 +19,10 @@ const flush = () =>
   new Promise<void>((r) => {
     setTimeout(r, 0);
   });
+
+beforeEach(() => {
+  canvas = new EventTarget() as HTMLCanvasElement;
+});
 
 afterEach(() => {
   startBackgroundScene.mockReset();
@@ -102,5 +106,145 @@ describe('mountBackgroundScene', () => {
     mountBackgroundScene(config, caps, canvas, { loggedIn: true });
     await flush();
     expect(scene.login).toHaveBeenCalledOnce();
+  });
+
+  describe('a lost WebGL context', () => {
+    const lose = () =>
+      startBackgroundScene.mock.calls[
+        startBackgroundScene.mock.calls.length - 1
+      ][2].onContextLost();
+    const restore = () => canvas.dispatchEvent(new Event('webglcontextrestored'));
+
+    it('disposes the dead scene and puts the ground back, without rebuilding yet', async () => {
+      const scene = fakeScene();
+      startBackgroundScene.mockResolvedValue(scene);
+      const onInactive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onInactive });
+      await flush();
+      lose();
+      expect(scene.dispose).toHaveBeenCalledOnce();
+      expect(onInactive).toHaveBeenCalledOnce();
+      expect(startBackgroundScene).toHaveBeenCalledOnce();
+    });
+
+    it('starts a fresh scene on restore, activates it and logs in when a session exists', async () => {
+      const first = fakeScene();
+      const second = fakeScene();
+      startBackgroundScene.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const onActive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: true, onActive });
+      await flush();
+      lose();
+      restore();
+      await flush();
+      expect(startBackgroundScene).toHaveBeenCalledTimes(2);
+      expect(onActive).toHaveBeenCalledTimes(2);
+      expect(second.login).toHaveBeenCalledOnce();
+      expect(first.dispose).toHaveBeenCalledOnce();
+    });
+
+    it('rebuilds on every loss and restore, disposing each dead scene once', async () => {
+      const scenes = [fakeScene(), fakeScene(), fakeScene()];
+      scenes.forEach((s) => startBackgroundScene.mockResolvedValueOnce(s));
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false });
+      await flush();
+      lose();
+      restore();
+      await flush();
+      lose();
+      restore();
+      await flush();
+      expect(scenes.map((s) => s.dispose.mock.calls.length)).toEqual([1, 1, 0]);
+    });
+
+    it('ignores a restore while a scene is running', async () => {
+      startBackgroundScene.mockResolvedValue(fakeScene());
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false });
+      await flush();
+      restore();
+      await flush();
+      expect(startBackgroundScene).toHaveBeenCalledOnce();
+    });
+
+    it('leaves the ground when the rebuild yields no scene', async () => {
+      startBackgroundScene.mockResolvedValueOnce(fakeScene()).mockResolvedValueOnce(null);
+      const onActive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onActive });
+      await flush();
+      lose();
+      restore();
+      await flush();
+      expect(onActive).toHaveBeenCalledOnce();
+    });
+
+    it('does not rebuild after dispose, and removes its restore listener', async () => {
+      startBackgroundScene.mockResolvedValue(fakeScene());
+      const dispose = mountBackgroundScene(config, caps, canvas, { loggedIn: false });
+      await flush();
+      lose();
+      dispose();
+      restore();
+      await flush();
+      expect(startBackgroundScene).toHaveBeenCalledOnce();
+    });
+
+    it('removes the exact restore listener it added when it is disposed', async () => {
+      const add = vi.spyOn(canvas, 'addEventListener');
+      const remove = vi.spyOn(canvas, 'removeEventListener');
+      startBackgroundScene.mockResolvedValue(fakeScene());
+      const dispose = mountBackgroundScene(config, caps, canvas, { loggedIn: false });
+      await flush();
+      const added = add.mock.calls.find(([type]) => type === 'webglcontextrestored');
+      expect(added).toBeDefined();
+      expect(remove).not.toHaveBeenCalled();
+      dispose();
+      expect(remove).toHaveBeenCalledWith('webglcontextrestored', added?.[1]);
+    });
+
+    it('treats a second loss from the same scene as nothing', async () => {
+      const scene = fakeScene();
+      startBackgroundScene.mockResolvedValue(scene);
+      const onInactive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onInactive });
+      await flush();
+      lose();
+      lose();
+      expect(onInactive).toHaveBeenCalledOnce();
+      expect(scene.dispose).toHaveBeenCalledOnce();
+    });
+
+    it('ignores the old scene loss callback once a new scene has started', async () => {
+      const first = fakeScene();
+      const second = fakeScene();
+      startBackgroundScene.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const onInactive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onInactive });
+      await flush();
+      const oldLost = startBackgroundScene.mock.calls[0][2].onContextLost;
+      lose();
+      restore();
+      await flush();
+      onInactive.mockClear();
+      oldLost();
+      expect(second.dispose).not.toHaveBeenCalled();
+      expect(onInactive).not.toHaveBeenCalled();
+    });
+
+    it('drops a scene that resolves after a loss that arrived while it started', async () => {
+      const late = fakeScene();
+      let resolve!: (s: Scene) => void;
+      startBackgroundScene.mockReturnValueOnce(
+        new Promise((r) => {
+          resolve = r;
+        })
+      );
+      const onActive = vi.fn();
+      mountBackgroundScene(config, caps, canvas, { loggedIn: false, onActive });
+      lose();
+      resolve(late);
+      await flush();
+      expect(late.dispose).toHaveBeenCalledOnce();
+      expect(onActive).not.toHaveBeenCalled();
+    });
   });
 });

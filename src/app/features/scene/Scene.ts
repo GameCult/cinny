@@ -599,8 +599,9 @@ export function createScene(opts: SceneOptions): Scene | null {
   }
   listen(window, 'resize', () => wake());
   // A lost context takes every texture and program with it and nothing here rebuilds them, so the
-  // scene ends and the host decides what to show. preventDefault: otherwise the browser never
-  // restores the context, which is what we want, and a restore would find a dead scene.
+  // scene ends and the host decides what to show. preventDefault is what lets the browser restore
+  // the context later (without it a lost context stays lost); the host then builds a new scene on
+  // `webglcontextrestored`, and this one stays dead.
   listen(canvas, 'webglcontextlost', (e) => {
     e.preventDefault();
     stop();

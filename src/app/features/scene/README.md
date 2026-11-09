@@ -82,8 +82,8 @@ holds a GL context gives no 2D one, so a GL failure after context creation (comp
   only the half extension the prepass start target is RGBA16F, written rounded down), or a shader fails to compile (`onCompileFail` gets the
   `ShaderCompileError`; programs already linked are freed). `still` is a live rendered frame, not a
   baked image: it runs the full pipeline once at the top level and stops; `low` starts the ladder at level 2; `full` at level 0. A lost WebGL context
-  stops the scene for good and calls `onContextLost`; nothing rebuilds it, the host decides what to
-  show. It caps at 30 fps, pauses when
+  stops the scene for good and calls `onContextLost`; the scene never rebuilds itself. `host.ts` disposes it, drops
+  `data-scene` so the CSS ground shows, and starts a fresh scene on `webglcontextrestored`. It caps at 30 fps, pauses when
   the tab is hidden, renders 32 frames and stops under `prefers-reduced-motion` (a change of the
   preference while it runs freezes or thaws it), and steps down a
   quality ladder (`budget.ts`) against a 4 ms GPU budget when timer queries exist.
