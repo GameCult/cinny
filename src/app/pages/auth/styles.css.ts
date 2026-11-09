@@ -56,9 +56,12 @@ export const AuthFooter = style({
 // signed-out ground is clear and the card is a translucent, blurred pane shaped like a message
 // bubble (BubbleContent: radius R500, no border), filled with the sky's bubble colour. The
 // --sky-bubble variables come from the sky theme (PR #22); the plain colours are the fallback
-// until it lands. The fill is 54%, the least that gives 4.5:1 text over the brightest backdrop (the
-// horizon glow) without depending on the blur; it is >= 7.3:1 elsewhere in the scene. The 18px blur
+// until it lands. The fill is 54% in Midnight Sky (light text on a near-black bubble: 12.5:1 over a
+// black backdrop; 54% was estimated as the least for 4.5:1 over the horizon glow). The 18px blur
 // only softens the sky and ridges behind the text.
+// Noonday Sky is dark text on a light bubble, so the dark ground behind a translucent card is what
+// fails it (Libby: 2.99:1 text, 2.06:1 Register link at 54%). Its card is opaque: bubble #b9b6af
+// holds text #342d25 at 6.70:1 and the link #2a4f27 at 4.62:1 whatever is behind it, blur or not.
 // The card is also made shorter so it leaves more of the scene visible on a phone.
 const scene = ':root[data-scene]';
 globalStyle(`${scene} ${AuthLayout}`, {
@@ -75,6 +78,9 @@ globalStyle(`${scene} ${AuthCard}`, {
   // A faint inner edge, so a pane this clear still reads as a surface.
   borderColor: 'rgba(183, 199, 217, 0.14)',
   backdropFilter: 'blur(18px)',
+});
+globalStyle(`${scene} body.noonday-sky ${AuthCard}`, {
+  backgroundColor: 'var(--sky-bubble, #b9b6af)',
 });
 globalStyle(`${scene} ${AuthHeader}`, {
   backgroundColor: 'transparent',
