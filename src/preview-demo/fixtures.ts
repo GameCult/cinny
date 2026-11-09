@@ -112,7 +112,7 @@ export const ROOMS: DemoRoom[] = [
         minutesAgo: 25,
       },
       // A long display name: the name pill has to show all of it on a phone.
-      { from: user('heimdall'), body: 'Ok.', pose: 'reading', minutesAgo: 20 },
+      { from: user('heimdall'), body: 'Ok.', pose: 'thinking', minutesAgo: 20 },
     ],
   },
   {
