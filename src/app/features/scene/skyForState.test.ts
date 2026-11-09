@@ -5,6 +5,7 @@ import { skyColours } from './ridge/skyColour';
 import { chooseSky, skyColour } from './terrain/terrainSky';
 import {
   DUSK_SUN_ELEVATION,
+  TERRAIN_REACH_DEG,
   ridgeDrawn,
   ridgeSkyFor,
   terrainDrawn,
@@ -13,6 +14,7 @@ import {
 import { displayedLuminance, SKY_BAND } from './skyBand';
 import type { FixedSkyState } from './skyBand';
 import { setSkyClock, skyBackdrop } from './skyState';
+import { view } from './terrain/terrainWorld';
 import { skyThemeId } from './skyTheme';
 
 const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
@@ -80,6 +82,27 @@ describe('ridgeSkyFor', () => {
   });
 });
 
+describe('the terrain camera reach', () => {
+  it('covers the highest ray the frozen camera sees, at any aspect, with a small margin', () => {
+    const tanHalf = Math.tan((55 * Math.PI) / 360);
+    const tops = [0.4, 0.5, 1, 16 / 9, 2.4].flatMap((aspect) =>
+      [0, 0.125, 0.25, 0.5, 0.75].flatMap((turns) => {
+        const v = view(aspect, turns);
+        return [-1, 0, 1].map((nx) => {
+          const d = [0, 1, 2].map(
+            (i) => v.forward[i] + nx * tanHalf * aspect * v.right[i] + tanHalf * v.up[i]
+          );
+          return (Math.asin(d[1] / Math.hypot(d[0], d[1], d[2])) * 180) / Math.PI;
+        });
+      })
+    );
+    const top = Math.max(...tops);
+    expect(top).toBeCloseTo(14.5, 1);
+    expect(TERRAIN_REACH_DEG).toBeGreaterThanOrEqual(top);
+    expect(TERRAIN_REACH_DEG - top).toBeLessThan(2);
+  });
+});
+
 describe('terrainSkyFor', () => {
   it('draws the sky auto resolves to, with that state band', () => {
     setSkyClock(() => new Date(2026, 8, 22, 12, 0));
@@ -108,11 +131,11 @@ const dirAt = (el: number, az: number): [number, number, number] => {
     -Math.cos(el * rad) * Math.cos(az * rad),
   ];
 };
-const sweepOf = (sky: ReturnType<typeof chooseSky>, N = 4000) => {
+const sweepOf = (sky: ReturnType<typeof chooseSky>, N = 4000, maxEl = TERRAIN_REACH_DEG) => {
   const rad = Math.PI / 180;
   const out: number[] = [];
   for (let i = 0; i < N; i += 1) {
-    const y = (i + 0.5) / N; // sin(elevation): uniform over the upper hemisphere
+    const y = ((i + 0.5) / N) * Math.sin(maxEl * rad); // sin(elevation): uniform from the horizon to maxEl
     out.push(
       displayedLuminance(skyColour(sky, dirAt(Math.asin(y) / rad, (i * 137.50776405) % 360)))
     );
@@ -121,7 +144,10 @@ const sweepOf = (sky: ReturnType<typeof chooseSky>, N = 4000) => {
     for (let dAz = -3; dAz <= 3; dAz += 0.05) {
       out.push(
         displayedLuminance(
-          skyColour(sky, dirAt(Math.max(0, sky.elevation + dEl), sky.azimuth + dAz))
+          skyColour(
+            sky,
+            dirAt(Math.min(maxEl, Math.max(0, sky.elevation + dEl)), sky.azimuth + dAz)
+          )
         )
       );
     }
@@ -131,6 +157,13 @@ const sweepOf = (sky: ReturnType<typeof chooseSky>, N = 4000) => {
 
 describe('the terrain sky lies in the band its text ink needs', () => {
   const sweep = (state: FixedSkyState) => sweepOf(chooseSky(terrainSkyFor(state)));
+
+  it('dusk needs its lift: the scatter sky alone dips below the text bound within the reach', () => {
+    const { sun } = terrainSkyFor('dusk');
+    const l = sweepOf(chooseSky({ sun }));
+    expect(Math.min(...l)).toBeLessThan(needs('dusk').floor - 0.02);
+    expect(Math.min(...sweep('dusk'))).toBeGreaterThanOrEqual(needs('dusk').floor);
+  });
 
   it.each(STATES)('%s', (state) => {
     const { floor, ceiling } = needs(state);
@@ -142,7 +175,7 @@ describe('the terrain sky lies in the band its text ink needs', () => {
   it.each(STATES)('%s holds for a sun at any elevation, as ?sun= can put it', (state) => {
     const { floor, ceiling } = needs(state);
     for (let e = -90; e <= 90; e += 10) {
-      const l = sweepOf(chooseSky({ sun: { elevation: e }, band: SKY_BAND[state] }));
+      const l = sweepOf(chooseSky({ sun: { elevation: e }, band: SKY_BAND[state] }), 4000, 90);
       expect(Math.min(...l)).toBeGreaterThanOrEqual(floor);
       expect(Math.max(...l)).toBeLessThanOrEqual(ceiling);
     }
