@@ -12,6 +12,13 @@ export const NavCategory = style([
 
 export const NavCategoryHeader = style({
   gap: config.space.S100,
+  selectors: {
+    // Category labels sit on the scene like the rows do, and need the same scrim to be read.
+    ':root[data-scene] &': {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
+      borderRadius: config.radii.R400,
+    },
+  },
 });
 
 export const NavLink = style({
