@@ -3,6 +3,14 @@ import { RecipeVariants, recipe } from '@vanilla-extract/recipes';
 import { ContainerColor, DefaultReset, Disabled, RadiiVariant, color, config, toRem } from 'folds';
 import { surfaceInk } from '../../features/scene/sceneShell.css';
 
+// Wash strengths over the scene: rows and labels are faint, and hover, selected and pressed rows
+// are three distinct steps above them.
+const SCRIM_LABEL = '12%';
+const SCRIM_ROW = '16%';
+const SCRIM_HOVER = '26%';
+const SCRIM_SELECTED = '36%';
+const SCRIM_PRESSED = '48%';
+
 export const NavCategory = style([
   DefaultReset,
   {
@@ -13,9 +21,9 @@ export const NavCategory = style([
 export const NavCategoryHeader = style({
   gap: config.space.S100,
   selectors: {
-    // Category labels sit on the scene like the rows do, and need the same scrim to be read.
+    // Category labels sit on the scene like the rows do, and need a wash to be read.
     ':root[data-scene] &': {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_LABEL}, transparent)`,
       borderRadius: config.radii.R400,
     },
   },
@@ -69,21 +77,21 @@ const NavItemBase = style({
     '&[data-hover=true]': {
       backgroundColor: ContainerHover,
     },
-    // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a steady
-    // scrim of the theme's own surface, so ridges never show through its text. Hover, the selected row and a
-    // press each strengthen it a step.
+    // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a faint
+    // wash of the theme's own surface: the terrain stays visible, the text stays readable. Hover,
+    // the selected row and a press each strengthen it a step.
     ':root[data-scene] &': {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_ROW}, transparent)`,
     },
     ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true]':
       {
-        backgroundColor: `color-mix(in srgb, ${surfaceInk} 74%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_HOVER}, transparent)`,
       },
     ':root[data-scene] &[aria-selected=true]': {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} 84%, transparent)`,
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_SELECTED}, transparent)`,
     },
     [`:root[data-scene] &:has(.${NavLink}:active)`]: {
-      backgroundColor: `color-mix(in srgb, ${surfaceInk} 92%, transparent)`,
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_PRESSED}, transparent)`,
     },
     [`&:has(.${NavLink}:active)`]: {
       backgroundColor: ContainerActive,
