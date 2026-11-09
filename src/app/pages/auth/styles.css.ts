@@ -53,15 +53,17 @@ export const AuthFooter = style({
 });
 
 // While the background scene runs (html[data-scene], set by features/scene/BackgroundScene), the
-// signed-out ground is clear and the card is a translucent, blurred pane shaped like a message
-// bubble (BubbleContent: radius R500, no border), filled with the sky's bubble colour. The
-// --sky-bubble variables come from the sky theme (PR #22); the plain colours are the fallback
-// until it lands. The fill is 54% in Midnight Sky (light text on a near-black bubble: 12.5:1 over a
-// black backdrop; 54% was estimated as the least for 4.5:1 over the horizon glow). The 18px blur
-// only softens the sky and ridges behind the text.
-// Noonday Sky is dark text on a light bubble, so the dark ground behind a translucent card is what
-// fails it (Libby: 2.99:1 text, 2.06:1 Register link at 54%). Its card is opaque: bubble #b9b6af
-// holds text #342d25 at 6.70:1 and the link #2a4f27 at 4.62:1 whatever is behind it, blur or not.
+// signed-out ground is clear and the card is a pane shaped like a message bubble (BubbleContent:
+// radius R500, no border), filled with the sky's bubble colour. The scene is one fixed dusk for
+// every theme, so the card is opaque: its text and link contrast cannot depend on what the scene
+// shows behind it, nor on a blur. The --sky-bubble variables come from the sky themes (Midnight and
+// Noonday); the other themes (Light, Silver, Dark, Butter) take the fallback colours.
+// WCAG ratios of text / Register link on the card, per theme:
+//   Light, Silver, Dark, Butter  #b7c7d9 / #99c7ff on #0d1a26   10.21 / 10.03
+//   Midnight Sky                 #aeccff / #609385 on #0a090e   12.17 /  5.68
+//   Noonday Sky                  #342d25 / #2a4f27 on #b9b6af    6.70 /  4.62
+// The fallback link is set here because those themes' own links (Light 2.49:1, Silver 2.49:1) are
+// made for their own grounds, not this card; Dark and Butter already use the same hsl(213 100% 80%).
 // The card is also made shorter so it leaves more of the scene visible on a phone.
 const scene = ':root[data-scene]';
 globalStyle(`${scene} ${AuthLayout}`, {
@@ -69,18 +71,14 @@ globalStyle(`${scene} ${AuthLayout}`, {
   backgroundImage: 'none',
 });
 globalStyle(`${scene} ${AuthCard}`, {
-  backgroundColor: [
-    'rgba(13, 26, 38, 0.54)',
-    'color-mix(in srgb, var(--sky-bubble, #0d1a26) 54%, transparent)',
-  ],
+  backgroundColor: 'var(--sky-bubble, #0d1a26)',
   color: 'var(--sky-bubble-text, #b7c7d9)',
   borderRadius: config.radii.R500,
   // A faint inner edge, so a pane this clear still reads as a surface.
   borderColor: 'rgba(183, 199, 217, 0.14)',
-  backdropFilter: 'blur(18px)',
 });
-globalStyle(`${scene} body.noonday-sky ${AuthCard}`, {
-  backgroundColor: 'var(--sky-bubble, #b9b6af)',
+globalStyle(`${scene} body:not(.gamecult-theme) ${AuthCard}`, {
+  vars: { '--tc-link': '#99c7ff' },
 });
 globalStyle(`${scene} ${AuthHeader}`, {
   backgroundColor: 'transparent',
