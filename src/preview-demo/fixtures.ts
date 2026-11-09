@@ -23,7 +23,7 @@ export const USERS: DemoUser[] = [
   { id: `@void:${DEMO_SERVER}`, name: 'Void' },
   { id: `@nibu:${DEMO_SERVER}`, name: 'Nibu' },
   { id: `@visitor:${DEMO_SERVER}`, name: 'Visitor' },
-  { id: `@watch:${DEMO_SERVER}`, name: 'Heimdall of the Long Watch, Keeper of the Bridge' },
+  { id: `@heimdall:${DEMO_SERVER}`, name: 'Heimdall of the Long Watch, Keeper of the Bridge' },
 ];
 const user = (localpart: string) => `@${localpart}:${DEMO_SERVER}`;
 
@@ -112,7 +112,7 @@ export const ROOMS: DemoRoom[] = [
         minutesAgo: 25,
       },
       // A long display name: the name pill has to show all of it on a phone.
-      { from: user('watch'), body: 'Ok.', pose: 'reading', minutesAgo: 20 },
+      { from: user('heimdall'), body: 'Ok.', pose: 'reading', minutesAgo: 20 },
     ],
   },
   {
