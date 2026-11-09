@@ -62,9 +62,9 @@ export interface SkyBackdrop {
 // Rounded outward to six places. 'auto' follows the clock (and a URL), so it
 // bounds all three fixed states.
 const BACKDROPS: Record<SkyState, SkyBackdrop> = {
-  auto: { darkest: 0.016727, lightest: 0.964723 },
-  day: { darkest: 0.237514, lightest: 0.919226 },
-  dusk: { darkest: 0.016727, lightest: 0.964723 },
+  auto: { darkest: 0.016727, lightest: 0.967912 },
+  day: { darkest: 0.237309, lightest: 0.92805 },
+  dusk: { darkest: 0.016727, lightest: 0.967912 },
   night: { darkest: 0.058099, lightest: 0.077467 },
 };
 

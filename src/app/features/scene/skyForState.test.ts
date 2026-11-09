@@ -72,31 +72,43 @@ describe('terrainSkyFor', () => {
 });
 
 describe('the terrain sky lies inside skyBackdrop', () => {
-  // A grid offset from the one skyBackdrop samples, so a miss between its samples shows.
+  // Not the generator's grid: a golden-angle spiral over the upper sphere (no shared rows or columns)
+  // plus a 0.05 degree grid across the sun, five times finer than the generator's.
+  const luma = (c: readonly number[]) => {
+    const [r, g, b] = c.map((v) => Math.min(1, Math.max(0, v)));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
   const sweep = (state: 'day' | 'dusk' | 'night') => {
     const sky = chooseSky(terrainSkyFor(state));
+    const rad = Math.PI / 180;
+    const dirAt = (el: number, az: number): [number, number, number] => [
+      Math.cos(el * rad) * Math.sin(az * rad),
+      Math.sin(el * rad),
+      -Math.cos(el * rad) * Math.cos(az * rad),
+    ];
     const out: number[] = [];
-    for (let el = 1.3; el <= 90; el += 4.1) {
-      for (let az = 0.7; az < 360; az += 4.3) {
-        const e = (el * Math.PI) / 180;
-        const a = (az * Math.PI) / 180;
-        const c = skyColour(sky, [
-          Math.cos(e) * Math.sin(a),
-          Math.sin(e),
-          -Math.cos(e) * Math.cos(a),
-        ]);
-        const [r, g, b] = c.map((v) => Math.min(1, Math.max(0, v)));
-        out.push(0.2126 * r + 0.7152 * g + 0.0722 * b);
+    const N = 20000;
+    for (let i = 0; i < N; i += 1) {
+      const y = (i + 0.5) / N; // sin(elevation): uniform over the upper hemisphere
+      out.push(luma(skyColour(sky, dirAt(Math.asin(y) / rad, (i * 137.50776405) % 360))));
+    }
+    for (let dEl = -3; dEl <= 3; dEl += 0.05) {
+      for (let dAz = -3; dAz <= 3; dAz += 0.05) {
+        out.push(luma(skyColour(sky, dirAt(Math.max(0, sky.elevation + dEl), sky.azimuth + dAz))));
       }
     }
     return out;
   };
 
-  it.each(['day', 'dusk', 'night'] as const)('for %s', (state) => {
+  it.each(['day', 'dusk', 'night'] as const)('for %s, and no looser than 5e-4 from it', (state) => {
     const { darkest, lightest } = skyBackdrop(state);
     const l = sweep(state);
     expect(Math.min(...l)).toBeGreaterThanOrEqual(darkest - EPS);
     expect(Math.max(...l)).toBeLessThanOrEqual(lightest + EPS);
+    const top = Math.max(Math.max(...l), ridgeDrawn(state)?.lightest ?? 0);
+    expect(lightest - top).toBeLessThan(5e-4);
+    const bottom = Math.min(Math.min(...l), ridgeDrawn(state)?.darkest ?? 1);
+    expect(bottom - darkest).toBeLessThan(5e-4);
   });
 
   it('and the terrain dusk reaches the sun glow the ridge dusk does not', () => {
