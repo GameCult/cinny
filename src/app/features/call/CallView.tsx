@@ -1,5 +1,7 @@
 import React, { RefObject, useRef } from 'react';
+import classNames from 'classnames';
 import { Badge, Box, color, Header, Scroll, Text, toRem } from 'folds';
+import { SkyPlate } from '../scene/skyPlate.css';
 import { useCallEmbed, useCallJoined, useCallEmbedPlacementSync } from '../../hooks/useCallEmbed';
 import { ContainerColor } from '../../styles/ContainerColor.css';
 import { PrescreenControls } from './PrescreenControls';
@@ -162,7 +164,7 @@ export function CallView() {
 
   return (
     <Box
-      className={ContainerColor({ variant: 'Surface' })}
+      className={classNames(ContainerColor({ variant: 'Surface' }), SkyPlate)}
       style={{ minWidth: toRem(280) }}
       grow="Yes"
     >
