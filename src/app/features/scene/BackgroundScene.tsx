@@ -27,6 +27,7 @@ export function BackgroundScene() {
     const dispose = mountBackgroundScene(config, readCapabilities(navigator), canvas, {
       loggedIn: !!getFallbackSession(),
       onActive: () => root.setAttribute(SCENE_ACTIVE_ATTRIBUTE, ''),
+      onInactive: () => root.removeAttribute(SCENE_ACTIVE_ATTRIBUTE),
       // eslint-disable-next-line no-console
       onFail: (e) => console.warn('Background scene unavailable:', e),
     });
