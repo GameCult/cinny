@@ -116,3 +116,36 @@ describe('both scenes of a state lie inside skyBackdrop', () => {
     });
   });
 });
+
+describe('skyBackdrop holds the union of what the scenes draw', () => {
+  const computed = (state: 'day' | 'dusk' | 'night') => {
+    const r = [ridgeDrawn(state), terrainDrawn(state)].filter((x) => x !== undefined) as {
+      darkest: number;
+      lightest: number;
+    }[];
+    return {
+      darkest: Math.min(...r.map((x) => x.darkest)),
+      lightest: Math.max(...r.map((x) => x.lightest)),
+    };
+  };
+
+  it.each(['day', 'dusk', 'night'] as const)(
+    '%s: the constant bounds the computed range and sits within 1e-5 of it',
+    (state) => {
+      const c = computed(state);
+      const b = skyBackdrop(state);
+      expect(b.darkest).toBeLessThanOrEqual(c.darkest);
+      expect(b.lightest).toBeGreaterThanOrEqual(c.lightest);
+      expect(c.darkest - b.darkest).toBeLessThan(1e-5);
+      expect(b.lightest - c.lightest).toBeLessThan(1e-5);
+    }
+  );
+
+  it('auto is the union of the three fixed states', () => {
+    const all = (['day', 'dusk', 'night'] as const).map(skyBackdrop);
+    expect(skyBackdrop('auto')).toEqual({
+      darkest: Math.min(...all.map((x) => x.darkest)),
+      lightest: Math.max(...all.map((x) => x.lightest)),
+    });
+  });
+});

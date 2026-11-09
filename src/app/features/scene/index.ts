@@ -2,7 +2,6 @@ import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
 import { getSkyState, subscribe } from './skyState';
 import type { SkyState } from './skyState';
-import { ridgeSkyFor, terrainSkyFor } from './skyForState';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -23,6 +22,8 @@ async function create(
 ): Promise<Scene | null> {
   let createScene: (o: SceneOptions) => Scene | null;
   try {
+    // Loaded here, with the scenes, so the main chunk does not carry the terrain sky or the baked tables.
+    const { ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
     if (config?.style === 'raymarch') createScene = (await import('./Scene')).createScene;
     else if (config?.style === 'terrain') {
       const { createTerrainScene } = await import('./terrain/Terrain');
