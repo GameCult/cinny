@@ -397,6 +397,19 @@ globalStyle(`${BubbleContentPose} > div`, {
   },
 });
 
+// The name inside the pill wraps instead of ellipsising: the pill already caps its own width, and
+// Username's own nowrap + ellipsis clipped long names to "Heimdall o…" inside it.
+globalStyle(`${BubbleHeaderPose} ${Username}`, {
+  '@media': {
+    [PHONE]: {
+      whiteSpace: 'normal',
+      overflow: 'visible',
+      textOverflow: 'clip',
+      overflowWrap: 'anywhere',
+    },
+  },
+});
+
 // An outside list marker hangs left of its item's text and ignores the portrait's silhouette, so
 // beside a left portrait the number lands under the art. Inside, it is a word on the first line
 // and wraps around the silhouette like the rest.
