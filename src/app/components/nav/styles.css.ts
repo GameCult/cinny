@@ -1,6 +1,7 @@
 import { ComplexStyleRule, createVar, style } from '@vanilla-extract/css';
 import { RecipeVariants, recipe } from '@vanilla-extract/recipes';
 import { ContainerColor, DefaultReset, Disabled, RadiiVariant, color, config, toRem } from 'folds';
+import { surfaceInk } from '../../features/scene/sceneShell.css';
 
 export const NavCategory = style([
   DefaultReset,
@@ -61,6 +62,16 @@ const NavItemBase = style({
     '&[data-hover=true]': {
       backgroundColor: ContainerHover,
     },
+    // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a steady
+    // scrim of the theme's own surface, so ridges never show through its text. Hover and the
+    // selected row strengthen it.
+    ':root[data-scene] &': {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
+    },
+    ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true], :root[data-scene] &[aria-selected=true]':
+      {
+        backgroundColor: `color-mix(in srgb, ${surfaceInk} 80%, transparent)`,
+      },
     [`&:has(.${NavLink}:active)`]: {
       backgroundColor: ContainerActive,
     },

@@ -1,7 +1,7 @@
 import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
+import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color, config } from 'folds';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
 import {
   NavButton,
@@ -76,9 +76,14 @@ function JoinRow({ room }: { room: EstateRoom }) {
     <NavItem variant="Background" radii="400">
       <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px', minHeight: 38 }}>
         <NavItemContent>
-          <Text as="span" size="Inherit" truncate>
-            {room.name}
-          </Text>
+          <Box as="span" grow="Yes" alignItems="Center" gap="200">
+            <Avatar size="200" radii="400">
+              <Icon src={Icons.Hash} size="100" style={{ opacity: config.opacity.P300 }} />
+            </Avatar>
+            <Text as="span" size="Inherit" truncate>
+              {room.name}
+            </Text>
+          </Box>
         </NavItemContent>
         {state.status === AsyncStatus.Error && (
           <Text
