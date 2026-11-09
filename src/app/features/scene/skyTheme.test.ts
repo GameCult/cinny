@@ -63,9 +63,9 @@ describe('ink of the theme a state picks, on bare sky', () => {
   // numbers are recorded as they are measured (Night's #609385 would clear 4.5 at a luminance of about 0.53 or more).
   // 'auto' resolves from the clock to one of these three and has the same numbers.
   const cells: [FixedSkyState, string, string, string, string, string][] = [
-    ['day', 'noonday-sky', '#342d25', '6.64', '#2a4f27', '4.57'],
+    ['day', 'noonday-sky', '#342d25', '6.60', '#2a4f27', '4.55'],
     ['dusk', 'noonday-sky', '#342d25', '4.60', '#2a4f27', '3.17'],
-    ['night', 'midnight-sky', '#aeccff', '4.91', '#609385', '2.29'],
+    ['night', 'midnight-sky', '#aeccff', '4.89', '#609385', '2.28'],
   ];
 
   it.each(cells)(

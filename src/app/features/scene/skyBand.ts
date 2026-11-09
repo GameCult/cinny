@@ -28,20 +28,19 @@ export function hexToLinear(hex: string): Linear {
   return [ch(1), ch(3), ch(5)];
 }
 
-/** How a displayed colour is read: as encoded, or as the 8-bit screen can show it, the sky pass dithers by half a step either way ('low', 'high'). */
+/** How a displayed colour is read: as encoded, or moved one 8-bit step down or up in every channel ('low', 'high'). */
 export type Reading = 'exact' | 'low' | 'high';
 
 /**
  * Relative luminance of what the terrain shaders put on screen for a linear colour: they encode with
- * pow(1/2.2), not the sRGB curve, so the screen colour is read back through the sRGB curve. 'low' and 'high' read
- * it after 8-bit quantisation with the dither at its worst, so the bounds they give hold on the screen.
+ * pow(1/2.2), not the sRGB curve, so the screen colour is read back through the sRGB curve. 'low' and 'high' move every
+ * encoded channel one 8-bit step down or up first: rounding to 8 bits (half a step) plus the sky pass's dither (half a
+ * step) cannot move a channel further, so they bound what the screen shows. A smooth bound, so a search can climb it.
  */
 export function displayedLuminance(c: Linear, reading: Reading = 'exact'): number {
+  const shift = { exact: 0, low: -1 / 255, high: 1 / 255 }[reading];
   const ch = (v: number) => {
-    let e = Math.min(1, Math.max(0, v)) ** (1 / 2.2);
-    if (reading !== 'exact') {
-      e = Math.min(255, Math.max(0, Math.round(e * 255 + (reading === 'low' ? -0.5 : 0.5)))) / 255;
-    }
+    const e = Math.min(1, Math.max(0, Math.min(1, Math.max(0, v)) ** (1 / 2.2) + shift));
     return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4;
   };
   return luma([ch(c[0]), ch(c[1]), ch(c[2])]);
@@ -59,7 +58,7 @@ export interface SkyBand {
 /**
  * The shaping targets, in linear luma. The floor sits 0.019 above the text bound (0.2983): the screen encoding is
  * gamma 2.2, which reads about 0.006 darker through the sRGB curve at this level, and 8-bit rounding with the sky
- * pass's dither at its worst takes about 0.006 more.
+ * pass's dither at its worst (one step in every channel) takes about 0.007 more.
  */
 export const SKY_BAND: Record<FixedSkyState, SkyBand> = {
   day: { floor: 0.317, ceiling: 1, lift: hexToLinear('#e2f4ff') },

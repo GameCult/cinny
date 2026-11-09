@@ -127,11 +127,11 @@ export interface SkyBackdrop {
 // this module, which the main chunk loads, does not pull in the terrain sky and the baked scattering
 // tables with it; skyForState.test.ts fails when they drift from the computed union. The ridge sky counts
 // over its whole range, the terrain sky over what its frozen camera reaches (TERRAIN_REACH_DEG, skyForState.ts).
-// Bounds what the 8-bit screen shows too (dither at its worst), rounded outward to six places.
+// Bounds what the 8-bit screen shows too (one step each way for rounding and dither), rounded outward to six places.
 const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
-  day: { darkest: 0.463644, lightest: 0.898318 },
-  dusk: { darkest: 0.306293, lightest: 0.968113 },
-  night: { darkest: 0.05987, lightest: 0.081133 },
+  day: { darkest: 0.461063, lightest: 0.901108 },
+  dusk: { darkest: 0.30619, lightest: 0.968744 },
+  night: { darkest: 0.05987, lightest: 0.081705 },
 };
 
 export const skyBackdrop = (state: SkyState): SkyBackdrop => BACKDROPS[resolveSkyState(state)];

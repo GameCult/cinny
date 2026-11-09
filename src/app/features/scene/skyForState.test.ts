@@ -230,23 +230,77 @@ describe('the terrain sky lies in the band its text ink needs', () => {
 });
 
 describe('skyBackdrop holds the union of what the scenes draw', () => {
+  // An independent extremum of the screen reading ('low' for the darkest, 'high' for the lightest: one 8-bit step each way) over the terrain camera's reach: not terrainDrawn's grid and compass search but alternating golden-section
+  // line searches in elevation and azimuth from 60 starts (a golden-angle spiral and scatter about the sun), the bracket
+  // shrinking to 1e-3 degrees. A plateau (the shader clamps) cannot stall it: each line search always
+  // moves to the better end of its bracket.
+  const extremes = (state: FixedSkyState) => {
+    const sky = chooseSky(terrainSkyFor(state));
+    const rad = Math.PI / 180;
+    const f = (el: number, az: number, reading: 'low' | 'high') => {
+      const e = Math.min(TERRAIN_REACH_DEG, Math.max(0, el)) * rad;
+      const a = az * rad;
+      return displayedLuminance(
+        skyColour(sky, [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)]),
+        reading
+      );
+    };
+    const P = 0.6180339887;
+    const line = (g: (x: number) => number, mid: number, w: number) => {
+      let a = mid - w;
+      let b = mid + w;
+      for (let k = 0; k < 40; k += 1) {
+        const c = b - P * (b - a);
+        const d = a + P * (b - a);
+        if (g(c) > g(d)) b = d;
+        else a = c;
+      }
+      return (a + b) / 2;
+    };
+    const hunt = (sign: 1 | -1) => {
+      const reading = sign === 1 ? 'high' : 'low';
+      let best = -Infinity;
+      for (let i = 0; i < 60; i += 1) {
+        let el =
+          i % 2
+            ? sky.elevation + (((i * 7919) % 1600) - 800) / 100
+            : Math.asin(((i + 0.5) / 60) * Math.sin(TERRAIN_REACH_DEG * rad)) / rad;
+        let az =
+          i % 2 ? sky.azimuth + (((i * 104729) % 1600) - 800) / 100 : (i * 137.50776405) % 360;
+        for (let w = 8; w > 1e-3; w /= 2) {
+          const [el0, az0] = [el, az];
+          el = line((x) => sign * f(Math.max(0, x), az0, reading), el0, w);
+          const el1 = el;
+          az = line((x) => sign * f(el1, x, reading), az0, w);
+          best = Math.max(best, sign * f(el, az, reading));
+        }
+      }
+      return sign * best;
+    };
+    return { darkest: hunt(-1), lightest: hunt(1) };
+  };
+
   const computed = (state: FixedSkyState) => {
     const r = [ridgeDrawn(state), terrainDrawn(state)];
+    const ind = extremes(state);
     return {
-      darkest: Math.min(...r.map((x) => x.darkest)),
-      lightest: Math.max(...r.map((x) => x.lightest)),
+      darkest: Math.min(...r.map((x) => x.darkest), ind.darkest),
+      lightest: Math.max(...r.map((x) => x.lightest), ind.lightest),
     };
   };
 
+  // The constants are the swept extremes rounded outward to six places, so each lies in [extreme, extreme + 1e-6):
+  // a constant 1e-6 low is under the extreme, one 2e-5 high is over the bound. SEARCH is the searches' own error.
+  const SEARCH = 1e-8;
   it.each(STATES)(
-    '%s: the constant bounds the computed range and sits within 1e-5 of it',
+    '%s: the constant is the swept extreme rounded outward, within 1e-6 above it',
     (state) => {
       const c = computed(state);
       const b = skyBackdrop(state);
-      expect(b.darkest).toBeLessThanOrEqual(c.darkest + EPS);
-      expect(b.lightest).toBeGreaterThanOrEqual(c.lightest - EPS);
-      expect(c.darkest - b.darkest).toBeLessThan(1e-5);
-      expect(b.lightest - c.lightest).toBeLessThan(1e-5);
+      expect(b.darkest).toBeLessThanOrEqual(c.darkest);
+      expect(b.lightest).toBeGreaterThanOrEqual(c.lightest);
+      expect(c.darkest - b.darkest).toBeLessThan(1e-6 + SEARCH);
+      expect(b.lightest - c.lightest).toBeLessThan(1e-6 + SEARCH);
     }
   );
 
