@@ -8,8 +8,6 @@ jobs:
   build-pull-request:
     name: Build pull request
     runs-on: ubuntu-latest
-    env:
-      PR_NUMBER: ${{github.event.number}}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -24,17 +22,3 @@ jobs:
         env:
           NODE_OPTIONS: '--max_old_space_size=4096'
         run: npm run build
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: preview
-          path: dist
-          retention-days: 1
-      - name: Save pr number
-        run: echo ${PR_NUMBER} > ./pr.txt
-      - name: Upload pr number
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pr
-          path: ./pr.txt
-          retention-days: 1
