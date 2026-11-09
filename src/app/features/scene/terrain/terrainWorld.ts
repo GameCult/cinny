@@ -5,11 +5,15 @@
 /** Metres across the patch, and the height in metres that normalised height 1.0 stands for. */
 export const TERRAIN = { span: 3000, hmax: 256 };
 
-/** Grid quads per side and height-map texels per side, by tier. 'still' draws one frame, so it takes the cheap pair. */
+/**
+ * Grid quads per side and height-map texels per side, by tier. 'still' draws one frame, so it takes the cheap pair. The
+ * mesh is dense enough that a quad is at most two texels wide at the nearest ground (terrainWorld.test.ts); a coarser mesh
+ * under shading read from the height map shows as hard-edged facets and stepped crests.
+ */
 export const GRID = {
-  still: { grid: 128, tex: 512 },
-  low: { grid: 192, tex: 1024 },
-  full: { grid: 256, tex: 1024 },
+  still: { grid: 192, tex: 512 },
+  low: { grid: 320, tex: 1024 },
+  full: { grid: 384, tex: 1024 },
 } as const;
 
 /** The camera: at the patch centre, above the highest peak, turning slowly and looking a little down. */

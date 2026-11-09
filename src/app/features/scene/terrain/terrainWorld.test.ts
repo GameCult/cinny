@@ -41,7 +41,8 @@ describe('grid', () => {
   });
 
   it('each tier fits a 32-bit index and the cheap tiers stay cheap', () => {
-    expect(triangleCount(GRID.low.grid)).toBeLessThan(80000);
+    // 205k at 320 quads: a guess at what a phone carries (SwiftShader only, no phone frame time), kept as a ceiling so a bigger grid is a deliberate change.
+    expect(triangleCount(GRID.low.grid)).toBeLessThan(210000);
     expect(GRID.full.grid).toBeGreaterThan(GRID.low.grid);
     expect(GRID.still.tex).toBeLessThanOrEqual(GRID.low.tex);
   });
@@ -86,6 +87,34 @@ describe('camera', () => {
     expect(dot(v.right, v.forward)).toBeCloseTo(0, 9);
     expect(dot(v.up, v.forward)).toBeCloseTo(0, 9);
     expect(Math.hypot(...v.up)).toBeCloseTo(1, 9);
+  });
+});
+
+describe('grid resolution', () => {
+  // The mesh must carry what the height map shows: where a quad is wider than a couple of texels the shading (read from the
+  // height map) has gullies the polygons cannot, and the near ground reads as hard-edged facets (the 'terrain · low' phone
+  // shots, 2026-11-09). Metres from the patch centre to the nearest ground the camera can see: the bottom view ray meets
+  // the highest terrain, hmax below the eye, at (eye - hmax) / tan(pitch + fov / 2).
+  const nearest = (CAMERA.eye - TERRAIN.hmax) / Math.tan(CAMERA.pitch + CAMERA.fov / 2);
+  const spacingAt = (grid: number, metres: number) => {
+    for (let i = 0; i < grid; i += 1) {
+      const x = (warpUv((i + 1) / grid) - 0.5) * TERRAIN.span;
+      if (x >= metres) return (warpUv((i + 1) / grid) - warpUv(i / grid)) * TERRAIN.span;
+    }
+    throw new Error('beyond the patch');
+  };
+
+  it.each(['still', 'low', 'full'] as const)(
+    'the %s tier has a quad no wider than two height texels at the nearest ground the camera can see',
+    (tier) => {
+      const { grid, tex } = GRID[tier];
+      expect(spacingAt(grid, nearest)).toBeLessThanOrEqual((2 * TERRAIN.span) / (tex - 1));
+    }
+  );
+
+  it('a dearer tier never has a coarser mesh', () => {
+    expect(GRID.low.grid).toBeGreaterThanOrEqual(GRID.still.grid);
+    expect(GRID.full.grid).toBeGreaterThanOrEqual(GRID.low.grid);
   });
 });
 

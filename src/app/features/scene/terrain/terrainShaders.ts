@@ -7,7 +7,7 @@
 import cultmath from '../shaders/CultMath.glsl?raw';
 import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
-import { ALBEDO } from './terrainAlbedo';
+import { ALBEDO, CAVITY } from './terrainAlbedo';
 import { AERIAL_GLSL, AP_DISTANCE_SCALE, SCATTER_GLSL } from './terrainScatter';
 import { GLOW_ZENITH, MOON_HAZE, SKY_EXPOSURE, SKY_FADE, STAR_FLOOR } from './terrainSky';
 import { TERRAIN } from './terrainWorld';
@@ -135,6 +135,10 @@ const ALBEDO_DEFINES = `
 #define ALB_STRATA ${lit(ALBEDO.strata)}
 #define ALB_FINE_NEAR ${lit(ALBEDO.fineNear)}
 #define ALB_FINE_FAR ${lit(ALBEDO.fineFar)}
+#define CAV_RADIUS ${lit(CAVITY.radius)}
+#define CAV_RANGE ${lit(CAVITY.range)}
+#define CAV_DARK ${lit(CAVITY.dark)}
+#define CAV_LIGHT ${lit(CAVITY.light)}
 `;
 // The sky colour along a unit direction: scattering lifted by the exposure, tone-mapped, plus the night glow. The
 // same arithmetic as terrainSky.skyColour(). uGlow is the baked horizon colour already scaled by how dark the sun is.
@@ -180,11 +184,11 @@ void main() {
   float near = 1.0 - smoothstep(ALB_FINE_NEAR, ALB_FINE_FAR, length(v_world - uCamera));
   float layers = sin(v_world.y * 0.9 + w * 3.0);
   albedo *= max(0.0, 1.0 + ALB_GRAIN_COARSE * coarse + ALB_GRAIN_FINE * near * fine + ALB_STRATA * rockW * layers);
-  // Cavity: a point lower than its surroundings sits in shade, one higher catches light. Shader-only, from the height map.
-  int r = max(1, int(12.0 / texel));
-  ivec2 c = ivec2(floor(p + 0.5));
-  float curv = 0.25 * (hAt(c + ivec2(r, 0)) + hAt(c - ivec2(r, 0)) + hAt(c + ivec2(0, r)) + hAt(c - ivec2(0, r))) - hAt(c);
-  float cavity = 1.0 - 0.55 * clamp(curv / 12.0, 0.0, 1.0) + 0.3 * clamp(-curv / 12.0, 0.0, 1.0);
+  // Cavity: a point lower than its surroundings sits in shade, one higher catches light (terrainAlbedo.cavityAt). Shader-only, from the height map,
+  // read bilinear at a continuous position so it does not snap to a texel (that made the shading blocks of one texel, 3 m).
+  float cr = CAV_RADIUS / texel;
+  float curv = 0.25 * (hBil(p + vec2(cr, 0.0)) + hBil(p - vec2(cr, 0.0)) + hBil(p + vec2(0.0, cr)) + hBil(p - vec2(0.0, cr))) - hBil(p);
+  float cavity = 1.0 - CAV_DARK * clamp(curv / CAV_RANGE, 0.0, 1.0) + CAV_LIGHT * clamp(-curv / CAV_RANGE, 0.0, 1.0);
   vec3 lit = albedo * cavity * (uLight * max(dot(n, uLightDir), 0.0) + uAmbient * (0.5 + 0.5 * n.y));
   vec3 toSurface = v_world - uCamera;
   float dist = length(toSurface);

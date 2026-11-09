@@ -5,6 +5,10 @@ import {
   ALBEDO,
   albedoAt,
   albedoPalette,
+  bilinearHeight,
+  CAVITY,
+  cavityAt,
+  curvatureAt,
   grainAt,
   triWeights,
   wobble,
@@ -170,5 +174,51 @@ describe('triplanar projection', () => {
   it('level ground takes its pattern over (x, z) alone, as before', () => {
     expect(grainAt(12, 10, 30, UP, 0, 50)).toBeCloseTo(grainAt(12, 900, 30, UP, 0, 50), 12);
     expect(wobbleAt(12, 10, 30, UP)).toBeCloseTo(wobble(12, 30), 12);
+  });
+});
+
+describe('cavity shading', () => {
+  // A texel grid of heights with one bump; `hAt` is the nearest texel, `bilinearAt` the continuous reading.
+  const bump = (i: number, j: number) => 6 * Math.exp(-((i - 20) ** 2 + (j - 20) ** 2) / 40);
+  const nearestAt = (px: number, pz: number) => bump(Math.floor(px + 0.5), Math.floor(pz + 0.5));
+  // Largest change in curvature between neighbouring sample positions a hundredth of a texel apart, over a few texels.
+  const worstStep = (read: (px: number, pz: number) => number) => {
+    let worst = 0;
+    for (let px = 14; px < 26; px += 0.01)
+      worst = Math.max(
+        worst,
+        Math.abs(curvatureAt(read, px + 0.01, 20.3, 4) - curvatureAt(read, px, 20.3, 4))
+      );
+    return worst;
+  };
+
+  it('curvature is the mean of four neighbours at the radius minus the centre', () => {
+    expect(curvatureAt((px, pz) => px * 2 + pz, 7, 9, 3)).toBeCloseTo(0, 12);
+    expect(curvatureAt((px, pz) => (px - 5) ** 2 + (pz - 5) ** 2, 5, 5, 2)).toBeCloseTo(4, 12);
+  });
+
+  it('bilinear height reads the texel exactly at a texel centre and the mean at the middle of four', () => {
+    const t = (i: number, j: number) => i * 10 + j * 100;
+    expect(bilinearHeight(t, 3, 4)).toBe(430);
+    expect(bilinearHeight(t, 3.5, 4.5)).toBeCloseTo(485, 9);
+  });
+
+  it('shading from a bilinear read changes smoothly across texel borders; from the nearest texel it jumps', () => {
+    const smooth = worstStep((px, pz) => bilinearHeight(bump, px, pz));
+    const blocky = worstStep(nearestAt);
+    expect(blocky).toBeGreaterThan(0.1);
+    expect(smooth).toBeLessThan(0.02);
+  });
+
+  it('the cavity factor darkens a hollow, lights a rise and leaves flat ground alone', () => {
+    expect(cavityAt(0)).toBe(1);
+    expect(cavityAt(CAVITY.range)).toBeCloseTo(1 - CAVITY.dark, 12);
+    expect(cavityAt(-CAVITY.range)).toBeCloseTo(1 + CAVITY.light, 12);
+    expect(cavityAt(10 * CAVITY.range)).toBeCloseTo(1 - CAVITY.dark, 12);
+  });
+
+  it('the grid shader reads the cavity through the bilinear height, the same constants as CAVITY', () => {
+    expect(GRID_FRAG).toContain(`#define CAV_RANGE ${CAVITY.range.toFixed(1)}`);
+    expect(GRID_FRAG).not.toMatch(/curv[^;]*hAt\(/);
   });
 });

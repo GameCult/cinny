@@ -158,3 +158,40 @@ export function grainAt(
     1 + ALBEDO.grainCoarse * coarse + ALBEDO.grainFine * fine + ALBEDO.strata * rock * layers
   );
 }
+
+/** The cavity term's numbers: curvature (metres) at which a hollow is fully shaded / a rise fully lit, and by how much. */
+export const CAVITY = { radius: 12, range: 12, dark: 0.55, light: 0.3 } as const;
+
+/** Height at a continuous texel position, bilinear over the four texels around it (the shader's `hBil`). */
+export function bilinearHeight(
+  texel: (i: number, j: number) => number,
+  px: number,
+  pz: number
+): number {
+  const i = Math.floor(px);
+  const j = Math.floor(pz);
+  const fx = px - i;
+  const fz = pz - j;
+  return mix(
+    mix(texel(i, j), texel(i + 1, j), fx),
+    mix(texel(i, j + 1), texel(i + 1, j + 1), fx),
+    fz
+  );
+}
+
+/** Mean of the four neighbours `r` texels away minus the centre: positive in a hollow, negative on a rise. */
+export function curvatureAt(
+  height: (px: number, pz: number) => number,
+  px: number,
+  pz: number,
+  r: number
+): number {
+  return (
+    0.25 * (height(px + r, pz) + height(px - r, pz) + height(px, pz + r) + height(px, pz - r)) -
+    height(px, pz)
+  );
+}
+
+/** The multiplier on lit colour for a curvature: a hollow sits in shade, a rise catches light (the shader's `cavity`). */
+export const cavityAt = (curv: number): number =>
+  1 - CAVITY.dark * clamp01(curv / CAVITY.range) + CAVITY.light * clamp01(-curv / CAVITY.range);
