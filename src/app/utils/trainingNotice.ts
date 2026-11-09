@@ -3,8 +3,11 @@ import { StateEvent } from '../../types/matrix/room';
 export const TRAINING_NOTICE_TEXT =
   "Everything said here may be used to train GameCult's AI stewards.";
 
+// The notice, its wording and the registration acknowledgement are Meta's ruling of 2026-11-06:
+// everything said on the server may be used to train GameCult's AI stewards; shown at registration
+// only; no mention of Discord; existing members are not re-asked. The wording is hers to change.
 // The preview build runs against a pretend server where nothing is trained, so the real sentence
-// would be false there. The real wording awaits Meta's legal read (Heimdall's consent text, open).
+// would be false there.
 export const PREVIEW_NOTICE_TEXT =
   'Pretend server: nothing you type here is stored or used to train anything.';
 
