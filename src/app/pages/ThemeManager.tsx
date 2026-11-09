@@ -4,17 +4,21 @@ import {
   MidnightSkyTheme,
   ThemeContextProvider,
   useActiveTheme,
+  useSkyTheme,
 } from '../hooks/useTheme';
 import { useSetting } from '../state/hooks/settings';
 import { settingsAtom } from '../state/settings';
 
 export function UnAuthRouteThemeManager() {
+  // Signed-out pages are Midnight Sky unless the sky state picks otherwise; they ignore the
+  // system scheme.
+  const theme = useSkyTheme() ?? MidnightSkyTheme;
+
   useEffect(() => {
     document.body.className = '';
     document.body.classList.add(configClass, varsClass);
-    // Signed-out pages are always Midnight Sky and ignore the system scheme.
-    document.body.classList.add(...MidnightSkyTheme.classNames);
-  }, []);
+    document.body.classList.add(...theme.classNames);
+  }, [theme]);
 
   return null;
 }

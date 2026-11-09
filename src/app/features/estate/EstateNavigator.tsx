@@ -42,6 +42,7 @@ import { EstateRoom, EstateTier } from './buildEstate';
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
+import { SkyStateControl } from '../scene/SkyStateControl';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
@@ -295,6 +296,7 @@ export function EstateNavigator() {
               {title}
             </Text>
           </Box>
+          <SkyStateControl />
           <IconButton
             variant="Background"
             aria-label="Find a room"
