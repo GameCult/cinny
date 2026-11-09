@@ -42,7 +42,7 @@ export function RoomViewPoseStatus({ room }: { room: Room }) {
   if (statuses.length === 0) return null;
 
   return (
-    <Box direction="Column" style={{ padding: '0 1rem' }}>
+    <Box direction="Column" shrink="No" style={{ padding: '0 1rem' }}>
       {statuses.map((s) => (
         <Text key={s.mind} size="T200" priority="300">
           {poseStatusLine(s)}
