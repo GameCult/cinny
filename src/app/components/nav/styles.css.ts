@@ -1,6 +1,7 @@
 import { ComplexStyleRule, createVar, style } from '@vanilla-extract/css';
 import { RecipeVariants, recipe } from '@vanilla-extract/recipes';
 import { ContainerColor, DefaultReset, Disabled, RadiiVariant, color, config, toRem } from 'folds';
+import { surfaceInk } from '../../features/scene/sceneShell.css';
 
 export const NavCategory = style([
   DefaultReset,
@@ -11,6 +12,13 @@ export const NavCategory = style([
 
 export const NavCategoryHeader = style({
   gap: config.space.S100,
+  selectors: {
+    // Category labels sit on the scene like the rows do, and need the same scrim to be read.
+    ':root[data-scene] &': {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
+      borderRadius: config.radii.R400,
+    },
+  },
 });
 
 export const NavLink = style({
@@ -60,6 +68,22 @@ const NavItemBase = style({
     },
     '&[data-hover=true]': {
       backgroundColor: ContainerHover,
+    },
+    // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a steady
+    // scrim of the theme's own surface, so ridges never show through its text. Hover, the selected row and a
+    // press each strengthen it a step.
+    ':root[data-scene] &': {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 62%, transparent)`,
+    },
+    ':root[data-scene] &:hover, :root[data-scene] &:focus-visible, :root[data-scene] &[data-hover=true]':
+      {
+        backgroundColor: `color-mix(in srgb, ${surfaceInk} 74%, transparent)`,
+      },
+    ':root[data-scene] &[aria-selected=true]': {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 84%, transparent)`,
+    },
+    [`:root[data-scene] &:has(.${NavLink}:active)`]: {
+      backgroundColor: `color-mix(in srgb, ${surfaceInk} 92%, transparent)`,
     },
     [`&:has(.${NavLink}:active)`]: {
       backgroundColor: ContainerActive,

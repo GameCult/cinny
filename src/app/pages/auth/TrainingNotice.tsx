@@ -1,6 +1,7 @@
 import { Box, Checkbox, Text, color, config } from 'folds';
 import React from 'react';
-import { TRAINING_NOTICE_TEXT } from '../../utils/trainingNotice';
+import { useClientConfig } from '../../hooks/useClientConfig';
+import { trainingNoticeText } from '../../utils/trainingNotice';
 
 type TrainingNoticeProps = {
   checked: boolean;
@@ -9,6 +10,7 @@ type TrainingNoticeProps = {
 
 // Registration only: ticking it is the newcomer's acceptance of the current notice version.
 export function TrainingNotice({ checked, onToggle }: TrainingNoticeProps) {
+  const { previewDemo } = useClientConfig();
   return (
     <Box
       direction="Column"
@@ -34,7 +36,7 @@ export function TrainingNotice({ checked, onToggle }: TrainingNoticeProps) {
           checked={checked}
           onClick={onToggle}
         />
-        {TRAINING_NOTICE_TEXT}
+        {trainingNoticeText(previewDemo)}
       </Text>
     </Box>
   );

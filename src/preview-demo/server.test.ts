@@ -237,7 +237,8 @@ describe('the guard', () => {
     } as unknown as Window & typeof globalThis;
     vi.stubGlobal('document', {
       createElement: () => ({ style: {}, setAttribute: vi.fn() }),
-      body: { appendChild: vi.fn() },
+      getElementById: () => null,
+      body: { style: {}, insertBefore: vi.fn() },
       addEventListener: vi.fn(),
     });
     const server = installDemo(win);

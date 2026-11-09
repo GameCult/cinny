@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import catalogue from './catalogue.json';
-import { mindOfSender, poseSrc, poseStatusLine, poseStatuses, resolvePose } from './poses';
+import {
+  mindOfSender,
+  poseSrc,
+  poseStatusLine,
+  poseStatuses,
+  resolvePose,
+  splitNewestStatus,
+} from './poses';
 
 describe('resolvePose', () => {
   it('keeps shared and own-signature labels from the catalogue', () => {
@@ -79,5 +86,19 @@ describe('poseStatusLine', () => {
     expect(poseStatusLine({ mind: 'void', pose: 'reading', since })).toBe(
       'Ratatoskr: Void is reading, since 09:05'
     );
+  });
+});
+
+describe('splitNewestStatus', () => {
+  const s = (mind: string, since: number) => ({ mind, pose: 'happy', since });
+
+  it('picks the status that changed last and keeps the others in their order', () => {
+    const { newest, rest } = splitNewestStatus([s('eureka', 100), s('void', 300), s('nibu', 200)]);
+    expect(newest?.mind).toBe('void');
+    expect(rest.map((r) => r.mind)).toEqual(['eureka', 'nibu']);
+  });
+
+  it('has no newest for an empty list', () => {
+    expect(splitNewestStatus([])).toEqual({ newest: undefined, rest: [] });
   });
 });

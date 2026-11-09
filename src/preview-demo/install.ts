@@ -30,15 +30,18 @@ const BANNER_TEXT = 'preview: pretend server. Any password works.';
 const FOREIGN_SESSION_TEXT =
   'preview: pretend server. A login for another server is stored here and cannot be used.';
 
+// In flow, above the app: body becomes a column and the app root takes the rest, so the banner
+// never covers the room header or the connection strip.
 const showBanner = (text: string) => {
   const el = document.createElement('div');
   el.textContent = text;
   el.setAttribute('role', 'status');
   el.style.cssText =
-    'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147483647;max-width:96vw;' +
-    'padding:0 8px;font:10px/1.5 system-ui,sans-serif;white-space:nowrap;opacity:0.9;color:#1b1b1b;background:#ffc46b;' +
-    'border-radius:0 0 6px 6px;pointer-events:none;text-align:center';
-  document.body.appendChild(el);
+    'flex:none;padding:2px 8px;font:11px/1.4 system-ui,sans-serif;color:#1b1b1b;background:#ffc46b;text-align:center';
+  const root = document.getElementById('root');
+  document.body.style.cssText += ';display:flex;flex-direction:column';
+  if (root) root.style.cssText += ';flex:1;min-height:0;height:auto';
+  document.body.insertBefore(el, root);
 };
 
 const parseBody = (body: unknown): unknown => {

@@ -3,6 +3,15 @@ import { StateEvent } from '../../types/matrix/room';
 export const TRAINING_NOTICE_TEXT =
   "Everything said here may be used to train GameCult's AI stewards.";
 
+// The preview build runs against a pretend server where nothing is trained, so the real sentence
+// would be false there. The real wording awaits Meta's legal read (Heimdall's consent text, open).
+export const PREVIEW_NOTICE_TEXT =
+  'Pretend server: nothing you type here is stored or used to train anything.';
+
+/** The one sentence every first-typing surface shows: the real one, or the pretend server's. */
+export const trainingNoticeText = (previewDemo?: boolean): string =>
+  previewDemo === true ? PREVIEW_NOTICE_TEXT : TRAINING_NOTICE_TEXT;
+
 /**
  * Heimdall's ruling: a room's notice is a room state event, not a pinned message. Type below,
  * state_key '', content `{version, scope}`; scope exactly one of show, study or train. Heimdall's
@@ -31,5 +40,7 @@ export const parseRoomNotice = (content: unknown): RoomNotice | undefined => {
 };
 
 /** The line a room shows: only a notice that says `train` in terms gets the train sentence. */
-export const roomTrainingLine = (notice: RoomNotice | undefined): string | undefined =>
-  notice?.scope === 'train' ? TRAINING_NOTICE_TEXT : undefined;
+export const roomTrainingLine = (
+  notice: RoomNotice | undefined,
+  previewDemo?: boolean
+): string | undefined => (notice?.scope === 'train' ? trainingNoticeText(previewDemo) : undefined);

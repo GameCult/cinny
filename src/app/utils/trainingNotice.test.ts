@@ -4,7 +4,9 @@ import {
   ROOM_NOTICE_EVENT_TYPE,
   TRAINING_NOTICE_TEXT,
   parseRoomNotice,
+  PREVIEW_NOTICE_TEXT,
   roomTrainingLine,
+  trainingNoticeText,
 } from './trainingNotice';
 
 const lineFor = (content: unknown) => roomTrainingLine(parseRoomNotice(content));
@@ -64,5 +66,25 @@ describe('training notice', () => {
     expect(lineFor({ version: 1, scope: 'everything' })).toBeUndefined();
     expect(lineFor({ version: 1, scope: 'Train' })).toBeUndefined();
     expect(lineFor({ version: 1, scope: ['train'] })).toBeUndefined();
+  });
+});
+
+describe('training notice on the pretend server', () => {
+  it('states that nothing is trained instead of the real sentence', () => {
+    expect(trainingNoticeText(true)).toBe(PREVIEW_NOTICE_TEXT);
+    expect(PREVIEW_NOTICE_TEXT).not.toContain('may be used to train');
+    expect(PREVIEW_NOTICE_TEXT.toLowerCase()).toContain('pretend');
+  });
+
+  it('keeps the ruled sentence everywhere else', () => {
+    expect(trainingNoticeText(false)).toBe(TRAINING_NOTICE_TEXT);
+    expect(trainingNoticeText(undefined)).toBe(TRAINING_NOTICE_TEXT);
+  });
+
+  it('shows the same text in a train room and at registration', () => {
+    const notice = parseRoomNotice({ version: 1, scope: 'train' });
+    expect(roomTrainingLine(notice, true)).toBe(trainingNoticeText(true));
+    expect(roomTrainingLine(notice, false)).toBe(trainingNoticeText(false));
+    expect(roomTrainingLine(parseRoomNotice({ version: 1, scope: 'show' }), true)).toBeUndefined();
   });
 });
