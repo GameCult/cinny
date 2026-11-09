@@ -158,6 +158,7 @@ export const BubbleContentArrowLeft = style({
 const PHONE = 'screen and (max-width: 700px)';
 const PHONE_PORTRAIT = 'min(38vw, 160px)';
 const PHONE_TEXT_FLOOR = toRem(170);
+const PORTRAIT_OVERHANG = 58;
 const PORTRAIT = toRem(124);
 const POSE_GUTTER = toRem(14);
 const BUBBLE_CORNER = toRem(6);
@@ -180,7 +181,6 @@ export const BubbleRowPortrait = style({
   '@media': {
     [PHONE]: {
       minHeight: 0,
-      marginTop: toRem(58),
     },
   },
 });
@@ -207,6 +207,12 @@ export const BubbleHeaderPose = style({
   '@media': {
     [PHONE]: {
       alignSelf: 'flex-end',
+      // The band above the bubble where the portrait overhangs: the header sits at its foot, beside
+      // the portrait, so the overhang needs no margin of its own.
+      minHeight: toRem(PORTRAIT_OVERHANG),
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'flex-end',
       margin: `0 ${toRem(14)} ${toRem(2)}`,
       width: 'max-content',
       maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
@@ -220,6 +226,15 @@ export const BubbleHeaderPoseAlt = style({
     [PHONE]: {
       alignSelf: 'flex-start',
       textAlign: 'left',
+    },
+  },
+});
+
+// A portrait row with no header (nothing to fill the overhang band) keeps the band as a margin.
+globalStyle(`${BubbleRowPortrait}:not(:has(.${BubbleHeaderPose}))`, {
+  '@media': {
+    [PHONE]: {
+      marginTop: toRem(PORTRAIT_OVERHANG),
     },
   },
 });
