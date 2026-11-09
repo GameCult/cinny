@@ -70,6 +70,10 @@ export function ridgeDrawn(state: SkyState): Range | undefined {
 }
 
 const SAMPLE_DEG = 3;
+const SUN_DEG = 0.25;
+const SUN_SPAN_DEG = 8;
+const HORIZON_DEG = 0.5;
+const REFINE_FROM = 6;
 const linearLuminance = (c: Vec3) => {
   const [r, g, b] = c.map((v) => Math.min(1, Math.max(0, v)));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
@@ -77,22 +81,64 @@ const linearLuminance = (c: Vec3) => {
 
 /**
  * The terrain sky's range: `skyColour` (the CPU twin of its sky shader) over the whole upper sphere, which the camera
- * sweeps as it turns, for the sky the scene picks for this state. Sampled every 3 degrees.
+ * sweeps as it turns, for the sky the scene picks for this state. A 3 degree grid, a 0.5 degree ring of the horizon, the
+ * zenith and a 0.25 degree patch around the sun find where the extremes are; each of the best few is then refined by a
+ * compass search whose step halves from 1 degree to under 0.001, because the sun's glow peaks (and the sky's darkest
+ * patch sits) between any fixed grid's samples.
  */
 export function terrainDrawn(state: SkyState): Range {
   const sky = chooseSky(terrainSkyFor(state));
-  let darkest = Infinity;
-  let lightest = -Infinity;
+  const rad = Math.PI / 180;
+  const lum = (el: number, az: number) => {
+    const e = Math.min(90, Math.max(0, el)) * rad;
+    const a = az * rad;
+    return linearLuminance(
+      skyColour(sky, [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)])
+    );
+  };
+  const seen: { el: number; az: number; l: number }[] = [];
+  const at = (el: number, az: number) => seen.push({ el, az, l: lum(el, az) });
   for (let el = 0; el <= 90; el += SAMPLE_DEG) {
-    for (let az = 0; az < 360; az += SAMPLE_DEG) {
-      const e = (el * Math.PI) / 180;
-      const a = (az * Math.PI) / 180;
-      const l = linearLuminance(
-        skyColour(sky, [Math.cos(e) * Math.sin(a), Math.sin(e), -Math.cos(e) * Math.cos(a)])
-      );
-      darkest = Math.min(darkest, l);
-      lightest = Math.max(lightest, l);
+    for (let az = 0; az < 360; az += SAMPLE_DEG) at(el, az);
+  }
+  for (let az = 0; az < 360; az += HORIZON_DEG) at(0, az);
+  at(90, 0);
+  for (let dEl = -SUN_SPAN_DEG; dEl <= SUN_SPAN_DEG; dEl += SUN_DEG) {
+    for (let dAz = -SUN_SPAN_DEG; dAz <= SUN_SPAN_DEG; dAz += SUN_DEG) {
+      at(sky.elevation + dEl, sky.azimuth + dAz);
     }
   }
+  type Point = { el: number; az: number; l: number };
+  const around = (p: Point, step: number): Point[] =>
+    [
+      [step, 0],
+      [-step, 0],
+      [0, step],
+      [0, -step],
+    ].map(([dEl, dAz]) => {
+      const el = Math.min(90, Math.max(0, p.el + dEl));
+      return { el, az: p.az + dAz, l: lum(el, p.az + dAz) };
+    });
+  const refine = (from: Point, sign: 1 | -1) => {
+    let best = from;
+    for (let step = 1; step > 5e-7; step /= 2) {
+      let improved = true;
+      while (improved) {
+        const cur = best;
+        best = around(cur, step).reduce((b, c) => (sign * c.l > sign * b.l ? c : b), cur);
+        improved = best !== cur;
+      }
+    }
+    return best.l;
+  };
+  const byLight = [...seen].sort((p, q) => q.l - p.l);
+  const lightest = Math.max(
+    byLight[0].l,
+    ...byLight.slice(0, REFINE_FROM).map((p) => refine(p, 1))
+  );
+  const darkest = Math.min(
+    byLight[byLight.length - 1].l,
+    ...byLight.slice(-REFINE_FROM).map((p) => refine(p, -1))
+  );
   return { darkest, lightest };
 }

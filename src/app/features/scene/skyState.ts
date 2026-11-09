@@ -2,8 +2,6 @@
 // localStorage key; whoever draws the sky (the scene, the title bar's control) reads it here, and
 // `skyBackdrop` says how light or dark the sky behind the login text can be in each state, so the
 // text colours can be checked against it.
-import { ridgeDrawn, terrainDrawn } from './skyForState';
-
 export type SkyState = 'auto' | 'day' | 'dusk' | 'night';
 
 export const SKY_STATES: readonly SkyState[] = ['auto', 'day', 'dusk', 'night'];
@@ -58,27 +56,16 @@ export interface SkyBackdrop {
 }
 
 // The union of every sky a scene draws for the state: the ridge sky and the terrain sky, each from
-// the function its scene uses. 'auto' follows the clock (and a URL), so it bounds all three fixed
-// states. Computed on first use: the terrain range samples its sky.
-const union = (ranges: readonly (SkyBackdrop | undefined)[]): SkyBackdrop => {
-  const r = ranges.filter((x): x is SkyBackdrop => !!x);
-  return {
-    darkest: Math.min(...r.map((x) => x.darkest)),
-    lightest: Math.max(...r.map((x) => x.lightest)),
-  };
+// the function its scene uses (`ridgeDrawn`, `terrainDrawn` in skyForState.ts). Held as constants so
+// this module, which the main chunk loads, does not pull in the terrain sky and the baked scattering
+// tables with it; skyForState.test.ts fails when they drift from the computed union.
+// Rounded outward to six places. 'auto' follows the clock (and a URL), so it
+// bounds all three fixed states.
+const BACKDROPS: Record<SkyState, SkyBackdrop> = {
+  auto: { darkest: 0.016727, lightest: 0.967912 },
+  day: { darkest: 0.237309, lightest: 0.928052 },
+  dusk: { darkest: 0.016727, lightest: 0.967912 },
+  night: { darkest: 0.058099, lightest: 0.077467 },
 };
 
-const FIXED_STATES = ['day', 'dusk', 'night'] as const;
-const cache = new Map<SkyState, SkyBackdrop>();
-
-export function skyBackdrop(state: SkyState): SkyBackdrop {
-  let b = cache.get(state);
-  if (!b) {
-    b =
-      state === 'auto'
-        ? union(FIXED_STATES.map(skyBackdrop))
-        : union([ridgeDrawn(state), terrainDrawn(state)]);
-    cache.set(state, b);
-  }
-  return b;
-}
+export const skyBackdrop = (state: SkyState): SkyBackdrop => BACKDROPS[state];
