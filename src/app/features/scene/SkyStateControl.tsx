@@ -32,7 +32,8 @@ export function SkyStateControl() {
       content={
         <FocusTrap
           focusTrapOptions={{
-            initialFocus: false,
+            initialFocus: '[aria-checked="true"]',
+            returnFocusOnDeactivate: true,
             onDeactivate: () => setCords(undefined),
             clickOutsideDeactivates: true,
             isKeyForward: (evt: KeyboardEvent) => evt.key === 'ArrowDown',
@@ -40,7 +41,7 @@ export function SkyStateControl() {
             escapeDeactivates: stopPropagation,
           }}
         >
-          <Menu>
+          <Menu role="menu" aria-label="Sky">
             <Box direction="Column" gap="100" style={{ padding: config.space.S100 }}>
               {SKY_STATES.map((s) => (
                 <MenuItem
@@ -48,7 +49,8 @@ export function SkyStateControl() {
                   size="300"
                   variant="Surface"
                   radii="300"
-                  aria-pressed={state === s}
+                  role="menuitemradio"
+                  aria-checked={state === s}
                   onClick={() => {
                     setSkyState(s);
                     setCords(undefined);
@@ -70,7 +72,7 @@ export function SkyStateControl() {
         aria-label={`Sky: ${LABEL[state]}`}
         title={`Sky: ${LABEL[state]}`}
         aria-haspopup="menu"
-        aria-pressed={!!cords}
+        aria-expanded={!!cords}
         onClick={open}
       >
         <Icon src={Icons.Bulb} size="200" />
