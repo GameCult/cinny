@@ -45,11 +45,12 @@ describe('skyThemeId', () => {
 });
 
 describe('ink of the theme a state picks, on bare sky', () => {
-  // Per state: the picked theme, its ink and link, and their ratios on bare sky. A theme's own
-  // ink is not chosen for bare sky, so only day and night text pass (skyState.test.ts), and no
-  // link does (night 2.36): links never rest on bare sky, they sit on the plate below.
+  // Per state: the picked theme, its ink and link, and their ratios on bare sky, over the union
+  // of the skies the scenes draw (skyBackdrop). Only night text passes (5.05); day's sky reaches
+  // 0.919 and dusk's 0.017 to 0.965, so no theme's ink holds there. No link passes anywhere
+  // (night 2.36): nothing rests on bare sky, everything sits on the plate below.
   const cells: [SkyState, string, string, string, string, string][] = [
-    ['day', 'noonday-sky', '#342d25', '7.62', '#2a4f27', '5.25'],
+    ['day', 'noonday-sky', '#342d25', '3.71', '#2a4f27', '2.56'],
     ['dusk', 'noonday-sky', '#342d25', '1.00', '#2a4f27', '1.00'],
     ['night', 'midnight-sky', '#aeccff', '5.05', '#609385', '2.36'],
   ];
@@ -62,11 +63,11 @@ describe('ink of the theme a state picks, on bare sky', () => {
     expect(r2(ratio(link, skyBackdrop(state)))).toBe(wantLink);
   });
 
-  it('only the cells that clear AA on bare sky carry text there', () => {
+  it('night is the only state whose text clears AA on bare sky', () => {
     const passing = fixed.filter(
       ([s, id]) => ratio(SKY[id].tokens.Background.OnContainer, skyBackdrop(s)) >= AA
     );
-    expect(passing.map(([s]) => s)).toEqual(['day', 'night']);
+    expect(passing.map(([s]) => s)).toEqual(['night']);
   });
 });
 
