@@ -1,4 +1,4 @@
-import { globalStyle, style } from '@vanilla-extract/css';
+import { style } from '@vanilla-extract/css';
 import { color, config, DefaultReset, toRem } from 'folds';
 
 export const Editor = style([
@@ -11,15 +11,6 @@ export const Editor = style([
     overflow: 'hidden',
   },
 ]);
-
-// Over the background scene (html[data-scene]) the composer is a bubble too: half strength, blurred.
-globalStyle(`:root[data-scene] ${Editor}`, {
-  backgroundColor: [
-    color.SurfaceVariant.Container,
-    `color-mix(in srgb, ${color.SurfaceVariant.Container} 50%, transparent)`,
-  ],
-  backdropFilter: 'blur(12px)',
-});
 
 export const EditorOptions = style([
   DefaultReset,

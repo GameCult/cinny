@@ -2,6 +2,9 @@ import { globalStyle, style } from '@vanilla-extract/css';
 import { color, config } from 'folds';
 import { MessageBase, BubbleContent } from '../../components/message/layout/layout.css';
 import { PageContent, PageNavContent } from '../../components/page/style.css';
+import { Editor } from '../../components/editor/Editor.css';
+import { MembersDrawer } from '../room/MembersDrawer.css';
+import { CallStatus } from '../call-status/styles.css';
 import { RoomViewFollowing } from '../room/RoomViewFollowing.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { SKY_PLATE_FALLBACK } from './skyPlate';
@@ -15,19 +18,23 @@ const scene = ':root[data-scene]';
 const fill = `var(--sky-bubble, ${SKY_PLATE_FALLBACK.fill})`;
 const text = `var(--sky-bubble-text, ${SKY_PLATE_FALLBACK.text})`;
 
-/** A region with no component class of its own (the room intro) joins the plate with this. */
+/** A region with no class of its own (the room intro, the call view) joins the plate with this. */
 export const SkyPlate = style({});
 
 // A recipe's first class is its base style.
 const base = (recipe: () => string) => `.${recipe().split(' ')[0]}`;
 
-const regions = [
+export const plateRegions = [
   `.${SkyPlate}`,
   // Title bars: the room header, the room list's header, every page header.
   '#root header',
   // The room list, and the pages that are lists (explore, inbox, search).
   `.${PageNavContent}`,
   `.${PageContent}`,
+  // The composer, the members drawer, and the call status bar.
+  `.${Editor}`,
+  `.${MembersDrawer}`,
+  `.${CallStatus}`,
   // The bars over the composer.
   `.${RoomViewTyping}`,
   base(RoomViewFollowing),
@@ -37,7 +44,7 @@ const regions = [
 
 // Only inside #root: menus and dialogs render in #portalContainer with their own themed fill.
 const within = (ancestor: string) =>
-  regions.map((r) => `${ancestor} ${r.startsWith('#root') ? '' : '#root '}${r}`).join(', ');
+  plateRegions.map((r) => `${ancestor} ${r.startsWith('#root') ? '' : '#root '}${r}`).join(', ');
 
 globalStyle(within(scene), {
   backgroundColor: fill,
@@ -58,6 +65,5 @@ globalStyle(within(`${scene} body:not(.gamecult-theme)`), {
 });
 
 globalStyle(`${scene} #root .${SkyPlate}`, {
-  padding: config.space.S400,
   borderRadius: config.radii.R400,
 });

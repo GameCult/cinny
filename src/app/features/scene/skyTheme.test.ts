@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { baked } from '../../../sky/baked';
 import { AA, contrast, luminance } from '../../../sky/skyTokens.js';
+import { Editor } from '../../components/editor/Editor.css';
+import { PageContent, PageNavContent } from '../../components/page/style.css';
+import { CallStatus } from '../call-status/styles.css';
+import { MembersDrawer } from '../room/MembersDrawer.css';
+import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { SKY_PLATE_FALLBACK } from './skyPlate';
+import { SkyPlate, plateRegions } from './skyPlate.css';
 import { SKY_STATES, skyBackdrop, type SkyBackdrop, type SkyState } from './skyState';
 import { skyThemeId } from './skyTheme';
 
@@ -90,5 +96,26 @@ describe('the plate, where text cannot rest on bare sky', () => {
         expect(contrast(g.OnContainer, g.Container)).toBeGreaterThanOrEqual(AA);
       });
     });
+  });
+});
+
+describe('regions that sit on the plate', () => {
+  // Every region whose text would otherwise rest on bare sky joins the one plate rule. The ink
+  // and link of that plate are pinned above; this pins who is on it.
+  const on = (cls: string) => expect(plateRegions).toContain(cls);
+
+  it('plates the composer, the members drawer, the call status bar and the call view', () => {
+    on(`.${Editor}`);
+    on(`.${MembersDrawer}`);
+    on(`.${CallStatus}`);
+    on(`.${SkyPlate}`);
+  });
+
+  it('plates the room list, list pages, typing and Following bars and every header', () => {
+    on(`.${PageNavContent}`);
+    on(`.${PageContent}`);
+    on(`.${RoomViewTyping}`);
+    on('#root header');
+    expect(plateRegions.some((r) => r.includes(':not(:has('))).toBe(true);
   });
 });
