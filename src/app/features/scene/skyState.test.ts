@@ -140,15 +140,17 @@ const inks = [
   { theme: 'Midnight Sky', text: baked.midnight.bubbles.OtherText, link: baked.midnight.link },
   { theme: 'Noonday Sky', text: baked.noonday.bubbles.OtherText, link: baked.noonday.link },
 ];
-// WCAG contrast of an ink against the sky: the worse of its two ends, so a mid-luminance ink is
-// measured against whichever end it is closer to.
+// WCAG contrast of an ink against the sky it is worst on. The sky can show any luminance between
+// its darkest and lightest, and contrast is lowest where the backdrop is closest to the ink: the
+// ink's own luminance clamped into that range. An ink inside the range can land on a backdrop of
+// exactly its own luminance (1.00); an ink outside it is worst on the nearer end.
 const against = (ink: string, bg: number) => {
   const li = luminance(ink);
   const [hi, lo] = li > bg ? [li, bg] : [bg, li];
   return (hi + 0.05) / (lo + 0.05);
 };
 const ratio = (ink: string, b: SkyBackdrop) =>
-  Math.min(against(ink, b.lightest), against(ink, b.darkest));
+  against(ink, Math.min(b.lightest, Math.max(b.darkest, luminance(ink))));
 
 describe('login ink against the sky backdrop', () => {
   const rows = SKY_STATES.flatMap((state) =>
