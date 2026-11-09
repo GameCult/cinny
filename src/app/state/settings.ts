@@ -73,7 +73,9 @@ const defaultSettings: Settings = {
   isPeopleDrawer: false,
   memberSortFilterIndex: 0,
   enterForNewline: false,
-  composerSpellcheck: defaultComposerSpellcheck(window.matchMedia?.bind(window)),
+  composerSpellcheck: defaultComposerSpellcheck(
+    typeof window === 'undefined' ? undefined : window.matchMedia?.bind(window)
+  ),
   messageLayout: 2,
   messageSpacing: '400',
   hideMembershipEvents: false,
