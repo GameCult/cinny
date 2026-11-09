@@ -239,4 +239,19 @@ describe('startBackgroundScene follows the sky state', () => {
     await flush();
     expect(createScene).toHaveBeenCalledOnce();
   });
+
+  it('keeps the ground and reports a ray-march scene that throws while being created', async () => {
+    const boom = new Error('shader link failed');
+    createScene.mockImplementation(() => {
+      throw boom;
+    });
+    const onCompileFail = vi.fn();
+    const scene = await startBackgroundScene({ ...config, style: 'raymarch' }, caps, {
+      canvas,
+      onCompileFail,
+    });
+    expect(scene).toBeNull();
+    expect(onCompileFail).toHaveBeenCalledOnce();
+    expect(onCompileFail).toHaveBeenCalledWith(boom);
+  });
 });
