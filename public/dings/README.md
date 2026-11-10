@@ -12,6 +12,6 @@ with motif one of `mention`, `dm`, `message`, `invite`; paths are relative to th
 A sender's own clip wins, else the neutral clip, else silence. Without a `manifest.json` the client keeps
 its stock notification sounds; once one exists, a motif with no clip is silent.
 
-The set here is Aqua's v3 (AquaSynth PR #22, staged at minds.gamecult.org/aqua/dings-voices-70a9795),
-Nibu on proposal 1 (static-filter square). Nobody has heard it. The client plays none of it unless the
+The set here is Aqua's v4 (AquaSynth merge 21e83ec, staged at minds.gamecult.org/aqua/dings-voices-dd9be66),
+Nibu on proposal 3 (8 kHz 5-bit smoothed sine) for all four events. Nobody has heard it. The client plays none of it unless the
 client config sets `"dings": { "enabled": true }` (default off, as in `config.json`).
