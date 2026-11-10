@@ -44,7 +44,7 @@ export function useClientConfig(): ClientConfig {
 }
 
 export const clientDefaultServer = (clientConfig: ClientConfig): string =>
-  clientConfig.homeserverList?.[clientConfig.defaultHomeserver ?? 0] ?? 'matrix.org';
+  clientConfig.homeserverList?.[clientConfig.defaultHomeserver ?? 0] ?? 'gamecult.org';
 
 export const clientAllowedServer = (clientConfig: ClientConfig, server: string): boolean => {
   const { homeserverList, allowCustomHomeservers } = clientConfig;
