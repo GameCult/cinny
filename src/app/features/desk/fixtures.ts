@@ -1,100 +1,116 @@
-import { Answer, DeskProjection, Question } from './feedback';
+import { DeskAnswer, ForkCard, ForkEntry, ForkList } from './forkContract';
 
-/** The clock every fixture is written against. */
-export const NOW = Date.parse('2026-11-10T12:00:00Z');
-const ago = (ms: number) => new Date(NOW - ms).toISOString();
-const MIN = 60 * 1000;
-const DAY = 24 * 60 * MIN;
-
-const q = (label: string, over: Partial<Question> = {}): Question => ({
+/** A card as the server writes it: every key present. The hash is a stand-in; tests pass `unverified` directly. */
+export const card = (label: string, over: Partial<ForkCard> = {}): ForkCard => ({
+  schemaVersion: 'gamecult.fork.card.v0',
   fork_id: `c:question:${label}`,
-  owner: 'mind',
   title: `Question ${label}`,
-  body: `Context for ${label}.`,
+  context: `Context for ${label}.`,
   options: [
     { id: 'A', text: 'First way' },
     { id: 'B', text: 'Second way' },
     { id: 'C', text: 'Third way' },
   ],
   recommendation: 'B',
-  dependsOn: [],
-  askedAt: ago(DAY),
-  status: { state: 'open' },
+  depends: [],
+  leans: null,
+  flag: null,
+  raised_in: null,
+  deciders: ['d1'],
+  status: 'open',
+  ruling: null,
+  ruled_from: [],
+  order: 1,
   options_hash: `hash-${label}`,
   ...over,
 });
 
-const a = (label: string, n: number, over: Partial<Answer> = {}): Answer => ({
-  recordId: `${label}.a${n}`,
+export const answer = (label: string, n: number, over: Partial<DeskAnswer> = {}): DeskAnswer => ({
+  schemaVersion: 'gamecult.desk_answer.v0',
+  answer_id: `n${n}`,
   fork_id: `c:question:${label}`,
+  outcome: 'Counted',
+  of: null,
+  retracts: null,
+  code: null,
   options_hash: `hash-${label}`,
-  answerer: `acct-${n}`,
-  displayName: `Person ${n}`,
-  kind: 'Member',
-  weightPermille: 1000,
-  answer: { choice: 'A' },
-  answered_at: ago(DAY / 2),
+  choice: 'A',
+  note: null,
+  answered_at: '2026-11-09T10:00:00Z',
+  received_at: '2026-11-09T10:00:01Z',
+  claim_in_future: false,
+  answerer: 'acct-1',
+  authority: 'Member',
+  request_id: `r${n}`,
   ...over,
 });
 
-const desk = (
-  questions: DeskProjection['questions'],
-  answers: Answer[] = [],
-  syncedAt = ago(2 * MIN)
-) => ({
+export const entry = (
+  label: string,
+  over: Partial<ForkCard> = {},
+  answers: DeskAnswer[] = [],
+  counted: string | null = null
+): ForkEntry => {
+  const c = card(label, over);
+  return {
+    schemaVersion: 'gamecult.fork.entry.v0',
+    card: c,
+    record: {
+      schemaVersion: 'gamecult.fork.record.v0',
+      fork_id: c.fork_id,
+      options_hash: c.options_hash,
+      counted_answer_id: counted,
+      answers,
+    },
+  };
+};
+
+export const list = (forks: ForkEntry[], openCount?: number): ForkList => ({
+  schemaVersion: 'gamecult.fork.list.v0',
   mind: 'mind',
-  syncedAt,
-  questions,
-  answers,
+  stamp: 's12',
+  open_count: openCount ?? forks.filter((f) => f.card.status === 'open').length,
+  recorded_count: forks.filter((f) => f.card.status === 'closed').length,
+  forks,
+  next_cursor: null,
 });
 
-/** One projection per state of doc section 8, plus the hidden and erased rows. */
+/** One list per state the desk shows. */
 export const STATES = {
-  /** The projection never arrived. */
-  unpublished: { mind: 'mind', questions: [], answers: [] } as DeskProjection,
-  empty: desk([]),
-  noAnswers: desk([q('plain')]),
-  stale: desk([q('plain')], [], ago(45 * MIN)),
-  longOpen: desk([q('old', { askedAt: ago(21 * DAY) })]),
-  blocked: desk([
-    q('first'),
-    q('second', {
-      dependsOn: [{ text: 'Needs the first one settled', questionId: 'c:question:first' }],
-    }),
+  empty: list([]),
+  noAnswers: list([entry('plain')]),
+  blocked: list([
+    entry('first', { order: 1 }),
+    entry('second', { order: 2, depends: ['Needs the first one settled'] }),
   ]),
-  settled: desk([
-    q('done', { status: { state: 'answered', rulingId: 'ruling:done-1' } }),
-    q('shut', { status: { state: 'closed' } }),
-    q('live'),
+  settled: list([
+    entry('done', { status: 'closed', ruling: 'ruling:done-1', ruled_from: ['n1'] }),
+    entry('shut', { status: 'closed' }),
+    entry('live'),
   ]),
-  answered: desk(
-    [q('plain')],
-    [
-      a('plain', 1, { answered_at: ago(DAY / 2) }),
-      a('plain', 2, {
-        answerer: 'acct-1',
-        answer: { choice: 'C', text: 'On reflection, third.' },
-        answered_at: ago(DAY / 4),
-      }),
-      a('plain', 3, { kind: 'Mind', answer: { text: 'Either, if measured first.' } }),
-    ]
-  ),
-  hidden: desk(
-    [
-      q('plain'),
-      { fork_id: 'c:question:gone', hidden: { by: 'Kiko', at: ago(DAY), reason: 'PrivateMatter' } },
-    ],
-    [a('plain', 1, { hidden: { by: 'Kiko', at: ago(DAY / 3), reason: 'Spam' }, answer: undefined })]
-  ),
-  erased: desk(
-    [q('plain')],
-    [
-      a('plain', 1, {
-        erased: true,
-        answerer: undefined,
-        displayName: undefined,
-        answer: undefined,
-      }),
-    ]
-  ),
-} satisfies Record<string, DeskProjection>;
+  answered: list([
+    entry(
+      'plain',
+      {},
+      [
+        answer('plain', 1, { note: 'Because it is first.' }),
+        answer('plain', 2, {
+          outcome: 'Revision',
+          of: 'n1',
+          choice: 'C',
+          note: null,
+          answerer: 'acct-2',
+        }),
+        answer('plain', 3, { outcome: 'Retraction', retracts: 'n2', choice: null }),
+        answer('plain', 4, {
+          outcome: 'Refused',
+          code: 'not_a_decider',
+          choice: 'B',
+          note: 'Let me in.',
+        }),
+        answer('plain', 5, { choice: null, note: 'Either, if measured first.' }),
+      ],
+      'n1'
+    ),
+  ]),
+} satisfies Record<string, ForkList>;

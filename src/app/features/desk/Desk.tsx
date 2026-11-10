@@ -16,16 +16,16 @@ export function Desk() {
   const navigate = useNavigate();
   const phone = useScreenSizeContext() === ScreenSize.Mobile;
   const label = labelOf(mind);
-  const projection = useMemo(() => deskFor(mind), [mind]);
+  const list = useMemo(() => deskFor(mind), [mind]);
   // Until the recompute finishes nothing is flagged; a card that fails is withdrawn when it lands.
   const [unverified, setUnverified] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     let live = true;
-    unverifiedForks(projection?.questions ?? []).then((bad) => live && setUnverified(bad));
+    unverifiedForks(list?.forks ?? []).then((bad) => live && setUnverified(bad));
     return () => {
       live = false;
     };
-  }, [projection]);
+  }, [list]);
 
   return (
     <Page>
@@ -46,13 +46,7 @@ export function Desk() {
         <Scroll hideTrack visibility="Hover">
           <PageContent>
             <PageContentCenter>
-              <DeskView
-                mind={mind}
-                label={label}
-                projection={projection}
-                now={Date.now()}
-                unverified={unverified}
-              />
+              <DeskView mind={mind} label={label} list={list} unverified={unverified} />
             </PageContentCenter>
           </PageContent>
         </Scroll>
