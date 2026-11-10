@@ -1,4 +1,5 @@
 import { atom } from 'jotai';
+import { defaultComposerSpellcheck } from '../components/editor/spellcheck';
 
 const STORAGE_KEY = 'settings';
 export type DateFormat =
@@ -30,6 +31,7 @@ export interface Settings {
   isPeopleDrawer: boolean;
   memberSortFilterIndex: number;
   enterForNewline: boolean;
+  composerSpellcheck: boolean;
   messageLayout: MessageLayout;
   messageSpacing: MessageSpacing;
   hideMembershipEvents: boolean;
@@ -39,6 +41,7 @@ export interface Settings {
   encUrlPreview: boolean;
   showHiddenEvents: boolean;
   legacyUsernameColor: boolean;
+  poseBubbles: boolean;
 
   showNotifications: boolean;
   isNotificationSounds: boolean;
@@ -55,8 +58,10 @@ export interface Settings {
   soundscapeVoiceCap: number;
 }
 
+export const defaultThemeId = 'midnight-sky';
+
 const defaultSettings: Settings = {
-  themeId: 'gamecult-theme',
+  themeId: defaultThemeId,
   useSystemTheme: false,
   lightThemeId: undefined,
   darkThemeId: undefined,
@@ -70,6 +75,9 @@ const defaultSettings: Settings = {
   isPeopleDrawer: false,
   memberSortFilterIndex: 0,
   enterForNewline: false,
+  composerSpellcheck: defaultComposerSpellcheck(
+    typeof window === 'undefined' ? undefined : window.matchMedia?.bind(window)
+  ),
   messageLayout: 2,
   messageSpacing: '400',
   hideMembershipEvents: false,
@@ -79,6 +87,7 @@ const defaultSettings: Settings = {
   encUrlPreview: false,
   showHiddenEvents: false,
   legacyUsernameColor: false,
+  poseBubbles: true,
 
   showNotifications: true,
   isNotificationSounds: true,

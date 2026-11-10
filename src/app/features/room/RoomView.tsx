@@ -13,6 +13,7 @@ import { RoomTimeline } from './RoomTimeline';
 import { RoomViewTyping } from './RoomViewTyping';
 import { RoomTombstone } from './RoomTombstone';
 import { RoomInput } from './RoomInput';
+import { RoomTrainingLine } from './RoomTrainingLine';
 import { RoomViewFollowing, RoomViewFollowingPlaceholder } from './RoomViewFollowing';
 import { Page } from '../../components/page';
 import { useKeyDown } from '../../hooks/useKeyDown';
@@ -104,6 +105,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
       </Box>
       <Box shrink="No" direction="Column">
         <div style={{ padding: `0 ${config.space.S400}` }}>
+          <RoomTrainingLine room={room} />
           {tombstoneEvent ? (
             <RoomTombstone
               roomId={roomId}

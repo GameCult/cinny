@@ -1,4 +1,4 @@
-# Developing Cinny
+# Developing Ratatoskr
 
 > [!TIP]
 > We recommend using a version manager as versions change very quickly.
@@ -36,13 +36,13 @@ source and serves it with Nginx on port 80. To use this locally, you can
 build the container like so:
 
 ```
-docker build -t cinny:latest .
+docker build -t ratatoskr:latest .
 ```
 
 You can then run the container you've built with a command similar to this:
 
 ```
-docker run -p 8080:80 cinny:latest
+docker run -p 8080:80 ratatoskr:latest
 ```
 
 This will forward your `localhost` port 8080 to the container's port 80.

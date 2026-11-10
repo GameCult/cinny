@@ -6,6 +6,7 @@ Chromium. Not shipped, not run by CI.
     node bundle.cjs <outdir>                  # esbuild bundle of entry.ts plus an index.html
     node drive.cjs <outdir> compile           # compile and link each stage, JSON report
     node drive.cjs <outdir> shots <pngdir>    # rest, mid pull-back and pulled-back screenshots
+    node gradAxis.cjs <shaders dir>           # numeric check that noise gradients are (d/dx, d/dz-as-.y, ...): terrainNormal axis
     node drive.cjs <outdir> measure           # GPU time per pass by timer query, two viewports, two levels
     node drive.cjs <outdir> variants          # the same with source patches (no erosion, no tree, value-only fbm)
     node drive.cjs <outdir> trace             # mean trace steps per pixel and pass ms at three camera poses, PREPASS=0,1 arms

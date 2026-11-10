@@ -1,4 +1,4 @@
-import { createVar, keyframes, style, styleVariants } from '@vanilla-extract/css';
+import { createVar, globalStyle, keyframes, style, styleVariants } from '@vanilla-extract/css';
 import { recipe, RecipeVariants } from '@vanilla-extract/recipes';
 import { DefaultReset, color, config, toRem } from 'folds';
 
@@ -143,12 +143,201 @@ export const BubbleContent = style({
   padding: config.space.S200,
   backgroundColor: color.SurfaceVariant.Container,
   color: color.SurfaceVariant.OnContainer,
+  border: `1px solid ${color.SurfaceVariant.ContainerLine}`,
   borderRadius: config.radii.R500,
   position: 'relative',
 });
 
 export const BubbleContentArrowLeft = style({
   borderTopLeftRadius: 0,
+});
+
+// Look of the three-doors mock-up (chat.gamecult.org/mockups/three-doors): a Mind's pose sits
+// beside its bubble on wide screens; on phones it floats inside the bubble, overhanging the top
+// edge, and the text wraps around its silhouette (shape-outside on the alpha channel).
+const PHONE = 'screen and (max-width: 700px)';
+const PHONE_PORTRAIT = 'min(38vw, 160px)';
+const PHONE_TEXT_FLOOR = toRem(170);
+const PORTRAIT_OVERHANG = 58;
+const PORTRAIT = toRem(124);
+const POSE_GUTTER = toRem(14);
+const BUBBLE_CORNER = toRem(6);
+const POP = 'cubic-bezier(0.34, 1.7, 0.64, 1)';
+const RISE = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
+
+export const BubbleRowPose = style({
+  position: 'relative',
+  paddingLeft: `calc(${PORTRAIT} + ${POSE_GUTTER})`,
+  '@media': {
+    [PHONE]: {
+      paddingLeft: 0,
+    },
+  },
+});
+
+// A row that shows a portrait: room for it to hang above the bubble on phones.
+export const BubbleRowPortrait = style({
+  minHeight: PORTRAIT,
+  '@media': {
+    [PHONE]: {
+      minHeight: 0,
+    },
+  },
+});
+
+export const BubbleRowOwn = style({
+  justifyContent: 'flex-end',
+});
+
+export const BubbleColumnOwn = style({
+  alignItems: 'flex-end',
+  maxWidth: toRem(640),
+});
+
+export const BubbleHeaderOwn = style({
+  alignSelf: 'flex-end',
+});
+
+// Phone: name and time are one plain line in flow above the bubble, on the side opposite the
+// portrait. It is as wide as the full name needs, up to the room beside the portrait; only a name
+// longer than that wraps (and then the time drops below it). It is capped by the viewport, not by
+// the column: a short bubble's column is narrower than its own name, and a percentage cap there
+// truncated names to one letter.
+export const BubbleHeaderPose = style({
+  '@media': {
+    [PHONE]: {
+      alignSelf: 'flex-end',
+      // The band above the bubble where the portrait overhangs: the header sits at its foot, beside
+      // the portrait, so the overhang needs no margin of its own.
+      minHeight: toRem(PORTRAIT_OVERHANG),
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'flex-end',
+      margin: `0 ${toRem(14)} ${toRem(2)}`,
+      width: 'max-content',
+      maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
+      textAlign: 'right',
+    },
+  },
+});
+
+export const BubbleHeaderPoseAlt = style({
+  '@media': {
+    [PHONE]: {
+      alignSelf: 'flex-start',
+      textAlign: 'left',
+    },
+  },
+});
+
+// A portrait row with no header (nothing to fill the overhang band) keeps the band as a margin.
+globalStyle(`${BubbleRowPortrait}:not(:has(.${BubbleHeaderPose}))`, {
+  '@media': {
+    [PHONE]: {
+      marginTop: toRem(PORTRAIT_OVERHANG),
+    },
+  },
+});
+
+export const BubbleColumnPose = style({
+  position: 'relative',
+});
+
+export const BubbleContentPose = style({
+  borderRadius: config.radii.R500,
+  borderTopLeftRadius: BUBBLE_CORNER,
+  '@media': {
+    [PHONE]: {
+      display: 'flow-root',
+      // A bubble with a portrait is at least portrait + a readable column wide, or the text
+      // beside the portrait collapses to a strip.
+      minWidth: `min(100%, calc(${PHONE_PORTRAIT} + ${PHONE_TEXT_FLOOR}))`,
+      borderTopLeftRadius: config.radii.R500,
+      padding: `${toRem(24)} ${toRem(14)} ${toRem(14)}`,
+    },
+  },
+});
+
+export const BubbleContentOwn = style({
+  backgroundColor: color.Primary.Container,
+  color: color.Primary.OnContainer,
+  border: `1px solid ${color.Primary.ContainerLine}`,
+  borderRadius: config.radii.R500,
+  borderTopRightRadius: BUBBLE_CORNER,
+});
+
+export const PoseButton = style({
+  position: 'absolute',
+  top: 0,
+  left: `calc(-1 * (${PORTRAIT} + ${POSE_GUTTER}))`,
+  width: PORTRAIT,
+  height: PORTRAIT,
+  padding: 0,
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  lineHeight: 0,
+  transformOrigin: '50% 90%',
+  '@media': {
+    [PHONE]: {
+      position: 'static',
+      float: 'left',
+      width: PHONE_PORTRAIT,
+      height: 'auto',
+      margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
+      shapeMargin: toRem(7),
+      WebkitMaskImage: 'linear-gradient(#000 84%, transparent)',
+      maskImage: 'linear-gradient(#000 84%, transparent)',
+    },
+  },
+});
+
+export const PoseButtonAlt = style({
+  '@media': {
+    [PHONE]: {
+      float: 'right',
+      margin: `${toRem(-82)} ${toRem(-12)} 0 ${toRem(8)}`,
+    },
+  },
+});
+
+export const PosePortrait = style({
+  width: '100%',
+  height: '100%',
+  objectFit: 'contain',
+  objectPosition: 'top',
+  '@media': {
+    [PHONE]: {
+      height: 'auto',
+    },
+  },
+});
+
+const pop = keyframes({
+  from: { opacity: 0, transform: `translateY(${toRem(34)}) scale(0.42)` },
+  to: { opacity: 1, transform: 'none' },
+});
+const rise = keyframes({
+  from: { opacity: 0, transform: `translateY(${toRem(14)}) scale(0.96)` },
+  to: { opacity: 1, transform: 'none' },
+});
+
+// First appearance of a message: the portrait pops, the bubble rises just behind it. The delay
+// (a --enter-delay on the row) staggers messages that arrive together.
+export const EnterPortrait = style({
+  '@media': {
+    '(prefers-reduced-motion: no-preference)': {
+      animation: `${pop} 460ms ${POP} var(--enter-delay, 0ms) both`,
+    },
+  },
+});
+
+export const EnterBubble = style({
+  '@media': {
+    '(prefers-reduced-motion: no-preference)': {
+      animation: `${rise} 380ms ${RISE} calc(var(--enter-delay, 0ms) + 50ms) both`,
+    },
+  },
 });
 
 export const BubbleLeftArrow = style({
@@ -205,3 +394,76 @@ export const MessageTextBody = recipe({
 });
 
 export type MessageTextBodyVariants = RecipeVariants<typeof MessageTextBody>;
+
+// The message content is a flex column, which forms its own block formatting context and so sits
+// whole beside the floated portrait: the text stays as narrow as the gap beside it for the
+// bubble's full height. As a plain block its lines wrap around the silhouette and then run the
+// bubble's full width below it.
+globalStyle(`${BubbleContentPose} > div`, {
+  '@media': {
+    [PHONE]: {
+      display: 'block',
+    },
+  },
+});
+
+// The name wraps instead of ellipsising: the header already caps its own width, and Username's own
+// nowrap + ellipsis, and the truncate on the Text inside it, clipped long names to "Heimdall o…".
+globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`, {
+  '@media': {
+    [PHONE]: {
+      whiteSpace: 'normal',
+      overflow: 'visible',
+      textOverflow: 'clip',
+      overflowWrap: 'break-word',
+    },
+  },
+});
+
+// A name too long for one line takes its own lines and the time drops below it, instead of the
+// name shrinking to a sliver beside the time (the header's one child is the flex row of both). The
+// row hugs the side the header sits on, so a dropped time stays under the name's edge.
+globalStyle(`${BubbleHeaderPose} > div`, {
+  '@media': {
+    [PHONE]: {
+      flexWrap: 'wrap',
+      justifyContent: 'flex-end',
+    },
+  },
+});
+
+globalStyle(`${BubbleHeaderPoseAlt} > div`, {
+  '@media': {
+    [PHONE]: {
+      justifyContent: 'flex-start',
+    },
+  },
+});
+
+// An outside list marker hangs left of its item's text and ignores the portrait's silhouette, so
+// beside a left portrait the number lands under the art. Inside, it is a word on the first line
+// and wraps around the silhouette like the rest.
+globalStyle(`${BubbleContentPose} ol, ${BubbleContentPose} ul`, {
+  '@media': {
+    [PHONE]: {
+      listStylePosition: 'inside',
+      paddingLeft: 0,
+    },
+  },
+});
+
+// While the background scene runs (html[data-scene]) a chat bubble is the one filled surface in
+// the app: its own colour at half strength over a blur of the scene, so the words stay readable
+// and the ridge shows through. The arrow wedge is opaque, so it goes.
+const scene = ':root[data-scene]';
+const half = (c: string) => `color-mix(in srgb, ${c} 50%, transparent)`;
+globalStyle(`${scene} ${BubbleContent}`, {
+  backgroundColor: [color.SurfaceVariant.Container, half(color.SurfaceVariant.Container)],
+  backdropFilter: 'blur(12px)',
+});
+globalStyle(`${scene} ${BubbleContentOwn}`, {
+  backgroundColor: [color.Primary.Container, half(color.Primary.Container)],
+});
+globalStyle(`${scene} ${BubbleLeftArrow}`, {
+  display: 'none',
+});

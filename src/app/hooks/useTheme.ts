@@ -1,10 +1,19 @@
 import { lightTheme } from 'folds';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { onDarkFontWeight, onLightFontWeight } from '../../config.css';
-import { butterTheme, darkTheme, gamecultTheme, silverTheme } from '../../colors.css';
+import {
+  butterTheme,
+  darkTheme,
+  midnightSkyTheme,
+  noondaySkyTheme,
+  silverTheme,
+} from '../../colors.css';
 import '../../gamecult.css';
-import { settingsAtom } from '../state/settings';
+import '../../sky.css';
+import { defaultThemeId, settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
+import { sceneThemeId } from '../features/scene/skyTheme';
+import { useResolvedSkyState, useSceneOn, useSkyState } from './useSkyState';
 
 export enum ThemeKind {
   Light = 'light',
@@ -39,14 +48,23 @@ export const ButterTheme: Theme = {
   classNames: ['butter-theme', butterTheme, onDarkFontWeight, 'prism-dark'],
 };
 
-export const GameCultTheme: Theme = {
-  id: 'gamecult-theme',
+export const MidnightSkyTheme: Theme = {
+  id: 'midnight-sky',
   kind: ThemeKind.Dark,
-  classNames: ['gamecult-theme', gamecultTheme, onDarkFontWeight, 'prism-dark'],
+  classNames: ['gamecult-theme', 'midnight-sky', midnightSkyTheme, onDarkFontWeight, 'prism-dark'],
+};
+
+export const NoondaySkyTheme: Theme = {
+  id: 'noonday-sky',
+  kind: ThemeKind.Light,
+  classNames: ['gamecult-theme', 'noonday-sky', noondaySkyTheme, onLightFontWeight, 'prism-light'],
 };
 
 export const useThemes = (): Theme[] => {
-  const themes: Theme[] = useMemo(() => [GameCultTheme, LightTheme, SilverTheme, DarkTheme, ButterTheme], []);
+  const themes: Theme[] = useMemo(
+    () => [MidnightSkyTheme, NoondaySkyTheme, LightTheme, SilverTheme, DarkTheme, ButterTheme],
+    []
+  );
 
   return themes;
 };
@@ -54,7 +72,8 @@ export const useThemes = (): Theme[] => {
 export const useThemeNames = (): Record<string, string> =>
   useMemo(
     () => ({
-      [GameCultTheme.id]: 'GameCult',
+      [MidnightSkyTheme.id]: 'Midnight Sky',
+      [NoondaySkyTheme.id]: 'Noonday Sky',
       [LightTheme.id]: 'Light',
       [SilverTheme.id]: 'Silver',
       [DarkTheme.id]: 'Dark',
@@ -83,24 +102,42 @@ export const useSystemThemeKind = (): ThemeKind => {
   return themeKind;
 };
 
+const toTheme = (id: ReturnType<typeof sceneThemeId>): Theme | undefined =>
+  id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
+
+/** A theme the person chose: the system scheme, or one other than the default. A saved Midnight Sky is the default. */
+const chosenTheme = (useSystemTheme: boolean, themeId?: string) =>
+  useSystemTheme || (themeId !== undefined && themeId !== defaultThemeId);
+
+/** The theme the sky asks for on a page with no theme of its own (signed out), or undefined for none. */
+export const useSkyTheme = (): Theme | undefined =>
+  toTheme(sceneThemeId(useSkyState(), useResolvedSkyState(), useSceneOn(), false));
+
 export const useActiveTheme = (): Theme => {
+  const sky = useSkyState();
+  const resolved = useResolvedSkyState();
+  const sceneOn = useSceneOn();
   const systemThemeKind = useSystemThemeKind();
   const themes = useThemes();
   const [systemTheme] = useSetting(settingsAtom, 'useSystemTheme');
   const [themeId] = useSetting(settingsAtom, 'themeId');
   const [lightThemeId] = useSetting(settingsAtom, 'lightThemeId');
   const [darkThemeId] = useSetting(settingsAtom, 'darkThemeId');
+  // A person's own theme wins over 'auto'; a fixed sky state is itself a choice and wins over the theme.
+  const skyTheme = toTheme(sceneThemeId(sky, resolved, sceneOn, chosenTheme(systemTheme, themeId)));
+
+  if (skyTheme) return skyTheme;
 
   if (!systemTheme) {
-    const selectedTheme = themes.find((theme) => theme.id === themeId) ?? GameCultTheme;
+    const selectedTheme = themes.find((theme) => theme.id === themeId) ?? MidnightSkyTheme;
 
     return selectedTheme;
   }
 
   const selectedTheme =
     systemThemeKind === ThemeKind.Dark
-      ? themes.find((theme) => theme.id === darkThemeId) ?? GameCultTheme
-      : themes.find((theme) => theme.id === lightThemeId) ?? GameCultTheme;
+      ? themes.find((theme) => theme.id === darkThemeId) ?? MidnightSkyTheme
+      : themes.find((theme) => theme.id === lightThemeId) ?? NoondaySkyTheme;
 
   return selectedTheme;
 };

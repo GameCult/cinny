@@ -1,8 +1,11 @@
 /* eslint-disable import/first */
+import './polyfills';
+import './preview-demo/seed';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { enableMapSet } from 'immer';
 import '@fontsource/inter/variable.css';
+import '@fontsource-variable/nunito/index.css';
 import '@fontsource/ubuntu/300.css';
 import '@fontsource/ubuntu/400.css';
 import '@fontsource/ubuntu/500.css';
@@ -51,6 +54,16 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// The pretend homeserver of the dev preview: built in only with VITE_PREVIEW_DEMO=1 (the dev
+// workflow) and switched on by `previewDemo: true` in config.json. Any other build drops it.
+const installPreviewDemo = async () => {
+  if (import.meta.env.VITE_PREVIEW_DEMO !== '1') return;
+  const config = await fetch(`${trimTrailingSlash(import.meta.env.BASE_URL)}/config.json`)
+    .then((r) => r.json())
+    .catch(() => ({}));
+  if (config.previewDemo === true) (await import('./preview-demo')).installDemo();
+};
+
 const mountApp = () => {
   const rootContainer = document.getElementById('root');
 
@@ -63,4 +76,4 @@ const mountApp = () => {
   root.render(<App />);
 };
 
-mountApp();
+installPreviewDemo().finally(mountApp);

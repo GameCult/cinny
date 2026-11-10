@@ -36,7 +36,7 @@ const useLoginSearchParams = (searchParams: URLSearchParams): LoginPathSearchPar
 
 export function Login() {
   const server = useAuthServer();
-  const { hashRouter } = useClientConfig();
+  const { hashRouter, previewDemo } = useClientConfig();
   const { loginFlows } = useAuthFlows();
   const [searchParams] = useSearchParams();
   const loginSearchParams = useLoginSearchParams(searchParams);
@@ -65,7 +65,7 @@ export function Login() {
       {parsedFlows.password && (
         <>
           <PasswordLoginForm
-            defaultUsername={loginSearchParams.username}
+            defaultUsername={loginSearchParams.username ?? (previewDemo ? 'demo' : undefined)}
             defaultEmail={loginSearchParams.email}
           />
           <span data-spacing-node />

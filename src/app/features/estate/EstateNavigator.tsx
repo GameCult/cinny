@@ -1,7 +1,7 @@
 import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
+import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color, config } from 'folds';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
 import {
   NavButton,
@@ -10,6 +10,7 @@ import {
   NavItem,
   NavItemContent,
 } from '../../components/nav';
+import { NavAction, NavLabel } from '../../components/nav/styles.css';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { JoinAddressPrompt } from '../../components/join-address-prompt';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
@@ -37,10 +38,11 @@ import { useClosedNavCategoriesAtom } from '../../state/hooks/closedNavCategorie
 import { makeNavCategoryId } from '../../state/closedNavCategories';
 import { roomToUnreadAtom } from '../../state/room/roomToUnread';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
-import { EstateRoom, EstateTier } from './buildEstate';
+import { EstateGroup, EstateRoom, EstateTier, splitGroups } from './buildEstate';
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
+import { SkyStateControl } from '../scene/SkyStateControl';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
@@ -76,9 +78,14 @@ function JoinRow({ room }: { room: EstateRoom }) {
     <NavItem variant="Background" radii="400">
       <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px', minHeight: 38 }}>
         <NavItemContent>
-          <Text as="span" size="Inherit" truncate>
-            {room.name}
-          </Text>
+          <Box as="span" grow="Yes" alignItems="Center" gap="200">
+            <Avatar size="200" radii="400">
+              <Icon src={Icons.Hash} size="100" style={{ opacity: config.opacity.P300 }} />
+            </Avatar>
+            <Text className={NavLabel} as="span" size="Inherit" truncate>
+              {room.name}
+            </Text>
+          </Box>
         </NavItemContent>
         {state.status === AsyncStatus.Error && (
           <Text
@@ -90,6 +97,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           </Text>
         )}
         <Chip
+          className={NavAction}
           variant={room.state === 'invited' ? 'Primary' : 'Secondary'}
           fill="Soft"
           radii="Pill"
@@ -159,25 +167,53 @@ function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
   );
 }
 
+function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
+  return (
+    <Collapsible categoryId={`${tierId}|${group.mind}`} label={group.label} rooms={group.rooms}>
+      {group.rooms.map((r) => (
+        <EstateRow key={r.roomId} room={r} />
+      ))}
+    </Collapsible>
+  );
+}
+
+/**
+ * Groups of rooms the user has not joined, behind one quiet entry. Closed until opened, on every screen; the opening is
+ * remembered per device like any other section.
+ */
+function Browse({ tierId, groups }: { tierId: string; groups: EstateGroup[] }) {
+  const [toggled, setToggled] = useAtom(useClosedNavCategoriesAtom());
+  const key = makeNavCategoryId('estate', 'browse', tierId);
+  const open = toggled.has(key);
+  const count = groups.reduce((n, g) => n + g.rooms.length, 0);
+
+  return (
+    <NavCategory>
+      <NavCategoryHeader>
+        <RoomNavCategoryButton
+          closed={!open}
+          onClick={() => setToggled({ type: open ? 'DELETE' : 'PUT', categoryId: key })}
+        >
+          {`Browse ${count} more ${count === 1 ? 'room' : 'rooms'}`}
+        </RoomNavCategoryButton>
+      </NavCategoryHeader>
+      {open && groups.map((g) => <GroupSection key={g.mind} tierId={tierId} group={g} />)}
+    </NavCategory>
+  );
+}
+
 function Tier({ tier }: { tier: EstateTier }) {
   const allRooms = useMemo(() => [...tier.loose, ...tier.groups.flatMap((g) => g.rooms)], [tier]);
+  const { front, browse } = useMemo(() => splitGroups(tier), [tier]);
   return (
     <Collapsible categoryId={tier.id} label={tier.label} rooms={allRooms}>
       {tier.loose.map((r) => (
         <EstateRow key={r.roomId} room={r} />
       ))}
-      {tier.groups.map((g) => (
-        <Collapsible
-          key={g.mind}
-          categoryId={`${tier.id}|${g.mind}`}
-          label={g.label}
-          rooms={g.rooms}
-        >
-          {g.rooms.map((r) => (
-            <EstateRow key={r.roomId} room={r} />
-          ))}
-        </Collapsible>
+      {front.map((g) => (
+        <GroupSection key={g.mind} tierId={tier.id} group={g} />
       ))}
+      {browse.length > 0 && <Browse tierId={tier.id} groups={browse} />}
     </Collapsible>
   );
 }
@@ -276,6 +312,8 @@ export function EstateNavigator() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const mx = useMatrixClient();
   const title = (rootId && mx.getRoom(rootId)?.name) || 'GameCult';
+  // A phone's list is the estate and nothing else: no Create Room, no Join with Address.
+  const mobile = useScreenSizeContext() === ScreenSize.Mobile;
 
   return (
     <PageNav>
@@ -286,6 +324,7 @@ export function EstateNavigator() {
               {title}
             </Text>
           </Box>
+          <SkyStateControl />
           <IconButton
             variant="Background"
             aria-label="Find a room"
@@ -297,7 +336,7 @@ export function EstateNavigator() {
       </PageNavHeader>
       <PageNavContent scrollRef={scrollRef}>
         <Box direction="Column" gap="300" className={css.Targets}>
-          <EntryPoints />
+          {!mobile && <EntryPoints />}
           {rootId && <EstateTiers rootId={rootId} />}
           {!rootId && error && (
             <EstateError message="Could not find the GameCult space. Check your connection and reload." />

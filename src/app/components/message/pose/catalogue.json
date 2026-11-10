@@ -1,0 +1,242 @@
+{
+ "shared": [
+  "neutral",
+  "happy",
+  "amused",
+  "thinking",
+  "annoyed",
+  "surprised"
+ ],
+ "minds": {
+  "eureka": {
+   "sheet": "r1b",
+   "shared": {
+    "neutral": "eureka/neutral.png",
+    "happy": "eureka/happy.png",
+    "amused": "eureka/amused.png",
+    "thinking": "eureka/thinking.png",
+    "annoyed": "eureka/annoyed.png",
+    "surprised": "eureka/surprised.png"
+   },
+   "signatures": {
+    "probe": "eureka/probe.png",
+    "inspect": "eureka/inspect.png",
+    "report": "eureka/report.png",
+    "hood-smug": "eureka/hood-smug.png",
+    "concerned": "eureka/concerned.png",
+    "determined": "eureka/determined.png"
+   },
+   "signature_descriptions": {
+    "probe": "Frowning, pencil raised to her chin, working a problem out.",
+    "inspect": "Frowning, one finger pointing at the thing to look at.",
+    "report": "Smirking over a folder of findings.",
+    "hood-smug": "Eyes shut under the hood, self-satisfied smirk.",
+    "concerned": "Worried frown, pencil at her chin.",
+    "determined": "Hard-set frown, pencil in hand, resolved."
+   }
+  },
+  "aqua": {
+   "sheet": "r1b",
+   "shared": {
+    "neutral": "aqua/neutral.png",
+    "happy": "aqua/happy.png",
+    "amused": "aqua/amused.png",
+    "thinking": "aqua/thinking.png",
+    "annoyed": "aqua/annoyed.png",
+    "surprised": "aqua/surprised.png"
+   },
+   "signatures": {
+    "concerned": "aqua/concerned.png",
+    "fretful": "aqua/fretful.png",
+    "weary": "aqua/weary.png",
+    "glare": "aqua/glare.png",
+    "smug": "aqua/smug.png",
+    "sigh": "aqua/sigh.png",
+    "charging": "aqua/charging.png",
+    "delighted": "aqua/delighted.png",
+    "content": "aqua/content.png"
+   },
+   "signature_descriptions": {
+    "concerned": "Worried frown, brows pinched.",
+    "fretful": "Anxious, a fin pressed to her chin.",
+    "weary": "Droopy half-lidded eyes; worn out.",
+    "glare": "Scowling hard, a fin held out to the side.",
+    "smug": "Sidelong look and a small smirk.",
+    "sigh": "Eyes shut, breathing out.",
+    "charging": "Eyes shut, a charging cable plugged into her mouth; recharging.",
+    "delighted": "Wide open-mouthed grin, fins up.",
+    "content": "Calm, small contented smile."
+   }
+  },
+  "heimdall": {
+   "sheet": "r1a",
+   "shared": {
+    "neutral": "heimdall/neutral.png",
+    "happy": "heimdall/happy.png",
+    "amused": "heimdall/amused.png",
+    "thinking": "heimdall/thinking.png",
+    "annoyed": "heimdall/annoyed.png",
+    "surprised": "heimdall/surprised.png"
+   },
+   "signatures": {
+    "concerned": "heimdall/concerned.png",
+    "determined": "heimdall/determined.png",
+    "badge": "heimdall/badge.png",
+    "barrier": "heimdall/barrier.png",
+    "protect": "heimdall/protect.png",
+    "revoke": "heimdall/revoke.png"
+   },
+   "signature_descriptions": {
+    "concerned": "Worried frown, brows raised.",
+    "determined": "Hard scowl, jaw set.",
+    "badge": "Stern, holding a gold key out as his credentials.",
+    "barrier": "Palm raised behind a translucent blue shield: stop.",
+    "protect": "Scowling, cloak swept forward like a guard.",
+    "revoke": "Stern, two keys in hand; taking access away."
+   }
+  },
+  "kiko": {
+   "sheet": "r1b",
+   "shared": {
+    "neutral": "kiko/neutral.png",
+    "happy": "kiko/happy.png",
+    "amused": "kiko/amused.png",
+    "thinking": "kiko/thinking.png",
+    "annoyed": "kiko/annoyed.png",
+    "surprised": "kiko/surprised.png"
+   },
+   "signatures": {
+    "shy-smile": "kiko/shy-smile.png",
+    "uneasy": "kiko/uneasy.png",
+    "tinker": "kiko/tinker.png",
+    "confetti": "kiko/confetti.png",
+    "sprint": "kiko/sprint.png",
+    "debug": "kiko/debug.png"
+   },
+   "signature_descriptions": {
+    "shy-smile": "Soft, shy smile; blushing.",
+    "uneasy": "Blushing, tongue peeking out, unsure.",
+    "tinker": "Delighted, holding up a small gadget.",
+    "confetti": "Open-mouthed grin, confetti falling, a glowing glyph on one finger.",
+    "sprint": "Eyes shut, laughing, one arm up, mid-dash.",
+    "debug": "Squinting through a magnifying glass at a bug."
+   }
+  },
+  "weksa": {
+   "sheet": "r1a",
+   "shared": {
+    "neutral": "weksa/neutral.png",
+    "happy": "weksa/happy.png",
+    "amused": "weksa/amused.png",
+    "thinking": "weksa/thinking.png",
+    "annoyed": "weksa/annoyed.png",
+    "surprised": "weksa/surprised.png"
+   },
+   "signatures": {
+    "concerned": "weksa/concerned.png",
+    "skeptical": "weksa/skeptical.png",
+    "map": "weksa/map.png",
+    "fieldwork": "weksa/fieldwork.png",
+    "argue": "weksa/argue.png",
+    "interlingua": "weksa/interlingua.png"
+   },
+   "signature_descriptions": {
+    "concerned": "Worried frown, wide eyes, scroll on her back.",
+    "skeptical": "Half-lidded, flat frown; unconvinced.",
+    "map": "Worried, unfurling a hand-drawn map.",
+    "fieldwork": "Frowning in focus, holding a carved idol and a brush.",
+    "argue": "Open-mouthed, pointing, holding up a tablet as evidence.",
+    "interlingua": "Shouting, a glyph tablet in each hand."
+   }
+  },
+  "void": {
+   "sheet": "r1b",
+   "shared": {
+    "neutral": "void/neutral.png",
+    "happy": "void/happy.png",
+    "amused": "void/amused.png",
+    "thinking": "void/thinking.png",
+    "annoyed": "void/annoyed.png",
+    "surprised": "void/surprised.png"
+   },
+   "signatures": {
+    "determined": "void/determined.png",
+    "glare": "void/glare.png",
+    "shrug": "void/shrug.png",
+    "reading": "void/reading.png",
+    "point": "void/point.png",
+    "deadpan": "void/deadpan.png"
+   },
+   "signature_descriptions": {
+    "determined": "Hood bowed, narrowed eyes; set on the task.",
+    "glare": "Narrowed eyes under the hood; hostile stare.",
+    "shrug": "Both hands open, eyes wide: no idea.",
+    "reading": "Holding a sheet of paper, reading it.",
+    "point": "Half-lidded eyes, one finger pointing off to the side.",
+    "deadpan": "Flat lines for eyes; unimpressed."
+   }
+  },
+  "libby": {
+   "sheet": "r1a",
+   "shared": {
+    "neutral": "libby/neutral.png",
+    "happy": "libby/happy.png",
+    "amused": "libby/amused.png",
+    "thinking": "libby/thinking.png",
+    "annoyed": "libby/annoyed.png",
+    "surprised": "libby/surprised.png"
+   },
+   "signatures": {
+    "concerned": "libby/concerned.png",
+    "sad": "libby/sad.png",
+    "stamp": "libby/stamp.png",
+    "research": "libby/research.png",
+    "shush": "libby/shush.png",
+    "schema": "libby/schema.png"
+   },
+   "signature_descriptions": {
+    "concerned": "Worried, a book clutched to her chest.",
+    "sad": "Downcast, a book clutched to her chest.",
+    "stamp": "Smiling, stamping a page of an open book.",
+    "research": "Eager over an open book, an ink bottle at hand.",
+    "shush": "Speaking over an open book, one finger on the page.",
+    "schema": "Raising a finger beside a glowing flow-diagram panel."
+   }
+  },
+  "nibu": {
+   "sheet": "r1b",
+   "shared": {
+    "neutral": "nibu/neutral.png",
+    "happy": "nibu/happy.png",
+    "amused": "nibu/amused.png",
+    "thinking": "nibu/thinking.png",
+    "annoyed": "nibu/annoyed.png",
+    "surprised": "nibu/surprised.png"
+   },
+   "signatures": {
+    "sheepish": "nibu/sheepish.png",
+    "pout": "nibu/pout.png",
+    "resolute": "nibu/resolute.png",
+    "console": "nibu/console.png",
+    "glitch": "nibu/glitch.png",
+    "triumph": "nibu/triumph.png"
+   },
+   "signature_descriptions": {
+    "sheepish": "Arms crossed, awkward toothy grin.",
+    "pout": "Arms crossed, pouting frown.",
+    "resolute": "Arms crossed, scowling; standing her ground.",
+    "console": "Frowning at a handheld console.",
+    "glitch": "Frowning, palm up, a glitch tearing across her eyes.",
+    "triumph": "Eyes shut, fist raised; quietly pleased with a win."
+   }
+  }
+ },
+ "shared_descriptions": {
+  "neutral": "At rest, no particular feeling.",
+  "happy": "Pleased; smiling.",
+  "amused": "Quietly entertained, as if at a private joke.",
+  "thinking": "Working something out.",
+  "annoyed": "Irritated; patience running thin.",
+  "surprised": "Caught off guard."
+ }
+}

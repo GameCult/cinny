@@ -1,0 +1,46 @@
+name: Rat dev preview
+
+on:
+  push:
+    branches: ['dev']
+
+# One run per ref wins: a newer push to dev cancels the older queued or running one, so the run
+# that builds rat-dev-dist is always the newest. Pull-request runs are other workflows and other
+# groups; they never cancel it.
+concurrency:
+  group: rat-dev-preview
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build dev preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".node-version"
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci
+      - name: Build app
+        env:
+          CINNY_BASE: /void/rat-dev/
+          VITE_PREVIEW_DEMO: '1'
+          NODE_OPTIONS: '--max_old_space_size=3072'
+        run: npm run build
+      - name: Set background scene tier and the pretend homeserver
+        run: node scripts/preview-config.js low --demo
+      - name: Add the demo pose art
+        run: mkdir -p dist/public/poses && cp -r preview-demo/poses/. dist/public/poses/
+      - name: Upload artifact
+        # v3 protocol: the v4 client keeps only the origin of ACTIONS_RESULTS_URL, dropping this forge's /forge subpath
+        # (nginx 404 page, runs 170-171), and upstream v4+ refuses non-GitHub servers outright (run 169).
+        uses: forgejo/upload-artifact@v3
+        with:
+          name: rat-dev-dist
+          path: dist
+          retention-days: 3

@@ -44,10 +44,10 @@ vec3 terrainNormal(vec2 xz)
     vec2 dir = r > 0.0 ? xz / r : vec2(0.0);
     vec4 fg = cultmath_fbm_grad(vec3(xz * W_FREQ, 0.0), W_OCTAVES, W_LACUNARITY, W_GAIN);
     float f = fg.w;
-    vec2 g = m * W_AMP * W_FREQ * fg.xz + dm * W_AMP * f * dir;
+    vec2 g = m * W_AMP * W_FREQ * fg.xy + dm * W_AMP * f * dir;
 #if W_ERODE_ENABLED
     CultPhasor ph = terrainPhacelle(xz);
-    g += m * W_ERODE_AMP * W_ERODE_FREQ * ph.cos.xz + dm * W_ERODE_AMP * ph.cos.w * dir;
+    g += m * W_ERODE_AMP * W_ERODE_FREQ * ph.cos.xy + dm * W_ERODE_AMP * ph.cos.w * dir;
 #endif
     return normalize(vec3(-g.x, 1.0, -g.y));
 }

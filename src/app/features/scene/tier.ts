@@ -15,8 +15,17 @@ export interface Capabilities {
   hardwareConcurrency?: number;
 }
 
+/**
+ * 'ridge': baked parallax ridges, no WebGL (default). 'raymarch': the sphere-traced world with its tree and
+ * clouds. 'terrain': a baked height map on a displaced grid, lit and hazed by the baked sky (WebGL2).
+ */
+export type SceneStyle = 'ridge' | 'raymarch' | 'terrain';
+
 export interface BackgroundSceneConfig {
   tier?: SceneTier;
+  style?: SceneStyle;
+  /** Let the page URL switch on the diagnostic overlays (`?probe=1`, `?tierlabel=1`) in a production build. Default: no. */
+  debugOverlays?: boolean;
 }
 
 export function readCapabilities(nav: Navigator): Capabilities {

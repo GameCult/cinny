@@ -709,6 +709,10 @@ function DateAndTime() {
 
 function Editor() {
   const [enterForNewline, setEnterForNewline] = useSetting(settingsAtom, 'enterForNewline');
+  const [composerSpellcheck, setComposerSpellcheck] = useSetting(
+    settingsAtom,
+    'composerSpellcheck'
+  );
   const [isMarkdown, setIsMarkdown] = useSetting(settingsAtom, 'isMarkdown');
   const [hideActivity, setHideActivity] = useSetting(settingsAtom, 'hideActivity');
 
@@ -722,6 +726,15 @@ function Editor() {
             isMacOS() ? KeySymbol.Command : 'Ctrl'
           } + ENTER to send message and ENTER for newline.`}
           after={<Switch variant="Primary" value={enterForNewline} onChange={setEnterForNewline} />}
+        />
+      </SequenceCard>
+      <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
+        <SettingTile
+          title="Spellcheck in composer"
+          description="Underline misspelled words while typing. Off by default on touch devices, where the keyboard has its own."
+          after={
+            <Switch variant="Primary" value={composerSpellcheck} onChange={setComposerSpellcheck} />
+          }
         />
       </SequenceCard>
       <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
@@ -884,6 +897,7 @@ function Messages() {
     settingsAtom,
     'legacyUsernameColor'
   );
+  const [poseBubbles, setPoseBubbles] = useSetting(settingsAtom, 'poseBubbles');
   const [hideMembershipEvents, setHideMembershipEvents] = useSetting(
     settingsAtom,
     'hideMembershipEvents'
@@ -916,6 +930,13 @@ function Messages() {
               onChange={setLegacyUsernameColor}
             />
           }
+        />
+      </SequenceCard>
+      <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
+        <SettingTile
+          title="Pose Portraits"
+          description="Show a Mind's pose portrait beside its bubbles (bubble layout only)."
+          after={<Switch variant="Primary" value={poseBubbles} onChange={setPoseBubbles} />}
         />
       </SequenceCard>
       <SequenceCard className={SequenceCardStyle} variant="SurfaceVariant" direction="Column">
