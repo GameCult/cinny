@@ -219,3 +219,22 @@ Source: Bifrost PR #10, `docs/feedback-receiver.md` (design, nothing implemented
 5. **Receiver claims.** The OIDC access token's claims for this endpoint (section 7a) are unread.
 6. **Reader ordering.** Whether an old Huginn reader skips or fails on a mind holding a kind it does not know is unverified (proposal section 6.4); it decides
    when the first Mind may list a question.
+
+## 12. The desk: the page as the Fork Desk's descendant
+
+Added 2026-11-10 by Void from Meta's brief and the original Fork Desk (`/opt/commons/handoff/fork-desk-original/`, Nibu's newest copy; working note `/opt/commons/handoff/ratatoskr-desk-spec-20261110.md`, section 11). The feedback page **is** the desk: one surface, not two. Design only.
+
+**Keep from the original.**
+- Questions stream as rows (not one at a time): title, body as context, options with the recommended one marked **in words**, the `depends` line, a free-text note carrying the person's words verbatim, and a "recorded as rulings" list of settled questions with their ruling id. A pick is optional; the note can answer alone.
+- A **booth Persona**: the owning Mind's pose beside the rows on wide screens, a small fixed corner image on phones, reacting by mood: no forks (neutral), all answered (triumph), none answered (thinking), partway (determined, "N to go"), a pick equal to the recommendation (happy), a different pick (surprised, "a line on why helps"), a cleared pick (note), a failed send (concerned), a new fork arriving (surprised). The rules are a pure function of the forks and the last event (`deskMood`), tested exactly. Poses come from the shared cast art; a Mind without art shows no booth rather than another's face.
+- Answers save as the person acts, and she can close the page and come back.
+
+**What changes.**
+- The row is the section 5 question projection. The page changes nothing about who owns a question, a ruling or a status (section 2).
+- Phones: each row's options and note fold behind its title (section 1); the entry point is a **"Desk · N open"** line on the Mind's group header in the navigator, hidden at zero. Chromeless: hairlines are allowed, panels, cards and pills are not.
+- **Field names for the desk.** The question carries `fork_id` (the section 5 `id`) and `options_hash`; an answer record carries `fork_id`, `options_hash`, `answer` (choice and/or text), `answered_at`. `answerer` and the authority (`kind`) are **set by the receiver only** from the verified session, never read from the client. `options_hash` is a sha256 over canonical JSON of the options and recommendation **as shown** (plus the id, title and body); the publisher sets it on the projection, the client recomputes it from what it rendered and refuses to send on a mismatch, and the receiver rejects an answer whose hash is not the one it published. Canonicalization is pinned by a golden vector in both repos. (Not a content hash of answer text; section 7 still holds.)
+- **A pick sends at once** (one tap, one record; the latest per account stands, section 5). **The note autosaves as a local draft** and is sent on blur or an explicit Send, never per keystroke. "Saved" says which: sent, or kept on this device.
+- **Clear pick** needs a retraction on the answer record (a pick-less record is refused today, section 5). Asked of Eureka and Heimdall; until then it clears only an unsent draft.
+- "Self leans" and a provisional flag exist in the original; the question has no field for either, so the desk shows neither until one exists.
+
+**Order.** Section 9 step 1 stands: typed interface and fixtures first. The desk's first slice is read-only (note field disabled with a plain sentence that answering opens with sign-in), and answering waits on Bifrost sign-in reaching chat, the `options_hash` and retraction fields, and the receiver.
