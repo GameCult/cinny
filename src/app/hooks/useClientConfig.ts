@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { DingsConfig } from '../features/dings/dings';
 import type { BackgroundSceneConfig } from '../features/scene/tier';
 
 export type HashRouterConfig = {
@@ -21,6 +22,9 @@ export type ClientConfig = {
   hashRouter?: HashRouterConfig;
 
   backgroundScene?: BackgroundSceneConfig;
+
+  // Per-Mind notification earcons (src/app/features/dings). Off unless `enabled: true`.
+  dings?: DingsConfig;
 
   // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
   previewDemo?: boolean;

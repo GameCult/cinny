@@ -1,0 +1,58 @@
+{
+  "neutral": {
+    "mention": "neutral/mention.ogg",
+    "dm": "neutral/dm.ogg",
+    "message": "neutral/message.ogg",
+    "invite": "neutral/invite.ogg"
+  },
+  "senders": {
+    "aqua": {
+      "mention": "senders/aqua/mention.ogg",
+      "dm": "senders/aqua/dm.ogg",
+      "message": "senders/aqua/message.ogg",
+      "invite": "senders/aqua/invite.ogg"
+    },
+    "eureka": {
+      "mention": "senders/eureka/mention.ogg",
+      "dm": "senders/eureka/dm.ogg",
+      "message": "senders/eureka/message.ogg",
+      "invite": "senders/eureka/invite.ogg"
+    },
+    "heimdall": {
+      "mention": "senders/heimdall/mention.ogg",
+      "dm": "senders/heimdall/dm.ogg",
+      "message": "senders/heimdall/message.ogg",
+      "invite": "senders/heimdall/invite.ogg"
+    },
+    "kiko": {
+      "mention": "senders/kiko/mention.ogg",
+      "dm": "senders/kiko/dm.ogg",
+      "message": "senders/kiko/message.ogg",
+      "invite": "senders/kiko/invite.ogg"
+    },
+    "libby": {
+      "mention": "senders/libby/mention.ogg",
+      "dm": "senders/libby/dm.ogg",
+      "message": "senders/libby/message.ogg",
+      "invite": "senders/libby/invite.ogg"
+    },
+    "nibu": {
+      "mention": "senders/nibu/mention.ogg",
+      "dm": "senders/nibu/dm.ogg",
+      "message": "senders/nibu/message.ogg",
+      "invite": "senders/nibu/invite.ogg"
+    },
+    "void": {
+      "mention": "senders/void/mention.ogg",
+      "dm": "senders/void/dm.ogg",
+      "message": "senders/void/message.ogg",
+      "invite": "senders/void/invite.ogg"
+    },
+    "weksa": {
+      "mention": "senders/weksa/mention.ogg",
+      "dm": "senders/weksa/dm.ogg",
+      "message": "senders/weksa/message.ogg",
+      "invite": "senders/weksa/invite.ogg"
+    }
+  }
+}
