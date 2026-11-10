@@ -7,3 +7,11 @@ export const SKY_PLATE_FALLBACK = {
   text: '#b7c7d9',
   link: '#99c7ff',
 } as const;
+
+/**
+ * The sign-in footer's tint: how much of the plate's fill (--sky-bubble) is mixed over the blurred scene behind the
+ * footer line. The footer is a blurred, tinted band with soft edges, not a plate: the scene shows through it. The
+ * footer ink is the plate's, so the tint has to bring the scene behind it to where that ink clears 4.5:1
+ * (skyTheme.test.ts).
+ */
+export const FOOTER_TINT = 0.75;

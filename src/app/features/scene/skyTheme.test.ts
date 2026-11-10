@@ -7,7 +7,7 @@ import { PageContent, PageNavContent } from '../../components/page/style.css';
 import { CallStatus } from '../call-status/styles.css';
 import { MembersDrawer } from '../room/MembersDrawer.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
-import { SKY_PLATE_FALLBACK } from './skyPlate';
+import { FOOTER_TINT, SKY_PLATE_FALLBACK } from './skyPlate';
 import { SkyPlate, plateRegions } from './skyPlate.css';
 import { getResolvedSkyState, setSkyClock, skyBackdrop } from './skyState';
 import type { SkyBackdrop } from './skyState';
@@ -159,4 +159,21 @@ describe('regions that sit on the plate', () => {
     on('#root header');
     expect(plateRegions.some((r) => r.includes(':not(:has('))).toBe(true);
   });
+});
+
+describe('the sign-in footer band', () => {
+  // The footer line is the plate's ink on a band that mixes FOOTER_TINT of the plate's fill over the blurred scene.
+  // The scene behind it is the terrain: as dark as 0, as light as the sky state's lightest backdrop. Ink contrast is
+  // lowest at one of those two ends, so both are checked.
+  const tinted = (fill: string, behind: number) =>
+    FOOTER_TINT * luminance(fill) + (1 - FOOTER_TINT) * behind;
+  it.each(fixed)(
+    '%s: the ink clears AA over the darkest and the lightest scene behind it',
+    (state, id) => {
+      const { Other, OtherText } = SKY[id].bubbles;
+      [0, skyBackdrop(state).lightest].forEach((behind) => {
+        expect(against(OtherText, tinted(Other, behind))).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  );
 });
