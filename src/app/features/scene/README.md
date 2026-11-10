@@ -4,13 +4,22 @@
 config says `backgroundScene.style: 'raymarch'`; the tier flag still defaults to `off`, and null still
 means "keep the CSS ground". Everything below this section describes the opt-in ray-march scene.
 
-- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky? })` returns `{ login, dispose }` or
-  null (tier `off`, no 2D context). Four ridge layers are generated once on the CPU from CultMath's
-  value-noise fbm (`ridge/noise.ts`, a clean-room port, periodic so the drift loops), each painted once to a plain
-  2D canvas of integer size (two periods wide; DPR 2 or more paints at 2x, otherwise 1x; no resampling between
-  layers) over a baked sky gradient on the host canvas. Per frame the only motion is the browser sliding each layer with a
-  CSS transform (a Web Animation of `translate3d`, 150-420 s per period, farther is slower); no script runs per frame.
-  The host canvas and the layers' parent must be positioned and the canvas should fill the parent.
+- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, onBake?, sky? })` returns `{ login, dispose }` or
+  null (tier `off`, no 2D context). Each of four ridge layers is a function of world-x (`ridge/ridgeWorld.ts` `profile`:
+  ridged multifractal value noise, each octave folded at its crest and weighted by the previous one, domain-warped; one
+  function, a parameter row per layer; nothing repeats). World-x is baked in chunks (1.2 viewport widths, integer pixels)
+  onto plain 2D canvases over a baked sky gradient on the host canvas. Per layer a track holds three chunk canvases: two
+  the window can reach and one ahead. The first view bakes only the first chunk of each layer; the others are baked in
+  tasks of about 6 ms (`setTimeout`; a chunk is baked, put on a canvas with its in-scatter, and blurred in column bands, each sized from the last band's time). Per frame the only motion is the
+  compositor sliding the track with a CSS transform (a Web Animation of `translate3d`, one chunk long, `fill: forwards`,
+  150-420 s per viewport width, farther is slower); when it finishes the chunks move one slot left and the track restarts
+  at 0 in the same task (no jump), and the canvas that left is baked with the next stretch of world. A second animation
+  sways the whole rig (up to 5% of the width sideways, 3% of the height down, 150 s loop): the slow yaw and pitch.
+  No script runs per frame. The host canvas and the layers' parent must be positioned and the canvas should fill the parent.
+- `ridge/ridgeBake.ts` is the pixel function (pure, no DOM): per column the crest's slope gives a normal, lit against the
+  sun (`sunDirection`: x = 0.9 sin(2 pi \* `sunAzimuth`), so the sun is toward +x for azimuth 0 to 0.5, strongest at 0.25, toward -x for 0.5 to 1; with no `sunAzimuth` the face lighting falls back to 0.3 and the in-scatter is off); the face under it has a light-to-haze gradient, erosion
+  streaks (a folded noise at gully width, darker with steepness) and a lit rim on the crest. Contrast scales with
+  `transmittance`; the base colour, haze and blur are the aerial perspective below, not redone.
 - Paused when the tab is hidden; under `prefers-reduced-motion` the layers are painted but never played.
   `tier: 'still'` flattens sky and layers into the host canvas at once and leaves no extra elements.
 - Cadence guard: for the first 2 s after start (after 5 warm-up frames) rAF intervals are sampled; if their p95 is over
@@ -23,8 +32,9 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   in-scatter). Layer distance d = 1 - depth; transmittance T = exp(-1.6 d) (0.24 / 0.37 / 0.58 / 1.00 far to near); colour is
   `T * ground + (1 - T) * haze`, then chroma drops by `0.5 (1 - T)`; the edge is blurred up to 2 px (canvas pixels at DPR 1,
   via the 2D `filter`, skipped where unsupported, e.g. Safari); a faint warm in-scatter (at most 0.16 alpha) peaks at the
-  sun's azimuth. Nothing runs per frame. The in-scatter lobe is painted into each layer, so it drifts with the layer
-  rather than staying fixed under the sun; that is a known approximation until the sun is a real, fixed light.
+  sun's azimuth in world-x (two incommensurate cosines, so not periodic). Nothing runs per frame. The in-scatter lobe is
+  painted into each chunk, so it drifts with the layer rather than staying fixed under the sun; that is a known
+  approximation until the sun is a real, fixed light.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
 - Not yet measured on a phone: see the PR description.
 
