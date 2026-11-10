@@ -1,18 +1,20 @@
+/* eslint-disable no-param-reassign -- the bake writes into the canvases and layer records it is handed */
 import type { Scene, SceneOptions } from '../Scene';
 import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
-import {
-  LAYERS,
-  LayerSpec,
-  edgeBlur,
-  hazeColour,
-  layerColour,
-  layerSize,
-  ridgeY,
-  scatterAlpha,
-} from './ridgeWorld';
+import { bakeSlice, BakeParams, layerPaint } from './ridgeBake';
+import { LAYERS, LayerSpec, edgeBlur, layerSize, scatterAlpha, transmittance } from './ridgeWorld';
+
+/** One chunk's bake: `ms` is the summed task time, `maxTaskMs` the longest single task; `first` marks the bake of the first view. */
+export interface BakeRecord {
+  layer: number;
+  chunk: number;
+  ms: number;
+  maxTaskMs: number;
+  first: boolean;
+}
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`, where `debug` allows it. */
@@ -23,15 +25,11 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
   sky?: SkyColours;
+  /** Called after each chunk is baked (a chunk is one layer's stretch of world-x): the cost record. */
+  onBake?: (b: BakeRecord) => void;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
-const mix = (a: Srgb, b: Srgb, t: number): Srgb => [
-  Math.round(a[0] + (b[0] - a[0]) * t),
-  Math.round(a[1] + (b[1] - a[1]) * t),
-  Math.round(a[2] + (b[2] - a[2]) * t),
-];
-
 function context2d(c: HTMLCanvasElement): CanvasRenderingContext2D | null {
   return c.getContext('2d');
 }
@@ -49,94 +47,178 @@ function paintSky(canvas: HTMLCanvasElement, sky: SkyColours): boolean {
   return true;
 }
 
+const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+type Size = ReturnType<typeof layerSize>;
+
 const SCATTER_STOPS = 16;
 
-/** Warm in-scatter over the silhouette only (source-atop), as a horizontal gradient that repeats each period. */
+/** Warm in-scatter over the silhouette only (source-atop): a horizontal gradient over the chunk's world-x. */
 function scatter(
   ctx: CanvasRenderingContext2D,
   spec: LayerSpec,
   sky: SkyColours,
-  size: { period: number; width: number; height: number }
+  widthPx: number,
+  heightPx: number,
+  t0: number,
+  tPerPx: number
 ) {
-  if (sky.sunAzimuth === undefined || scatterAlpha(spec, sky, sky.sunAzimuth) <= 0) return;
-  const g = ctx.createLinearGradient(0, 0, size.width, 0);
+  if (sky.sunAzimuth === undefined || transmittance(spec) >= 1) return; // the nearest layer takes none
+  const g = ctx.createLinearGradient(0, 0, widthPx, 0);
   const [r, gr, b] = sky.horizon;
-  for (let k = 0; k <= 2 * SCATTER_STOPS; k += 1) {
-    const t = (k % SCATTER_STOPS) / SCATTER_STOPS;
-    g.addColorStop(k / (2 * SCATTER_STOPS), `rgba(${r},${gr},${b},${scatterAlpha(spec, sky, t)})`);
+  for (let k = 0; k <= SCATTER_STOPS; k += 1) {
+    const a = scatterAlpha(spec, sky, t0 + (tPerPx * widthPx * k) / SCATTER_STOPS);
+    g.addColorStop(k / SCATTER_STOPS, `rgba(${r},${gr},${b},${a})`);
   }
   ctx.globalCompositeOperation = 'source-atop';
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size.width, size.height);
+  ctx.fillRect(0, 0, widthPx, heightPx);
   ctx.globalCompositeOperation = 'source-over';
 }
 
-/**
- * Soften the silhouette's edge by `px` once, where the browser's 2D canvas supports `filter` (not
- * Safari, which keeps the sharp edge). One period is tiled past both ends and the bottom row extended below,
- * then blurred in a single draw, so the blur sees the wrap and the ground instead of fading at borders.
- */
-function soften(src: HTMLCanvasElement, px: number, period: number): HTMLCanvasElement {
-  const probe = context2d(src);
-  if (!probe || px <= 0 || !('filter' in probe)) return src;
-  const pad = Math.ceil(3 * px);
-  // The unfiltered tiling: blurring tile by tile would fade each tile's own border.
-  const tiled = document.createElement('canvas');
-  tiled.width = src.width + 2 * period;
-  tiled.height = src.height + pad;
-  const tctx = context2d(tiled);
-  const out = document.createElement('canvas');
-  out.width = src.width;
-  out.height = src.height;
-  const ctx = context2d(out);
-  if (!tctx || !ctx) return src;
-  for (let k = 0; k < 4; k += 1) {
-    tctx.drawImage(src, 0, 0, period, src.height, k * period, 0, period, src.height);
-    tctx.drawImage(src, 0, src.height - 1, period, 1, k * period, src.height, period, pad);
-  }
-  ctx.filter = `blur(${px}px)`;
-  ctx.drawImage(tiled, -period, 0);
-  ctx.filter = 'none';
-  return out;
+/** A chunk's bake in slices: `step(budgetMs)` returns true once the chunk is on its canvas. */
+interface Job {
+  step(budgetMs: number): boolean;
 }
 
-/** One ridge layer, painted once: a filled silhouette two periods wide on a plain 2D canvas. */
-function paintLayer(
+/**
+ * One layer's stretch of world-x `[m * chunk, (m + 1) * chunk)` painted onto `el`. The pixels come from
+ * `bakeSlice`, a slice of columns per call, sized to the task budget by measuring the last one. A blur
+ * (where the 2D `filter` exists) needs neighbours, so the pixels are baked `pad` columns past both
+ * ends and bottom, then blurred once into the chunk canvas: seams show no fade.
+ */
+function chunkJob(
+  el: HTMLCanvasElement,
+  scratch: HTMLCanvasElement,
   spec: LayerSpec,
   sky: SkyColours,
-  size: { period: number; width: number; height: number },
+  size: Size,
   viewH: number,
-  scale: number
-): HTMLCanvasElement | null {
-  const el = document.createElement('canvas');
-  el.width = size.width;
-  el.height = size.height;
+  scale: number,
+  m: number,
+  record: (ms: number, maxTaskMs: number) => void
+): Job | null {
   const ctx = context2d(el);
   if (!ctx) return null;
-  const top: number[] = [];
-  for (let x = 0; x < size.period; x += 1)
-    top.push(ridgeY(spec, x, size.period, size.height, viewH));
-  const c = layerColour(spec, sky);
-  const g = ctx.createLinearGradient(0, 0, 0, size.height);
-  g.addColorStop(0, css(c));
-  g.addColorStop(1, css(mix(c, hazeColour(sky), 0.5 * (1 - spec.depth))));
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.moveTo(0, size.height);
-  for (let x = 0; x <= size.width; x += 1) ctx.lineTo(x, top[x % size.period]);
-  ctx.lineTo(size.width, size.height);
-  ctx.closePath();
-  ctx.fill();
-  scatter(ctx, spec, sky, size);
-  return soften(el, edgeBlur(spec) * scale, size.period);
+  const blur = edgeBlur(spec) * scale;
+  const pad = blur > 0 && 'filter' in ctx ? Math.ceil(3 * blur) : 0;
+  const cols = size.chunk + 2 * pad;
+  const rows = size.height + pad;
+  const sctx = pad > 0 ? context2d(scratch) : ctx;
+  if (!sctx) return null;
+  if (pad > 0) {
+    scratch.width = cols;
+    scratch.height = rows;
+  } else {
+    el.width = size.chunk;
+    el.height = size.height;
+  }
+  const img = sctx.createImageData(cols, rows);
+  const params: BakeParams = {
+    spec,
+    sky,
+    period: size.period,
+    scale,
+    viewH,
+    rows,
+    bandH: size.height,
+    px0: m * size.chunk - pad,
+    cols,
+  };
+  const paint = layerPaint(spec, sky);
+  let next = 0;
+  let stage = 0;
+  let sliceCols = 32;
+  let total = 0;
+  let longest = 0;
+  return {
+    step(budgetMs) {
+      const t0 = clock();
+      let done = false;
+      const baking = next < cols;
+      const putNow = stage === 0;
+      while (next < cols && clock() - t0 < budgetMs) {
+        const n = Math.min(cols - next, sliceCols);
+        const s0 = clock();
+        bakeSlice(img.data, params, paint, next, next + n);
+        next += n;
+        const dt = Math.max(clock() - s0, 0.02);
+        if (Number.isFinite(budgetMs))
+          sliceCols = Math.max(8, Math.min(512, Math.round((n * budgetMs * 0.4) / dt)));
+        else sliceCols = cols;
+      }
+      // Finishing is its own tasks, so no one task is longer than a slice: put and in-scatter, then the blur.
+      // A caller with no budget (the first view) runs it all in this one.
+      if (next >= cols && (!Number.isFinite(budgetMs) || !baking)) {
+        if (stage === 0) {
+          if (pad > 0) {
+            sctx.putImageData(img, 0, 0);
+            scatter(sctx, spec, sky, cols, rows, params.px0 / size.period, 1 / size.period);
+          } else {
+            ctx.putImageData(img, 0, 0);
+            scatter(
+              ctx,
+              spec,
+              sky,
+              size.chunk,
+              size.height,
+              params.px0 / size.period,
+              1 / size.period
+            );
+          }
+          stage = 1;
+          done = pad === 0;
+        }
+        if (stage === 1 && !done && (!Number.isFinite(budgetMs) || !putNow)) {
+          el.width = size.chunk;
+          el.height = size.height;
+          ctx.filter = `blur(${blur}px)`;
+          ctx.drawImage(scratch, -pad, 0);
+          ctx.filter = 'none';
+          done = true;
+        }
+      }
+      const dt = clock() - t0;
+      total += dt;
+      longest = Math.max(longest, dt);
+      if (done) record(total, longest);
+      return done;
+    },
+  };
+}
+
+interface Chunk {
+  el: HTMLCanvasElement;
+  /** World chunk index it holds or is being baked to hold. */
+  id: number;
+  job?: Job;
+  ready: boolean;
+}
+
+/** One layer: a track that drifts by one chunk per animation, holding three chunk canvases. */
+interface LayerState {
+  spec: LayerSpec;
+  track: HTMLElement;
+  /** Slot 0 and 1 are what the window can see; slot 2 is the one ahead, baked in the background. */
+  slots: Chunk[];
+  anim?: Animation;
 }
 
 interface Built {
-  layers: HTMLCanvasElement[];
-  anims: Animation[];
+  rig: HTMLElement;
+  layers: LayerState[];
+  sway?: Animation;
+  size: Size;
+  /** CSS px to canvas px, and the viewport's height in canvas px, as baked. */
+  scale: number;
+  viewH: number;
   /** The twinkling stars' own canvas, between the sky and the ridges; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
 }
+
+/** Yaw and pitch: the camera's slow sway, a loop of this many seconds over the whole rig. */
+const SWAY_SECONDS = 150;
+const SLICE_BUDGET_MS = 6;
 
 /** The twinkle overlay redraws at most this often: the swings are 2 to 7 s, no need for 60 fps. */
 const TWINKLE_FRAME_MS = 50;
@@ -162,6 +244,10 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   let twRaf = 0;
   let twLast = 0;
   let still = tier === 'still';
+  let jobTimer: ReturnType<typeof setTimeout> | undefined;
+  let queue: Chunk[] = [];
+  let generation = 0;
+  let scratch: HTMLCanvasElement | undefined;
   let disposed = false;
   let raf = 0;
   let readout: HTMLElement | undefined;
@@ -175,8 +261,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   const teardownLayers = () => {
-    built?.anims.forEach((a) => a.cancel());
-    built?.layers.forEach((l) => l.remove());
+    generation += 1;
+    clearTimeout(jobTimer);
+    jobTimer = undefined;
+    queue = [];
+    scratch = undefined;
+    built?.sway?.cancel();
+    built?.layers.forEach((l) => l.anim?.cancel());
+    built?.rig.remove();
     built?.twinkle?.remove();
     cancelAnimationFrame(twRaf);
     twRaf = 0;
@@ -190,6 +282,109 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     return size.period < 1 || size.height < 1 || Math.round(h * scale) < 1;
   };
 
+  /**
+   * Start baking chunk `c` of layer `l`. `first` runs it to the end in this task (the first view);
+   * otherwise it joins the queue, which `pump` works through in short tasks. False when the canvas has no 2D context.
+   */
+  const bake = (l: LayerState, c: Chunk, first: boolean): boolean => {
+    if (!built) return false;
+    const { scale, viewH } = built;
+    const job = chunkJob(
+      c.el,
+      scratch as HTMLCanvasElement,
+      l.spec,
+      sky,
+      built.size,
+      viewH,
+      scale,
+      c.id,
+      (ms, maxTaskMs) => {
+        c.ready = true;
+        c.job = undefined;
+        opts.onBake?.({ layer: l.spec.index, chunk: c.id, ms, maxTaskMs, first });
+      }
+    );
+    if (!job) return false;
+    c.ready = false;
+    c.job = job;
+    if (first) job.step(Infinity);
+    else queue.push(c);
+    return true;
+  };
+
+  const pump = () => {
+    if (jobTimer !== undefined || !queue.length) return;
+    const gen = generation;
+    jobTimer = setTimeout(() => {
+      jobTimer = undefined;
+      if (gen !== generation) return;
+      const c = queue[0];
+      if (!c.job || c.job.step(SLICE_BUDGET_MS)) queue.shift();
+      pump();
+    }, 0);
+  };
+
+  /** Bake a still-queued chunk to the end now: only when the drift has caught up with the background work. */
+  const flush = (c: Chunk) => {
+    while (c.job && !c.job.step(Infinity));
+    queue = queue.filter((q) => q !== c);
+  };
+
+  const chunkSeconds = (spec: LayerSpec, size: Size) => (spec.seconds * size.chunk) / size.period;
+
+  /** One chunk of drift as one animation, holding its end until `rotate` hands the track the next chunk. */
+  const startDrift = (l: LayerState) => {
+    if (!built) return;
+    const { size, scale } = built;
+    l.anim = l.track.animate?.(
+      [
+        { transform: 'translate3d(0,0,0)' },
+        { transform: `translate3d(${-size.chunk / scale}px,0,0)` },
+      ],
+      { duration: chunkSeconds(l.spec, size) * 1000, easing: 'linear', fill: 'forwards' }
+    );
+    if (l.anim) l.anim.onfinish = () => rotate(l);
+  };
+
+  /**
+   * The window has drifted one chunk. Slot 1 is now slot 0 and slot 2 slot 1, at the same screen place
+   * (the track restarts at 0 and the chunks move one slot left in the same task, so nothing jumps); the
+   * canvas that left becomes slot 2 and is baked with the world one chunk further on, off the critical path.
+   */
+  const rotate = (l: LayerState) => {
+    if (!built || !built.layers.includes(l)) return;
+    const [s0, s1, s2] = l.slots;
+    flush(s1);
+    flush(s2);
+    l.slots = [s1, s2, s0];
+    s0.id = s2.id + 1;
+    const { size, scale } = built;
+    l.slots.forEach((c, i) => {
+      c.el.style.left = `${(i * size.chunk) / scale}px`;
+    });
+    l.anim?.cancel();
+    startDrift(l);
+    bake(l, s0, false);
+    pump();
+    syncPlayState();
+  };
+
+  /** The camera's slow yaw and pitch: the rig eases sideways (up to 5% of the width) and down (up to 3% of the height) and back, in a loop. */
+  const startSway = (rig: HTMLElement, w: number, h: number) => {
+    const x = 0.05 * w;
+    const y = 0.03 * h;
+    const at = (fx: number, fy: number) => `translate3d(${-x * fx}px,${y * fy}px,0)`;
+    return rig.animate?.(
+      [
+        { transform: at(0, 0), offset: 0 },
+        { transform: at(0.55, 1), offset: 0.35 },
+        { transform: at(1, 0.3), offset: 0.7 },
+        { transform: at(0, 0), offset: 1 },
+      ],
+      { duration: SWAY_SECONDS * 1000, iterations: Infinity, easing: 'ease-in-out' }
+    );
+  };
+
   /** Bake the sky, then the layers. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardownLayers();
@@ -200,7 +395,6 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     canvas.width = size.period;
     canvas.height = Math.round(h * scale);
     if (!paintSky(canvas, sky)) return false;
-    const layers: HTMLCanvasElement[] = [];
     // Every star is baked into the sky; the twinkling ones get their own canvas, which a per-frame
     // pass clears and paints over. 'still' has no overlay.
     const stars = makeStars(sky, w, h);
@@ -223,39 +417,63 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       parent.appendChild(twinkle);
     }
     field = stars;
-    for (const spec of LAYERS) {
-      const el = paintLayer(spec, sky, size, canvas.height, scale);
-      if (!el) {
-        layers.forEach((l) => l.remove());
-        twinkle?.remove();
-        return false;
-      }
-      el.setAttribute('aria-hidden', 'true');
-      Object.assign(el.style, {
+    // The rig carries the camera's sway; each layer's track carries its drift; chunks sit on the track.
+    const rig = document.createElement('div');
+    rig.setAttribute('aria-hidden', 'true');
+    Object.assign(rig.style, {
+      position: 'absolute',
+      left: '0',
+      bottom: '0',
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
+      willChange: 'transform',
+    });
+    scratch = document.createElement('canvas');
+    const layers: LayerState[] = LAYERS.map((spec) => {
+      const track = document.createElement('div');
+      Object.assign(track.style, {
         position: 'absolute',
         left: '0',
         bottom: '0',
-        width: `${size.width / scale}px`,
+        width: `${size.period / scale}px`,
         height: `${size.height / scale}px`,
-        pointerEvents: 'none',
         willChange: 'transform',
       });
-      layers.push(el);
+      const slots: Chunk[] = [0, 1, 2].map((i) => {
+        const el = document.createElement('canvas');
+        Object.assign(el.style, {
+          position: 'absolute',
+          bottom: '0',
+          width: `${size.chunk / scale}px`,
+          height: `${size.height / scale}px`,
+        });
+        return { el, id: i, ready: false };
+      });
+      return { spec, track, slots };
+    });
+    built = { rig, layers, size, scale, viewH: canvas.height, twinkle };
+    // First view: only slot 0 of each layer, in this task. The window sees nothing else for the first
+    // fifth of a chunk's drift; slots 1 and 2 are baked in short tasks behind it.
+    if (!layers.every((l) => bake(l, l.slots[0], true))) {
+      teardownLayers();
+      return false;
     }
+    layers.forEach((l) => {
+      l.slots.forEach((c, i) => {
+        c.el.setAttribute('aria-hidden', 'true');
+        c.el.style.left = `${(i * size.chunk) / scale}px`;
+        l.track.appendChild(c.el);
+      });
+      rig.appendChild(l.track);
+      bake(l, l.slots[1], false);
+      bake(l, l.slots[2], false);
+    });
     // DOM order is paint order: farthest first, so the nearest ridge ends up on top.
-    layers.forEach((l) => parent.appendChild(l));
-    const anims = layers
-      .map((el, i) =>
-        el.animate?.(
-          [
-            { transform: 'translate3d(0,0,0)' },
-            { transform: `translate3d(${-size.period / scale}px,0,0)` },
-          ],
-          { duration: LAYERS[i].seconds * 1000, iterations: Infinity, easing: 'linear' }
-        )
-      )
-      .filter((a): a is Animation => !!a);
-    built = { layers, anims, twinkle };
+    parent.appendChild(rig);
+    layers.forEach((l) => startDrift(l));
+    built.sway = startSway(rig, w, h);
+    pump();
     syncPlayState();
     return true;
   };
@@ -288,7 +506,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   function syncPlayState() {
-    built?.anims.forEach((a) => (moving() ? a.play() : a.pause()));
+    const anims = built ? [built.sway, ...built.layers.map((l) => l.anim)] : [];
+    anims.forEach((a) => (moving() ? a?.play() : a?.pause()));
     if (!built?.twinkle) return;
     if (moving()) {
       if (!twRaf) twRaf = requestAnimationFrame(twTick);
@@ -305,13 +524,15 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     still = true;
     const ctx = context2d(canvas);
     if (ctx && built) {
-      const { anims } = built;
-      built.layers.forEach((l, i) => {
-        // Freeze where the drift is, so the swap to a still does not jump.
-        const a = anims[i];
-        const t = Number(a?.currentTime ?? 0);
-        const turns = (t % (LAYERS[i].seconds * 1000)) / (LAYERS[i].seconds * 1000);
-        ctx.drawImage(l, -Math.round(turns * canvas.width), canvas.height - l.height);
+      const { size } = built;
+      built.layers.forEach((l) => {
+        // Freeze where the drift is, so the swap to a still does not jump; whatever is baked and in view.
+        const dur = chunkSeconds(l.spec, size) * 1000;
+        const p = Math.min(1, Math.max(0, Number(l.anim?.currentTime ?? 0) / dur));
+        const x = -Math.round(p * size.chunk);
+        l.slots.slice(0, 2).forEach((c, i) => {
+          if (c.ready) ctx.drawImage(c.el, x + i * size.chunk, canvas.height - size.height);
+        });
       });
     }
     teardownLayers();

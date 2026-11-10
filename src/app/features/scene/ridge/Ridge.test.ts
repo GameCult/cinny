@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRidgeScene } from './Ridge';
-import { fbmPeriodic, valueNoisePeriodic, hash2 } from './noise';
+import { valueNoise, hash2 } from './noise';
 import { FrameSampler, frameStats, SLOW_P95_MS, WARMUP_FRAMES, WINDOW_MS } from './probe';
 import {
   AERIAL,
-  FBM,
   LAYERS,
   edgeBlur,
   hazeColour,
@@ -23,58 +22,37 @@ describe('noise', () => {
   it('is deterministic and in [0, 1)', () => {
     expect(hash2(3, 5)).toBe(hash2(3, 5));
     for (let i = 0; i < 200; i += 1) {
-      const v = valueNoisePeriodic(i * 0.37, 2, 7);
+      const v = valueNoise(i * 0.37 - 20, 2);
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThan(1);
-    }
-  });
-
-  it('wraps: the lattice repeats every `period` cells', () => {
-    for (const x of [0, 0.4, 3.9, 6.99]) {
-      expect(valueNoisePeriodic(x + 7, 4, 7)).toBeCloseTo(valueNoisePeriodic(x, 4, 7), 12);
+      expect(valueNoise(i * 0.37 - 20, 2)).toBe(v);
     }
   });
 
   it('different rows are different profiles', () => {
-    expect(valueNoisePeriodic(1.5, 0, 9)).not.toBeCloseTo(valueNoisePeriodic(1.5, 1, 9), 3);
+    expect(valueNoise(1.5, 0)).not.toBeCloseTo(valueNoise(1.5, 1), 3);
   });
 });
 
 describe('ridge profile', () => {
-  it('every layer is periodic in t, so a drift of one period loops seamlessly', () => {
+  it('stays in [0, 1] for any world-x, negative and far included, and layers differ', () => {
     for (const spec of LAYERS) {
-      for (const t of [0, 0.13, 0.5, 0.97]) {
-        expect(Number.isFinite(profile(spec, t))).toBe(true);
-      }
-      // the end of one period meets the start of the next
-      expect(profile(spec, 1 - 1e-9)).toBeCloseTo(profile(spec, 0), 3);
-    }
-  });
-
-  it('every octave count is an integer lattice, which periodicity needs', () => {
-    for (const spec of LAYERS) {
-      for (let k = 0; k < FBM.octaves; k += 1) {
-        expect(Number.isInteger(spec.baseCells * FBM.lacunarity ** k)).toBe(true);
-      }
-    }
-  });
-
-  it('stays in [0, 1] and layers differ', () => {
-    for (const spec of LAYERS) {
-      for (let i = 0; i < 100; i += 1) {
-        const p = profile(spec, i / 100);
-        expect(p).toBeGreaterThanOrEqual(0);
-        expect(p).toBeLessThanOrEqual(1);
+      for (let i = -300; i < 300; i += 7) {
+        for (const off of [0, 1234.5, 98765.25]) {
+          const p = profile(spec, i / 50 + off);
+          expect(p).toBeGreaterThanOrEqual(0);
+          expect(p).toBeLessThanOrEqual(1);
+        }
       }
     }
     expect(profile(LAYERS[0], 0.3)).not.toBeCloseTo(profile(LAYERS[1], 0.3), 3);
   });
 
-  it('ridge tops lie inside the layer band and rise with farther base', () => {
+  it('ridge tops lie inside the layer band', () => {
     const size = layerSize(400, 800, 1);
     for (const spec of LAYERS) {
-      for (let x = 0; x < size.period; x += 17) {
-        const y = ridgeY(spec, x, size.period, size.height, 800);
+      for (let x = -500; x < 5 * size.period; x += 17) {
+        const y = ridgeY(spec, x / size.period, size.height, 800);
         expect(y).toBeGreaterThanOrEqual(0);
         expect(y).toBeLessThanOrEqual(size.height);
       }
@@ -95,9 +73,9 @@ describe('ridge profile', () => {
     ] as const) {
       const z = layerSize(w, h, s);
       expect(
-        Number.isInteger(z.period) && Number.isInteger(z.width) && Number.isInteger(z.height)
+        Number.isInteger(z.period) && Number.isInteger(z.chunk) && Number.isInteger(z.height)
       ).toBe(true);
-      expect(z.width).toBe(2 * z.period);
+      expect(z.chunk).toBeGreaterThan(z.period);
     }
   });
 });
@@ -147,14 +125,16 @@ describe('aerial perspective', () => {
     expect(edgeBlur(far)).toBeLessThanOrEqual(AERIAL.blurPx);
   });
 
-  it('in-scatter peaks at the sun azimuth, is periodic, faint, grows with distance, and is off without a sun', () => {
+  it('in-scatter is faint, grows with distance, is off without a sun, and never repeats', () => {
     const az = 0.3;
     const s = { ...sky, sunAzimuth: az };
-    expect(scatterAlpha(far, s, az)).toBeGreaterThan(scatterAlpha(far, s, az + 0.5));
-    expect(scatterAlpha(far, s, 0)).toBeCloseTo(scatterAlpha(far, s, 1), 12);
-    expect(scatterAlpha(far, s, az)).toBeLessThanOrEqual(AERIAL.scatter);
+    const lobe = (t: number) => scatterAlpha(far, s, t);
+    expect(lobe(az * 1.9)).toBeGreaterThan(lobe(az * 1.9 + 0.95));
+    for (const period of [1, 1.9, 3.8, 5.7, 19])
+      expect(Math.abs(lobe(0.7 + period) - lobe(0.7))).toBeGreaterThan(1e-4);
+    expect(lobe(az * 1.9)).toBeLessThanOrEqual(AERIAL.scatter);
     expect(scatterAlpha(near, s, az)).toBe(0);
-    expect(scatterAlpha(LAYERS[1], s, az)).toBeLessThan(scatterAlpha(far, s, az));
+    expect(scatterAlpha(LAYERS[1], s, az * 1.9)).toBeLessThan(scatterAlpha(far, s, az * 1.9));
     expect(scatterAlpha(far, { ...sky, sunAzimuth: undefined }, az)).toBe(0);
   });
 });
@@ -263,6 +243,12 @@ function ctx(withFilter = false) {
     fillRect() {
       draws.push(c.globalCompositeOperation === 'source-atop' ? 'scatter' : 'sky');
     },
+    createImageData: (w: number, h: number) => ({
+      data: new Uint8ClampedArray(w * h * 4),
+      width: w,
+      height: h,
+    }),
+    putImageData() {},
     beginPath() {},
     moveTo() {},
     lineTo() {},
@@ -330,6 +316,11 @@ function host() {
   parent.appendChild(canvas);
   return { parent, canvas };
 }
+/** The rig holds one track per layer, farthest first; each track holds three chunk canvases. */
+const rigOf = (parent: any) => parent.children.find((c: any) => c.tag === 'div');
+const tracksOf = (parent: any): any[] => rigOf(parent).children;
+const animsOf = (parent: any): any[] =>
+  [rigOf(parent), ...tracksOf(parent)].flatMap((e: any) => e.anims);
 const runFrames = (dt: number, n: number, from = 0) => {
   let t = from;
   for (let i = 0; i < n && rafQueue.length; i += 1) {
@@ -353,19 +344,25 @@ describe('createRidgeScene', () => {
     expect(createRidgeScene({ canvas, tier: 'full', sky: DAY })).toBeNull();
   });
 
-  it('bakes the sky once and paints four layers at integer sizes, farthest first', () => {
+  it('bakes the sky once, and per layer only the first chunk before the first frame, at integer sizes, farthest first', () => {
     const { parent, canvas } = host();
-    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
+    const baked: any[] = [];
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, onBake: (b) => baked.push(b) })!;
     expect(s).not.toBeNull();
-    const layers = parent.children.slice(1);
-    expect(layers).toHaveLength(LAYERS.length);
-    layers.forEach((l: any) => {
-      expect(Number.isInteger(l.width) && Number.isInteger(l.height)).toBe(true);
-      expect(l.width).toBe(canvas.width * 2); // DPR 2: layer is two periods wide
-      expect(l.animate).toHaveBeenCalledTimes(1);
+    const tracks = tracksOf(parent);
+    expect(tracks).toHaveLength(LAYERS.length);
+    tracks.forEach((t: any) => {
+      expect(t.children).toHaveLength(3);
+      expect(t.animate).toHaveBeenCalledTimes(1);
+      t.children.forEach((c: any) => {
+        expect(Number.isInteger(c.width) && Number.isInteger(c.height)).toBe(true);
+        expect(c.width).toBe(layerSize(400, 800, 2).chunk);
+      });
     });
+    expect(baked.map((b) => [b.layer, b.chunk, b.first])).toEqual(
+      LAYERS.map((l) => [l.index, 0, true])
+    );
     expect(draws.filter((d) => d === 'sky')).toHaveLength(1);
-    expect(draws.filter((d) => d === 'fill')).toHaveLength(LAYERS.length);
     s.dispose();
   });
 
@@ -403,8 +400,9 @@ describe('createRidgeScene', () => {
     motion.matches = true;
     const { canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
-    const anims = canvas.anims.concat(...canvas.parentElement.children.map((c: any) => c.anims));
-    expect(anims.length).toBe(LAYERS.length);
+    const anims = animsOf(canvas.parentElement);
+    expect(anims.length).toBe(LAYERS.length + 1); // one drift per layer and the sway
+    expect(anims.every((a: any) => a.pause.mock.calls.length > 0)).toBe(true);
     anims.forEach((a: any) => expect(a.play).not.toHaveBeenCalled());
     expect(rafQueue).toHaveLength(0);
     s.dispose();
@@ -413,7 +411,7 @@ describe('createRidgeScene', () => {
   it('pauses the drift when the tab is hidden and resumes when it is visible', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
-    const anims = parent.children.slice(1).flatMap((l: any) => l.anims);
+    const anims = animsOf(parent);
     anims.forEach((a: any) => a.pause.mockClear());
     doc.visibilityState = 'hidden';
     doc.dispatchEvent(new Event('visibilitychange'));
@@ -442,7 +440,7 @@ describe('createRidgeScene', () => {
     const { parent, canvas } = host();
     const before = parent.children.length;
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
-    expect(parent.children.length).toBe(before + LAYERS.length);
+    expect(parent.children.length).toBe(before + 1); // the rig
     runFrames(16.7, 300);
     expect(rafQueue.length).toBe(0);
     s.dispose();
@@ -466,7 +464,7 @@ describe('createRidgeScene', () => {
     (window as any).innerHeight = 800;
     window.dispatchEvent(new Event('resize'));
     await new Promise((r) => setTimeout(r, 300));
-    expect(parent.children.slice(1)).toHaveLength(LAYERS.length);
+    expect(tracksOf(parent)).toHaveLength(LAYERS.length);
     expect(draws.filter((d) => d === 'sky')).toHaveLength(1);
     s!.dispose();
     expect(parent.children).toEqual([canvas]);
@@ -475,7 +473,7 @@ describe('createRidgeScene', () => {
   it('dispose cancels the loop, the animations and the layers', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
-    const anims = parent.children.slice(1).flatMap((l: any) => l.anims);
+    const anims = animsOf(parent);
     s.dispose();
     anims.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
     expect(parent.children).toEqual([canvas]);
@@ -501,16 +499,6 @@ describe('the door', () => {
   });
 });
 
-describe('fbm', () => {
-  it('is normalised into [0, 1]', () => {
-    for (let i = 0; i < 100; i += 1) {
-      const v = fbmPeriodic(i / 100, 0, 3, FBM);
-      expect(v).toBeGreaterThanOrEqual(0);
-      expect(v).toBeLessThanOrEqual(1);
-    }
-  });
-});
-
 describe('aerial perspective in the scene', () => {
   it('is baked once: one scatter fill per hazy layer, none per frame, the nearest layer has none', () => {
     const { canvas } = host();
@@ -533,7 +521,7 @@ describe('aerial perspective in the scene', () => {
     s.dispose();
   });
 
-  it('softens with the canvas filter where it exists, blur scaled by DPR, tiled so the wrap does not fade', () => {
+  it('softens with the canvas filter where it exists, blur scaled by DPR, from pixels baked past the chunk edges', () => {
     const { parent, canvas } = host();
     const filters: string[] = [];
     const orig = (document as any).createElement;
@@ -557,7 +545,7 @@ describe('aerial perspective in the scene', () => {
     const blurs = filters.filter((f) => f !== 'none');
     expect(blurs).toHaveLength(LAYERS.length - 1); // nearest is sharp
     expect(blurs[0]).toBe(`blur(${edgeBlur(LAYERS[0]) * 2}px)`); // DPR 2
-    expect(parent.children).toHaveLength(1 + LAYERS.length);
+    expect(parent.children).toHaveLength(2); // sky canvas and the rig
     s.dispose();
   });
 
@@ -591,9 +579,8 @@ describe('the starfield in the scene', () => {
     const s = createRidgeScene({ canvas, tier: 'full', sky: night })!;
     expect(count('star')).toBe(N);
     expect(count('sky')).toBe(1);
-    expect(parent.children.indexOf(parent.children[1])).toBe(1);
     expect(parent.children[1].anims).toHaveLength(0); // the overlay: above the sky, under the ridges
-    expect(parent.children).toHaveLength(2 + LAYERS.length);
+    expect(parent.children).toHaveLength(3);
     const before = baked();
     runFrames(16.7, 300); // 5 s at 60 fps; the overlay repaints at 20 fps
     expect(baked()).toBe(before);
@@ -609,7 +596,7 @@ describe('the starfield in the scene', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
     expect(count('star')).toBe(0);
-    expect(parent.children).toHaveLength(1 + LAYERS.length);
+    expect(parent.children).toHaveLength(2);
     runFrames(16.7, 60);
     expect(count('clear')).toBe(0);
     s.dispose();
