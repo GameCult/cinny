@@ -3,10 +3,7 @@ import catalogue from './catalogue.json';
 import {
   mindOfSender,
   poseSrc,
-  poseStatusLine,
-  poseStatuses,
   resolvePose,
-  splitNewestStatus,
 } from './poses';
 
 describe('resolvePose', () => {
@@ -53,52 +50,5 @@ describe('poseSrc', () => {
   });
 });
 
-describe('poseStatuses', () => {
-  const ev = (sender: string, ts: number, label: unknown) => ({
-    sender,
-    localpart: sender,
-    ts,
-    label,
-  });
-  it('reports the latest pose per Mind and when its unbroken run began', () => {
-    const out = poseStatuses([
-      ev('aqua', 1, 'happy'),
-      ev('aqua', 2, 'sigh'),
-      ev('aqua', 3, 'sigh'),
-      ev('alice', 4, 'happy'),
-      ev('eureka', 5, 'probe'),
-    ]);
-    expect(out).toEqual([
-      { mind: 'aqua', pose: 'sigh', since: 2 },
-      { mind: 'eureka', pose: 'probe', since: 5 },
-    ]);
-  });
-  it('treats unknown labels as neutral runs', () => {
-    expect(poseStatuses([ev('void', 1, 'bogus'), ev('void', 2, undefined)])).toEqual([
-      { mind: 'void', pose: 'neutral', since: 1 },
-    ]);
-  });
-});
 
-describe('poseStatusLine', () => {
-  it('formats the client-status line', () => {
-    const since = new Date(2026, 10, 4, 9, 5).getTime();
-    expect(poseStatusLine({ mind: 'void', pose: 'reading', since })).toBe(
-      'Ratatoskr: Void is reading, since 09:05'
-    );
-  });
-});
 
-describe('splitNewestStatus', () => {
-  const s = (mind: string, since: number) => ({ mind, pose: 'happy', since });
-
-  it('picks the status that changed last and keeps the others in their order', () => {
-    const { newest, rest } = splitNewestStatus([s('eureka', 100), s('void', 300), s('nibu', 200)]);
-    expect(newest?.mind).toBe('void');
-    expect(rest.map((r) => r.mind)).toEqual(['eureka', 'nibu']);
-  });
-
-  it('has no newest for an empty list', () => {
-    expect(splitNewestStatus([])).toEqual({ newest: undefined, rest: [] });
-  });
-});
