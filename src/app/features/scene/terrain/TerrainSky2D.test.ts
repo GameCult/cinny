@@ -168,6 +168,42 @@ describe('createTerrainSkyScene', () => {
   });
 });
 
+describe('the sky-only tier label', () => {
+  const labels = (parentAppend: ReturnType<typeof vi.fn>) =>
+    parentAppend.mock.calls.filter(([e]) => e?.textContent === 'terrain · sky-only');
+
+  it('shows for ?tierlabel=1 only where the overlays are allowed', () => {
+    search = '?tierlabel=1';
+    const off = canvasWith();
+    createTerrainSkyScene({ canvas: off.canvas, tier: 'low' })!.dispose();
+    expect(labels(off.parentAppend)).toHaveLength(0);
+    const on = canvasWith();
+    createTerrainSkyScene({ canvas: on.canvas, tier: 'low', debug: true })!.dispose();
+    expect(labels(on.parentAppend)).toHaveLength(1);
+  });
+
+  it('the door allows it from the config flag, and not from a plain production config', async () => {
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('VITE_PREVIEW_DEMO', '');
+    search = '?tierlabel=1';
+    const plain = canvasWith();
+    (
+      await startBackgroundScene({ tier: 'low', style: 'terrain' }, {}, { canvas: plain.canvas })
+    )?.dispose();
+    expect(labels(plain.parentAppend)).toHaveLength(0);
+    const flagged = canvasWith();
+    (
+      await startBackgroundScene(
+        { tier: 'low', style: 'terrain', debugOverlays: true },
+        {},
+        { canvas: flagged.canvas }
+      )
+    )?.dispose();
+    expect(labels(flagged.parentAppend)).toHaveLength(1);
+    vi.unstubAllEnvs();
+  });
+});
+
 describe('startBackgroundScene, terrain style', () => {
   it('without WebGL2 mounts the sky on the same canvas instead of returning null', async () => {
     const { canvas, painted } = canvasWith({ gl: null });
