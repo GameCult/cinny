@@ -1,25 +1,16 @@
 {
-  "defaultHomeserver": 0,
-  "homeserverList": [
-    "gamecult.org",
-    "converser.eu",
-    "matrix.org",
-    "mozilla.org",
-    "unredacted.org",
-    "xmr.se"
-  ],
+  "defaultHomeserver": 1,
+  "homeserverList": ["converser.eu", "matrix.org", "mozilla.org", "unredacted.org", "xmr.se"],
   "allowCustomHomeservers": true,
   "featuredCommunities": {
     "openAsDefault": false,
     "spaces": ["#gamecult:gamecult.org"],
-    "rooms": ["#tuwunel:grin.hu", "#free-software-movement:matrix.org", "#gentoo:matrix.org"],
-    "servers": [
-      "activematrixrooms.com",
-      "matrixrooms.info",
-      "matrix.org",
-      "mozilla.org",
-      "unredacted.org"
-    ]
+    "rooms": [
+      "#tuwunel:grin.hu",
+      "#free-software-movement:matrix.org",
+      "#gentoo:matrix.org"
+    ],
+    "servers": ["activematrixrooms.com", "matrixrooms.info", "matrix.org", "mozilla.org", "unredacted.org"]
   },
 
   "hashRouter": {
@@ -33,10 +24,5 @@
 
   "dings": {
     "enabled": false
-  },
-
-  "registration": {
-    "enabled": false,
-    "url": ""
   }
 }
