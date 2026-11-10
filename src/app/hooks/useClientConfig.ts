@@ -22,6 +22,9 @@ export type ClientConfig = {
 
   backgroundScene?: BackgroundSceneConfig;
 
+  // Rooms (ids or aliases) shown as the album view; a room whose create type is org.gamecult.file_zone needs no entry.
+  fileZoneRooms?: string[];
+
   // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
   previewDemo?: boolean;
 };
