@@ -30,29 +30,32 @@ import { getFallbackSession } from './app/state/sessions';
 
 document.body.classList.add(configClass, varsClass);
 
-// Register Service Worker
-if ('serviceWorker' in navigator) {
-  const swUrl =
-    import.meta.env.MODE === 'production'
-      ? `${trimTrailingSlash(import.meta.env.BASE_URL)}/sw.js`
-      : `/dev-sw.js?dev-sw`;
+// Register Service Worker. After the preview demo has settled the stored session: the worker is
+// handed that session, and the demo may drop one it cannot serve.
+const registerServiceWorker = () => {
+  if ('serviceWorker' in navigator) {
+    const swUrl =
+      import.meta.env.MODE === 'production'
+        ? `${trimTrailingSlash(import.meta.env.BASE_URL)}/sw.js`
+        : `/dev-sw.js?dev-sw`;
 
-  const sendSessionToSW = () => {
-    const session = getFallbackSession();
-    pushSessionToSW(session?.baseUrl, session?.accessToken);
-  };
+    const sendSessionToSW = () => {
+      const session = getFallbackSession();
+      pushSessionToSW(session?.baseUrl, session?.accessToken);
+    };
 
-  navigator.serviceWorker.register(swUrl).then(sendSessionToSW);
-  navigator.serviceWorker.ready.then(sendSessionToSW);
+    navigator.serviceWorker.register(swUrl).then(sendSessionToSW);
+    navigator.serviceWorker.ready.then(sendSessionToSW);
 
-  navigator.serviceWorker.addEventListener('message', (ev) => {
-    const { type } = ev.data ?? {};
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      const { type } = ev.data ?? {};
 
-    if (type === 'requestSession') {
-      sendSessionToSW();
-    }
-  });
-}
+      if (type === 'requestSession') {
+        sendSessionToSW();
+      }
+    });
+  }
+};
 
 // The pretend homeserver of the dev preview: built in only with VITE_PREVIEW_DEMO=1 (the dev
 // workflow) and switched on by `previewDemo: true` in config.json. Any other build drops it.
@@ -76,4 +79,7 @@ const mountApp = () => {
   root.render(<App />);
 };
 
-installPreviewDemo().finally(mountApp);
+installPreviewDemo().finally(() => {
+  registerServiceWorker();
+  mountApp();
+});
