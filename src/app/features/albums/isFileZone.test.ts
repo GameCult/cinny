@@ -9,6 +9,8 @@ describe('isFileZone', () => {
   });
   it('is false for other create types and for plain rooms', () => {
     expect(isFileZone({ ...room, createType: 'm.space' }, {})).toBe(false);
+    expect(isFileZone({ ...room, createType: 'org.gamecult.other' }, {})).toBe(false);
+    expect(isFileZone({ ...room, createType: 'org.gamecult.file_zone.x' }, {})).toBe(false);
     expect(isFileZone(room, {})).toBe(false);
     expect(isFileZone(room, { fileZoneRooms: [] })).toBe(false);
   });

@@ -122,4 +122,41 @@ describe('buildAlbums', () => {
     ]);
     expect(a).toMatchObject({ title: '', author: '', ts: 0, count: 1 });
   });
+
+  it('does not read inherited object keys as file kinds', () => {
+    const a = one(root('$r', 1), [
+      reply('$c', 1, 'constructor'),
+      reply('$p', 2, '__proto__'),
+      reply('$t', 3, 'toString'),
+    ]);
+    expect(a.count).toBe(0);
+  });
+
+  it('skips events that are not room messages even if their content looks like media', () => {
+    const reaction = { ...reply('$x', 5, 'm.audio'), type: 'm.reaction' };
+    const a = one(root('$r', 1), [reaction, reply('$ok', 6, 'm.audio')]);
+    expect(a.files.map((f) => f.id)).toEqual(['$ok']);
+    expect(buildAlbums([{ root: root('$g', 1, { type: 'm.reaction' }), replies: [] }])).toEqual([]);
+  });
+
+  it('skips events without an event id', () => {
+    const anon: ZoneEvent = { type: 'm.room.message', content: { msgtype: 'm.audio', body: 'a' } };
+    expect(one(root('$r', 1), [anon]).count).toBe(0);
+    expect(
+      buildAlbums([{ root: { content: { msgtype: 'm.text', body: 'x' } }, replies: [] }])
+    ).toEqual([]);
+  });
+
+  it('titles an edited album by its latest edit', () => {
+    const edited = root('$r', 1, {
+      unsigned: {
+        'm.relations': {
+          'm.replace': { content: { 'm.new_content': { msgtype: 'm.text', body: 'renamed' } } },
+        },
+      },
+    });
+    expect(one(edited, []).title).toBe('renamed');
+    const emptyEdit = root('$q', 1, { unsigned: { 'm.relations': { 'm.replace': {} } } });
+    expect(one(emptyEdit, []).title).toBe('album $q');
+  });
 });

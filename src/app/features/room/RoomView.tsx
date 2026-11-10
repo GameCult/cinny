@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Box, Text, config } from 'folds';
 import { EventType } from 'matrix-js-sdk';
 import { ReactEditor } from 'slate-react';
@@ -24,7 +24,9 @@ import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { useRoomCreators } from '../../hooks/useRoomCreators';
 import { useRoom } from '../../hooks/useRoom';
 import { AlbumView } from '../albums/AlbumView';
+import * as albumCss from '../albums/AlbumView.css';
 import { useIsFileZone } from '../albums/useAlbums';
+import { ZoneView, zoneView } from '../albums/zoneView';
 
 const FN_KEYS_REGEX = /^F\d+$/;
 const shouldFocusMessageField = (evt: KeyboardEvent): boolean => {
@@ -66,7 +68,12 @@ export function RoomView({ eventId }: { eventId?: string }) {
   const room = useRoom();
   const { roomId } = room;
   const editor = useEditor();
-  const fileZone = useIsFileZone(room);
+  const isZone = useIsFileZone(room);
+  // A zone shows its albums; the timeline stays one tap away, and an event deep link opens it.
+  const [choice, setChoice] = useState<{ roomId: string; view: ZoneView }>();
+  const fileZone =
+    isZone &&
+    zoneView(choice && choice.roomId === roomId ? choice.view : undefined, eventId) === 'albums';
 
   const mx = useMatrixClient();
 
@@ -98,7 +105,11 @@ export function RoomView({ eventId }: { eventId?: string }) {
   if (fileZone) {
     return (
       <Page ref={roomViewRef}>
-        <AlbumView key={roomId} room={room} />
+        <AlbumView
+          key={roomId}
+          room={room}
+          onTimeline={() => setChoice({ roomId, view: 'timeline' })}
+        />
       </Page>
     );
   }
@@ -106,6 +117,15 @@ export function RoomView({ eventId }: { eventId?: string }) {
   return (
     <Page ref={roomViewRef}>
       <Box grow="Yes" direction="Column">
+        {isZone && (
+          <button
+            type="button"
+            className={albumCss.Back}
+            onClick={() => setChoice({ roomId, view: 'albums' })}
+          >
+            <Text size="B400">‹ Albums</Text>
+          </button>
+        )}
         <RoomTimeline
           key={roomId}
           room={room}

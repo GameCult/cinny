@@ -1,15 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import { ClientPrefix, Method, Room } from 'matrix-js-sdk';
+import { StateEvent } from '../../../types/matrix/room';
+import { useStateEvent } from '../../hooks/useStateEvent';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { Album, ZoneEvent, buildAlbums } from './buildAlbums';
 import { isFileZone } from './isFileZone';
+import { mapLimit } from './mapLimit';
+
+const REPLY_FETCHES_IN_FLIGHT = 6;
+const REFRESH_MS = 30_000;
 
 type Chunk = { chunk?: ZoneEvent[] };
 
 /** True when the room is the file zone: by its create type, or listed in the client config. */
 export const useIsFileZone = (room: Room): boolean => {
   const config = useClientConfig();
+  // Subscribes to alias changes (alt aliases live in the same event).
+  useStateEvent(room, StateEvent.RoomCanonicalAlias);
   const createType = room.currentState.getStateEvents('m.room.create', '')?.getContent().type;
   return isFileZone(
     {
@@ -41,24 +49,25 @@ export const useAlbums = (room: Room): AlbumsState => {
         });
       const room_ = encodeURIComponent(roomId);
       const roots = (await get(`/rooms/${room_}/threads`, { limit: '100' })).chunk ?? [];
-      const inputs = await Promise.all(
-        roots.map(async (root: ZoneEvent) => ({
-          root,
-          replies:
-            (
-              await get(
-                `/rooms/${room_}/relations/${encodeURIComponent(root.event_id ?? '')}/m.thread`,
-                { limit: '100', dir: 'f' }
-              )
-            ).chunk ?? [],
-        }))
-      );
+      const inputs = await mapLimit(roots, REPLY_FETCHES_IN_FLIGHT, async (root: ZoneEvent) => ({
+        root,
+        replies:
+          (
+            await get(
+              `/rooms/${room_}/relations/${encodeURIComponent(root.event_id ?? '')}/m.thread`,
+              { limit: '100', dir: 'f' }
+            )
+          ).chunk ?? [],
+      }));
       return buildAlbums(inputs);
     },
+    retry: 1,
+    refetchInterval: REFRESH_MS,
   });
   return {
     loading: query.isLoading,
-    error: query.error as Error | null,
+    // A failed refetch keeps the albums already loaded; the error shows only when there are none.
+    error: query.data ? null : (query.error as Error | null),
     albums: query.data ?? [],
   };
 };
