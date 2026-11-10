@@ -2,9 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClientEvent, MatrixClient, SyncState, createClient } from 'matrix-js-sdk';
 import { DEMO_ORIGIN, ME, ROOMS, GENERAL, COMMONS } from './fixtures';
-import { guardedFetch, installDemo, routeOf } from './install';
+import { dropForeignSession, guardedFetch, installDemo, routeOf } from './install';
 import { createDemoServer, DemoServer } from './server';
 import { seedDemoSettings } from './seed';
+import { getFallbackSession } from '../app/state/sessions';
 import { mindOfSender, POSE_KEY, resolvePose } from '../app/components/message/pose/poses';
 import { parseRoomNotice, roomTrainingLine } from '../app/utils/trainingNotice';
 
@@ -233,6 +234,7 @@ describe('the guard', () => {
       localStorage: {
         getItem: (k: string) => store.get(k) ?? null,
         setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
       },
     } as unknown as Window & typeof globalThis;
     vi.stubGlobal('document', {
@@ -251,6 +253,59 @@ describe('the guard', () => {
     win.XMLHttpRequest.prototype.open('GET', '/same-origin');
     expect(open).toHaveBeenCalledTimes(1);
     expect(win.navigator.sendBeacon('https://matrix.org/x')).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('drops a stored login for a real homeserver before the app reads it, keeps the demo one', () => {
+    const SESSION = {
+      cinny_access_token: 'tok',
+      cinny_device_id: 'DEV',
+      cinny_user_id: '@a:b',
+      cinny_hs_base_url: 'https://chat.gamecult.org',
+    };
+    const store = new Map<string, string>(Object.entries({ ...SESSION, settings: '{}' }));
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    } as Storage;
+    dropForeignSession(storage);
+    expect(getFallbackSession(storage)).toBeUndefined();
+    expect([...store.keys()]).toEqual(['settings']);
+
+    Object.entries({ ...SESSION, cinny_hs_base_url: DEMO_ORIGIN }).forEach(([k, v]) =>
+      store.set(k, v)
+    );
+    dropForeignSession(storage);
+    expect(getFallbackSession(storage)?.baseUrl).toBe(DEMO_ORIGIN);
+  });
+
+  it('installDemo clears a foreign login so the app starts at the login screen', () => {
+    const store = new Map<string, string>([
+      ['cinny_hs_base_url', 'https://chat.gamecult.org'],
+      ['cinny_access_token', 'tok'],
+      ['cinny_device_id', 'DEV'],
+      ['cinny_user_id', '@a:b'],
+    ]);
+    const win = {
+      location: { origin: PAGE },
+      fetch: never,
+      WebSocket: class {},
+      XMLHttpRequest: { prototype: { open: vi.fn() } },
+      navigator: {},
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        removeItem: (k: string) => void store.delete(k),
+      },
+    } as unknown as Window & typeof globalThis;
+    vi.stubGlobal('document', {
+      createElement: () => ({ style: {}, setAttribute: vi.fn() }),
+      getElementById: () => null,
+      body: { style: {}, insertBefore: vi.fn() },
+    });
+    const server = installDemo(win);
+    live.push({ server, mx: clientFor(server) });
+    expect(store.size).toBe(0);
     vi.unstubAllGlobals();
   });
 
