@@ -20,5 +20,9 @@
 
   "backgroundScene": {
     "tier": "off"
+  },
+
+  "dings": {
+    "enabled": false
   }
 }

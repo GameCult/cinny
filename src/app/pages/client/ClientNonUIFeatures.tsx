@@ -26,6 +26,9 @@ import { getMxIdLocalPart, mxcUrlToHttp } from '../../utils/matrix';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useInboxNotificationsSelected } from '../../hooks/router/useInbox';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
+import { mDirectAtom } from '../../state/mDirectList';
+import { motifFor } from '../../features/dings/dings';
+import { useDings } from '../../features/dings/useDings';
 
 function SystemEmojiFeature() {
   const [twitterEmoji] = useSetting(settingsAtom, 'twitterEmoji');
@@ -85,6 +88,7 @@ function InviteNotifications() {
   const navigate = useNavigate();
   const [showNotifications] = useSetting(settingsAtom, 'showNotifications');
   const [notificationSound] = useSetting(settingsAtom, 'isNotificationSounds');
+  const playDing = useDings();
 
   const notify = useCallback(
     (count: number) => {
@@ -115,10 +119,20 @@ function InviteNotifications() {
       }
 
       if (notificationSound) {
-        playSound();
+        // The sender of an invite is not in the invite list, so it gets the neutral invite ding.
+        if (!playDing('', 'invite')) playSound();
       }
     }
-  }, [mx, invites, perviousInviteLen, showNotifications, notificationSound, notify, playSound]);
+  }, [
+    mx,
+    invites,
+    perviousInviteLen,
+    showNotifications,
+    notificationSound,
+    notify,
+    playSound,
+    playDing,
+  ]);
 
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -136,6 +150,8 @@ function MessageNotifications() {
   const useAuthentication = useMediaAuthentication();
   const [showNotifications] = useSetting(settingsAtom, 'showNotifications');
   const [notificationSound] = useSetting(settingsAtom, 'isNotificationSounds');
+  const mDirects = useAtomValue(mDirectAtom);
+  const playDing = useDings();
 
   const navigate = useNavigate();
   const notificationSelected = useInboxNotificationsSelected();
@@ -227,7 +243,11 @@ function MessageNotifications() {
       }
 
       if (notificationSound) {
-        playSound();
+        const motif = motifFor({
+          highlight: unreadInfo.highlight > 0,
+          direct: mDirects.has(room.roomId),
+        });
+        if (!playDing(sender, motif)) playSound();
       }
     };
     mx.on(RoomEvent.Timeline, handleTimelineEvent);
@@ -240,6 +260,8 @@ function MessageNotifications() {
     notificationSelected,
     showNotifications,
     playSound,
+    playDing,
+    mDirects,
     notify,
     selectedRoomId,
     useAuthentication,

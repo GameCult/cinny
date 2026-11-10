@@ -46,6 +46,10 @@ const copyFiles = {
       src: 'public/poses',
       dest: 'public/',
     },
+    {
+      src: 'public/dings',
+      dest: 'public/',
+    },
   ],
 };
 
