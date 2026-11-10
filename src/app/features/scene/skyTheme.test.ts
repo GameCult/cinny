@@ -92,7 +92,7 @@ describe('ink of the theme a state picks, on bare sky', () => {
   });
 
   it('keeps the lightest Night sky the link was fitted to equal to the Night backdrop (no drift)', () => {
-    expect(Math.abs(NIGHT_SKY_LIGHTEST - skyBackdrop('night').lightest)).toBeLessThan(1e-6);
+    expect(NIGHT_SKY_LIGHTEST).toBe(skyBackdrop('night').lightest);
   });
 
   it.each([
