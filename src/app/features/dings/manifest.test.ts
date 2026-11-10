@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DingManifest, Motif, dingsEnabled, parseManifest, pickDing } from './dings';
@@ -63,11 +64,24 @@ describe('v3 manifest against the parser', () => {
     MOTIFS.forEach((m) => expect(pickDing(manifest, 'someone', m)?.path).toBe(`neutral/${m}.ogg`));
   });
 
-  it('Nibu is the static-filter square (pick 1): senders/nibu, never the proposals folder', () => {
+  it('Nibu carries pick 3 (8 kHz 5-bit smoothed sine) for every event: senders/nibu, never the proposals folder', () => {
     MOTIFS.forEach((m) => {
       const path = pickDing(manifest, 'nibu', m)?.path as string;
       expect(path).toBe(`senders/nibu/${m}.ogg`);
       expect(path).not.toContain('proposals');
+    });
+  });
+
+  it("Nibu's four files are AquaSynth's proposals/nibu3 (sha256 prefix)", () => {
+    const want: Record<Motif, string> = {
+      mention: '3833f504903f',
+      dm: 'ad4839400f2c',
+      message: '6ec6fc893b94',
+      invite: 'aefb6ff79c42',
+    };
+    MOTIFS.forEach((m) => {
+      const hash = createHash('sha256').update(readFileSync(join(DINGS, `senders/nibu/${m}.ogg`)));
+      expect(hash.digest('hex').slice(0, 12)).toBe(want[m]);
     });
   });
 
