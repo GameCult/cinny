@@ -7,8 +7,10 @@ import type { FixedSkyState } from './skyBand';
 import {
   LIGHTEST_PATCH,
   NIGHT_INK_MAX_L,
+  NOTICE_GROUND,
   inkForState,
   labelInk,
+  noticeInk,
   sceneInk,
   userColorInk,
 } from './skyInk';
@@ -173,5 +175,30 @@ describe('labelInk', () => {
     expect(dark).toBe('#342d25');
     expect(luminance(ink)).toBeLessThan(luminance(dark));
     expect(hueGap(dark, ink)).toBeLessThan(2);
+  });
+});
+
+describe('noticeInk', () => {
+  const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+  it('is light enough to clear AA on the dark ridge wherever the theme ink does not', () => {
+    (['day', 'dusk'] as FixedSkyState[]).forEach((state) => {
+      const ink = noticeInk({ state, phone: true }) as string;
+      expect(ratio(luminance(ink), NOTICE_GROUND)).toBeGreaterThanOrEqual(AA);
+      // the dark theme ink it replaces does not
+      expect(
+        ratio(luminance(baked.noonday.tokens.SurfaceVariant.OnContainer), NOTICE_GROUND)
+      ).toBeLessThan(AA);
+    });
+  });
+
+  it('leaves night (already light) and every desktop state to the theme', () => {
+    expect(noticeInk({ state: 'night', phone: true })).toBeUndefined();
+    (['day', 'dusk', 'night'] as FixedSkyState[]).forEach((state) =>
+      expect(noticeInk({ state, phone: false })).toBeUndefined()
+    );
+    expect(
+      ratio(luminance(baked.midnight.tokens.SurfaceVariant.OnContainer), NOTICE_GROUND)
+    ).toBeGreaterThanOrEqual(AA);
   });
 });

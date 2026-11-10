@@ -1,5 +1,6 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { DefaultReset, color, config, toRem } from 'folds';
+import { MOBILE_BREAKPOINT } from '../../hooks/useScreenSize';
 import { FOOTER_TINT, PLATE_TINT } from '../../features/scene/skyPlate';
 
 export const AuthLayout = style({
@@ -126,4 +127,16 @@ globalStyle(`${scene} ${AuthFooter}`, {
 });
 globalStyle(`${scene} ${AuthFooter} a`, {
   color: 'var(--sky-bubble-text, #b7c7d9)',
+});
+
+// Phone tap targets for the sign-in links, hit area only (every link is under 44 px tall: Forget Password? 16,
+// Register 20, the footer's 22): vertical padding grows each link's box and the negative margin takes the growth
+// back out of the layout, so nothing moves and nothing is drawn. An inline link ignores the margin and its padding
+// never moves a line, which is the same result.
+const SCREEN_PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
+globalStyle(`${AuthCard} a`, {
+  '@media': { [SCREEN_PHONE]: { paddingBlock: 14, marginBlock: -14 } },
+});
+globalStyle(`${AuthFooter} a`, {
+  '@media': { [SCREEN_PHONE]: { paddingBlock: 11, marginBlock: -11 } },
 });
