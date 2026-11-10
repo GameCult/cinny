@@ -59,13 +59,13 @@ describe('skyThemeId', () => {
 describe('ink of the theme a state picks, on bare sky', () => {
   // Per state: the picked theme, its text ink and link, and their WCAG ratios on the sky the scenes
   // draw (skyBackdrop, the worst case over its band). Text clears 4.5 in every state. Link clears
-  // on day and night and not on dusk: the links are derived in src/sky/skyTokens.js, outside the band, and these
-  // numbers are recorded as they are measured. Midnight's link is brightened in its own hue until it clears the
-  // lightest Night sky (NIGHT_SKY_LIGHTEST); Dusk's dark link would need a backdrop of about 0.455, and the dusk floor is lower.
+  // in every state: the links are derived in src/sky/skyTokens.js, outside the band, and these numbers are recorded as
+  // they are measured. Midnight's link is brightened in its own hue until it clears the lightest Night sky
+  // (NIGHT_SKY_LIGHTEST); Dusk's dark link needs a backdrop of about 0.4554, which the dusk floor is set above.
   // 'auto' resolves from the clock to one of these three and has the same numbers.
   const cells: [FixedSkyState, string, string, string, string, string][] = [
     ['day', 'noonday-sky', '#342d25', '6.60', '#2a4f27', '4.55'],
-    ['dusk', 'noonday-sky', '#342d25', '4.60', '#2a4f27', '3.17'],
+    ['dusk', 'noonday-sky', '#342d25', '6.59', '#2a4f27', '4.54'],
     ['night', 'midnight-sky', '#aeccff', '4.89', '#8ad1bd', '4.53'],
   ];
 
@@ -84,10 +84,10 @@ describe('ink of the theme a state picks, on bare sky', () => {
     expect(ratio(ink, skyBackdrop(state))).toBeGreaterThanOrEqual(AA);
   });
 
-  it('link clears AA on day and night and falls short on dusk', () => {
+  it('link clears AA in every state', () => {
     const link = (s: FixedSkyState, id: keyof typeof SKY) => ratio(SKY[id].link, skyBackdrop(s));
     expect(link('day', 'noonday-sky')).toBeGreaterThanOrEqual(AA);
-    expect(link('dusk', 'noonday-sky')).toBeLessThan(AA);
+    expect(link('dusk', 'noonday-sky')).toBeGreaterThanOrEqual(AA);
     expect(link('night', 'midnight-sky')).toBeGreaterThanOrEqual(AA);
   });
 

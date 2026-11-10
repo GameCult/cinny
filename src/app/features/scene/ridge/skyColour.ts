@@ -1,8 +1,7 @@
 // The one place the sky's colours come from. Void's `src/sky/sun.js` (`light({ time, lat, lon,
 // cloud_cover, precipitation })`, PR #20) is the intended source; until it lands this returns a
-// fixed twilight: lavender zenith, rose mid-sky, orange horizon. Its darkest blend stays above the dusk
-// floor of ../skyBand.ts (the dark ink of Noonday Sky needs a backdrop of at least 0.2983 luminance), which
-// skyForState.test.ts sweeps. Replace the body, keep the signature: the scene calls it once, at startup,
+// fixed twilight: lavender zenith, rose mid-sky, orange horizon. These are the raw stops: the scene draws them
+// shaped into the dusk band of ../skyBand.ts (`ridgeSkyFor`, skyForState.ts), whose floor the link of Noonday Sky needs. Replace the body, keep the signature: the scene calls it once, at startup,
 // and bakes the result.
 
 export type Srgb = readonly [number, number, number];

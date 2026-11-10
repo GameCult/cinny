@@ -12,7 +12,7 @@ import {
   terrainDrawn,
   terrainSkyFor,
 } from './skyForState';
-import { displayedLuminance, SKY_BAND } from './skyBand';
+import { displayedLuminance, luma, shapeToBand, SKY_BAND } from './skyBand';
 import type { FixedSkyState } from './skyBand';
 import { setSkyClock, skyBackdrop } from './skyState';
 import { view } from './terrain/terrainWorld';
@@ -24,14 +24,17 @@ const STATES = ['day', 'dusk', 'night'] as const;
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
 
 /**
- * The band each state's text ink needs, from the ink itself: dark ink needs a backdrop of at least
- * AA * (L + 0.05) - 0.05, light ink at most (L + 0.05) / AA - 0.05. Day 0.2983, dusk 0.2983, night 0.0931.
+ * The band each state needs, from the ink itself: dark ink needs a backdrop of at least
+ * AA * (L + 0.05) - 0.05, light ink at most (L + 0.05) / AA - 0.05. Day 0.2983, night 0.0931; dusk is bound by its
+ * link (0.4554), the darker ink to clear, whose floor also holds the text.
  */
 const needs = (state: FixedSkyState) => {
-  const l = luminance(SKY[skyThemeId(state)].tokens.Background.OnContainer);
+  const sky = SKY[skyThemeId(state)];
+  const l = luminance(sky.tokens.Background.OnContainer);
+  const link = luminance(sky.link);
   return state === 'night'
     ? { floor: 0, ceiling: (l + 0.05) / AA - 0.05 }
-    : { floor: AA * (l + 0.05) - 0.05, ceiling: 1 };
+    : { floor: AA * ((state === 'dusk' ? link : l) + 0.05) - 0.05, ceiling: 1 };
 };
 
 let search = '';
@@ -51,9 +54,26 @@ afterEach(() => {
 describe('the bands the text ink needs', () => {
   it('are the numbers the shaping was set from', () => {
     expect(needs('day').floor).toBeCloseTo(0.2983, 3);
-    expect(needs('dusk').floor).toBeCloseTo(0.2983, 3);
+    expect(needs('dusk').floor).toBeCloseTo(0.4554, 3);
     expect(needs('night').ceiling).toBeCloseTo(0.0931, 3);
   });
+
+  // The drawn floor and the lift are tied to those bounds, not to themselves: nudge either constant and this fails.
+  it('give Dusk a floor 0.019 above the link bound (as Day has above the text bound) and a lift Day shares', () => {
+    expect(SKY_BAND.dusk.floor).toBeCloseTo(needs('dusk').floor + 0.019, 4);
+    expect(SKY_BAND.day.floor).toBeCloseTo(needs('day').floor + 0.019, 3);
+    expect(SKY_BAND.dusk.lift).toEqual(SKY_BAND.day.lift);
+    expect(luma(SKY_BAND.dusk.lift)).toBeGreaterThan(SKY_BAND.dusk.floor);
+  });
+
+  it.each(['day', 'dusk'] as const)(
+    '%s: the darkest the shaping can show reads at the bound and under the floor',
+    (state) => {
+      const shown = displayedLuminance(shapeToBand([0, 0, 0], SKY_BAND[state]), 'low');
+      expect(shown).toBeGreaterThanOrEqual(needs(state).floor);
+      expect(shown).toBeLessThan(SKY_BAND[state].floor);
+    }
+  );
 });
 
 describe('ridgeSkyFor', () => {
@@ -68,7 +88,7 @@ describe('ridgeSkyFor', () => {
 
   it('draws a lavender, rose and orange twilight for dusk', () => {
     const d = ridgeSkyFor('dusk');
-    expect(d).toEqual(skyColours());
+    expect(d.ground).toEqual(skyColours().ground);
     const [t, m, h] = [d.top, d.mid, d.horizon];
     expect(t[2]).toBeGreaterThan(t[1]); // lavender: blue over green
     expect(t[0]).toBeGreaterThan(t[1]);

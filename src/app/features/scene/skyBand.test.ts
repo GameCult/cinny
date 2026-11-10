@@ -23,7 +23,7 @@ describe('shapeToBand', () => {
   it('lifts black to the tint scaled in, not to grey', () => {
     const c = shapeToBand([0, 0, 0], SKY_BAND.dusk);
     expect(near(luma(c), SKY_BAND.dusk.floor)).toBe(true);
-    expect(c[0]).toBeGreaterThan(c[2]); // the dusk tint is rose
+    expect(c[2]).toBeGreaterThan(c[0]); // the dusk tint is Day's pale blue
   });
 
   it('leaves a sky already in the band as it is, and is continuous at the floor', () => {

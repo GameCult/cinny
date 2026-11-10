@@ -1,12 +1,14 @@
 // The luminance band each fixed sky state's drawn sky is shaped into, so the state's theme ink
 // clears 4.5:1 on bare sky (WCAG relative luminance, the `luminance` of src/sky/skyTokens.js).
 //
-//   day, dusk  Noonday Sky's dark text ink #342d25 (L 0.0274) needs a backdrop of at least 0.2983.
+//   day        Noonday Sky's dark text ink #342d25 (L 0.0274) needs a backdrop of at least 0.2983.
 //              The floor is that text bound (0.30 as drawn); there is no ceiling, dark ink on light is fine.
+//   dusk       The same ink, and its link #2a4f27 (L 0.0623), which needs a backdrop of at least 0.4554. The floor is
+//              the link bound (0.4744 as drawn), so text clears 4.5:1 with room (6.6) and the link clears too.
 //   night      Midnight Sky's light text ink #aeccff (L 0.594) needs a backdrop of at most 0.0931.
 //              The baked night sky (0.058 to 0.077) is kept; the ceiling is the bound.
 //
-// Link ink is not part of the band: see skyTheme.ts.
+// Night's link ink is not part of the band: see skyTheme.ts.
 //
 // The terrain sky is a physical scatter function, so it is shaped downstream, on its final colour:
 // `shapeToBand` here, and its GLSL twin (`SHAPE_SKY_GLSL`) in terrain/terrainShaders.ts, built from the
@@ -56,7 +58,8 @@ export interface SkyBand {
 }
 
 /**
- * The shaping targets, in linear luma. The floor sits 0.019 above the text bound (0.2983): the screen encoding is
+ * The shaping targets, in linear luma. Day's floor sits 0.019 above the text bound (0.2983), Dusk's 0.019 above the link
+ * bound (0.4554), which skyForState.test.ts derives from the ink and ties to these: the screen encoding is
  * gamma 2.2, which reads about 0.006 darker through the sRGB curve at this level, and 8-bit rounding with the sky
  * pass's dither at its worst (one step in every channel) takes about 0.007 more. The night ceiling is lower than the text bound
  * (0.0931) by more than that: 0.077394 is the luma at which one step up reads 0.08164, the lightest the baked night sky shows
@@ -64,7 +67,9 @@ export interface SkyBand {
  */
 export const SKY_BAND: Record<FixedSkyState, SkyBand> = {
   day: { floor: 0.317, ceiling: 1, lift: hexToLinear('#e2f4ff') },
-  dusk: { floor: 0.317, ceiling: 1, lift: hexToLinear('#eba0b9') },
+  // Dusk lifts toward Day's pale blue rather than a rose: mixing a third of the sky toward rose washed the twilight pink, and
+  // a rose lighter than the floor shifts hues by 47 to 72 degrees where Day's tint shifts them by 18 (measured, PR body).
+  dusk: { floor: 0.4744, ceiling: 1, lift: hexToLinear('#e2f4ff') },
   night: { floor: 0, ceiling: 0.077394, lift: hexToLinear('#5a6a9a') },
 };
 
