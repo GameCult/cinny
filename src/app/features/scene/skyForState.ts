@@ -10,10 +10,12 @@ import type { SkyColours, Srgb } from './ridge/skyColour';
 import { skyColours } from './ridge/skyColour';
 import { resolveSkyState } from './skyState';
 import type { SkyState } from './skyState';
-import { displayedLuminance, SKY_BAND } from './skyBand';
+import { displayedLuminance, hexToLinear, shapeToBand, SKY_BAND } from './skyBand';
 import type { SkyBand } from './skyBand';
 import { luminance } from '../../../sky/skyTokens.js';
 import { CAMERA } from './terrain/terrainWorld';
+
+const rgbHex = (c: Srgb) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
 const rgb = (hex: string): Srgb =>
   [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as unknown as Srgb;
@@ -28,12 +30,27 @@ const fromGradient = (g: readonly string[], ground: Srgb): SkyColours => ({
 /** Sun elevation in degrees for the terrain's dusk: just above the horizon, between the two bakes (as `?sun=` puts it). */
 export const DUSK_SUN_ELEVATION = 2;
 
-/** The ridge scene's `sky` option: the gradient of the state's sky ('auto': of the sky it resolves to). */
+const toByte = (v: number): number =>
+  Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055));
+
+/** A stop moved into the state's band, the way the terrain sky is (`shapeToBand`), through the sRGB curve the canvas draws with. */
+const inBand = (c: Srgb, band: SkyBand): Srgb =>
+  shapeToBand(hexToLinear(rgbHex(c)), band).map(toByte) as unknown as Srgb;
+
+/** The ridge scene's `sky` option: the gradient of the state's sky ('auto': of the sky it resolves to). Dusk's twilight stops are shaped into its band. */
 export function ridgeSkyFor(state: SkyState): SkyColours {
   const { ground } = skyColours();
   switch (resolveSkyState(state)) {
-    case 'dusk':
-      return skyColours();
+    case 'dusk': {
+      const twilight = skyColours();
+      const band = SKY_BAND.dusk;
+      return {
+        ...twilight,
+        top: inBand(twilight.top, band),
+        mid: inBand(twilight.mid, band),
+        horizon: inBand(twilight.horizon, band),
+      };
+    }
     case 'day':
       return fromGradient(baked.noonday.gradient, ground);
     default:
@@ -66,8 +83,6 @@ export function terrainSkyFor(state: SkyState): {
       return { sun: { elevation: DUSK_SUN_ELEVATION }, band };
   }
 }
-
-const rgbHex = (c: Srgb) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
 /** Relative luminance (WCAG) of the darkest and lightest colour a scene can draw. */
 export interface Range {

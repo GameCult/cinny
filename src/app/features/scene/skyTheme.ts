@@ -4,10 +4,10 @@
 //
 // Day and Dusk take the dark ink of Noonday Sky, Night the light ink of Midnight Sky. Each state's
 // drawn sky is shaped into a luminance band (skyBand.ts) in which that ink's TEXT clears 4.5:1 on
-// bare sky: Day and Dusk at least 0.2983 (dark ink), Night at most 0.0931 (light ink). skyTheme.test.ts
-// pins the measured text and link ratios. Link ink is not in the band: the Day and Dusk links are dark
-// and fall short of 4.5 where the sky is below about 0.455 (Dusk: 3.17), because the themes' link colours are
-// derived outside this code (src/sky/skyTokens.js). Midnight Sky's link is derived there against the lightest Night sky
+// bare sky: Day at least 0.2983 (dark ink), Night at most 0.0931 (light ink). Dusk's floor is higher, the bound of
+// the dark link (0.4554), so its link clears as well. skyTheme.test.ts pins the measured text and link ratios. Night's
+// link ink is not in the band, and the themes' link colours are derived outside this code (src/sky/skyTokens.js).
+// Midnight Sky's link is derived there against the lightest Night sky
 // (4.53 on it, 5.43 on the darkest). The plate (skyPlate.css.ts) is still in the shell, pending
 // its removal.
 import type { FixedSkyState, SkyState } from './skyState';
