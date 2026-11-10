@@ -83,6 +83,7 @@ globalStyle(`${scene} ${AuthCard}`, {
     `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${PLATE_TINT * 100}%, transparent)`,
   ],
   backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
   color: 'var(--sky-bubble-text, #b7c7d9)',
   borderRadius: config.radii.R500,
   border: 'none',
@@ -99,6 +100,7 @@ globalStyle(`${scene} ${AuthHeader}`, {
 globalStyle(`${scene} #root header.${AuthHeader}`, {
   backgroundColor: 'transparent',
   backdropFilter: 'none',
+  WebkitBackdropFilter: 'none',
 });
 globalStyle(`${scene} ${AuthCardContent}`, {
   paddingTop: config.space.S500,
@@ -120,6 +122,7 @@ globalStyle(`${scene} ${AuthFooter}`, {
   paddingBottom: config.space.S500,
   backgroundColor: ['var(--sky-bubble, #0d1a26)', tint],
   backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
   maskImage: `${FADE_Y}, ${FADE_X}`,
   maskComposite: 'intersect',
   color: 'var(--sky-bubble-text, #b7c7d9)',
