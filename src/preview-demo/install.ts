@@ -72,6 +72,12 @@ export const guardedFetch =
       body: parseBody(raw),
       signal: init?.signal ?? req?.signal ?? undefined,
     });
+    if (out.raw) {
+      return new Response(out.raw.data, {
+        status: out.status,
+        headers: { 'Content-Type': out.raw.type },
+      });
+    }
     return new Response(JSON.stringify(out.body), {
       status: out.status,
       headers: { 'Content-Type': 'application/json' },

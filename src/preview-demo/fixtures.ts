@@ -44,6 +44,8 @@ export type DemoRoom = {
   topic?: string;
   members: string[];
   notice?: 'show' | 'study' | 'train';
+  /** The m.room.create `type`. */
+  type?: string;
   parent?: string;
   steward?: { mind: string; repo: string };
   joined: boolean;
@@ -54,6 +56,7 @@ export const ROOT = `!root:${DEMO_SERVER}`;
 export const PROJECTS = `!projects:${DEMO_SERVER}`;
 export const GENERAL = `!general:${DEMO_SERVER}`;
 export const COMMONS = `!commons:${DEMO_SERVER}`;
+export const FILES = `!files:${DEMO_SERVER}`;
 
 const everyone = USERS.map((u) => u.id);
 export const MIND_IDS = [user('eureka'), user('void'), user('nibu')];
@@ -114,6 +117,17 @@ export const ROOMS: DemoRoom[] = [
       // A long display name: the name pill has to show all of it on a phone.
       { from: user('heimdall'), body: 'Ok.', pose: 'thinking', minutesAgo: 20 },
     ],
+  },
+  {
+    id: FILES,
+    alias: `#files:${DEMO_SERVER}`,
+    name: 'Files',
+    topic: 'The file zone: one thread per Mind, shown as albums.',
+    type: 'org.gamecult.file_zone',
+    members: [ME, ...minds],
+    parent: ROOT,
+    joined: true,
+    lines: [],
   },
   {
     id: PROJECTS,
@@ -298,6 +312,36 @@ export const ROOMS: DemoRoom[] = [
     joined: false,
     lines: [
       { from: user('void'), body: 'You found the unjoined room.', pose: 'glare', minutesAgo: 200 },
+    ],
+  },
+];
+
+// The file zone's albums: a thread root per album, one thread reply per file. Media is generated
+// in media.ts: audio by tone frequency, images by gradient color.
+export type DemoAlbum = {
+  mind: string;
+  title: string;
+  minutesAgo: number;
+  files: { kind: 'audio' | 'image'; name: string; seed: number | [number, number, number] }[];
+};
+export const ALBUMS: DemoAlbum[] = [
+  {
+    mind: user('void'),
+    title: 'void',
+    minutesAgo: 90,
+    files: [
+      { kind: 'audio', name: 'low-tone.wav', seed: 220 },
+      { kind: 'audio', name: 'mid-tone.wav', seed: 330 },
+      { kind: 'audio', name: 'high-tone.wav', seed: 440 },
+    ],
+  },
+  {
+    mind: user('nibu'),
+    title: 'nibu',
+    minutesAgo: 30,
+    files: [
+      { kind: 'image', name: 'dusk.png', seed: [200, 90, 60] },
+      { kind: 'image', name: 'lagoon.png', seed: [40, 150, 190] },
     ],
   },
 ];
