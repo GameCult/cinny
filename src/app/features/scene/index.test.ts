@@ -20,6 +20,12 @@ const flush = () =>
   new Promise<void>((r) => {
     setTimeout(r, 0);
   });
+// Resolves after `n` further turns of the microtask queue.
+const microtasks = (n: number) =>
+  Array.from({ length: n }).reduce<Promise<void>>(
+    (p) => p.then(() => undefined),
+    Promise.resolve()
+  );
 const fakeScene = () => ({ login: vi.fn(), dispose: vi.fn() });
 const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
@@ -179,6 +185,35 @@ describe('startBackgroundScene follows the sky state', () => {
     scene?.dispose();
     expect(live.dispose).toHaveBeenCalledOnce();
   });
+
+  it.each([10, 11, 12])(
+    'a sky change %i microtasks into a build leaves only the newer build live; the stale one is disposed',
+    async (ticks) => {
+      const [a, b, c] = [fakeScene(), fakeScene(), fakeScene()];
+      createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b).mockReturnValueOnce(c);
+      const onActive = vi.fn();
+      const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+      setSkyState('day');
+      await microtasks(ticks);
+      setSkyState('dusk');
+      await flush();
+      const built = createRidgeScene.mock.calls.length;
+      expect(hex(createRidgeScene.mock.calls[built - 1][0].sky.top)).toBe(
+        hex(ridgeSkyFor('dusk').top)
+      );
+      // The newest build is live, every earlier one disposed exactly once, and only the live one is shown.
+      const live = [a, b, c][built - 1];
+      scene?.login();
+      expect(live.login).toHaveBeenCalledOnce();
+      [a, b, c].slice(0, built).forEach((s) => {
+        expect(s.dispose).toHaveBeenCalledTimes(s === live ? 0 : 1);
+        if (s !== live) expect(s.login).not.toHaveBeenCalled();
+      });
+      expect(onActive).toHaveBeenCalledOnce();
+      scene?.dispose();
+      expect(live.dispose).toHaveBeenCalledOnce();
+    }
+  );
 
   it('leaves the ray-march scene alone: it has one fixed dusk', async () => {
     const inner = fakeScene() as unknown as Scene;
