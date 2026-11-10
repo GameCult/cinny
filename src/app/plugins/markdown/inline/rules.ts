@@ -1,8 +1,7 @@
 import { InlineMDRule } from './type';
+import { ESC_NEG_LB, URL_NEG_LB } from '../../../utils/regex';
 
 const MIN_ANY = '(.+?)';
-const URL_NEG_LB = '(?<!(https?|ftp|mailto|magnet):\\/\\/\\S*)';
-const ESC_NEG_LB = '(?<!\\\\)';
 
 const BOLD_MD_1 = '**';
 const BOLD_PREFIX_1 = `${ESC_NEG_LB}\\*{2}`;
