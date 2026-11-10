@@ -67,7 +67,11 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
         <Box
           grow={own ? 'No' : 'Yes'}
           direction="Column"
-          className={classNames(poseRow && css.BubbleColumnPose, own && css.BubbleColumnOwn)}
+          className={classNames(
+            css.BubbleColumn,
+            poseRow && css.BubbleColumnPose,
+            own && css.BubbleColumnOwn
+          )}
         >
           {header && (
             <div
@@ -83,7 +87,7 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
           {hideBubble ? (
             children
           ) : (
-            <Box>
+            <Box className={css.BubbleContentRow}>
               <Box
                 className={classNames(
                   css.BubbleContent,

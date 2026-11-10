@@ -31,6 +31,7 @@ export const Reply = style({
 });
 
 export const ReplyContent = style({
+  minWidth: 0,
   opacity: config.opacity.P300,
 
   selectors: {

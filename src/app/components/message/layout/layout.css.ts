@@ -139,8 +139,22 @@ export const BubbleBefore = style({
   minWidth: toRem(36),
 });
 
+// minWidth 0 down the column: a flex item never shrinks below its content (a reply quote's unbroken text),
+// so without it a long quote pushes the column past the row, and a right-aligned row pushes it off the left edge.
+export const BubbleColumn = style({
+  minWidth: 0,
+});
+
+// The row around a bubble sizes to its content in a right-aligned (own) column, and a quote's nowrap text
+// makes that content as wide as the quote: cap the row at the column so the bubble can shrink inside it.
+export const BubbleContentRow = style({
+  minWidth: 0,
+  maxWidth: '100%',
+});
+
 export const BubbleContent = style({
-  maxWidth: toRem(800),
+  minWidth: 0,
+  maxWidth: `min(100%, ${toRem(800)})`,
   padding: config.space.S200,
   backgroundColor: color.SurfaceVariant.Container,
   color: color.SurfaceVariant.OnContainer,
