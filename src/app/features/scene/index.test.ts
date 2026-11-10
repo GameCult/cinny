@@ -186,34 +186,47 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(live.dispose).toHaveBeenCalledOnce();
   });
 
-  it.each([10, 11, 12])(
-    'a sky change %i microtasks into a build leaves only the newer build live; the stale one is disposed',
-    async (ticks) => {
-      const [a, b, c] = [fakeScene(), fakeScene(), fakeScene()];
-      createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b).mockReturnValueOnce(c);
-      const onActive = vi.fn();
-      const scene = await startBackgroundScene(config, caps, { canvas, onActive });
-      setSkyState('day');
-      await microtasks(ticks);
-      setSkyState('dusk');
-      await flush();
-      const built = createRidgeScene.mock.calls.length;
-      expect(hex(createRidgeScene.mock.calls[built - 1][0].sky.top)).toBe(
-        hex(ridgeSkyFor('dusk').top)
-      );
-      // The newest build is live, every earlier one disposed exactly once, and only the live one is shown.
-      const live = [a, b, c][built - 1];
-      scene?.login();
-      expect(live.login).toHaveBeenCalledOnce();
-      [a, b, c].slice(0, built).forEach((s) => {
-        expect(s.dispose).toHaveBeenCalledTimes(s === live ? 0 : 1);
-        if (s !== live) expect(s.login).not.toHaveBeenCalled();
-      });
-      expect(onActive).toHaveBeenCalledOnce();
-      scene?.dispose();
-      expect(live.dispose).toHaveBeenCalledOnce();
-    }
-  );
+  // A second sky change `ticks` microtasks after the first. True when it landed mid-build: the build for the first
+  // change finished, was found stale and dropped (never shown), and only the newest sky was announced.
+  const changeAfter = async (ticks: number) => {
+    createRidgeScene.mockReset();
+    setSkyState('auto');
+    const [a, b, c] = [fakeScene(), fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b).mockReturnValueOnce(c);
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    setSkyState('day');
+    await microtasks(ticks);
+    setSkyState('dusk');
+    await flush();
+    const at = `at ${ticks} microtasks`;
+    const built = createRidgeScene.mock.calls.length;
+    expect(hex(createRidgeScene.mock.calls[built - 1][0].sky.top), at).toBe(
+      hex(ridgeSkyFor('dusk').top)
+    );
+    // The newest build is live, every earlier one disposed exactly once, and only the live one is shown.
+    const live = [a, b, c][built - 1];
+    scene?.login();
+    expect(live.login, at).toHaveBeenCalledOnce();
+    [a, b, c].slice(0, built).forEach((x) => {
+      expect(x.dispose, at).toHaveBeenCalledTimes(x === live ? 0 : 1);
+      if (x !== live) expect(x.login, at).not.toHaveBeenCalled();
+    });
+    scene?.dispose();
+    expect(live.dispose, at).toHaveBeenCalledOnce();
+    return built === 3 && onActive.mock.calls.length === 1;
+  };
+
+  it('a sky change at any point of a build leaves only the newer build live; the stale one is disposed', async () => {
+    // The offsets are swept, not pinned, so a shift in the awaits inside the build cannot move the change off the
+    // build: at least one offset must land mid-build, or the sweep proves nothing.
+    const offsets = Array.from({ length: 21 }, (_, i) => i);
+    const landed = await offsets.reduce<Promise<number[]>>(
+      (p, k) => p.then(async (acc) => ((await changeAfter(k)) ? [...acc, k] : acc)),
+      Promise.resolve([])
+    );
+    expect(landed.length).toBeGreaterThan(0);
+  });
 
   it('leaves the ray-march scene alone: it has one fixed dusk', async () => {
     const inner = fakeScene() as unknown as Scene;
