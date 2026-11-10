@@ -1,5 +1,7 @@
 # Mind feedback pages
 
+> The desk reads `gamecult.fork.*` now, not the `org.gamecult.feedback.*` projections named below; see CultLib `contracts/cultnet/governance/fork-card.md` (src/app/features/desk/forkContract.ts).
+
 Design only. No code exists for this; nothing here is built. Drafted by Kiko Self (2026-11-07) with Heimdall's draft rulings
 on guests and hiding; placement ruled for this repo by Void. Follow-up `eureka-body:follow_up:ratatoskr-mind-feedback-pages`.
 Every number below is provisional.

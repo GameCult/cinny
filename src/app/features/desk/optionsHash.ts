@@ -1,4 +1,4 @@
-import { DeskProjection, Question, isHiddenQuestion } from './feedback';
+import { ForkCard, ForkEntry } from './forkContract';
 
 // The hash and its canonical bytes are specified in CultLib contracts/cultnet/governance/fork-card.md
 // ("Options hash", rule owner: Heimdall's binding file 1.2); the vectors in optionsHashVectors.json pin this code to it.
@@ -17,10 +17,7 @@ const jstr = (s: string): string => {
   return `${out}"`;
 };
 
-export type Shown = Pick<Question, 'title' | 'options' | 'recommendation'> & {
-  context: string;
-  depends: string[];
-};
+export type Shown = Pick<ForkCard, 'title' | 'context' | 'options' | 'recommendation' | 'depends'>;
 
 /** The five shown members as RFC 8785 JSON, keys already in sorted order. */
 export const canonicalShown = (c: Shown): string =>
@@ -28,12 +25,12 @@ export const canonicalShown = (c: Shown): string =>
     .map((o) => `{"id":${jstr(o.id)},"text":${jstr(o.text)}}`)
     .join(',')}],"recommendation":${jstr(c.recommendation)},"title":${jstr(c.title)}}`;
 
-export const shownOf = (q: Question): Shown => ({
-  title: q.title,
-  context: q.body,
-  options: q.options,
-  recommendation: q.recommendation,
-  depends: q.dependsOn.map((d) => d.text),
+export const shownOf = (c: ForkCard): Shown => ({
+  title: c.title,
+  context: c.context,
+  options: c.options,
+  recommendation: c.recommendation,
+  depends: c.depends,
 });
 
 export const optionsHash = async (c: Shown): Promise<string> => {
@@ -43,14 +40,11 @@ export const optionsHash = async (c: Shown): Promise<string> => {
 };
 
 /** Fork ids whose published `options_hash` is not the hash of what the card shows. */
-export const unverifiedForks = async (
-  questions: DeskProjection['questions']
-): Promise<Set<string>> => {
+export const unverifiedForks = async (forks: ForkEntry[]): Promise<Set<string>> => {
   const bad = new Set<string>();
   await Promise.all(
-    questions.map(async (q) => {
-      if (isHiddenQuestion(q)) return;
-      if ((await optionsHash(shownOf(q))) !== q.options_hash) bad.add(q.fork_id);
+    forks.map(async ({ card }) => {
+      if ((await optionsHash(shownOf(card))) !== card.options_hash) bad.add(card.fork_id);
     })
   );
   return bad;

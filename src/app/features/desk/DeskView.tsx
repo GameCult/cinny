@@ -3,8 +3,8 @@ import { Text } from 'folds';
 import { PoseAvatar } from '../../components/message/pose/PoseAvatar';
 import { MINDS } from '../../components/message/pose/poses';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
-import { AnswerRow, Desk, DeskRow, buildDesk } from './buildDesk';
-import { DeskProjection } from './feedback';
+import { AnswerRow, Desk, buildDesk, DeskRow } from './buildDesk';
+import { ForkList } from './forkContract';
 import { deskMood } from './deskMood';
 import * as css from './DeskView.css';
 
@@ -13,21 +13,32 @@ export const SIGN_IN_NOTE = 'Answering opens with sign-in. Until then you can re
 
 const date = (iso: string) => iso.slice(0, 10);
 
-const age = (row: Extract<DeskRow, { kind: 'question' }>) => {
-  if (row.longOpen) return `Open for ${row.ageDays} days`;
-  if (row.ageDays === 0) return 'Asked today';
-  return row.ageDays === 1 ? 'Asked 1 day ago' : `Asked ${row.ageDays} days ago`;
+const OUTCOME: Record<AnswerRow['outcome'], string> = {
+  Counted: 'Answer',
+  Revision: 'Revision',
+  Retraction: 'Retraction',
+  Refused: 'Refused',
 };
+
+/** One answer as served: its outcome, what it chose, its note when the server sent one, and whether it counts. */
+const answerLine = (a: AnswerRow) =>
+  [
+    OUTCOME[a.outcome] + (a.code ? ` (${a.code})` : ''),
+    a.target && `of ${a.target}`,
+    a.choice,
+    a.note !== undefined && `"${a.note}"`,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
 function Answers({ answers }: { answers: AnswerRow[] }) {
   if (answers.length === 0) return <p className={css.Quiet}>No answers yet.</p>;
   return (
     <ul className={css.Options}>
       {answers.map((a) => (
-        <li key={a.recordId} className={css.Option}>
-          {`${a.who}, ${a.kind.toLowerCase()}: `}
-          {a.withheld ?? [a.choice, a.text && `"${a.text}"`].filter(Boolean).join(' ')}
-          {` (${date(a.at)})`}
+        <li key={a.answerId} className={css.Option}>
+          {`${answerLine(a)} (${date(a.at)})`}
+          {a.counted && ' (counted)'}
         </li>
       ))}
     </ul>
@@ -43,17 +54,6 @@ function Row({ row }: { row: DeskRow }) {
       <li className={css.Row}>
         <p className={css.Quiet}>
           A question here does not match the hash it was published with, so it is not shown.
-        </p>
-      </li>
-    );
-  }
-  if (row.kind === 'hidden') {
-    return (
-      <li className={css.Row}>
-        <p className={css.Quiet}>
-          {`A question here is hidden by ${row.hidden.by}, ${date(row.hidden.at)}, ${
-            row.hidden.reason
-          }.`}
         </p>
       </li>
     );
@@ -75,10 +75,9 @@ function Row({ row }: { row: DeskRow }) {
           row.title
         )}
       </h3>
-      <p className={css.Quiet}>{age(row)}</p>
       {open && (
         <>
-          <p className={css.Body}>{row.body}</p>
+          <p className={css.Body}>{row.context}</p>
           <ul className={css.Options}>
             {row.options.map((o) => (
               <li key={o.id} className={css.Option}>
@@ -88,8 +87,8 @@ function Row({ row }: { row: DeskRow }) {
             ))}
           </ul>
           {row.depends.map((d) => (
-            <p key={d.text} className={css.Quiet}>
-              {`Waits on: "${d.text}"${d.status ? ` (${d.status})` : ''}`}
+            <p key={d} className={css.Quiet}>
+              {`Waits on: "${d}"`}
             </p>
           ))}
           <span id={`${noteId}-label`}>Your note</span>
@@ -115,9 +114,7 @@ function Status({ desk, label }: { desk: Desk; label: string }) {
     <p role="status">
       {desk.counts.open === 0
         ? `Nothing is waiting on you from ${label}. `
-        : `${desk.counts.open} open. `}
-      {`Synced ${desk.syncedAt && date(desk.syncedAt)}.`}
-      {desk.stale && ' This may be out of date.'}
+        : `${desk.counts.open} open.`}
     </p>
   );
 }
@@ -126,16 +123,16 @@ type DeskViewProps = {
   /** The Mind's key, as the navigator groups it. */
   mind: string;
   label: string;
-  projection?: DeskProjection;
-  now: number;
+  list?: ForkList;
   /** Fork ids whose options_hash failed the recompute (optionsHash.ts). */
   unverified?: ReadonlySet<string>;
 };
 
 /** One Mind's desk, read-only: a stream of rows, the recorded rulings, and the booth Persona. */
-export function DeskView({ mind, label, projection, now, unverified }: DeskViewProps) {
-  const desk = buildDesk(projection, now, undefined, unverified);
-  const mood = deskMood(desk.counts.open, desk.counts.answered);
+export function DeskView({ mind, label, list, unverified }: DeskViewProps) {
+  const desk = buildDesk(list, unverified);
+  // Slice 1 has no session, so nothing on the desk is the viewer's answer yet.
+  const mood = deskMood(desk.counts.open, 0);
   return (
     <section aria-label={`${label}'s desk`}>
       <Status desk={desk} label={label} />

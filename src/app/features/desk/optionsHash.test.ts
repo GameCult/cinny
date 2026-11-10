@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import vectors from './optionsHashVectors.json';
-import { STATES } from './fixtures';
-import { Question } from './feedback';
+import { entry } from './fixtures';
+import { ForkCard } from './forkContract';
 import { canonicalShown, optionsHash, shownOf, unverifiedForks } from './optionsHash';
 
 describe('options_hash against the CultLib vectors', () => {
@@ -17,34 +17,34 @@ describe('options_hash against the CultLib vectors', () => {
 });
 
 describe('unverifiedForks', () => {
-  const card = async (): Promise<Question> => {
-    const q = structuredClone(STATES.noAnswers.questions[0]) as Question;
-    return { ...q, options_hash: await optionsHash(shownOf(q)) };
+  const sealed = async (over: Partial<ForkCard> = {}) => {
+    const e = entry('plain', over);
+    return { ...e, card: { ...e.card, options_hash: await optionsHash(shownOf(e.card)) } };
   };
   it('passes a card whose hash is the hash of what it shows', async () => {
-    expect(await unverifiedForks([await card()])).toEqual(new Set());
+    expect(await unverifiedForks([await sealed()])).toEqual(new Set());
   });
-  it('flags a card whose shown text, option, recommendation or depends changed after hashing', async () => {
-    const q = await card();
-    const edits: Partial<Question>[] = [
+  it('flags a card whose shown title, context, option, recommendation or depends changed after hashing', async () => {
+    const e = await sealed();
+    const edits: Partial<ForkCard>[] = [
       { title: 'Other' },
-      { body: 'Other context.' },
-      { options: [...q.options].reverse() },
+      { context: 'Other context.' },
+      { options: [...e.card.options].reverse() },
       { recommendation: 'A' },
-      { dependsOn: [{ text: 'new line' }] },
+      { depends: ['new line'] },
     ];
     await Promise.all(
-      edits.map(async (e) =>
-        expect(await unverifiedForks([{ ...q, ...e }]), JSON.stringify(Object.keys(e))).toEqual(
-          new Set([q.fork_id])
-        )
+      edits.map(async (x) =>
+        expect(
+          await unverifiedForks([{ ...e, card: { ...e.card, ...x } }]),
+          JSON.stringify(Object.keys(x))
+        ).toEqual(new Set([e.card.fork_id]))
       )
     );
   });
-  it('does not read fork_id, status or asked time, which are not shown members', async () => {
-    const q = await card();
-    expect(
-      await unverifiedForks([{ ...q, fork_id: 'x:question:y', askedAt: '2020-01-01T00:00:00Z' }])
-    ).toEqual(new Set());
+  it('does not read fork_id, status, order, leans or flag, which are not shown members', async () => {
+    const e = await sealed();
+    const card = { ...e.card, fork_id: 'x:question:y', order: 7, leans: 'A', flag: 'f' };
+    expect(await unverifiedForks([{ ...e, card }])).toEqual(new Set());
   });
 });
