@@ -9,7 +9,7 @@ import { CAMERA, view } from './terrainWorld';
 export const SKY_WIDTH = 96;
 
 /** The sky of the terrain scene without WebGL2: the camera's first frame of `skyColour`, once, on a 2D canvas, with the star layer on top. */
-export type TerrainSkyOptions = Pick<TerrainOptions, 'canvas' | 'tier' | 'sky' | 'sun'>;
+export type TerrainSkyOptions = Pick<TerrainOptions, 'canvas' | 'tier' | 'sky' | 'sun' | 'band'>;
 
 /**
  * Same contract as `createTerrainScene`. Paints the terrain scene's sky (the CPU twin of its sky shader, from the

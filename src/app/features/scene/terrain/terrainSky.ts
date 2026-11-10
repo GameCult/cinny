@@ -1,9 +1,8 @@
 // Lighting, haze and sky for the terrain scene, as pure functions of one sky's baked numbers (src/sky/baked.ts, Void's
 // bake, GameCult/Void PR #22). No DOM, no GL. The fragment shaders do the same arithmetic with these results as uniforms.
 import { baked } from '../../../../sky/baked';
-import { isNight } from '../ridge/stars';
-import { skyColours } from '../ridge/skyColour';
-import type { SkyColours } from '../ridge/skyColour';
+import { hexToLinear, shapeToBand } from '../skyBand';
+import type { SkyBand } from '../skyBand';
 import {
   AP_DISTANCE_SCALE,
   aerialAt,
@@ -26,6 +25,8 @@ export interface SkyData {
   ambient: Vec3;
   /** The horizon, linear RGB: the baked `horizon_hex`. */
   horizon: Vec3;
+  /** The luminance band `skyColour` shapes the sky into (skyBand.ts); absent: the physical sky as it is. */
+  band?: SkyBand;
 }
 
 const RAD = Math.PI / 180;
@@ -37,19 +38,9 @@ const smooth = (a: number, b: number, x: number) => {
 const mixVec = (a: Vec3, b: Vec3, t: number): Vec3 =>
   [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * t) as unknown as Vec3;
 
-/** Which baked sky a ridge-style `SkyColours` means: the night notion the stars use (`isNight`). */
-export const skyNameFor = (sky: SkyColours): SkyName => (isNight(sky) ? 'midnight' : 'noonday');
-
 export const isSkyName = (s: unknown): s is SkyName => s === 'midnight' || s === 'noonday';
 
-/** sRGB hex `#rrggbb` to linear RGB 0..1. */
-export function hexToLinear(hex: string): Vec3 {
-  const ch = (at: number) => {
-    const s = parseInt(hex.slice(at, at + 2), 16) / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return [ch(1), ch(3), ch(5)];
-}
+export { hexToLinear };
 
 const fromBaked = (b: typeof baked.midnight | typeof baked.noonday): SkyData => ({
   elevation: b.sun.elevation_deg,
@@ -115,7 +106,8 @@ export const glowColour = (d: SkyData): Vec3 => {
 /**
  * Linear colour of the sky along a unit view direction (x east, y up, z south): the baked single-scattering
  * radiance for this sun, lifted by SKY_EXPOSURE and tone-mapped `1 - exp(-x)`, plus the night glow, which sits
- * brightest at the horizon; at and below the horizon, the horizon's colour. The fragment shader does the same.
+ * brightest at the horizon; at and below the horizon, the horizon's colour; then shaped into `d.band` when it has one.
+ * The fragment shader does the same.
  */
 export function skyColour(d: SkyData, dir: Vec3): Vec3 {
   const el = Math.max(HORIZON_FLOOR, Math.asin(Math.min(1, Math.max(-1, dir[1]))) / RAD);
@@ -129,9 +121,10 @@ export function skyColour(d: SkyData, dir: Vec3): Vec3 {
   const r = scatterRadiance(d.elevation, el, az);
   const glow = glowColour(d);
   const shape = 1 + (GLOW_ZENITH - 1) * Math.sqrt(clamp01(dir[1]));
-  return [0, 1, 2].map(
+  const c = [0, 1, 2].map(
     (i) => 1 - Math.exp(-SKY_EXPOSURE * r[i]) + glow[i] * shape
   ) as unknown as Vec3;
+  return d.band ? shapeToBand(c, d.band) : c;
 }
 
 /**
@@ -228,24 +221,33 @@ export function shade(d: SkyData, albedo: Vec3, normal: Vec3, distance: number, 
   }) as unknown as Vec3;
 }
 
-/**
- * The sky to use. An explicit option wins over the page URL, so a person who picked a sky sees it: a sun
- * elevation (with its azimuth, default noonday's), else a baked sky. Only without either does the URL steer:
- * `?sun=` (with `?az=`), then `?sky=midnight|noonday`, then the night notion of `skyColours()`.
- */
-export function chooseSky(opts: {
-  sky?: SkyName;
-  sun?: { elevation: number; azimuth?: number };
-}): SkyData {
-  if (opts.sun) return skyAtSun(opts.sun.elevation, opts.sun.azimuth);
-  if (opts.sky) return skyData(opts.sky);
+/** What the page URL asks of the sky, if anything: `?sun=` (with `?az=`) wins over `?sky=midnight|noonday`; a bad value asks nothing. */
+export function urlSky():
+  | { sky?: SkyName; sun?: { elevation: number; azimuth?: number } }
+  | undefined {
   const q = new URLSearchParams(window.location.search);
   const number = (key: string) => (q.get(key)?.trim() ? Number(q.get(key)) : NaN);
   const elevation = number('sun');
   if (Number.isFinite(elevation)) {
     const azimuth = number('az');
-    return skyAtSun(elevation, Number.isFinite(azimuth) ? azimuth : undefined);
+    return { sun: { elevation, azimuth: Number.isFinite(azimuth) ? azimuth : undefined } };
   }
   const name = q.get('sky');
-  return skyData(isSkyName(name) ? name : skyNameFor(skyColours()));
+  return isSkyName(name) ? { sky: name } : undefined;
+}
+
+/**
+ * The sky to use. An explicit option wins over the page URL, so a person who picked a sky sees it: a sun
+ * elevation (with its azimuth, default noonday's), else a baked sky. Only without either does the URL steer
+ * (`urlSky`), else midnight. A band, when given, shapes whichever sky that is.
+ */
+export function chooseSky(opts: {
+  sky?: SkyName;
+  sun?: { elevation: number; azimuth?: number };
+  band?: SkyBand;
+}): SkyData {
+  const banded = (d: SkyData): SkyData => (opts.band ? { ...d, band: opts.band } : d);
+  const want = opts.sun || opts.sky ? opts : urlSky() ?? { sky: 'midnight' as const };
+  if (want.sun) return banded(skyAtSun(want.sun.elevation, want.sun.azimuth));
+  return banded(skyData(want.sky ?? 'midnight'));
 }

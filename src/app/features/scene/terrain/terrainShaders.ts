@@ -7,6 +7,7 @@
 import cultmath from '../shaders/CultMath.glsl?raw';
 import phacelle from '../shaders/CultMath.Phacelle.glsl?raw';
 import { trimGlsl } from '../cultmathTrim';
+import { LUMA } from '../skyBand';
 import { ALBEDO, CAVITY } from './terrainAlbedo';
 import { AERIAL_GLSL, AP_DISTANCE_SCALE, SCATTER_GLSL } from './terrainScatter';
 import { GLOW_ZENITH, MOON_HAZE, SKY_EXPOSURE, SKY_FADE, STAR_FLOOR } from './terrainSky';
@@ -140,14 +141,28 @@ const ALBEDO_DEFINES = `
 #define CAV_DARK ${lit(CAVITY.dark)}
 #define CAV_LIGHT ${lit(CAVITY.light)}
 `;
-// The sky colour along a unit direction: scattering lifted by the exposure, tone-mapped, plus the night glow. The
-// same arithmetic as terrainSky.skyColour(). uGlow is the baked horizon colour already scaled by how dark the sun is.
-const SKY_COLOUR_GLSL = `${SCATTER_GLSL}
+// The GLSL twin of skyBand.shapeToBand: clamp to 0..1, mix toward uLift to land on the floor uBand.x, or scale down to the ceiling uBand.y.
+// No band is uBand = (0, 1).
+export const SHAPE_SKY_GLSL = `
+uniform vec2 uBand;
+uniform vec3 uLift;
+const vec3 LUMA = vec3(${LUMA.map(lit).join(', ')});
+vec3 shapeSky(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  float l = dot(c, LUMA);
+  if (l < uBand.x) return mix(c, uLift, (uBand.x - l) / (dot(uLift, LUMA) - l));
+  if (l > uBand.y) return c * (uBand.y / l);
+  return c;
+}`;
+// The sky colour along a unit direction: scattering lifted by the exposure, tone-mapped, plus the night glow, shaped into
+// the state's luminance band. The same arithmetic as terrainSky.skyColour(). uGlow is the baked horizon colour already
+// scaled by how dark the sun is.
+const SKY_COLOUR_GLSL = `${SCATTER_GLSL}${SHAPE_SKY_GLSL}
 uniform vec3 uGlow;
 vec3 skyColour(vec3 d) {
-  return 1.0 - exp(-${lit(SKY_EXPOSURE)} * skyScatter(d)) + uGlow * mix(1.0, ${lit(
+  return shapeSky(1.0 - exp(-${lit(SKY_EXPOSURE)} * skyScatter(d)) + uGlow * mix(1.0, ${lit(
   GLOW_ZENITH
-)}, sqrt(clamp(d.y, 0.0, 1.0)));
+)}, sqrt(clamp(d.y, 0.0, 1.0))));
 }`;
 
 export const GRID_FRAG = `${HEADER}${ALBEDO_DEFINES}${SKY_COLOUR_GLSL}${AERIAL_GLSL}

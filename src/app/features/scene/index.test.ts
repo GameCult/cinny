@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
-import { setSkyState } from './skyState';
+import { setSkyClock, setSkyState } from './skyState';
 
 const { createRidgeScene, createScene } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
@@ -23,21 +24,35 @@ const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
+  // Local midnight: 'auto' resolves to night.
+  setSkyClock(() => atStandardTime(0, 0));
   setSkyState('auto');
   createRidgeScene.mockReset();
   createScene.mockReset();
 });
 afterEach(() => {
+  setSkyClock();
   setSkyState('auto');
   vi.unstubAllGlobals();
 });
 
 describe('startBackgroundScene follows the sky state', () => {
-  it('hands the ridge scene no sky for auto, as before there was a state', async () => {
+  it('hands the ridge scene the sky auto resolves to (night at midnight)', async () => {
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     expect(createRidgeScene).toHaveBeenCalledOnce();
-    expect(createRidgeScene.mock.calls[0][0].sky).toBeUndefined();
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(baked.midnight.gradient[0]);
+    scene?.dispose();
+  });
+
+  it('rebuilds when auto is replaced by the explicit state it already resolves to (a URL may steer only auto)', async () => {
+    const [a, b] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b);
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    setSkyState('night');
+    await flush();
+    expect(a.dispose).toHaveBeenCalledOnce();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
     scene?.dispose();
   });
 

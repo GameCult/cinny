@@ -1,4 +1,5 @@
 import type { Scene, SceneOptions } from '../Scene';
+import type { SkyBand } from '../skyBand';
 import { FrameSampler, FrameStats } from '../ridge/probe';
 import { albedoPalette } from './terrainAlbedo';
 import { sunIndex } from '../../../../sky/scatter.js';
@@ -27,10 +28,12 @@ export type TerrainOptions = Pick<
   SceneOptions,
   'canvas' | 'tier' | 'onCompileFail' | 'onContextLost'
 > & {
-  /** Which baked sky lights and hazes the terrain. Default: `?sky=` in the page URL, else the night notion of `skyColours()`. */
+  /** Which baked sky lights and hazes the terrain. Default: `?sky=` in the page URL, else midnight. */
   sky?: SkyName;
   /** Put the sun at this elevation (degrees) and azimuth (clockwise from north; default: noonday's) instead of at the baked sky's: `?sun=` and `?az=` in the page URL. Lights between the two bakes, for dusk. */
   sun?: { elevation: number; azimuth?: number };
+  /** The luminance band the sky is shaped into (skyBand.ts), in the sky pass and in the haze that fades into it. Default: none. */
+  band?: SkyBand;
   /** Terrain seed: the height map is sampled at an offset taken from it. Default 0. */
   seed?: number;
   /** Show the rAF median/p95 readout (plus triangle count). Default: the page URL has `?probe=1`. */
@@ -212,6 +215,8 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const ambient = [...ground.ambient];
   const heading = START_TURNS;
   const glow = [...glowColour(sky)];
+  const band: [number, number] = sky.band ? [sky.band.floor, sky.band.ceiling] : [0, 1];
+  const lift = [...(sky.band?.lift ?? [0, 0, 0])];
   const sunTexel = sunIndex(sky.elevation);
   const night = nightness(sky.elevation);
   const moonTexel = sunIndex(Math.abs(sky.elevation));
@@ -247,6 +252,8 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.uniform3fv(us('uSun'), sun);
     gl.uniform3fv(us('uSunColour'), sunLight);
     gl.uniform3fv(us('uGlow'), glow);
+    gl.uniform2fv(us('uBand'), band);
+    gl.uniform3fv(us('uLift'), lift);
     gl.uniform1f(us('uSunIndex'), sunTexel);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_3D, skyTex);
@@ -271,6 +278,8 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     gl.uniform3fv(u('uLight'), ground.colour);
     gl.uniform3fv(u('uAmbient'), ambient);
     gl.uniform3fv(u('uGlow'), glow);
+    gl.uniform2fv(u('uBand'), band);
+    gl.uniform3fv(u('uLift'), lift);
     gl.uniform1f(u('uSunIndex'), sunTexel);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_3D, skyTex);

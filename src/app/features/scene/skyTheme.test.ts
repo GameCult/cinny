@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, contrast, luminance } from '../../../sky/skyTokens.js';
 import { Editor } from '../../components/editor/Editor.css';
@@ -8,7 +9,9 @@ import { MembersDrawer } from '../room/MembersDrawer.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { SKY_PLATE_FALLBACK } from './skyPlate';
 import { SkyPlate, plateRegions } from './skyPlate.css';
-import { SKY_STATES, skyBackdrop, type SkyBackdrop, type SkyState } from './skyState';
+import { getResolvedSkyState, setSkyClock, skyBackdrop } from './skyState';
+import type { SkyBackdrop } from './skyState';
+import type { FixedSkyState } from './skyBand';
 import { skyThemeId } from './skyTheme';
 
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
@@ -30,44 +33,76 @@ const ratio = (ink: string, b: SkyBackdrop) =>
 const r2 = (n: number) => n.toFixed(2);
 
 describe('skyThemeId', () => {
-  it('leaves the theme alone in auto and picks one for every fixed state', () => {
-    expect(skyThemeId('auto')).toBeUndefined();
-    expect(SKY_STATES.filter((s) => s !== 'auto').map((s) => skyThemeId(s))).not.toContain(
-      undefined
-    );
-  });
-
-  it('lights day and dusk with dark ink and night with light ink', () => {
+  it('picks a theme for each explicit state', () => {
     expect(skyThemeId('day')).toBe('noonday-sky');
     expect(skyThemeId('dusk')).toBe('noonday-sky');
     expect(skyThemeId('night')).toBe('midnight-sky');
   });
+
+  it('picks none for auto, at any hour: auto never overrides a signed-in theme', () => {
+    [0, 6, 12, 18, 23].forEach((h) => {
+      setSkyClock(() => atStandardTime(h, 10));
+      expect(skyThemeId('auto')).toBeUndefined();
+    });
+    setSkyClock();
+  });
+
+  it('is what a wiring that follows the sky reads: the resolved state names a theme', () => {
+    setSkyClock(() => atStandardTime(12));
+    expect(skyThemeId(getResolvedSkyState())).toBe('noonday-sky');
+    setSkyClock(() => atStandardTime(0));
+    expect(skyThemeId(getResolvedSkyState())).toBe('midnight-sky');
+    setSkyClock();
+  });
 });
 
 describe('ink of the theme a state picks, on bare sky', () => {
-  // Per state: the picked theme, its ink and link, and their ratios on bare sky, over the union
-  // of the skies the scenes draw (skyBackdrop). Only night text passes (5.05); day's sky reaches
-  // 0.919 and dusk's 0.017 to 0.965, so no theme's ink holds there. No link passes anywhere
-  // (night 2.36): nothing rests on bare sky, everything sits on the plate below.
-  const cells: [SkyState, string, string, string, string, string][] = [
-    ['day', 'noonday-sky', '#342d25', '3.71', '#2a4f27', '2.56'],
-    ['dusk', 'noonday-sky', '#342d25', '1.00', '#2a4f27', '1.00'],
-    ['night', 'midnight-sky', '#aeccff', '5.05', '#609385', '2.36'],
+  // Per state: the picked theme, its text ink and link, and their WCAG ratios on the sky the scenes
+  // draw (skyBackdrop, the worst case over its band). Text clears 4.5 in every state. Link clears
+  // on day and not on dusk or night: the links are derived in src/sky/skyTokens.js, outside the band, and these
+  // numbers are recorded as they are measured (Night's #609385 would clear 4.5 at a luminance of about 0.53 or more).
+  // 'auto' resolves from the clock to one of these three and has the same numbers.
+  const cells: [FixedSkyState, string, string, string, string, string][] = [
+    ['day', 'noonday-sky', '#342d25', '6.60', '#2a4f27', '4.55'],
+    ['dusk', 'noonday-sky', '#342d25', '4.60', '#2a4f27', '3.17'],
+    ['night', 'midnight-sky', '#aeccff', '4.89', '#609385', '2.28'],
   ];
 
-  it.each(cells)('%s with %s: ink %s is %s, link %s is %s', (state, id, ink, want, link, wantLink) => {
-    const sky = SKY[id as keyof typeof SKY];
-    expect(sky.tokens.Background.OnContainer).toBe(ink);
-    expect(sky.link).toBe(link);
-    expect(r2(ratio(ink, skyBackdrop(state)))).toBe(want);
-    expect(r2(ratio(link, skyBackdrop(state)))).toBe(wantLink);
+  it.each(cells)(
+    '%s with %s: text %s is %s, link %s is %s',
+    (state, id, ink, want, link, wantLink) => {
+      const sky = SKY[id as keyof typeof SKY];
+      expect(sky.tokens.Background.OnContainer).toBe(ink);
+      expect(sky.link).toBe(link);
+      expect(r2(ratio(ink, skyBackdrop(state)))).toBe(want);
+      expect(r2(ratio(link, skyBackdrop(state)))).toBe(wantLink);
+    }
+  );
+
+  it.each(cells)('%s: text clears AA', (state, _id, ink) => {
+    expect(ratio(ink, skyBackdrop(state))).toBeGreaterThanOrEqual(AA);
   });
 
-  it('night is the only state whose text clears AA on bare sky', () => {
-    const passing = fixed.filter(
-      ([s, id]) => ratio(SKY[id].tokens.Background.OnContainer, skyBackdrop(s)) >= AA
-    );
-    expect(passing.map(([s]) => s)).toEqual(['night']);
+  it('link clears AA on day (the terrain camera sees only the lighter sky) and falls short on dusk and night', () => {
+    const link = (s: FixedSkyState, id: keyof typeof SKY) => ratio(SKY[id].link, skyBackdrop(s));
+    expect(link('day', 'noonday-sky')).toBeGreaterThanOrEqual(AA);
+    expect(link('dusk', 'noonday-sky')).toBeLessThan(AA);
+    expect(link('night', 'midnight-sky')).toBeLessThan(AA);
+  });
+
+  it.each([
+    [12, 'day'],
+    [18, 'dusk'],
+    [0, 'night'],
+  ] as const)('auto at %s:00 has the numbers of %s', (hour, state) => {
+    setSkyClock(() => atStandardTime(hour, hour === 18 ? 10 : 0));
+    const id = skyThemeId(getResolvedSkyState()) as keyof typeof SKY;
+    expect(id).toBe(skyThemeId(state));
+    const { tokens, link } = SKY[id];
+    const text = tokens.Background.OnContainer;
+    expect(r2(ratio(text, skyBackdrop('auto')))).toBe(r2(ratio(text, skyBackdrop(state))));
+    expect(r2(ratio(link, skyBackdrop('auto')))).toBe(r2(ratio(link, skyBackdrop(state))));
+    setSkyClock();
   });
 });
 

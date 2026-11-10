@@ -102,7 +102,7 @@ export const useSystemThemeKind = (): ThemeKind => {
   return themeKind;
 };
 
-/** The theme the sky state asks for, or undefined while it is 'auto'. */
+/** The theme the sky state asks for, or undefined while it is 'auto': auto never overrides a person's theme. */
 export const useSkyTheme = (): Theme | undefined => {
   const id = skyThemeId(useSkyState());
   return id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
