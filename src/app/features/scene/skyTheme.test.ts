@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, NIGHT_SKY_LIGHTEST, contrast, luminance } from '../../../sky/skyTokens.js';
@@ -9,10 +9,15 @@ import { MembersDrawer } from '../room/MembersDrawer.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { FOOTER_TINT, SKY_PLATE_FALLBACK } from './skyPlate';
 import { SkyPlate, plateRegions } from './skyPlate.css';
-import { getResolvedSkyState, setSkyClock, skyBackdrop } from './skyState';
+import {
+  getResolvedSkyState,
+  setSkyClock,
+  skyBackdrop,
+  subscribe as subscribeSky,
+} from './skyState';
 import type { SkyBackdrop } from './skyState';
 import type { FixedSkyState } from './skyBand';
-import { skyThemeId } from './skyTheme';
+import { sceneThemeId, skyThemeId } from './skyTheme';
 
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
 const fixed = (['day', 'dusk', 'night'] as const).flatMap((s) => {
@@ -39,17 +44,47 @@ describe('skyThemeId', () => {
     expect(skyThemeId('night')).toBe('midnight-sky');
   });
 
-  it('picks the theme of the state auto resolves to, at any hour', () => {
+  it('picks none for auto, at any hour: auto never overrides a signed-in theme', () => {
     [0, 6, 12, 18, 23].forEach((h) => {
       setSkyClock(() => atStandardTime(h, 10));
-      const id = skyThemeId('auto');
-      expect(id).toBeDefined();
-      expect(id).toBe(skyThemeId(getResolvedSkyState()));
+      expect(skyThemeId('auto')).toBeUndefined();
     });
-    setSkyClock(() => atStandardTime(12));
-    expect(skyThemeId('auto')).toBe('noonday-sky');
-    setSkyClock(() => atStandardTime(0));
-    expect(skyThemeId('auto')).toBe('midnight-sky');
+    setSkyClock();
+  });
+
+  describe('sceneThemeId, the theme the page wears', () => {
+    it('a fixed state always picks its theme, whatever the scene or the person chose', () => {
+      [true, false].forEach((scene) =>
+        [true, false].forEach((chose) => {
+          expect(sceneThemeId('day', 'night', scene, chose)).toBe('noonday-sky');
+          expect(sceneThemeId('night', 'day', scene, chose)).toBe('midnight-sky');
+        })
+      );
+    });
+
+    it('auto follows the resolved sky only while a scene is on and the person chose no theme', () => {
+      expect(sceneThemeId('auto', 'day', true, false)).toBe('noonday-sky');
+      expect(sceneThemeId('auto', 'dusk', true, false)).toBe('noonday-sky');
+      expect(sceneThemeId('auto', 'night', true, false)).toBe('midnight-sky');
+      expect(sceneThemeId('auto', 'day', false, false)).toBeUndefined();
+      expect(sceneThemeId('auto', 'day', true, true)).toBeUndefined();
+    });
+  });
+
+  it('the resolved sky a hook subscribes to changes as the clock crosses, so theme classes follow', () => {
+    vi.useFakeTimers();
+    let hour = 12;
+    setSkyClock(() => atStandardTime(hour, 10));
+    const seen: string[] = [];
+    const off = subscribeSky((s) => seen.push(s));
+    expect(getResolvedSkyState()).toBe('day');
+    hour = 0;
+    setSkyClock(() => atStandardTime(hour, 10));
+    vi.advanceTimersByTime(61_000);
+    expect(seen).toEqual(['night']);
+    expect(getResolvedSkyState()).toBe('night');
+    off();
+    vi.useRealTimers();
     setSkyClock();
   });
 

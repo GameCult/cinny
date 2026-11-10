@@ -180,7 +180,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     built = undefined;
   };
 
-  /** True while the host has no area to paint (a scene started in a hidden or collapsed container). */
+  /** True while there is nothing to paint on: the canvas has no client size and the window itself is 0 x 0 (`viewSize` falls back to the window). */
   const hasNoArea = () => {
     const { w, h, scale } = viewSize();
     const size = layerSize(w, h, scale);

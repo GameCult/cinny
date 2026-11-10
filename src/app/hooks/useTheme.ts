@@ -10,10 +10,10 @@ import {
 } from '../../colors.css';
 import '../../gamecult.css';
 import '../../sky.css';
-import { settingsAtom } from '../state/settings';
+import { defaultThemeId, settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
-import { skyThemeId } from '../features/scene/skyTheme';
-import { useSkyState } from './useSkyState';
+import { sceneThemeId } from '../features/scene/skyTheme';
+import { useResolvedSkyState, useSceneOn, useSkyState } from './useSkyState';
 
 export enum ThemeKind {
   Light = 'light',
@@ -102,20 +102,29 @@ export const useSystemThemeKind = (): ThemeKind => {
   return themeKind;
 };
 
-/** The theme the sky state asks for, or undefined while it is 'auto': auto never overrides a person's theme. */
-export const useSkyTheme = (): Theme | undefined => {
-  const id = skyThemeId(useSkyState());
-  return id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
-};
+const toTheme = (id: ReturnType<typeof sceneThemeId>): Theme | undefined =>
+  id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
+
+/** A theme the person chose: the system scheme, or one other than the default. A saved Midnight Sky is the default. */
+const chosenTheme = (useSystemTheme: boolean, themeId?: string) =>
+  useSystemTheme || (themeId !== undefined && themeId !== defaultThemeId);
+
+/** The theme the sky asks for on a page with no theme of its own (signed out), or undefined for none. */
+export const useSkyTheme = (): Theme | undefined =>
+  toTheme(sceneThemeId(useSkyState(), useResolvedSkyState(), useSceneOn(), false));
 
 export const useActiveTheme = (): Theme => {
-  const skyTheme = useSkyTheme();
+  const sky = useSkyState();
+  const resolved = useResolvedSkyState();
+  const sceneOn = useSceneOn();
   const systemThemeKind = useSystemThemeKind();
   const themes = useThemes();
   const [systemTheme] = useSetting(settingsAtom, 'useSystemTheme');
   const [themeId] = useSetting(settingsAtom, 'themeId');
   const [lightThemeId] = useSetting(settingsAtom, 'lightThemeId');
   const [darkThemeId] = useSetting(settingsAtom, 'darkThemeId');
+  // A person's own theme wins over 'auto'; a fixed sky state is itself a choice and wins over the theme.
+  const skyTheme = toTheme(sceneThemeId(sky, resolved, sceneOn, chosenTheme(systemTheme, themeId)));
 
   if (skyTheme) return skyTheme;
 

@@ -10,7 +10,7 @@
 // derived outside this code (src/sky/skyTokens.js). Midnight Sky's link is derived there against the lightest Night sky
 // (4.53 on it, 5.43 on the darkest). The plate (skyPlate.css.ts) is still in the shell, pending
 // its removal.
-import { resolveSkyState, type FixedSkyState, type SkyState } from './skyState';
+import type { FixedSkyState, SkyState } from './skyState';
 
 export type SkyThemeId = 'midnight-sky' | 'noonday-sky';
 
@@ -21,4 +21,19 @@ const BY_STATE: Record<FixedSkyState, SkyThemeId> = {
 };
 
 export const skyThemeId = (state: SkyState): SkyThemeId | undefined =>
-  BY_STATE[resolveSkyState(state)];
+  state === 'auto' ? undefined : BY_STATE[state];
+
+/**
+ * The theme the page wears: a fixed sky state always picks its theme; 'auto' follows the resolved sky (`resolved`, the
+ * clock's state) only while a scene is on and the person has not chosen a theme of their own, and otherwise picks none.
+ * Signed-out pages choose no theme, so they pass `userChoseTheme: false`.
+ */
+export const sceneThemeId = (
+  state: SkyState,
+  resolved: FixedSkyState,
+  sceneOn: boolean,
+  userChoseTheme: boolean
+): SkyThemeId | undefined => {
+  if (state !== 'auto') return BY_STATE[state];
+  return sceneOn && !userChoseTheme ? BY_STATE[resolved] : undefined;
+};

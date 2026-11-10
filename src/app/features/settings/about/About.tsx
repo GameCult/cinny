@@ -4,6 +4,7 @@ import { Page, PageContent, PageHeader } from '../../../components/page';
 import { SequenceCard } from '../../../components/sequence-card';
 import { SequenceCardStyle } from '../styles.css';
 import { SettingTile } from '../../../components/setting-tile';
+import { LogoMark } from '../../../components/logo/logoMark.css';
 import RatatoskrSVG from '../../../../../public/res/svg/ratatoskr.svg';
 import { clearCacheAndReload } from '../../../../client/initMatrix';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
@@ -37,6 +38,7 @@ export function About({ requestClose }: AboutProps) {
               <Box gap="400">
                 <Box shrink="No">
                   <img
+                    className={LogoMark}
                     style={{ width: toRem(60), height: toRem(60) }}
                     src={RatatoskrSVG}
                     alt="Ratatoskr logo"

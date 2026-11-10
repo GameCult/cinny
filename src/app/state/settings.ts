@@ -58,8 +58,10 @@ export interface Settings {
   soundscapeVoiceCap: number;
 }
 
+export const defaultThemeId = 'midnight-sky';
+
 const defaultSettings: Settings = {
-  themeId: 'midnight-sky',
+  themeId: defaultThemeId,
   useSystemTheme: false,
   lightThemeId: undefined,
   darkThemeId: undefined,

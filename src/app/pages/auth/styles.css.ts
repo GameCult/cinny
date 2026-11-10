@@ -34,9 +34,6 @@ export const AuthLogo = style([
   },
 ]);
 
-// The mark is white (Meta's matte); on the light sky theme it takes the dark ink instead.
-globalStyle('body.noonday-sky img[src*="ratatoskr"]', { filter: 'brightness(0.18)' });
-
 export const AuthHeader = style({
   padding: `0 ${config.space.S400}`,
   borderBottomWidth: config.borderWidth.B300,

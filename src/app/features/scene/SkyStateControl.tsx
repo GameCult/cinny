@@ -39,7 +39,8 @@ const LABEL: Record<SkyState, string> = {
 export function SkyStateControl() {
   const state = useSkyState();
   const [cords, setCords] = useState<RectCords>();
-  const configuredStyle = useClientConfig().backgroundScene?.style;
+  const backgroundScene = useClientConfig().backgroundScene;
+  const configuredStyle = backgroundScene?.style;
   const sceneStyle: ServedSceneStyle =
     getSceneStyleOverride() ?? (configuredStyle === 'terrain' ? 'terrain' : 'ridge');
 
@@ -85,32 +86,36 @@ export function SkyStateControl() {
                   </Box>
                 </MenuItem>
               ))}
-              <Text
-                size="L400"
-                priority="300"
-                style={{ padding: `${config.space.S200} ${config.space.S200} 0` }}
-              >
-                Background
-              </Text>
-              {SERVED_SCENE_STYLES.map((st) => (
-                <MenuItem
-                  key={st}
-                  size="300"
-                  variant="Surface"
-                  radii="300"
-                  role="menuitemradio"
-                  aria-checked={sceneStyle === st}
-                  onClick={() => {
-                    setCords(undefined);
-                    if (st !== sceneStyle) setSceneStyle(st);
-                  }}
-                  after={sceneStyle === st ? <Icon size="100" src={Icons.Check} /> : undefined}
-                >
-                  <Box grow="Yes">
-                    <Text size="T300">{STYLE_LABEL[st]}</Text>
-                  </Box>
-                </MenuItem>
-              ))}
+              {backgroundScene && (
+                <>
+                  <Text
+                    size="L400"
+                    priority="300"
+                    style={{ padding: `${config.space.S200} ${config.space.S200} 0` }}
+                  >
+                    Background
+                  </Text>
+                  {SERVED_SCENE_STYLES.map((st) => (
+                    <MenuItem
+                      key={st}
+                      size="300"
+                      variant="Surface"
+                      radii="300"
+                      role="menuitemradio"
+                      aria-checked={sceneStyle === st}
+                      onClick={() => {
+                        setCords(undefined);
+                        if (st !== sceneStyle) setSceneStyle(st);
+                      }}
+                      after={sceneStyle === st ? <Icon size="100" src={Icons.Check} /> : undefined}
+                    >
+                      <Box grow="Yes">
+                        <Text size="T300">{STYLE_LABEL[st]}</Text>
+                      </Box>
+                    </MenuItem>
+                  ))}
+                </>
+              )}
             </Box>
           </Menu>
         </FocusTrap>

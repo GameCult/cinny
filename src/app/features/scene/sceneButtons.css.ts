@@ -9,7 +9,6 @@ globalStyle(controls, {
   backgroundColor: 'transparent',
   boxShadow: 'none',
   border: 'none',
-  outline: 'none',
   color: 'inherit',
 });
 globalStyle(
@@ -21,6 +20,11 @@ globalStyle(
   ].join(', '),
   { backgroundColor: 'color-mix(in srgb, currentColor 12%, transparent)' }
 );
+// A visible keyboard focus ring in the control's own ink, on top of the hover wash.
+globalStyle([`${scene} .epr39zd:focus-visible`, `${scene} ._1bv8u1w6:focus-visible`].join(', '), {
+  outline: '2px solid currentColor',
+  outlineOffset: '2px',
+});
 globalStyle(`${scene} .epr39zd`, {
   fontWeight: 700,
   textDecoration: 'underline',

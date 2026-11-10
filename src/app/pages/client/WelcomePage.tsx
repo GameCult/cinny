@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Button, Icon, Icons, Text, config, toRem } from 'folds';
 import { Page, PageHero, PageHeroSection } from '../../components/page';
+import { LogoMark } from '../../components/logo/logoMark.css';
 import RatatoskrSVG from '../../../../public/res/svg/ratatoskr.svg';
 
 export function WelcomePage() {
@@ -14,7 +15,15 @@ export function WelcomePage() {
       >
         <PageHeroSection>
           <PageHero
-            icon={<img width="70" height="70" src={RatatoskrSVG} alt="Ratatoskr logo" />}
+            icon={
+              <img
+                className={LogoMark}
+                width="70"
+                height="70"
+                src={RatatoskrSVG}
+                alt="Ratatoskr logo"
+              />
+            }
             title="Welcome to Ratatoskr"
             subTitle={
               <span>
