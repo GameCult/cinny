@@ -9,6 +9,8 @@ import { PasswordLoginForm } from './PasswordLoginForm';
 import { SSOLogin } from '../SSOLogin';
 import { TokenLogin } from './TokenLogin';
 import { OrDivider } from '../OrDivider';
+import { RegisterEntry } from '../RegisterEntry';
+import { registrationEntry } from '../registrationEntry';
 import { getLoginPath, getRegisterPath, withSearchParam } from '../../pathUtils';
 import { usePathWithOrigin } from '../../../hooks/usePathWithOrigin';
 import { LoginPathSearchParams } from '../../paths';
@@ -37,7 +39,8 @@ const useLoginSearchParams = (searchParams: URLSearchParams): LoginPathSearchPar
 
 export function Login() {
   const server = useAuthServer();
-  const { hashRouter, previewDemo } = useClientConfig();
+  const config = useClientConfig();
+  const { hashRouter, previewDemo } = config;
   const { loginFlows } = useAuthFlows();
   const [searchParams] = useSearchParams();
   const loginSearchParams = useLoginSearchParams(searchParams);
@@ -90,9 +93,13 @@ export function Login() {
           <span data-spacing-node />
         </>
       )}
-      <Text align="Center">
-        Do not have an account? <Link to={getRegisterPath(server)}>Register</Link>
-      </Text>
+      {registrationEntry(config) ? (
+        <RegisterEntry />
+      ) : (
+        <Text align="Center">
+          Do not have an account? <Link to={getRegisterPath(server)}>Register</Link>
+        </Text>
+      )}
     </Box>
   );
 }

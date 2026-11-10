@@ -16,6 +16,7 @@ import {
   INBOX_NOTIFICATIONS_PATH,
   INBOX_PATH,
   REGISTER_PATH,
+  SIGNED_UP_PATH,
   RESET_PASSWORD_PATH,
   ROOT_PATH,
   SPACE_LOBBY_PATH,
@@ -82,6 +83,8 @@ export const getRegisterPath = (server?: string): string => {
   const params = server ? { server: encodeURIComponent(server) } : undefined;
   return generatePath(REGISTER_PATH, params);
 };
+
+export const getSignedUpPath = (): string => SIGNED_UP_PATH;
 
 export const getResetPasswordPath = (server?: string): string => {
   const params = server ? { server: encodeURIComponent(server) } : undefined;

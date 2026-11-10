@@ -9,7 +9,7 @@ import {
 } from 'react-router-dom';
 
 import { ClientConfig } from '../hooks/useClientConfig';
-import { AuthLayout, Login, Register, ResetPassword } from './auth';
+import { AuthLayout, Login, Register, ResetPassword, SignedUp } from './auth';
 import {
   DIRECT_PATH,
   DESK_PATH,
@@ -18,6 +18,7 @@ import {
   LOGIN_PATH,
   INBOX_PATH,
   REGISTER_PATH,
+  SIGNED_UP_PATH,
   RESET_PASSWORD_PATH,
   SPACE_PATH,
   _CREATE_PATH,
@@ -105,6 +106,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
       >
         <Route path={LOGIN_PATH} element={<Login />} />
         <Route path={REGISTER_PATH} element={<Register />} />
+        <Route path={SIGNED_UP_PATH} element={<SignedUp />} />
         <Route path={RESET_PASSWORD_PATH} element={<ResetPassword />} />
       </Route>
 

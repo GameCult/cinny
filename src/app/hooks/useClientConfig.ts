@@ -7,6 +7,11 @@ export type HashRouterConfig = {
   basename?: string;
 };
 
+export type RegistrationConfig = {
+  enabled?: boolean;
+  url?: string;
+};
+
 export type ClientConfig = {
   defaultHomeserver?: number;
   homeserverList?: string[];
@@ -28,6 +33,10 @@ export type ClientConfig = {
 
   // Rooms (ids or aliases) shown as the album view; a room whose create type is org.gamecult.file_zone needs no entry.
   fileZoneRooms?: string[];
+
+  // The sign-up entry on the sign-in page. Off unless `enabled` is true; `url` is the account
+  // service's own registration page (a value, never a route this client invents).
+  registration?: RegistrationConfig;
 
   // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
   previewDemo?: boolean;
