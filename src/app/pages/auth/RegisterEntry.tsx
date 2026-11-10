@@ -15,7 +15,7 @@ export function RegisterEntry() {
         Do not have an account? <a href={entry.url}>Register</a>
       </Text>
       <Text size="T200" align="Center" style={{ color: color.SurfaceVariant.OnContainer }}>
-        {entry.notice} (notice version {entry.noticeVersion})
+        {entry.notice}
       </Text>
     </Box>
   );
