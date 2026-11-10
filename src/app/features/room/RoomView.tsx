@@ -23,6 +23,8 @@ import { useSetting } from '../../state/hooks/settings';
 import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { useRoomCreators } from '../../hooks/useRoomCreators';
 import { useRoom } from '../../hooks/useRoom';
+import { AlbumView } from '../albums/AlbumView';
+import { useIsFileZone } from '../albums/useAlbums';
 
 const FN_KEYS_REGEX = /^F\d+$/;
 const shouldFocusMessageField = (evt: KeyboardEvent): boolean => {
@@ -64,6 +66,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
   const room = useRoom();
   const { roomId } = room;
   const editor = useEditor();
+  const fileZone = useIsFileZone(room);
 
   const mx = useMatrixClient();
 
@@ -78,7 +81,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
     window,
     useCallback(
       (evt) => {
-        if (editableActiveElement()) return;
+        if (fileZone || editableActiveElement()) return;
         const portalContainer = document.getElementById('portalContainer');
         if (portalContainer && portalContainer.children.length > 0) {
           return;
@@ -87,9 +90,18 @@ export function RoomView({ eventId }: { eventId?: string }) {
           ReactEditor.focus(editor);
         }
       },
-      [editor]
+      [editor, fileZone]
     )
   );
+
+  // The file zone is its own view: no timeline, no composer.
+  if (fileZone) {
+    return (
+      <Page ref={roomViewRef}>
+        <AlbumView key={roomId} room={room} />
+      </Page>
+    );
+  }
 
   return (
     <Page ref={roomViewRef}>
