@@ -53,4 +53,22 @@ describe('silhouette', () => {
       silhouette({ clientWidth: 0, clientHeight: 0 } as HTMLImageElement, true)
     ).toBeUndefined();
   });
+
+  it('traces only the visible part of a cropped portrait, drawn at its offset', () => {
+    const drawImage = vi.fn();
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        canvas,
+        drawImage,
+        getImageData: () => ({ data: new Uint8ClampedArray(40 * 8 * 4) }),
+      }),
+    };
+    vi.stubGlobal('document', { createElement: () => canvas });
+    const img = { clientWidth: 100, clientHeight: 20 } as HTMLImageElement;
+    silhouette(img, true, { x: 0, y: 12, width: 40, height: 8 });
+    expect([canvas.width, canvas.height]).toEqual([40, 8]);
+    expect(drawImage).toHaveBeenCalledWith(img, 0, -12, 100, 20);
+  });
 });

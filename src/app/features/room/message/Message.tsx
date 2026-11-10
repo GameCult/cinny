@@ -1168,7 +1168,6 @@ export const Message = as<'div', MessageProps>(
           <BubbleLayout
             own={own}
             pose={mind ? poseJSX : undefined}
-            alt={poseAlt}
             enterDelay={enterDelay}
             before={avatarJSX}
             header={headerJSX}
