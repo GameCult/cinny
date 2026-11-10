@@ -1,6 +1,7 @@
 import { createVar, globalStyle, keyframes, style, styleVariants } from '@vanilla-extract/css';
 import { recipe, RecipeVariants } from '@vanilla-extract/recipes';
 import { DefaultReset, color, config, toRem } from 'folds';
+import { MOBILE_BREAKPOINT } from '../../../hooks/useScreenSize';
 
 export const StickySection = style({
   position: 'sticky',
@@ -350,6 +351,9 @@ export const BubbleLeftArrow = style({
   zIndex: 1,
 });
 
+// Phone tap target: a sender name is 23 px tall, so the button grows 11 px above and below (44+ px to tap) and the
+// negative margin takes the growth back out of the layout. Hit area only: no background, border or outline moves.
+const SCREEN_PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
 export const Username = style({
   overflow: 'hidden',
   whiteSpace: 'nowrap',
@@ -357,6 +361,9 @@ export const Username = style({
   selectors: {
     'button&': {
       cursor: 'pointer',
+      '@media': {
+        [SCREEN_PHONE]: { paddingBlock: 11, marginBlock: -11 },
+      },
     },
     'button&:hover, button&:focus-visible': {
       textDecoration: 'underline',
