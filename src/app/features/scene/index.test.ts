@@ -225,7 +225,9 @@ describe('startBackgroundScene follows the sky state', () => {
       (p, k) => p.then(async (acc) => ((await changeAfter(k)) ? [...acc, k] : acc)),
       Promise.resolve([])
     );
-    expect(landed.length).toBeGreaterThan(0);
+    // This can fail after a correct refactor that changes the await count in create/skyKey and moves every offset
+    // off the build. Then widen the range of offsets until some land again; do not weaken the assertion.
+    expect(landed.length, 'at least one offset must land mid-build').toBeGreaterThan(0);
   });
 
   it('leaves the ray-march scene alone: it has one fixed dusk', async () => {
