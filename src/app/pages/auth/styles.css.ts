@@ -60,7 +60,7 @@ export const AuthFooter = style({
 // Noonday); the other themes (Light, Silver, Dark, Butter) take the fallback colours.
 // WCAG ratios of text / Register link on the card, per theme:
 //   Light, Silver, Dark, Butter  #b7c7d9 / #99c7ff on #0d1a26   10.21 / 10.03
-//   Midnight Sky                 #aeccff / #609385 on #0a090e   12.17 /  5.68
+//   Midnight Sky                 #aeccff / #8ad1bd on #0a090e   12.17 / 11.28
 //   Noonday Sky                  #342d25 / #2a4f27 on #b9b6af    6.70 /  4.62
 // The fallback link is set here because those themes' own links (Light 2.49:1, Silver 2.49:1) are
 // made for their own grounds, not this card; Dark and Butter already use the same hsl(213 100% 80%).

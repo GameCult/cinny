@@ -115,7 +115,7 @@ export const baked = {
       '#677dff',
       '#6a926a',
     ],
-    link: '#609385',
+    link: '#8ad1bd',
   },
   noonday: {
     moment: {

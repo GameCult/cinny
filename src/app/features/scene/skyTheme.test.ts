@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
-import { AA, contrast, luminance } from '../../../sky/skyTokens.js';
+import { AA, NIGHT_SKY_LIGHTEST, contrast, luminance } from '../../../sky/skyTokens.js';
 import { Editor } from '../../components/editor/Editor.css';
 import { PageContent, PageNavContent } from '../../components/page/style.css';
 import { CallStatus } from '../call-status/styles.css';
@@ -59,13 +59,14 @@ describe('skyThemeId', () => {
 describe('ink of the theme a state picks, on bare sky', () => {
   // Per state: the picked theme, its text ink and link, and their WCAG ratios on the sky the scenes
   // draw (skyBackdrop, the worst case over its band). Text clears 4.5 in every state. Link clears
-  // on day and not on dusk or night: the links are derived in src/sky/skyTokens.js, outside the band, and these
-  // numbers are recorded as they are measured (Night's #609385 would clear 4.5 at a luminance of about 0.53 or more).
+  // on day and night and not on dusk: the links are derived in src/sky/skyTokens.js, outside the band, and these
+  // numbers are recorded as they are measured. Midnight's link is brightened in its own hue until it clears the
+  // lightest Night sky (NIGHT_SKY_LIGHTEST); Dusk's dark link would need a backdrop of about 0.455, and the dusk floor is lower.
   // 'auto' resolves from the clock to one of these three and has the same numbers.
   const cells: [FixedSkyState, string, string, string, string, string][] = [
     ['day', 'noonday-sky', '#342d25', '6.60', '#2a4f27', '4.55'],
     ['dusk', 'noonday-sky', '#342d25', '4.60', '#2a4f27', '3.17'],
-    ['night', 'midnight-sky', '#aeccff', '4.89', '#609385', '2.28'],
+    ['night', 'midnight-sky', '#aeccff', '4.89', '#8ad1bd', '4.53'],
   ];
 
   it.each(cells)(
@@ -83,11 +84,15 @@ describe('ink of the theme a state picks, on bare sky', () => {
     expect(ratio(ink, skyBackdrop(state))).toBeGreaterThanOrEqual(AA);
   });
 
-  it('link clears AA on day (the terrain camera sees only the lighter sky) and falls short on dusk and night', () => {
+  it('link clears AA on day and night and falls short on dusk', () => {
     const link = (s: FixedSkyState, id: keyof typeof SKY) => ratio(SKY[id].link, skyBackdrop(s));
     expect(link('day', 'noonday-sky')).toBeGreaterThanOrEqual(AA);
     expect(link('dusk', 'noonday-sky')).toBeLessThan(AA);
-    expect(link('night', 'midnight-sky')).toBeLessThan(AA);
+    expect(link('night', 'midnight-sky')).toBeGreaterThanOrEqual(AA);
+  });
+
+  it('keeps the lightest Night sky the link was fitted to equal to the Night backdrop (no drift)', () => {
+    expect(Math.abs(NIGHT_SKY_LIGHTEST - skyBackdrop('night').lightest)).toBeLessThan(1e-6);
   });
 
   it.each([
@@ -109,7 +114,7 @@ describe('ink of the theme a state picks, on bare sky', () => {
 describe('the plate, where text cannot rest on bare sky', () => {
   // Each theme's plate: fill, ink, link and the WCAG ratios of ink and link on the fill.
   const plates = [
-    ['midnight-sky', baked.midnight, '12.17', '5.68'],
+    ['midnight-sky', baked.midnight, '12.17', '11.28'],
     ['noonday-sky', baked.noonday, '6.70', '4.62'],
   ] as const;
 
