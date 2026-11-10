@@ -24,20 +24,18 @@ export const SkyPlate = style({});
 // A recipe's first class is its base style.
 const base = (recipe: () => string) => `.${recipe().split(' ')[0]}`;
 
+// Meta, 2026-11-09: no chrome. Title bars, the room list, list pages, the drawer and the bars over the composer are bare
+// ink on the sky (dusk is allowed to be low contrast: it is the crossover between the light and dark inks).
+void PageNavContent;
+void PageContent;
+void MembersDrawer;
+void RoomViewTyping;
+void RoomViewFollowing;
 export const plateRegions = [
   `.${SkyPlate}`,
-  // Title bars: the room header, the room list's header, every page header.
-  '#root header',
-  // The room list, and the pages that are lists (explore, inbox, search).
-  `.${PageNavContent}`,
-  `.${PageContent}`,
-  // The composer, the members drawer, and the call status bar.
+  // The composer and the call status bar.
   `.${Editor}`,
-  `.${MembersDrawer}`,
   `.${CallStatus}`,
-  // The bars over the composer.
-  `.${RoomViewTyping}`,
-  base(RoomViewFollowing),
   // A message that is not a bubble (Modern, Compact) is plain text on the scene.
   `${base(MessageBase)}:not(:has(.${BubbleContent}))`,
 ];

@@ -5,6 +5,7 @@ import { mountBackgroundScene } from './host';
 import { readCapabilities, resolveTier } from './tier';
 import { getSceneStyleOverride } from './sceneStyle';
 import './sceneShell.css';
+import './sceneButtons.css';
 
 /** Set on <html> while a scene runs, so signed-out screens can let it show through. */
 export const SCENE_ACTIVE_ATTRIBUTE = 'data-scene';
