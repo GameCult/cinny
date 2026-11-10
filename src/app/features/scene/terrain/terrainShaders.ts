@@ -133,6 +133,7 @@ const ALBEDO_DEFINES = `
 #define ALB_WOBBLE_S ${lit(ALBEDO.wobbleSlope)}
 #define ALB_GRAIN_COARSE ${lit(ALBEDO.grainCoarse)}
 #define ALB_GRAIN_FINE ${lit(ALBEDO.grainFine)}
+#define ALB_FINE_WARP ${lit(ALBEDO.fineWarp)}
 #define ALB_STRATA ${lit(ALBEDO.strata)}
 #define ALB_FINE_NEAR ${lit(ALBEDO.fineNear)}
 #define ALB_FINE_FAR ${lit(ALBEDO.fineFar)}
@@ -175,6 +176,8 @@ ${FETCH}
 // Triplanar patterns: each projection plane's value, blended by the weights of the face's normal (terrainAlbedo.triWeights).
 float wob2(vec2 q) { return sin(q.x * 0.043 + q.y * 0.017) * sin(q.y * 0.051 - q.x * 0.023); }
 float waves3(vec2 q, vec2 a, vec2 b, vec2 c) { return (sin(dot(q, a)) + sin(dot(q, b)) + sin(dot(q, c))) / 3.0; }
+// The fine octave's coordinates pushed by a slower sine each (terrainAlbedo wavesWarped): three plane waves alone make a regular lattice.
+vec2 warpq(vec2 q) { return q + ALB_FINE_WARP * vec2(sin(q.y * 0.55 + 1.3), sin(q.x * 0.47 + 0.7)); }
 void main() {
   // Normal from the bilinear height at a continuous position, a stencil 1.5 texels each side: smooth across texel borders.
   vec2 p = v_uv * float(uTex - 1);
@@ -195,7 +198,7 @@ void main() {
   vec3 albedo = mix(mix(ground, uSnow, snow), uRock, rockW);
   // Surface grain and rock strata, the same arithmetic as terrainAlbedo.grainAt().
   float coarse = tw.x * waves3(qx, vec2(0.31, 0.27), vec2(-0.22, 0.35), vec2(0.38, -0.12)) + tw.y * waves3(qy, vec2(0.31, 0.27), vec2(-0.22, 0.35), vec2(0.38, -0.12)) + tw.z * waves3(qz, vec2(0.31, 0.27), vec2(-0.22, 0.35), vec2(0.38, -0.12));
-  float fine = tw.x * waves3(qx, vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6)) + tw.y * waves3(qy, vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6)) + tw.z * waves3(qz, vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6));
+  float fine = tw.x * waves3(warpq(qx), vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6)) + tw.y * waves3(warpq(qy), vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6)) + tw.z * waves3(warpq(qz), vec2(1.1, 0.7), vec2(-0.8, 1.2), vec2(1.3, -0.6));
   float near = 1.0 - smoothstep(ALB_FINE_NEAR, ALB_FINE_FAR, length(v_world - uCamera));
   float layers = sin(v_world.y * 0.9 + w * 3.0);
   albedo *= max(0.0, 1.0 + ALB_GRAIN_COARSE * coarse + ALB_GRAIN_FINE * near * fine + ALB_STRATA * rockW * layers);
