@@ -100,8 +100,18 @@ describe('DeskView', () => {
     const html = view('noAnswers', ScreenSize.Desktop, 'void', new Set(['c:question:plain']));
     expect(html).toContain('does not match the hash it was published with');
     expect(html).not.toContain('First way');
-    expect(html).not.toContain('Just one fork');
-    expect(html).toContain('Nothing is waiting');
+    expect(html).toContain('1 open.');
+    expect(html).not.toContain('Nothing is waiting');
+  });
+  it('never claims an empty desk while the list says forks are open, whatever rows it could show', () => {
+    setDeskSource(() => undefined);
+    const html = renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={{ ...STATES.empty, open_count: 3 }} />
+      </ScreenSizeProvider>
+    );
+    expect(html).toContain('3 open.');
+    expect(html).not.toContain('Nothing is waiting');
   });
   it('shows no booth for a Mind without art rather than another face', () => {
     expect(view('noAnswers', ScreenSize.Desktop, 'nobody')).not.toContain('data-pose');

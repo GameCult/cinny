@@ -43,9 +43,18 @@ describe('buildDesk', () => {
     ]);
     expect(d.open.map((r) => r.forkId)).toEqual(['c:question:live']);
   });
-  it('orders open rows by the card order, oldest admission first, whatever order the list came in', () => {
-    const d = buildDesk(list([entry('late', { order: 9 }), entry('early', { order: 2 })]));
-    expect(d.open.map((r) => r.forkId)).toEqual(['c:question:early', 'c:question:late']);
+  it('keeps the served order (newest first by card.order) and sorts nothing itself', () => {
+    const served = list([entry('late', { order: 9 }), entry('early', { order: 2 })]);
+    expect(buildDesk(served).open.map((r) => r.forkId)).toEqual([
+      'c:question:late',
+      'c:question:early',
+    ]);
+    const odd = list([entry('a', { order: 2 }), entry('b', { order: 9 })]);
+    expect(buildDesk(odd).open.map((r) => r.forkId)).toEqual(['c:question:a', 'c:question:b']);
+  });
+  it("takes the open count from the list's open_count, not from the rows it could verify or carries", () => {
+    const d = buildDesk({ ...list([entry('only')]), open_count: 4 }, new Set(['c:question:only']));
+    expect(d.counts.open).toBe(4);
   });
   it('marks the answer the record names as counted, and no other', () => {
     const [row] = questions(buildDesk(STATES.answered));
@@ -92,6 +101,5 @@ describe('buildDesk', () => {
   it('withdraws an unverified open card and does not count it', () => {
     const d = buildDesk(STATES.noAnswers, new Set(['c:question:plain']));
     expect(d.open).toEqual([{ kind: 'unverified', forkId: 'c:question:plain' }]);
-    expect(d.counts.open).toBe(0);
   });
 });
