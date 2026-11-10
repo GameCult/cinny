@@ -95,8 +95,10 @@ export async function startBackgroundScene(
   let generation = 0;
   // A rebuild is for a different sky ('auto' crossing a boundary, a new choice), not for a repeat of the one drawn.
   const rebuild = async () => {
+    // The choice can move while the key is awaited; that change has its own rebuild, so this one stands down.
     const next = getSkyState();
     const key = await skyKey(config, next);
+    if (getSkyState() !== next) return;
     if ((key !== null && key === built) || disposed) return;
     generation += 1;
     const mine = generation;

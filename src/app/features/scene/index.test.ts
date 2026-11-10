@@ -4,6 +4,7 @@ import { baked } from '../../../sky/baked';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
 import { setSkyClock, setSkyState } from './skyState';
+import { ridgeSkyFor } from './skyForState';
 
 const { createRidgeScene, createScene } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
@@ -155,16 +156,28 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(createRidgeScene).toHaveBeenCalledOnce();
   });
 
-  it('keeps only the latest of two quick changes', async () => {
+  it('keeps only the latest of two quick changes: the last sky is built, the others are not left running', async () => {
     const scenes = [fakeScene(), fakeScene(), fakeScene()];
     scenes.forEach((s) => createRidgeScene.mockReturnValueOnce(s));
     const scene = await startBackgroundScene(config, caps, { canvas });
     setSkyState('day');
-    setSkyState('night');
+    setSkyState('dusk');
     await flush();
-    expect(scenes[1].dispose).toHaveBeenCalledOnce();
-    expect(scenes[2].dispose).not.toHaveBeenCalled();
+    // The sky last built is dusk's, and it is the live scene: a login reaches it and nothing else.
+    const built = createRidgeScene.mock.calls.length;
+    expect(hex(createRidgeScene.mock.calls[built - 1][0].sky.top)).toBe(
+      hex(ridgeSkyFor('dusk').top)
+    );
+    const live = scenes[built - 1];
+    scene?.login();
+    expect(live.login).toHaveBeenCalledOnce();
+    scenes.filter((s) => s !== live).forEach((s) => expect(s.login).not.toHaveBeenCalled());
+    // Every scene but the live one was disposed, the live one not yet.
+    scenes.slice(0, built).forEach((s) => {
+      expect(s.dispose).toHaveBeenCalledTimes(s === live ? 0 : 1);
+    });
     scene?.dispose();
+    expect(live.dispose).toHaveBeenCalledOnce();
   });
 
   it('leaves the ray-march scene alone: it has one fixed dusk', async () => {
