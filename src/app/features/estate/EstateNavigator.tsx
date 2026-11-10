@@ -42,6 +42,7 @@ import { EstateGroup, EstateRoom, EstateTier, splitGroups } from './buildEstate'
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
+import { DeskEntry } from '../desk';
 import { SkyStateControl } from '../scene/SkyStateControl';
 
 /** How long a tap waits for the client store to hold the room it just joined. */
@@ -135,9 +136,11 @@ type CollapsibleProps = {
   categoryId: string;
   label: string;
   rooms: EstateRoom[];
+  /** Sits in the header beside the label, so a collapsed section still shows it. */
+  trailing?: ReactNode;
   children: ReactNode;
 };
-function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
+function Collapsible({ categoryId, label, rooms, trailing, children }: CollapsibleProps) {
   const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const selectedRoomId = useSelectedRoom();
   const roomToUnread = useAtomValue(roomToUnreadAtom);
@@ -161,6 +164,7 @@ function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
         <RoomNavCategoryButton closed={closed} onClick={handleClick}>
           {label}
         </RoomNavCategoryButton>
+        {trailing}
       </NavCategoryHeader>
       {!closed && children}
     </NavCategory>
@@ -169,7 +173,12 @@ function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
 
 function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
   return (
-    <Collapsible categoryId={`${tierId}|${group.mind}`} label={group.label} rooms={group.rooms}>
+    <Collapsible
+      categoryId={`${tierId}|${group.mind}`}
+      label={group.label}
+      rooms={group.rooms}
+      trailing={<DeskEntry mind={group.mind} />}
+    >
       {group.rooms.map((r) => (
         <EstateRow key={r.roomId} room={r} />
       ))}

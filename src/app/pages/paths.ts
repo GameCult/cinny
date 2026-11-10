@@ -74,6 +74,9 @@ export type ExploreServerPathSearchParams = {
 };
 export const EXPLORE_SERVER_PATH = `/explore/${_SERVER_PATH}`;
 
+/** One Mind's desk: its open questions, read-only until sign-in reaches chat. */
+export const DESK_PATH = '/desk/:mind/';
+
 export const CREATE_PATH = '/create';
 
 export const _NOTIFICATIONS_PATH = 'notifications/';
