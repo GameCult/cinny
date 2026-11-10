@@ -12,7 +12,7 @@ export const SKY_PLATE_FALLBACK = {
  * The sign-in footer's tint: how much of the plate's fill (--sky-bubble) is mixed over the blurred scene behind the
  * footer line. The footer is a blurred, tinted band with soft edges, not a plate: the scene shows through it. The
  * footer ink is the plate's, so the tint has to bring the scene behind it to where that ink clears 4.5:1
- * (skyTheme.test.ts). The browser mixes in sRGB, which gives less contrast over dark terrain than the linear mix the test
- * computes, so the value carries margin: measured on the drawn pixels (Chrome, GTX 1070), 0.75 gave 4.49 at Dusk.
+ * (skyTheme.test.ts). The browser mixes in sRGB, so the test does too (skyTheme.test.ts): over pure black 0.80 gives 4.36 and 0.82 gives 4.55, and
+ * the darkest terrain drawn is 0.0045, not black; measured on the drawn pixels the footer clears 6.2.
  */
 export const FOOTER_TINT = 0.82;

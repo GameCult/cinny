@@ -92,57 +92,20 @@ globalStyle(`${scene} ${AuthCardContent}`, {
 
 // The footer line sits on the terrain, which is dark at its foot in every sky (luminance 0.02 to 0.04 at dusk), where
 // the sky's dark ink is unreadable. Over the scene it gets a blurred band tinted with the plate's fill and the plate's
-// ink and link, faded out at its edges so it reads as haze and not as a bar: the scene shows through and round it.
-// The tint (FOOTER_TINT) is checked against the ink in skyTheme.test.ts.
+// ink, faded out at its edges so it reads as haze and not as a bar: the scene shows through and round it. A browser
+// without color-mix gets the plate's opaque fill, as the chat bubbles do (message/layout/layout.css.ts). The tint (FOOTER_TINT) is checked against the ink in skyTheme.test.ts.
 const FADE_Y =
   'linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 16px), transparent)';
 const FADE_X =
   'linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent)';
+const tint = `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${FOOTER_TINT * 100}%, transparent)`;
 globalStyle(`${scene} ${AuthFooter}`, {
   paddingTop: config.space.S500,
   paddingBottom: config.space.S500,
-  backgroundColor: `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${
-    FOOTER_TINT * 100
-  }%, transparent)`,
+  backgroundColor: ['var(--sky-bubble, #0d1a26)', tint],
   backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
   maskImage: `${FADE_Y}, ${FADE_X}`,
-  WebkitMaskImage: `${FADE_Y}, ${FADE_X}`,
   maskComposite: 'intersect',
-  WebkitMaskComposite: 'source-in',
-  color: 'var(--sky-bubble-text, #b7c7d9)',
-  borderRadius: config.radii.R500,
-  // A faint inner edge, so a pane this clear still reads as a surface.
-  borderColor: 'rgba(183, 199, 217, 0.14)',
-});
-globalStyle(`${scene} body:not(.gamecult-theme) ${AuthCard}`, {
-  vars: { '--tc-link': '#99c7ff' },
-});
-globalStyle(`${scene} ${AuthHeader}`, {
-  backgroundColor: 'transparent',
-});
-globalStyle(`${scene} ${AuthCardContent}`, {
-  paddingTop: config.space.S500,
-  paddingBottom: config.space.S400,
-  gap: config.space.S500,
-});
-
-// The footer line sits on the terrain, which is dark at its foot in every sky (luminance 0.02 to 0.04 at dusk), where
-// the sky's dark ink is unreadable. Over the scene it gets a blurred band tinted with the plate's fill and the plate's
-// ink and link, faded out at its edges so it reads as haze and not as a bar: the scene shows through and round it.
-// The tint (FOOTER_TINT) is checked against the ink in skyTheme.test.ts.
-globalStyle(`${scene} ${AuthFooter}`, {
-  paddingTop: config.space.S500,
-  paddingBottom: config.space.S500,
-  backgroundColor: `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${
-    FOOTER_TINT * 100
-  }%, transparent)`,
-  backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
-  maskImage:
-    'linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 16px), transparent)',
-  WebkitMaskImage:
-    'linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 16px), transparent)',
   color: 'var(--sky-bubble-text, #b7c7d9)',
 });
 globalStyle(`${scene} ${AuthFooter} a`, {

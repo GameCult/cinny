@@ -162,17 +162,28 @@ describe('regions that sit on the plate', () => {
 });
 
 describe('the sign-in footer band', () => {
-  // The footer line is the plate's ink on a band that mixes FOOTER_TINT of the plate's fill over the blurred scene.
-  // The scene behind it is the terrain: as dark as 0, as light as the sky state's lightest backdrop. Ink contrast is
-  // lowest at one of those two ends, so both are checked.
-  const tinted = (fill: string, behind: number) =>
-    FOOTER_TINT * luminance(fill) + (1 - FOOTER_TINT) * behind;
+  // The footer line is the plate's ink on a band that mixes FOOTER_TINT of the plate's fill over the blurred scene,
+  // as the browser does: per channel, in encoded sRGB (not in linear light, which flatters dark scenes). The scene
+  // behind it is the terrain, taken as grey: as dark as 0, as light as the sky state's lightest backdrop. Ink
+  // contrast is lowest at one of those two ends, so both are checked.
+  const encode = (l: number) => (l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4) - 0.055);
+  const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const hexOf = (c: number[]) =>
+    `#${c
+      .map((v) =>
+        Math.round(v * 255)
+          .toString(16)
+          .padStart(2, '0')
+      )
+      .join('')}`;
+  const bandOver = (fill: string, behind: number) =>
+    hexOf(channels(fill).map((f) => FOOTER_TINT * f + (1 - FOOTER_TINT) * encode(behind)));
   it.each(fixed)(
     '%s: the ink clears AA over the darkest and the lightest scene behind it',
     (state, id) => {
       const { Other, OtherText } = SKY[id].bubbles;
       [0, skyBackdrop(state).lightest].forEach((behind) => {
-        expect(against(OtherText, tinted(Other, behind))).toBeGreaterThanOrEqual(AA);
+        expect(contrast(OtherText, bandOver(Other, behind))).toBeGreaterThanOrEqual(AA);
       });
     }
   );
