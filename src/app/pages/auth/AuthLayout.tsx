@@ -32,6 +32,7 @@ import { AuthFlowsLoader } from '../../components/AuthFlowsLoader';
 import { AuthFlowsProvider } from '../../hooks/useAuthFlows';
 import { AuthServerProvider } from '../../hooks/useAuthServer';
 import { tryDecodeURIComponent } from '../../utils/dom';
+import { serverTroubleMessage } from './authMessages';
 
 const currentAuthPath = (pathname: string): string => {
   if (matchPath(LOGIN_PATH, pathname)) {
@@ -158,18 +159,18 @@ export function AuthLayout() {
               />
             </Box>
             {discoveryState.status === AsyncStatus.Loading && (
-              <AuthLayoutLoading message="Looking for homeserver..." />
+              <AuthLayoutLoading message={`Looking for ${server}...`} />
             )}
             {discoveryState.status === AsyncStatus.Error && (
-              <AuthLayoutError message="Failed to find homeserver." />
+              <AuthLayoutError message={serverTroubleMessage('not-found', server)} />
             )}
             {autoDiscoveryError?.action === AutoDiscoveryAction.FAIL_PROMPT && (
               <AuthLayoutError
-                message={`Failed to connect. Homeserver configuration found with ${autoDiscoveryError.host} appears unusable.`}
+                message={serverTroubleMessage('unusable-setup', server, autoDiscoveryError.host)}
               />
             )}
             {autoDiscoveryError?.action === AutoDiscoveryAction.FAIL_ERROR && (
-              <AuthLayoutError message="Failed to connect. Homeserver configuration base_url appears invalid." />
+              <AuthLayoutError message={serverTroubleMessage('bad-address', server)} />
             )}
             {discoveryState.status === AsyncStatus.Success && autoDiscoveryInfo && (
               <AuthServerProvider value={discoveryState.data.serverName}>
@@ -182,7 +183,7 @@ export function AuthLayout() {
                       />
                     )}
                     error={() => (
-                      <AuthLayoutError message="Failed to connect. Either homeserver is unavailable at this moment or does not exist." />
+                      <AuthLayoutError message={serverTroubleMessage('unreachable', server)} />
                     )}
                   >
                     {(specVersions) => (
@@ -192,7 +193,9 @@ export function AuthLayout() {
                             <AuthLayoutLoading message="Loading authentication flow..." />
                           )}
                           error={() => (
-                            <AuthLayoutError message="Failed to get authentication flow information." />
+                            <AuthLayoutError
+                              message={serverTroubleMessage('no-sign-in-info', server)}
+                            />
                           )}
                         >
                           {(authFlows) => (

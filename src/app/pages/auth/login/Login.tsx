@@ -13,6 +13,7 @@ import { getLoginPath, getRegisterPath, withSearchParam } from '../../pathUtils'
 import { usePathWithOrigin } from '../../../hooks/usePathWithOrigin';
 import { LoginPathSearchParams } from '../../paths';
 import { useClientConfig } from '../../../hooks/useClientConfig';
+import { noSignInMethodMessage } from '../authMessages';
 
 const getLoginTokenSearchParam = () => {
   // when using hasRouter query params in existing route
@@ -85,9 +86,7 @@ export function Login() {
       )}
       {!parsedFlows.password && !parsedFlows.sso && (
         <>
-          <Text style={{ color: color.Critical.Main }}>
-            {`This client does not support login on "${server}" homeserver. Password and SSO based login method not found.`}
-          </Text>
+          <Text style={{ color: color.Critical.Main }}>{noSignInMethodMessage(server)}</Text>
           <span data-spacing-node />
         </>
       )}
