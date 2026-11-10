@@ -90,10 +90,11 @@ globalStyle(`${scene} ${AuthCardContent}`, {
   gap: config.space.S500,
 });
 
-// The footer line sits on the terrain, which is dark at its foot in every sky (luminance 0.02 to 0.04 at dusk), where
-// the sky's dark ink is unreadable. Over the scene it gets a blurred band tinted with the plate's fill and the plate's
+// The footer line sits on the terrain, which is dark at its foot in every sky (luminance 0.02 at dusk), where the
+// sky's dark ink is unreadable. Over the scene it gets a blurred band tinted with the plate's fill and the plate's
 // ink, faded out at its edges so it reads as haze and not as a bar: the scene shows through and round it. A browser
-// without color-mix gets the plate's opaque fill, as the chat bubbles do (message/layout/layout.css.ts). The tint (FOOTER_TINT) is checked against the ink in skyTheme.test.ts.
+// without color-mix gets the plate's opaque fill, as the chat bubbles do (message/layout/layout.css.ts). The tint
+// (FOOTER_TINT) is checked against the ink in skyTheme.test.ts, the emitted rule in footerBand.test.ts.
 const FADE_Y =
   'linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 16px), transparent)';
 const FADE_X =
