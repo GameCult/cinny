@@ -1,7 +1,7 @@
 import { ComplexStyleRule, StyleRule, createVar, globalStyle, style } from '@vanilla-extract/css';
 import { RecipeVariants, recipe } from '@vanilla-extract/recipes';
 import { ContainerColor, DefaultReset, Disabled, RadiiVariant, color, config, toRem } from 'folds';
-import { surfaceInk } from '../../features/scene/sceneShell.css';
+import { skyLabelInk, surfaceInk } from '../../features/scene/sceneShell.css';
 
 // Wash strengths over the scene: rows and labels are faint, and hover, selected and pressed rows
 // are three distinct steps above them.
@@ -222,6 +222,7 @@ phoneLabel(`.${NavItemBase}:has(.${NavLink}:active) ${label}`, {
   textDecorationLine: 'underline',
 });
 phoneLabel(`:root[data-scene] ${label}`, {
+  color: skyLabelInk('inherit'),
   textShadow: `0 0 3px ${surfaceInk}, 0 0 8px ${surfaceInk}`,
 });
 

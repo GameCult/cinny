@@ -6,6 +6,7 @@ import { MemberPowerTag, MemberPowerTagIcon } from '../../types/matrix/room';
 import { useRoomCreatorsTag } from './useRoomCreatorsTag';
 import { ThemeKind } from './useTheme';
 import { accessibleColor } from '../plugins/color';
+import { inkForState, type SkyInk } from '../features/scene/skyInk';
 
 export type GetMemberPowerTag = (userId: string) => MemberPowerTag;
 
@@ -44,23 +45,29 @@ export const getPowerTagIconSrc = (
 export const useAccessiblePowerTagColors = (
   themeKind: ThemeKind,
   creatorsTag: MemberPowerTag,
-  powerLevelTags: PowerLevelTags
+  powerLevelTags: PowerLevelTags,
+  skyInk?: SkyInk
 ): Map<string, string> => {
   const accessibleColors: Map<string, string> = useMemo(() => {
     const colors: Map<string, string> = new Map();
+    // Over the scene a name wears the sky state's ink (skyInk.ts) in place of the theme's accessible colour's own step.
+    const ink = (color: string) => {
+      const accessible = accessibleColor(themeKind, color);
+      return skyInk ? inkForState(accessible, skyInk) : accessible;
+    };
     if (creatorsTag.color) {
-      colors.set(creatorsTag.color, accessibleColor(themeKind, creatorsTag.color));
+      colors.set(creatorsTag.color, ink(creatorsTag.color));
     }
 
     Object.values(powerLevelTags).forEach((tag) => {
       const { color } = tag;
       if (!color) return;
 
-      colors.set(color, accessibleColor(themeKind, color));
+      colors.set(color, ink(color));
     });
 
     return colors;
-  }, [powerLevelTags, creatorsTag, themeKind]);
+  }, [powerLevelTags, creatorsTag, themeKind, skyInk]);
 
   return accessibleColors;
 };

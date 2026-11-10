@@ -28,3 +28,10 @@ globalStyle(':root[data-scene] #root', {
 const surfaceInkVar = createVar();
 globalStyle(':root[data-scene] body', { vars: { [surfaceInkVar]: color.Surface.Container } });
 export const surfaceInk = fallbackVar(surfaceInkVar, color.Surface.Container);
+
+/**
+ * The sky's label ink (skyInk.ts `labelInk`), set on <html> by the theme manager (ThemeManager.tsx) only where it
+ * differs from the theme's; unset, `skyLabelInk(fallback)` is the fallback, so a person's own theme keeps its ink.
+ */
+export const SKY_LABEL_INK = '--sky-label-ink';
+export const skyLabelInk = (fallback: string) => `var(${SKY_LABEL_INK}, ${fallback})`;
