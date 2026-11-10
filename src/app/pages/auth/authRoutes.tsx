@@ -6,7 +6,7 @@ import { LOGIN_PATH, REGISTER_PATH, RESET_PASSWORD_PATH, SIGNED_UP_PATH } from '
 import { getHomePath } from '../pathUtils';
 import { AuthLayout } from './AuthLayout';
 import { Login } from './login';
-import { Register } from './register';
+import { RegisterRoute } from './register/RegisterRoute';
 import { ResetPassword } from './reset-password';
 import { SignedUp } from './SignedUp';
 
@@ -24,7 +24,7 @@ export const authRoutes = () => (
       }
     >
       <Route path={LOGIN_PATH} element={<Login />} />
-      <Route path={REGISTER_PATH} element={<Register />} />
+      <Route path={REGISTER_PATH} element={<RegisterRoute />} />
       <Route path={RESET_PASSWORD_PATH} element={<ResetPassword />} />
     </Route>
     <Route

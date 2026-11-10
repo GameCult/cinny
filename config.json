@@ -24,5 +24,10 @@
 
   "dings": {
     "enabled": false
+  },
+
+  "registration": {
+    "enabled": false,
+    "url": ""
   }
 }

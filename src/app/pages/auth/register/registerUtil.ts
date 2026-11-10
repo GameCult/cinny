@@ -17,6 +17,7 @@ import {
 import { getHomePath, getLoginPath, withSearchParam } from '../../pathUtils';
 import { getMxIdLocalPart, getMxIdServer } from '../../../utils/matrix';
 import { setFallbackSession } from '../../../state/sessions';
+import type { RegisterTrouble } from '../authMessages';
 
 export enum RegisterError {
   UserTaken = 'UserTaken',
@@ -29,6 +30,27 @@ export enum RegisterError {
   RateLimited = 'RateLimited',
   Unknown = 'Unknown',
 }
+
+// The form-level words for a failed registration, never the server's own text. The username
+// errors are the form's own field messages and have no trouble here.
+export const registerErrorTrouble = (errcode: string): RegisterTrouble | undefined => {
+  switch (errcode) {
+    case RegisterError.PasswordWeak:
+      return 'password-weak';
+    case RegisterError.PasswordShort:
+      return 'password-short';
+    case RegisterError.RateLimited:
+      return 'rate-limited';
+    case RegisterError.Forbidden:
+      return 'closed';
+    case RegisterError.InvalidRequest:
+      return 'invalid';
+    case RegisterError.Unknown:
+      return 'unknown';
+    default:
+      return undefined;
+  }
+};
 
 export type CustomRegisterResponse = {
   baseUrl: string;
