@@ -4,14 +4,31 @@
 export const sanitizeForRegex = (unsafeText: string): string =>
   unsafeText.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&').replace(/-/g, '\\x2d');
 
-export const HTTP_URL_PATTERN = `https?:\\/\\/(?:www\\.)?(?:[^\\s)]*)(?<![.,:;!/?()[\\]\\s]+)`;
+/**
+ * Whether this engine compiles lookbehind (Safari before 16.4 does not, and building such a RegExp throws, which at
+ * module load blanks the app). Patterns below that use lookbehind degrade when it is missing.
+ */
+export const LOOKBEHIND = ((): boolean => {
+  try {
+    return new RegExp('(?<=a)b').test('ab');
+  } catch {
+    return false;
+  }
+})();
+
+// Without lookbehind a URL keeps any trailing punctuation.
+export const HTTP_URL_PATTERN = LOOKBEHIND
+  ? `https?:\\/\\/(?:www\\.)?(?:[^\\s)]*)(?<![.,:;!/?()[\\]\\s]+)`
+  : `https?:\\/\\/(?:www\\.)?(?:[^\\s)]*)`;
 
 export const URL_REG = new RegExp(HTTP_URL_PATTERN, 'g');
 
 export const EMAIL_REGEX =
   /^(([^<>()[\]\\.,;:\s@\\"]+(\.[^<>()[\]\\.,;:\s@\\"]+)*)|(\\".+\\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
-export const URL_NEG_LB = '(?<!(https?|ftp|mailto|magnet):\\/\\/\\S*)';
+export const URL_NEG_LB = LOOKBEHIND ? '(?<!(https?|ftp|mailto|magnet):\\/\\/\\S*)' : '';
+/** Not preceded by a backslash; without lookbehind, escapes are not honoured. */
+export const ESC_NEG_LB = LOOKBEHIND ? '(?<!\\\\)' : '';
 
 // https://en.wikipedia.org/wiki/Variation_Selectors_(Unicode_block)
 export const VARIATION_SELECTOR_PATTERN = '[\uFE00-\uFE0F]';
