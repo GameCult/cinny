@@ -93,3 +93,20 @@ export function userColorInk(userId: string, ink: SkyInk): string {
  */
 export const labelInk = ({ state, phone }: SkyInk): string | undefined =>
   state === 'dusk' && phone ? '#29221a' : undefined;
+
+/**
+ * WCAG relative luminance of the lightest pixel under the notice line above the composer on a phone: the dark
+ * foreground ridge, the same in every state (measured 2026-11-10 from the Starfire phone shots at 390x844,
+ * ratatoskr-dev-preview/phone-room-{day,dusk,night}.png, text region x 15-355 CSS px: median 0.0052, 90th percentile
+ * 0.0089, rounded up to 0.01). The labelInk patches above are the lightest terrain behind the timeline; here the
+ * ground is dark, so the ink must be light.
+ */
+export const NOTICE_GROUND = 0.01;
+
+/**
+ * The ink of the training-notice line above the composer where the theme's own does not clear AA there. On a phone the
+ * line sits on the dark ridge in every state, but Noonday (day, dusk) wears dark ink, 1.2:1 at dusk by the numbers
+ * above; Midnight's (night) is already light and stays (undefined). Desktop is unmeasured and stays.
+ */
+export const noticeInk = ({ state, phone }: SkyInk): string | undefined =>
+  phone && state !== 'night' ? baked.midnight.tokens.SurfaceVariant.OnContainer : undefined;
