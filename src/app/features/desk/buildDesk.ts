@@ -39,7 +39,7 @@ export type Desk = {
   open: DeskRow[];
   /** Closed with a ruling id. A card closed with no ruling (withdrawn) is not listed. */
   recorded: { forkId: string; title: string; rulingId: string }[];
-  /** Verified open questions on the page, for the booth mood. */
+  /** The list's own open_count: the one count the navigator, the status line and the booth share. */
   counts: { open: number };
 };
 
@@ -64,34 +64,32 @@ export const buildDesk = (
   if (!list) return { published: false, open: [], recorded: [], counts: { open: 0 } };
   const open: DeskRow[] = [];
   const recorded: Desk['recorded'] = [];
-  [...list.forks]
-    .sort((a, b) => a.card.order - b.card.order)
-    .forEach((entry) => {
-      const { card, record } = entry;
-      if (card.status === 'closed') {
-        if (card.ruling !== null)
-          recorded.push({ forkId: card.fork_id, title: card.title, rulingId: card.ruling });
-        return;
-      }
-      if (unverified.has(card.fork_id)) {
-        open.push({ kind: 'unverified', forkId: card.fork_id });
-        return;
-      }
-      open.push({
-        kind: 'question',
-        forkId: card.fork_id,
-        title: card.title,
-        context: card.context,
-        options: card.options.map((o) => ({ ...o, recommended: o.id === card.recommendation })),
-        recommended: card.options.find((o) => o.id === card.recommendation)?.text,
-        depends: card.depends,
-        answers: record.answers.map((a) => answerRow(a, entry)),
-      });
+  list.forks.forEach((entry) => {
+    const { card, record } = entry;
+    if (card.status === 'closed') {
+      if (card.ruling !== null)
+        recorded.push({ forkId: card.fork_id, title: card.title, rulingId: card.ruling });
+      return;
+    }
+    if (unverified.has(card.fork_id)) {
+      open.push({ kind: 'unverified', forkId: card.fork_id });
+      return;
+    }
+    open.push({
+      kind: 'question',
+      forkId: card.fork_id,
+      title: card.title,
+      context: card.context,
+      options: card.options.map((o) => ({ ...o, recommended: o.id === card.recommendation })),
+      recommended: card.options.find((o) => o.id === card.recommendation)?.text,
+      depends: card.depends,
+      answers: record.answers.map((a) => answerRow(a, entry)),
     });
+  });
   return {
     published: true,
     open,
     recorded,
-    counts: { open: open.filter((r) => r.kind === 'question').length },
+    counts: { open: list.open_count },
   };
 };

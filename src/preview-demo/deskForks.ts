@@ -84,7 +84,7 @@ const list = (mind: string, forks: ForkEntry[], stamp: string): ForkList => ({
   stamp,
   open_count: forks.filter((f) => f.card.status === 'open').length,
   recorded_count: forks.filter((f) => f.card.status === 'closed').length,
-  forks,
+  forks: [...forks].sort((a, b) => b.card.order - a.card.order),
   next_cursor: null,
 });
 
