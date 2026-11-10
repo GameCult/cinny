@@ -31,6 +31,8 @@ export const ALBEDO = {
   /** Albedo grain: relative swing of the two sine-product octaves (about 20 m and 5 m periods), and of the rock strata. */
   grainCoarse: 0.35,
   grainFine: 0.3,
+  /** Metres the fine octave's coordinates are pushed by a slower sine, so its parallel stripes bend and do not read as hatching. */
+  fineWarp: 7,
   /** The fine octave fades out between these distances (metres): beyond them it is under a pixel and only shimmers. */
   fineNear: 250,
   fineFar: 700,
@@ -132,6 +134,13 @@ const FINE = [
 ] as const;
 const waves = (k: ReadonlyArray<readonly [number, number]>, a: number, b: number) =>
   k.reduce((sum, [ka, kb]) => sum + Math.sin(a * ka + b * kb), 0) / 3;
+/** `waves` of coordinates warped by a sine each (the shader's `warpq`): three plane waves alone make a regular lattice. */
+const wavesWarped = (k: ReadonlyArray<readonly [number, number]>, a: number, b: number) =>
+  waves(
+    k,
+    a + ALBEDO.fineWarp * Math.sin(b * 0.55 + 1.3),
+    b + ALBEDO.fineWarp * Math.sin(a * 0.47 + 0.7)
+  );
 
 /**
  * The multiplier on albedo that gives the surface grain and the rock its layers, at a surface point (metres) with unit
@@ -148,10 +157,12 @@ export function grainAt(
   distance: number
 ): number {
   const w = triWeights(n);
-  const over = (k: ReadonlyArray<readonly [number, number]>) =>
-    w[0] * waves(k, z, y) + w[1] * waves(k, x, z) + w[2] * waves(k, x, y);
-  const coarse = over(COARSE);
-  const fine = over(FINE) * (1 - smooth(ALBEDO.fineNear, ALBEDO.fineFar, distance));
+  const over = (
+    k: ReadonlyArray<readonly [number, number]>,
+    f: typeof waves
+  ) => w[0] * f(k, z, y) + w[1] * f(k, x, z) + w[2] * f(k, x, y);
+  const coarse = over(COARSE, waves);
+  const fine = over(FINE, wavesWarped) * (1 - smooth(ALBEDO.fineNear, ALBEDO.fineFar, distance));
   const layers = Math.sin(y * 0.9 + wobbleAt(x, y, z, n) * 3);
   return Math.max(
     0,
