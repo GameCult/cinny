@@ -39,6 +39,7 @@ globalStyle(within(scene), {
   // Blur with a light tint toward the sky, like the chat bubbles; never an opaque slab (PLATE_TINT).
   backgroundColor: [fill, `color-mix(in srgb, ${fill} ${PLATE_TINT * 100}%, transparent)`],
   backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
   color: text,
   // Themed ink was chosen for the clear shell; inside the plate every token reads the plate's.
   vars: {

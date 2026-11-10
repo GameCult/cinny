@@ -87,7 +87,7 @@ const defaultSettings: Settings = {
   encUrlPreview: false,
   showHiddenEvents: false,
   legacyUsernameColor: false,
-  poseBubbles: false,
+  poseBubbles: true,
 
   showNotifications: true,
   isNotificationSounds: true,
