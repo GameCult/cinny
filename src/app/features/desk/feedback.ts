@@ -21,17 +21,17 @@ export type Question = {
   body: string;
   /** `id` is the option's label. */
   options: { id: string; text: string }[];
-  /** An option label. Never preselected. */
-  recommendation?: string;
+  /** An option label; never nil. Never preselected. */
+  recommendation: string;
   /** `questionId` only where the line cites one question verbatim. */
   dependsOn: { text: string; questionId?: string }[];
   /** An ISO instant: the question's receipt `committed_at`. */
   askedAt: string;
   status: QuestionStatus;
   /**
-   * Publisher's sha256 over canonical JSON of what is shown (id, title, body, options, recommendation,
-   * depends). Slice 1 carries it and does not recompute it: the canonicalization has no golden vector
-   * pinned across Rust and TS yet, and a recompute against an unpinned form would prove nothing.
+   * Publisher's hash of what is shown. The desk recomputes it (optionsHash.ts, pinned to the CultLib vectors)
+   * and refuses to show or answer a card whose hash differs. The receiver rejects an answer carrying a hash
+   * it did not publish; sending is slice 2.
    */
   options_hash: string;
 };

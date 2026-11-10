@@ -72,7 +72,7 @@ export const Booth = style({
 });
 
 // PoseAvatar's button is laid out for message gutters; the booth takes it back into flow.
-globalStyle(`${Booth} > button`, {
+globalStyle(`${Booth} > [data-pose]`, {
   position: 'static',
   float: 'none',
   display: 'block',

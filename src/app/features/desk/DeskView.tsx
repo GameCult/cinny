@@ -38,6 +38,15 @@ function Row({ row }: { row: DeskRow }) {
   const phone = useScreenSizeContext() === ScreenSize.Mobile;
   // Phones list titles; a tap opens one. Wide screens show every row open.
   const [open, setOpen] = useState(!phone);
+  if (row.kind === 'unverified') {
+    return (
+      <li className={css.Row}>
+        <p className={css.Quiet}>
+          A question here does not match the hash it was published with, so it is not shown.
+        </p>
+      </li>
+    );
+  }
   if (row.kind === 'hidden') {
     return (
       <li className={css.Row}>
@@ -119,11 +128,13 @@ type DeskViewProps = {
   label: string;
   projection?: DeskProjection;
   now: number;
+  /** Fork ids whose options_hash failed the recompute (optionsHash.ts). */
+  unverified?: ReadonlySet<string>;
 };
 
 /** One Mind's desk, read-only: a stream of rows, the recorded rulings, and the booth Persona. */
-export function DeskView({ mind, label, projection, now }: DeskViewProps) {
-  const desk = buildDesk(projection, now);
+export function DeskView({ mind, label, projection, now, unverified }: DeskViewProps) {
+  const desk = buildDesk(projection, now, undefined, unverified);
   const mood = deskMood(desk.counts.open, desk.counts.answered);
   return (
     <section aria-label={`${label}'s desk`}>
@@ -137,7 +148,7 @@ export function DeskView({ mind, label, projection, now }: DeskViewProps) {
         {/* Only Minds with art in the catalogue get a booth; none gets another Mind's face. */}
         {desk.published && MINDS.includes(mind) && (
           <div className={css.Booth}>
-            <PoseAvatar mind={mind} pose={mood.pose} userId={mind} onClick={() => undefined} />
+            <PoseAvatar mind={mind} pose={mood.pose} userId={mind} />
             <Text className={css.BoothLine} size="T200" aria-live="polite">
               {mood.line}
             </Text>

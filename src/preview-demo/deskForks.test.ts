@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDesk, countOpen } from '../app/features/desk/buildDesk';
 import { deskFor, setDeskSource } from '../app/features/desk/source';
+import { unverifiedForks } from '../app/features/desk/optionsHash';
 import { demoDesk } from './deskForks';
 
 describe('the demo desks', () => {
@@ -26,5 +27,9 @@ describe('the demo desks', () => {
         'dependsOn' in q &&
         q.dependsOn.forEach((d) => d.questionId && expect(ids.has(d.questionId)).toBe(true))
     );
+  });
+  it('carry the hash of what they show, so the desk shows every seeded card', async () => {
+    expect(await unverifiedForks(demoDesk('nibu')?.questions ?? [])).toEqual(new Set());
+    expect(await unverifiedForks(demoDesk('eureka')?.questions ?? [])).toEqual(new Set());
   });
 });

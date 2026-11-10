@@ -4,16 +4,25 @@ import { DeskProjection, Question } from '../app/features/desk/feedback';
 
 const DAY = 24 * 60 * 60 * 1000;
 
+// Each question's options_hash over what it shows (optionsHash.ts); deskForks.test.ts fails if a seed is edited without it.
+const HASHES: Record<string, string> = {
+  'sky-label': '727c7944919baf8953a0473bcbb38837c2e83c87d97a31a09ed6506a0e3b4028',
+  'dusk-ink': 'e15b64509db522af68ad8904767edf0903a701809e50f1074c1c8b4b3660acae',
+  'ridge-low-tier': '6edd4a08b6c86703d91b3f48bd697aca16450111573a8e391e3dfe3adc6cbf5f',
+  'settled-window': 'b0dd0db3a37a256618d447ff8fb4067892b4f1f82d05a1e5bebf5563c447731c',
+};
+
 const fork = (mind: string, label: string, daysAgo: number, over: Partial<Question>): Question => ({
   fork_id: `demo:question:${label}`,
   owner: mind,
   title: label,
   body: '',
   options: [],
+  recommendation: '',
   dependsOn: [],
   askedAt: new Date(Date.now() - daysAgo * DAY).toISOString(),
   status: { state: 'open' },
-  options_hash: `demo-${label}`,
+  options_hash: HASHES[label],
   ...over,
 });
 
@@ -44,6 +53,12 @@ const SEEDS: Record<string, (now: number) => DeskProjection> = {
       }),
       fork('nibu', 'ridge-low-tier', 40, {
         title: 'Keep the ridge scene at the low tier?',
+        body: 'The ridge costs a little on older phones.',
+        options: [
+          { id: 'keep', text: 'Keep it' },
+          { id: 'drop', text: 'Drop it' },
+        ],
+        recommendation: 'keep',
         status: { state: 'answered', rulingId: 'demo:ruling:ridge-low-tier' },
       }),
     ],

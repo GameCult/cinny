@@ -8,10 +8,21 @@ import { DeskView, SIGN_IN_NOTE } from './DeskView';
 import { NOW, STATES } from './fixtures';
 import { setDeskSource } from './source';
 
-const view = (state: keyof typeof STATES, size: ScreenSize, mind = 'void') =>
+const view = (
+  state: keyof typeof STATES,
+  size: ScreenSize,
+  mind = 'void',
+  unverified = new Set<string>()
+) =>
   renderToStaticMarkup(
     <ScreenSizeProvider value={size}>
-      <DeskView mind={mind} label="Void" projection={STATES[state]} now={NOW} />
+      <DeskView
+        mind={mind}
+        label="Void"
+        projection={STATES[state]}
+        now={NOW}
+        unverified={unverified}
+      />
     </ScreenSizeProvider>
   );
 
@@ -76,6 +87,21 @@ describe('DeskView', () => {
     const html = view('noAnswers', ScreenSize.Desktop);
     expect(html).toContain('data-pose="thinking"');
     expect(html).toContain('Just one fork on the desk.');
+  });
+  it('makes the booth portrait a plain image: no button, no tab stop', () => {
+    const html = view('noAnswers', ScreenSize.Desktop);
+    const booth = html.slice(html.indexOf('data-pose'));
+    expect(booth).toContain('<img');
+    expect(html).not.toMatch(/<button[^>]*data-pose/);
+    expect(html).not.toMatch(/<[a-z]+[^>]*data-pose[^>]*tabindex/);
+    expect(html).toMatch(/<span[^>]*data-pose/);
+  });
+  it('withdraws a card whose hash does not match and does not count it open', () => {
+    const html = view('noAnswers', ScreenSize.Desktop, 'void', new Set(['c:question:plain']));
+    expect(html).toContain('does not match the hash it was published with');
+    expect(html).not.toContain('First way');
+    expect(html).not.toContain('Just one fork');
+    expect(html).toContain('Nothing is waiting');
   });
   it('shows no booth for a Mind without art rather than another face', () => {
     expect(view('noAnswers', ScreenSize.Desktop, 'nobody')).not.toContain('data-pose');

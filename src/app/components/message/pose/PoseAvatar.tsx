@@ -12,7 +12,8 @@ type PoseAvatarProps = {
   alt?: boolean;
   /** Play the first-appearance pop. */
   enter?: boolean;
-  onClick: React.MouseEventHandler<HTMLButtonElement>;
+  /** Without it the portrait is a plain image: no button, no tab stop. */
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
 };
 
 export function PoseAvatar({ mind, pose, userId, alt, enter, onClick }: PoseAvatarProps) {
@@ -43,9 +44,10 @@ export function PoseAvatar({ mind, pose, userId, alt, enter, onClick }: PoseAvat
     };
   }, [src, alt]);
 
+  const Tag = onClick ? 'button' : 'span';
   return (
-    <button
-      type="button"
+    <Tag
+      type={onClick ? 'button' : undefined}
       className={classNames(css.PoseButton, alt && css.PoseButtonAlt, enter && css.EnterPortrait)}
       style={{ shapeOutside: shape }}
       data-user-id={userId}
@@ -59,6 +61,6 @@ export function PoseAvatar({ mind, pose, userId, alt, enter, onClick }: PoseAvat
         alt={`${mind}, ${pose}`}
         draggable={false}
       />
-    </button>
+    </Tag>
   );
 }

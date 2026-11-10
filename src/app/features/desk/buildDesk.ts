@@ -28,6 +28,8 @@ export type AnswerRow = {
 
 export type DeskRow =
   | { kind: 'hidden'; forkId: string; hidden: Hidden }
+  /** Its published options_hash is not the hash of what it shows: neither shown nor counted. */
+  | { kind: 'unverified'; forkId: string }
   | {
       kind: 'question';
       forkId: string;
@@ -91,7 +93,12 @@ const standing = (answers: Answer[]): Answer[] => {
 export const countOpen = (p?: DeskProjection): number =>
   p?.questions.filter((q) => !isHiddenQuestion(q) && q.status.state === 'open').length ?? 0;
 
-export const buildDesk = (p: DeskProjection | undefined, now: number, viewerId?: string): Desk => {
+export const buildDesk = (
+  p: DeskProjection | undefined,
+  now: number,
+  viewerId?: string,
+  unverified: ReadonlySet<string> = new Set()
+): Desk => {
   if (!p?.syncedAt) {
     return {
       published: false,
@@ -122,6 +129,10 @@ export const buildDesk = (p: DeskProjection | undefined, now: number, viewerId?:
         return;
       }
       if (q.status.state !== 'open') return;
+      if (unverified.has(q.fork_id)) {
+        open.push({ kind: 'unverified', forkId: q.fork_id });
+        return;
+      }
       const mine = standing(p.answers.filter((a) => a.fork_id === q.fork_id));
       if (viewerId && mine.some((a) => a.answerer === viewerId && !a.hidden)) answered += 1;
       const days = ageDays(q.askedAt, now);
@@ -148,6 +159,6 @@ export const buildDesk = (p: DeskProjection | undefined, now: number, viewerId?:
     stale: now - Date.parse(p.syncedAt) > STALE_MS,
     open,
     recorded,
-    counts: { open: countOpen(p), answered },
+    counts: { open: open.filter((r) => r.kind === 'question').length, answered },
   };
 };

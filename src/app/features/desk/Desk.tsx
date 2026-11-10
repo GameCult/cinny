@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Icon, IconButton, Icons, Scroll, Text } from 'folds';
 import { Page, PageContent, PageContentCenter, PageHeader } from '../../components/page';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
 import { getHomePath } from '../../pages/pathUtils';
 import { DeskView } from './DeskView';
+import { unverifiedForks } from './optionsHash';
 import { deskFor } from './source';
 
 const labelOf = (mind: string) => mind.charAt(0).toUpperCase() + mind.slice(1);
@@ -15,6 +16,16 @@ export function Desk() {
   const navigate = useNavigate();
   const phone = useScreenSizeContext() === ScreenSize.Mobile;
   const label = labelOf(mind);
+  const projection = useMemo(() => deskFor(mind), [mind]);
+  // Until the recompute finishes nothing is flagged; a card that fails is withdrawn when it lands.
+  const [unverified, setUnverified] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    let live = true;
+    unverifiedForks(projection?.questions ?? []).then((bad) => live && setUnverified(bad));
+    return () => {
+      live = false;
+    };
+  }, [projection]);
 
   return (
     <Page>
@@ -35,7 +46,13 @@ export function Desk() {
         <Scroll hideTrack visibility="Hover">
           <PageContent>
             <PageContentCenter>
-              <DeskView mind={mind} label={label} projection={deskFor(mind)} now={Date.now()} />
+              <DeskView
+                mind={mind}
+                label={label}
+                projection={projection}
+                now={Date.now()}
+                unverified={unverified}
+              />
             </PageContentCenter>
           </PageContent>
         </Scroll>
