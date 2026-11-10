@@ -124,7 +124,7 @@ import { useRoomCreators } from '../../hooks/useRoomCreators';
 import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { useAccessiblePowerTagColors, useGetMemberPowerTag } from '../../hooks/useMemberPowerTag';
 import { useSkyInk, useTheme } from '../../hooks/useTheme';
-import { skyLabelInk } from '../scene/sceneShell.css';
+import { skyLabelInk } from '../scene/skyLabelInk';
 import { useRoomCreatorsTag } from '../../hooks/useRoomCreatorsTag';
 import { usePowerLevelTags } from '../../hooks/usePowerLevelTags';
 

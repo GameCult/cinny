@@ -1,6 +1,7 @@
 import { style } from '@vanilla-extract/css';
 import { config } from 'folds';
-import { skyLabelInk, surfaceInk } from '../scene/sceneShell.css';
+import { surfaceInk } from '../scene/sceneShell.css';
+import { skyLabelInk } from '../scene/skyLabelInk';
 
 export const CategoryButton = style({
   flexGrow: 1,
