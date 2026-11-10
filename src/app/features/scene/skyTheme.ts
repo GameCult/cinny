@@ -10,7 +10,7 @@
 // derived outside this code (src/sky/skyTokens.js). Midnight Sky's link is derived there against the lightest Night sky
 // (4.53 on it, 5.43 on the darkest). The plate (skyPlate.css.ts) is still in the shell, pending
 // its removal.
-import type { FixedSkyState, SkyState } from './skyState';
+import { resolveSkyState, type FixedSkyState, type SkyState } from './skyState';
 
 export type SkyThemeId = 'midnight-sky' | 'noonday-sky';
 
@@ -21,4 +21,4 @@ const BY_STATE: Record<FixedSkyState, SkyThemeId> = {
 };
 
 export const skyThemeId = (state: SkyState): SkyThemeId | undefined =>
-  state === 'auto' ? undefined : BY_STATE[state];
+  BY_STATE[resolveSkyState(state)];

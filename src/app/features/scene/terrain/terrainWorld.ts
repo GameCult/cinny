@@ -11,9 +11,9 @@ export const TERRAIN = { span: 3000, hmax: 256 };
  * under shading read from the height map shows as hard-edged facets and stepped crests.
  */
 export const GRID = {
-  still: { grid: 192, tex: 512 },
-  low: { grid: 320, tex: 1024 },
-  full: { grid: 384, tex: 1024 },
+  still: { grid: 256, tex: 1024 },
+  low: { grid: 512, tex: 1024 },
+  full: { grid: 768, tex: 2048 },
 } as const;
 
 /** The camera: at the patch centre, above the highest peak, turning slowly and looking a little down. */

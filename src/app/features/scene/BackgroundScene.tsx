@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { getFallbackSession } from '../../state/sessions';
 import { mountBackgroundScene } from './host';
 import { readCapabilities, resolveTier } from './tier';
+import { getSceneStyleOverride } from './sceneStyle';
 import './sceneShell.css';
 
 /** Set on <html> while a scene runs, so signed-out screens can let it show through. */
@@ -16,7 +17,11 @@ export const SCENE_ACTIVE_ATTRIBUTE = 'data-scene';
  * Tier 'off' renders nothing and loads nothing.
  */
 export function BackgroundScene() {
-  const config = useClientConfig().backgroundScene;
+  const configured = useClientConfig().backgroundScene;
+  const config = useMemo(() => {
+    const style = getSceneStyleOverride();
+    return configured && style ? { ...configured, style } : configured;
+  }, [configured]);
   const enabled = resolveTier(config, readCapabilities(navigator)) !== 'off';
   const canvasRef = useRef<HTMLCanvasElement>(null);
 

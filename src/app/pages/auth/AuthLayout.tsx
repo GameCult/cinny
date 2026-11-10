@@ -21,6 +21,7 @@ import {
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { LOGIN_PATH, REGISTER_PATH, RESET_PASSWORD_PATH } from '../paths';
 import RatatoskrSVG from '../../../../public/res/svg/ratatoskr.svg';
+import { SkyStateControl } from '../../features/scene/SkyStateControl';
 import { ServerPicker } from './ServerPicker';
 import { AutoDiscoveryAction, autoDiscovery } from '../../cs-api';
 import { SpecVersionsLoader } from '../../components/SpecVersionsLoader';
@@ -137,6 +138,7 @@ export function AuthLayout() {
               <img className={css.AuthLogo} src={RatatoskrSVG} alt="Ratatoskr logo" />
               <Text size="H3">Ratatoskr</Text>
             </Box>
+            <SkyStateControl />
           </Header>
           <Box className={css.AuthCardContent} direction="Column">
             <Box direction="Column" gap="100">

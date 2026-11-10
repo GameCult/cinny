@@ -1,9 +1,29 @@
 import React, { MouseEventHandler, useState } from 'react';
-import { Box, config, Icon, IconButton, Icons, Menu, MenuItem, PopOut, RectCords, Text } from 'folds';
+import {
+  Box,
+  config,
+  Icon,
+  IconButton,
+  Icons,
+  Menu,
+  MenuItem,
+  PopOut,
+  RectCords,
+  Text,
+} from 'folds';
 import FocusTrap from 'focus-trap-react';
 import { stopPropagation } from '../../utils/keyboard';
 import { useSkyState } from '../../hooks/useSkyState';
 import { SKY_STATES, setSkyState, type SkyState } from './skyState';
+import { useClientConfig } from '../../hooks/useClientConfig';
+import {
+  getSceneStyleOverride,
+  SERVED_SCENE_STYLES,
+  setSceneStyle,
+  type ServedSceneStyle,
+} from './sceneStyle';
+
+const STYLE_LABEL: Record<ServedSceneStyle, string> = { terrain: 'Terrain', ridge: 'Ridges' };
 
 const LABEL: Record<SkyState, string> = {
   auto: 'Auto',
@@ -19,6 +39,9 @@ const LABEL: Record<SkyState, string> = {
 export function SkyStateControl() {
   const state = useSkyState();
   const [cords, setCords] = useState<RectCords>();
+  const configuredStyle = useClientConfig().backgroundScene?.style;
+  const sceneStyle: ServedSceneStyle =
+    getSceneStyleOverride() ?? (configuredStyle === 'terrain' ? 'terrain' : 'ridge');
 
   const open: MouseEventHandler<HTMLButtonElement> = (evt) => {
     setCords(evt.currentTarget.getBoundingClientRect());
@@ -59,6 +82,32 @@ export function SkyStateControl() {
                 >
                   <Box grow="Yes">
                     <Text size="T300">{LABEL[s]}</Text>
+                  </Box>
+                </MenuItem>
+              ))}
+              <Text
+                size="L400"
+                priority="300"
+                style={{ padding: `${config.space.S200} ${config.space.S200} 0` }}
+              >
+                Background
+              </Text>
+              {SERVED_SCENE_STYLES.map((st) => (
+                <MenuItem
+                  key={st}
+                  size="300"
+                  variant="Surface"
+                  radii="300"
+                  role="menuitemradio"
+                  aria-checked={sceneStyle === st}
+                  onClick={() => {
+                    setCords(undefined);
+                    if (st !== sceneStyle) setSceneStyle(st);
+                  }}
+                  after={sceneStyle === st ? <Icon size="100" src={Icons.Check} /> : undefined}
+                >
+                  <Box grow="Yes">
+                    <Text size="T300">{STYLE_LABEL[st]}</Text>
                   </Box>
                 </MenuItem>
               ))}

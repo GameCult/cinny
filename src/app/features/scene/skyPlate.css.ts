@@ -7,7 +7,7 @@ import { MembersDrawer } from '../room/MembersDrawer.css';
 import { CallStatus } from '../call-status/styles.css';
 import { RoomViewFollowing } from '../room/RoomViewFollowing.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
-import { SKY_PLATE_FALLBACK } from './skyPlate';
+import { PLATE_TINT, SKY_PLATE_FALLBACK } from './skyPlate';
 
 // Over the scene (html[data-scene]) the signed-in shell is clear (sceneShell.css.ts), so text
 // outside a chat bubble would sit on bare sky, which a sky state can make light, dark or both
@@ -47,7 +47,9 @@ const within = (ancestor: string) =>
   plateRegions.map((r) => `${ancestor} ${r.startsWith('#root') ? '' : '#root '}${r}`).join(', ');
 
 globalStyle(within(scene), {
-  backgroundColor: fill,
+  // Blur with a light tint toward the sky, like the chat bubbles; never an opaque slab (PLATE_TINT).
+  backgroundColor: [fill, `color-mix(in srgb, ${fill} ${PLATE_TINT * 100}%, transparent)`],
+  backdropFilter: 'blur(12px)',
   color: text,
   // Themed ink was chosen for the clear shell; inside the plate every token reads the plate's.
   vars: {
