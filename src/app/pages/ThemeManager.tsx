@@ -11,7 +11,7 @@ import {
 import { useSetting } from '../state/hooks/settings';
 import { settingsAtom } from '../state/settings';
 import { labelInk } from '../features/scene/skyInk';
-import { SKY_LABEL_INK } from '../features/scene/sceneShell.css';
+import { SKY_LABEL_INK } from '../features/scene/skyLabelInk';
 
 export function UnAuthRouteThemeManager() {
   // Signed-out pages are Midnight Sky unless the sky state picks otherwise; they ignore the
