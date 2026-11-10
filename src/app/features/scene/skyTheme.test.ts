@@ -39,11 +39,17 @@ describe('skyThemeId', () => {
     expect(skyThemeId('night')).toBe('midnight-sky');
   });
 
-  it('picks none for auto, at any hour: auto never overrides a signed-in theme', () => {
+  it('picks the theme of the state auto resolves to, at any hour', () => {
     [0, 6, 12, 18, 23].forEach((h) => {
       setSkyClock(() => atStandardTime(h, 10));
-      expect(skyThemeId('auto')).toBeUndefined();
+      const id = skyThemeId('auto');
+      expect(id).toBeDefined();
+      expect(id).toBe(skyThemeId(getResolvedSkyState()));
     });
+    setSkyClock(() => atStandardTime(12));
+    expect(skyThemeId('auto')).toBe('noonday-sky');
+    setSkyClock(() => atStandardTime(0));
+    expect(skyThemeId('auto')).toBe('midnight-sky');
     setSkyClock();
   });
 
@@ -145,19 +151,26 @@ describe('regions that sit on the plate', () => {
   // and link of that plate are pinned above; this pins who is on it.
   const on = (cls: string) => expect(plateRegions).toContain(cls);
 
-  it('plates the composer, the members drawer, the call status bar and the call view', () => {
+  it('plates the composer, the call status bar and the call view', () => {
     on(`.${Editor}`);
-    on(`.${MembersDrawer}`);
     on(`.${CallStatus}`);
     on(`.${SkyPlate}`);
   });
 
-  it('plates the room list, list pages, typing and Following bars and every header', () => {
-    on(`.${PageNavContent}`);
-    on(`.${PageContent}`);
-    on(`.${RoomViewTyping}`);
-    on('#root header');
+  it('plates a message that is not a bubble, and nothing else of the signed-in shell', () => {
     expect(plateRegions.some((r) => r.includes(':not(:has('))).toBe(true);
+    expect(plateRegions).toHaveLength(4);
+  });
+
+  // Meta, 2026-11-09: no chrome. These are bare ink on the sky, not plates.
+  it('leaves title bars, the room list, list pages, the drawer and the bars over the composer bare', () => {
+    [
+      `.${MembersDrawer}`,
+      `.${PageNavContent}`,
+      `.${PageContent}`,
+      `.${RoomViewTyping}`,
+      '#root header',
+    ].forEach((cls) => expect(plateRegions).not.toContain(cls));
   });
 });
 

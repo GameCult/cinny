@@ -41,8 +41,13 @@ describe('grid', () => {
   });
 
   it('each tier fits a 32-bit index and the cheap tiers stay cheap', () => {
-    // 205k at 320 quads: a guess at what a phone carries (SwiftShader only, no phone frame time), kept as a ceiling so a bigger grid is a deliberate change.
-    expect(triangleCount(GRID.low.grid)).toBeLessThan(210000);
+    // 524k at 512 quads (low), 1.18M at 768 (full): Meta asked for denser terrain on 2026-11-10, up from 205k at 320. No
+    // phone frame time is measured (SwiftShader only); kept as a ceiling so a bigger grid is a deliberate change.
+    expect(triangleCount(GRID.low.grid)).toBeLessThan(540000);
+    expect(triangleCount(GRID.full.grid)).toBeLessThan(1200000);
+    (['still', 'low', 'full'] as const).forEach((t) =>
+      expect((GRID[t].grid + 1) ** 2).toBeLessThan(2 ** 32)
+    );
     expect(GRID.full.grid).toBeGreaterThan(GRID.low.grid);
     expect(GRID.still.tex).toBeLessThanOrEqual(GRID.low.tex);
   });

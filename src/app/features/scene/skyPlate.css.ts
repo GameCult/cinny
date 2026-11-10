@@ -1,12 +1,8 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { color, config } from 'folds';
 import { MessageBase, BubbleContent } from '../../components/message/layout/layout.css';
-import { PageContent, PageNavContent } from '../../components/page/style.css';
 import { Editor } from '../../components/editor/Editor.css';
-import { MembersDrawer } from '../room/MembersDrawer.css';
 import { CallStatus } from '../call-status/styles.css';
-import { RoomViewFollowing } from '../room/RoomViewFollowing.css';
-import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { PLATE_TINT, SKY_PLATE_FALLBACK } from './skyPlate';
 
 // Over the scene (html[data-scene]) the signed-in shell is clear (sceneShell.css.ts), so text
@@ -26,11 +22,6 @@ const base = (recipe: () => string) => `.${recipe().split(' ')[0]}`;
 
 // Meta, 2026-11-09: no chrome. Title bars, the room list, list pages, the drawer and the bars over the composer are bare
 // ink on the sky (dusk is allowed to be low contrast: it is the crossover between the light and dark inks).
-void PageNavContent;
-void PageContent;
-void MembersDrawer;
-void RoomViewTyping;
-void RoomViewFollowing;
 export const plateRegions = [
   `.${SkyPlate}`,
   // The composer and the call status bar.

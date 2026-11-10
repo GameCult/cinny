@@ -437,6 +437,30 @@ describe('createRidgeScene', () => {
     expect(parent.children.some((c: any) => c === readout)).toBe(false);
   });
 
+  it('a scene started at zero size paints nothing, then builds on the first non-zero resize', async () => {
+    const { parent, canvas } = host();
+    canvas.clientWidth = 0;
+    canvas.clientHeight = 0;
+    (window as any).innerWidth = 0;
+    (window as any).innerHeight = 0;
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY });
+    expect(s).not.toBeNull();
+    expect(parent.children).toEqual([canvas]);
+    expect(draws).toHaveLength(0);
+    // Still zero: a resize does not paint either.
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(parent.children).toEqual([canvas]);
+    (window as any).innerWidth = 400;
+    (window as any).innerHeight = 800;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(parent.children.slice(1)).toHaveLength(LAYERS.length);
+    expect(draws.filter((d) => d === 'sky')).toHaveLength(1);
+    s!.dispose();
+    expect(parent.children).toEqual([canvas]);
+  });
+
   it('dispose cancels the loop, the animations and the layers', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;

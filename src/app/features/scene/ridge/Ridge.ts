@@ -180,9 +180,18 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     built = undefined;
   };
 
-  /** Bake the sky, then the layers. Returns false when a 2D context is missing. */
+  /** True while the host has no area to paint (a scene started in a hidden or collapsed container). */
+  const hasNoArea = () => {
+    const { w, h, scale } = viewSize();
+    const size = layerSize(w, h, scale);
+    return size.period < 1 || size.height < 1 || Math.round(h * scale) < 1;
+  };
+
+  /** Bake the sky, then the layers. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardownLayers();
+    // A zero-size canvas throws on drawImage; wait for the first resize that gives the host an area.
+    if (hasNoArea()) return false;
     const { w, h, scale } = viewSize();
     const size = layerSize(w, h, scale);
     canvas.width = size.period;
@@ -343,7 +352,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     raf = requestAnimationFrame(tick);
   };
 
-  if (!build()) return null;
+  // No area yet is not a failure: the resize listener below builds once the host has one.
+  if (!build() && !hasNoArea()) return null;
   if (probe) {
     readout = document.createElement('div');
     Object.assign(readout.style, {
