@@ -38,7 +38,7 @@ import { useClosedNavCategoriesAtom } from '../../state/hooks/closedNavCategorie
 import { makeNavCategoryId } from '../../state/closedNavCategories';
 import { roomToUnreadAtom } from '../../state/room/roomToUnread';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
-import { EstateRoom, EstateTier } from './buildEstate';
+import { EstateGroup, EstateRoom, EstateTier, splitGroups } from './buildEstate';
 import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
@@ -167,25 +167,53 @@ function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
   );
 }
 
+function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
+  return (
+    <Collapsible categoryId={`${tierId}|${group.mind}`} label={group.label} rooms={group.rooms}>
+      {group.rooms.map((r) => (
+        <EstateRow key={r.roomId} room={r} />
+      ))}
+    </Collapsible>
+  );
+}
+
+/**
+ * Groups of rooms the user has not joined, behind one quiet entry. Closed until opened, on every screen; the opening is
+ * remembered per device like any other section.
+ */
+function Browse({ tierId, groups }: { tierId: string; groups: EstateGroup[] }) {
+  const [toggled, setToggled] = useAtom(useClosedNavCategoriesAtom());
+  const key = makeNavCategoryId('estate', 'browse', tierId);
+  const open = toggled.has(key);
+  const count = groups.reduce((n, g) => n + g.rooms.length, 0);
+
+  return (
+    <NavCategory>
+      <NavCategoryHeader>
+        <RoomNavCategoryButton
+          closed={!open}
+          onClick={() => setToggled({ type: open ? 'DELETE' : 'PUT', categoryId: key })}
+        >
+          {`Browse ${count} more ${count === 1 ? 'room' : 'rooms'}`}
+        </RoomNavCategoryButton>
+      </NavCategoryHeader>
+      {open && groups.map((g) => <GroupSection key={g.mind} tierId={tierId} group={g} />)}
+    </NavCategory>
+  );
+}
+
 function Tier({ tier }: { tier: EstateTier }) {
   const allRooms = useMemo(() => [...tier.loose, ...tier.groups.flatMap((g) => g.rooms)], [tier]);
+  const { front, browse } = useMemo(() => splitGroups(tier), [tier]);
   return (
     <Collapsible categoryId={tier.id} label={tier.label} rooms={allRooms}>
       {tier.loose.map((r) => (
         <EstateRow key={r.roomId} room={r} />
       ))}
-      {tier.groups.map((g) => (
-        <Collapsible
-          key={g.mind}
-          categoryId={`${tier.id}|${g.mind}`}
-          label={g.label}
-          rooms={g.rooms}
-        >
-          {g.rooms.map((r) => (
-            <EstateRow key={r.roomId} room={r} />
-          ))}
-        </Collapsible>
+      {front.map((g) => (
+        <GroupSection key={g.mind} tierId={tier.id} group={g} />
       ))}
+      {browse.length > 0 && <Browse tierId={tier.id} groups={browse} />}
     </Collapsible>
   );
 }
