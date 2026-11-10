@@ -36,11 +36,25 @@ describe('the sign-in footer band, as emitted', () => {
     expect(fills[1]).toContain('color-mix(');
   });
 
-  it('blurs what is behind it by a real radius', async () => {
+  it('blurs what is behind it by 12px, the radius of the chat bubbles', async () => {
     const [rule] = declarations(await emitted(), over);
-    const blur = rule.find((d) => d.startsWith('backdrop-filter:')) ?? '';
-    const radius = Number(blur.match(/^backdrop-filter: blur\((\d+(?:\.\d+)?)px\)$/)?.[1]);
-    expect(radius).toBeGreaterThan(0);
+    expect(rule.filter((d) => d.startsWith('backdrop-filter'))).toEqual([
+      'backdrop-filter: blur(12px)',
+    ]);
+  });
+
+  it('declares exactly these properties, so nothing else (a shadow, a prefixed override) rides along', async () => {
+    const [rule] = declarations(await emitted(), over);
+    expect(rule.map((d) => d.slice(0, d.indexOf(':'))).sort()).toEqual([
+      'backdrop-filter',
+      'background-color',
+      'background-color',
+      'color',
+      'mask-composite',
+      'mask-image',
+      'padding-bottom',
+      'padding-top',
+    ]);
   });
 
   it('fades along both axes over a soft ramp, not a hard edge', async () => {
@@ -68,5 +82,7 @@ describe('the sign-in footer band, as emitted', () => {
     [rule, base[0]].forEach((r) => {
       expect(r.filter((d) => /^(border|outline)/.test(d))).toEqual([]);
     });
+    // The base rule is only the footer's padding: nothing visible (a shadow, a fill) is hidden outside the scene rule.
+    expect(base[0].map((d) => d.slice(0, d.indexOf(':')))).toEqual(['padding']);
   });
 });
