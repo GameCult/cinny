@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildEstate, EstateHierarchyRoom, EstateInput, stewardOfChild } from './buildEstate';
+import {
+  buildEstate,
+  EstateHierarchyRoom,
+  EstateInput,
+  splitGroups,
+  stewardOfChild,
+} from './buildEstate';
 
 const ROOT = '!root:gamecult.org';
 const PROJECTS = '!projects:gamecult.org';
@@ -322,5 +328,36 @@ describe('direct invites', () => {
     expect(tiers[tiers.length - 1].loose).toEqual([
       { roomId: '!dm:x', name: 'Void', state: 'invited', via: [], parentId: null, direct: true },
     ]);
+  });
+});
+
+describe('splitGroups', () => {
+  const projects = (membership: EstateInput['membership']) =>
+    buildEstate(input({ membership })).find((t) => t.id === PROJECTS)!;
+  const labels = (gs: { mind: string }[]) => gs.map((g) => g.mind);
+
+  it('puts a group nobody has joined behind Browse, and keeps loose estate rooms out of it', () => {
+    const tier = projects(new Map());
+    const { front, browse } = splitGroups(tier);
+    expect(labels(front)).toEqual([]);
+    expect(labels(browse).sort()).toEqual(['eureka', 'void']);
+    expect(tier.loose.map((r) => r.name)).toEqual(['Misc']);
+  });
+
+  it('keeps a group up front once any room in it is joined, its unjoined siblings with it', () => {
+    const { front, browse } = splitGroups(projects(new Map([['!cultlib:gamecult.org', 'join']])));
+    expect(labels(front)).toEqual(['eureka']);
+    expect(labels(browse)).toEqual(['void']);
+  });
+
+  it('keeps a group up front for an invite, which is something to act on', () => {
+    const { front } = splitGroups(projects(new Map([['!aeth:gamecult.org', 'invite']])));
+    expect(labels(front)).toEqual(['void']);
+  });
+
+  it('loses no group: front and browse together are the tier groups', () => {
+    const tier = projects(new Map([['!cultlib:gamecult.org', 'join']]));
+    const { front, browse } = splitGroups(tier);
+    expect([...front, ...browse].sort((a, b) => a.mind.localeCompare(b.mind))).toEqual(tier.groups);
   });
 });

@@ -71,6 +71,20 @@ export type EstateInput = {
   mindLabels?: ReadonlyMap<string, string>;
 };
 
+/**
+ * A tier's project-room groups split for the navigator: a group the user is in anything of (joined, or invited, which is
+ * something to act on) stays up front; a group of rooms nobody has joined waits behind one Browse entry, so the first
+ * screen is conversations, not a wall of Join buttons. Loose (estate) rooms are never grouped away.
+ */
+export const splitGroups = (tier: EstateTier): { front: EstateGroup[]; browse: EstateGroup[] } => {
+  const front: EstateGroup[] = [];
+  const browse: EstateGroup[] = [];
+  tier.groups.forEach((g) =>
+    (g.rooms.some((r) => r.state !== 'joinable') ? front : browse).push(g)
+  );
+  return { front, browse };
+};
+
 export const DIRECT_TIER_ID = 'direct';
 export const ELSEWHERE_TIER_ID = 'elsewhere';
 
