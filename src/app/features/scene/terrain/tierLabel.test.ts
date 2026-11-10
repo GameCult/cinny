@@ -29,21 +29,27 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('showTierLabel', () => {
   it('adds nothing in a normal build', () => {
-    expect(showTierLabel(canvas(true), 'full')).toBeNull();
+    expect(showTierLabel(canvas(true), 'full', true)).toBeNull();
     expect(appended).toHaveLength(0);
   });
 
   it('names the path on screen when asked with ?tierlabel=1, and removes itself', () => {
     search = '?tierlabel=1';
-    const remove = showTierLabel(canvas(true), 'sky-only');
+    const remove = showTierLabel(canvas(true), 'sky-only', true);
     expect(appended).toHaveLength(1);
     expect(appended[0].textContent).toBe('terrain · sky-only');
     remove!();
     expect(appended[0].remove).toHaveBeenCalled();
   });
 
+  it('ignores ?tierlabel=1 where the overlays are not allowed (a production page)', () => {
+    search = '?tierlabel=1';
+    expect(showTierLabel(canvas(true), 'full', false)).toBeNull();
+    expect(appended).toHaveLength(0);
+  });
+
   it('has nowhere to go without a parent', () => {
     search = '?tierlabel=1';
-    expect(showTierLabel(canvas(false), 'full')).toBeNull();
+    expect(showTierLabel(canvas(false), 'full', true)).toBeNull();
   });
 });

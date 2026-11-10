@@ -428,13 +428,48 @@ describe('createRidgeScene', () => {
   it('?probe=1 keeps the rAF loop alive and shows median and p95', () => {
     search = '?probe=1';
     const { parent, canvas } = host();
-    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, debug: true })!;
     const readout = parent.children[parent.children.length - 1];
     runFrames(16.7, 300);
     expect(rafQueue.length).toBe(1); // still sampling
     expect(readout.textContent).toMatch(/median 16\.\d ms · p95 1[67]\.\d ms/);
     s.dispose();
     expect(parent.children.some((c: any) => c === readout)).toBe(false);
+  });
+
+  it('?probe=1 does nothing where the overlays are not allowed: no readout, the loop ends', () => {
+    search = '?probe=1';
+    const { parent, canvas } = host();
+    const before = parent.children.length;
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
+    expect(parent.children.length).toBe(before + LAYERS.length);
+    runFrames(16.7, 300);
+    expect(rafQueue.length).toBe(0);
+    s.dispose();
+  });
+
+  it('a scene started at zero size paints nothing, then builds on the first non-zero resize', async () => {
+    const { parent, canvas } = host();
+    canvas.clientWidth = 0;
+    canvas.clientHeight = 0;
+    (window as any).innerWidth = 0;
+    (window as any).innerHeight = 0;
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY });
+    expect(s).not.toBeNull();
+    expect(parent.children).toEqual([canvas]);
+    expect(draws).toHaveLength(0);
+    // Still zero: a resize does not paint either.
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(parent.children).toEqual([canvas]);
+    (window as any).innerWidth = 400;
+    (window as any).innerHeight = 800;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(parent.children.slice(1)).toHaveLength(LAYERS.length);
+    expect(draws.filter((d) => d === 'sky')).toHaveLength(1);
+    s!.dispose();
+    expect(parent.children).toEqual([canvas]);
   });
 
   it('dispose cancels the loop, the animations and the layers', () => {

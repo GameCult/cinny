@@ -18,3 +18,11 @@ export const SKY_PLATE_FALLBACK = {
  * on, the worst link contrast is 5.0 at Dusk, 5.7 at Day and 11.2 at Night.
  */
 export const FOOTER_TINT = 0.82;
+
+/**
+ * How much of the plate's fill (--sky-bubble) is mixed over the blurred scene behind a plate (title bars, lists, the
+ * composer, the sign-in card). Meta, 2026-11-09: "The app shouldn't need chrome, and where it does help for readability it
+ * should be like the chat bubbles, blur with a bit of tint towards the background color. If that's not working, the fix
+ * is in the background, not covering it up."
+ */
+export const PLATE_TINT = 0.45;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, NIGHT_SKY_LIGHTEST, contrast, luminance } from '../../../sky/skyTokens.js';
@@ -9,10 +9,15 @@ import { MembersDrawer } from '../room/MembersDrawer.css';
 import { RoomViewTyping } from '../room/RoomViewTyping.css';
 import { FOOTER_TINT, SKY_PLATE_FALLBACK } from './skyPlate';
 import { SkyPlate, plateRegions } from './skyPlate.css';
-import { getResolvedSkyState, setSkyClock, skyBackdrop } from './skyState';
+import {
+  getResolvedSkyState,
+  setSkyClock,
+  skyBackdrop,
+  subscribe as subscribeSky,
+} from './skyState';
 import type { SkyBackdrop } from './skyState';
 import type { FixedSkyState } from './skyBand';
-import { skyThemeId } from './skyTheme';
+import { sceneThemeId, skyThemeId } from './skyTheme';
 
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
 const fixed = (['day', 'dusk', 'night'] as const).flatMap((s) => {
@@ -44,6 +49,42 @@ describe('skyThemeId', () => {
       setSkyClock(() => atStandardTime(h, 10));
       expect(skyThemeId('auto')).toBeUndefined();
     });
+    setSkyClock();
+  });
+
+  describe('sceneThemeId, the theme the page wears', () => {
+    it('a fixed state always picks its theme, whatever the scene or the person chose', () => {
+      [true, false].forEach((scene) =>
+        [true, false].forEach((chose) => {
+          expect(sceneThemeId('day', 'night', scene, chose)).toBe('noonday-sky');
+          expect(sceneThemeId('night', 'day', scene, chose)).toBe('midnight-sky');
+        })
+      );
+    });
+
+    it('auto follows the resolved sky only while a scene is on and the person chose no theme', () => {
+      expect(sceneThemeId('auto', 'day', true, false)).toBe('noonday-sky');
+      expect(sceneThemeId('auto', 'dusk', true, false)).toBe('noonday-sky');
+      expect(sceneThemeId('auto', 'night', true, false)).toBe('midnight-sky');
+      expect(sceneThemeId('auto', 'day', false, false)).toBeUndefined();
+      expect(sceneThemeId('auto', 'day', true, true)).toBeUndefined();
+    });
+  });
+
+  it('the resolved sky a hook subscribes to changes as the clock crosses, so theme classes follow', () => {
+    vi.useFakeTimers();
+    let hour = 12;
+    setSkyClock(() => atStandardTime(hour, 10));
+    const seen: string[] = [];
+    const off = subscribeSky((s) => seen.push(s));
+    expect(getResolvedSkyState()).toBe('day');
+    hour = 0;
+    setSkyClock(() => atStandardTime(hour, 10));
+    vi.advanceTimersByTime(61_000);
+    expect(seen).toEqual(['night']);
+    expect(getResolvedSkyState()).toBe('night');
+    off();
+    vi.useRealTimers();
     setSkyClock();
   });
 
@@ -145,19 +186,26 @@ describe('regions that sit on the plate', () => {
   // and link of that plate are pinned above; this pins who is on it.
   const on = (cls: string) => expect(plateRegions).toContain(cls);
 
-  it('plates the composer, the members drawer, the call status bar and the call view', () => {
+  it('plates the composer, the call status bar and the call view', () => {
     on(`.${Editor}`);
-    on(`.${MembersDrawer}`);
     on(`.${CallStatus}`);
     on(`.${SkyPlate}`);
   });
 
-  it('plates the room list, list pages, typing and Following bars and every header', () => {
-    on(`.${PageNavContent}`);
-    on(`.${PageContent}`);
-    on(`.${RoomViewTyping}`);
-    on('#root header');
+  it('plates a message that is not a bubble, and nothing else of the signed-in shell', () => {
     expect(plateRegions.some((r) => r.includes(':not(:has('))).toBe(true);
+    expect(plateRegions).toHaveLength(4);
+  });
+
+  // Meta, 2026-11-09: no chrome. These are bare ink on the sky, not plates.
+  it('leaves title bars, the room list, list pages, the drawer and the bars over the composer bare', () => {
+    [
+      `.${MembersDrawer}`,
+      `.${PageNavContent}`,
+      `.${PageContent}`,
+      `.${RoomViewTyping}`,
+      '#root header',
+    ].forEach((cls) => expect(plateRegions).not.toContain(cls));
   });
 });
 

@@ -5,10 +5,11 @@ import { surfaceInk } from '../../features/scene/sceneShell.css';
 
 // Wash strengths over the scene: rows and labels are faint, and hover, selected and pressed rows
 // are three distinct steps above them.
-const SCRIM_LABEL = '12%';
-const SCRIM_ROW = '16%';
-const SCRIM_HOVER = '26%';
-const SCRIM_SELECTED = '36%';
+// Meta, 2026-11-09: "this UI needs no chrome". Rows and labels are bare ink on the scene; hover and selection keep a faint wash.
+const SCRIM_LABEL = '0%';
+const SCRIM_ROW = '0%';
+const SCRIM_HOVER = '14%';
+const SCRIM_SELECTED = '22%';
 const SCRIM_PRESSED = '48%';
 
 export const NavCategory = style([

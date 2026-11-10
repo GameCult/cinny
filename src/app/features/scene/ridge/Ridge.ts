@@ -1,4 +1,5 @@
 import type { Scene, SceneOptions } from '../Scene';
+import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
@@ -14,8 +15,10 @@ import {
 } from './ridgeWorld';
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
-  /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`. */
+  /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`, where `debug` allows it. */
   probe?: boolean;
+  /** The diagnostic overlays may be asked for by URL (debugOverlays.ts). Default: no. */
+  debug?: boolean;
   /** Each time the readout would update, and once with `still` when the fallback fires. */
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
@@ -151,7 +154,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   const parent = canvas.parentElement;
   if (!parent) return null;
   const sky = opts.sky ?? skyColours();
-  const probe = opts.probe ?? new URLSearchParams(window.location.search).get('probe') === '1';
+  const probe = opts.probe ?? overlayRequested('probe', opts.debug === true);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   let built: Built | undefined;
@@ -180,9 +183,18 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     built = undefined;
   };
 
-  /** Bake the sky, then the layers. Returns false when a 2D context is missing. */
+  /** True while there is nothing to paint on: the canvas has no client size and the window itself is 0 x 0 (`viewSize` falls back to the window). */
+  const hasNoArea = () => {
+    const { w, h, scale } = viewSize();
+    const size = layerSize(w, h, scale);
+    return size.period < 1 || size.height < 1 || Math.round(h * scale) < 1;
+  };
+
+  /** Bake the sky, then the layers. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardownLayers();
+    // A zero-size canvas throws on drawImage; wait for the first resize that gives the host an area.
+    if (hasNoArea()) return false;
     const { w, h, scale } = viewSize();
     const size = layerSize(w, h, scale);
     canvas.width = size.period;
@@ -343,7 +355,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     raf = requestAnimationFrame(tick);
   };
 
-  if (!build()) return null;
+  // No area yet is not a failure: the resize listener below builds once the host has one.
+  if (!build() && !hasNoArea()) return null;
   if (probe) {
     readout = document.createElement('div');
     Object.assign(readout.style, {

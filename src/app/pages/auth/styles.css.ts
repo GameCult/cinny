@@ -1,6 +1,6 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { DefaultReset, color, config, toRem } from 'folds';
-import { FOOTER_TINT } from '../../features/scene/skyPlate';
+import { FOOTER_TINT, PLATE_TINT } from '../../features/scene/skyPlate';
 
 export const AuthLayout = style({
   minHeight: '100%',
@@ -27,8 +27,8 @@ export const AuthCard = style({
 export const AuthLogo = style([
   DefaultReset,
   {
-    width: toRem(26),
-    height: toRem(26),
+    width: toRem(32),
+    height: toRem(32),
 
     borderRadius: '50%',
   },
@@ -67,22 +67,37 @@ export const AuthFooter = style({
 // made for their own grounds, not this card; Dark and Butter already use the same hsl(213 100% 80%).
 // The card is also made shorter so it leaves more of the scene visible on a phone.
 const scene = ':root[data-scene]';
+const tint = `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${FOOTER_TINT * 100}%, transparent)`;
 globalStyle(`${scene} ${AuthLayout}`, {
   backgroundColor: 'transparent',
   backgroundImage: 'none',
 });
 globalStyle(`${scene} ${AuthCard}`, {
-  backgroundColor: 'var(--sky-bubble, #0d1a26)',
+  // Meta, 2026-11-09: no chrome; where readability needs help, the chat-bubble treatment (blur with a tint toward the
+  // background), and if that is not enough the fix goes in the background, not in a plate. Same tint as the footer band.
+  backgroundColor: [
+    'var(--sky-bubble, #0d1a26)',
+    `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${PLATE_TINT * 100}%, transparent)`,
+  ],
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
   color: 'var(--sky-bubble-text, #b7c7d9)',
   borderRadius: config.radii.R500,
-  // A faint inner edge, so a pane this clear still reads as a surface.
-  borderColor: 'rgba(183, 199, 217, 0.14)',
+  border: 'none',
+  boxShadow: 'none',
 });
 globalStyle(`${scene} body:not(.gamecult-theme) ${AuthCard}`, {
   vars: { '--tc-link': '#99c7ff' },
 });
 globalStyle(`${scene} ${AuthHeader}`, {
   backgroundColor: 'transparent',
+  borderBottomWidth: 0,
+  boxShadow: 'none',
+});
+globalStyle(`${scene} #root header.${AuthHeader}`, {
+  backgroundColor: 'transparent',
+  backdropFilter: 'none',
+  WebkitBackdropFilter: 'none',
 });
 globalStyle(`${scene} ${AuthCardContent}`, {
   paddingTop: config.space.S500,
@@ -99,12 +114,12 @@ const FADE_Y =
   'linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 16px), transparent)';
 const FADE_X =
   'linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent)';
-const tint = `color-mix(in srgb, var(--sky-bubble, #0d1a26) ${FOOTER_TINT * 100}%, transparent)`;
 globalStyle(`${scene} ${AuthFooter}`, {
   paddingTop: config.space.S500,
   paddingBottom: config.space.S500,
   backgroundColor: ['var(--sky-bubble, #0d1a26)', tint],
   backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
   maskImage: `${FADE_Y}, ${FADE_X}`,
   maskComposite: 'intersect',
   color: 'var(--sky-bubble-text, #b7c7d9)',

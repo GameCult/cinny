@@ -1,13 +1,9 @@
 import { globalStyle, style } from '@vanilla-extract/css';
 import { color, config } from 'folds';
 import { MessageBase, BubbleContent } from '../../components/message/layout/layout.css';
-import { PageContent, PageNavContent } from '../../components/page/style.css';
 import { Editor } from '../../components/editor/Editor.css';
-import { MembersDrawer } from '../room/MembersDrawer.css';
 import { CallStatus } from '../call-status/styles.css';
-import { RoomViewFollowing } from '../room/RoomViewFollowing.css';
-import { RoomViewTyping } from '../room/RoomViewTyping.css';
-import { SKY_PLATE_FALLBACK } from './skyPlate';
+import { PLATE_TINT, SKY_PLATE_FALLBACK } from './skyPlate';
 
 // Over the scene (html[data-scene]) the signed-in shell is clear (sceneShell.css.ts), so text
 // outside a chat bubble would sit on bare sky, which a sky state can make light, dark or both
@@ -24,20 +20,13 @@ export const SkyPlate = style({});
 // A recipe's first class is its base style.
 const base = (recipe: () => string) => `.${recipe().split(' ')[0]}`;
 
+// Meta, 2026-11-09: no chrome. Title bars, the room list, list pages, the drawer and the bars over the composer are bare
+// ink on the sky (dusk is allowed to be low contrast: it is the crossover between the light and dark inks).
 export const plateRegions = [
   `.${SkyPlate}`,
-  // Title bars: the room header, the room list's header, every page header.
-  '#root header',
-  // The room list, and the pages that are lists (explore, inbox, search).
-  `.${PageNavContent}`,
-  `.${PageContent}`,
-  // The composer, the members drawer, and the call status bar.
+  // The composer and the call status bar.
   `.${Editor}`,
-  `.${MembersDrawer}`,
   `.${CallStatus}`,
-  // The bars over the composer.
-  `.${RoomViewTyping}`,
-  base(RoomViewFollowing),
   // A message that is not a bubble (Modern, Compact) is plain text on the scene.
   `${base(MessageBase)}:not(:has(.${BubbleContent}))`,
 ];
@@ -47,7 +36,10 @@ const within = (ancestor: string) =>
   plateRegions.map((r) => `${ancestor} ${r.startsWith('#root') ? '' : '#root '}${r}`).join(', ');
 
 globalStyle(within(scene), {
-  backgroundColor: fill,
+  // Blur with a light tint toward the sky, like the chat bubbles; never an opaque slab (PLATE_TINT).
+  backgroundColor: [fill, `color-mix(in srgb, ${fill} ${PLATE_TINT * 100}%, transparent)`],
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
   color: text,
   // Themed ink was chosen for the clear shell; inside the plate every token reads the plate's.
   vars: {

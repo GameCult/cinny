@@ -3,9 +3,9 @@ import React, { ReactNode, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RoomEvent, RoomEventHandlerMap } from 'matrix-js-sdk';
 import { roomToUnreadAtom, unreadEqual, unreadInfoToUnread } from '../../state/room/roomToUnread';
-import LogoSVG from '../../../../public/res/svg/ratatoskr.svg';
-import LogoUnreadSVG from '../../../../public/res/svg/ratatoskr-unread.svg';
-import LogoHighlightSVG from '../../../../public/res/svg/ratatoskr-highlight.svg';
+import FaviconSVG from '../../../../public/res/svg/ratatoskr-favicon.svg';
+import FaviconUnreadSVG from '../../../../public/res/svg/ratatoskr-favicon-unread.svg';
+import FaviconHighlightSVG from '../../../../public/res/svg/ratatoskr-favicon-highlight.svg';
 import NotificationSound from '../../../../public/sound/notification.ogg';
 import InviteSound from '../../../../public/sound/invite.ogg';
 import { notificationPermission, setFavicon } from '../../utils/dom';
@@ -67,9 +67,9 @@ function FaviconUpdater() {
     });
 
     if (notification) {
-      setFavicon(highlight ? LogoHighlightSVG : LogoUnreadSVG);
+      setFavicon(highlight ? FaviconHighlightSVG : FaviconUnreadSVG);
     } else {
-      setFavicon(LogoSVG);
+      setFavicon(FaviconSVG);
     }
   }, [roomToUnread]);
 
@@ -89,8 +89,8 @@ function InviteNotifications() {
   const notify = useCallback(
     (count: number) => {
       const noti = new window.Notification('Invitation', {
-        icon: LogoSVG,
-        badge: LogoSVG,
+        icon: FaviconSVG,
+        badge: FaviconSVG,
         body: `You have ${count} new invitation request.`,
         silent: true,
       });

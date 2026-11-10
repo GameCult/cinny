@@ -1,4 +1,5 @@
 /* eslint-disable import/first */
+import './polyfills';
 import './preview-demo/seed';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
