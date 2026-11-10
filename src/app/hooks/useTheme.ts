@@ -13,7 +13,9 @@ import '../../sky.css';
 import { defaultThemeId, settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
 import { sceneThemeId } from '../features/scene/skyTheme';
+import { sceneInk, type SkyInk } from '../features/scene/skyInk';
 import { useResolvedSkyState, useSceneOn, useSkyState } from './useSkyState';
+import { ScreenSize, useScreenSizeContext } from './useScreenSize';
 
 export enum ThemeKind {
   Light = 'light',
@@ -113,18 +115,39 @@ const chosenTheme = (useSystemTheme: boolean, themeId?: string) =>
 export const useSkyTheme = (): Theme | undefined =>
   toTheme(sceneThemeId(useSkyState(), useResolvedSkyState(), useSceneOn(), false));
 
-export const useActiveTheme = (): Theme => {
+/** The sky theme the signed-in page wears, or undefined when the person's own theme wins. */
+const useSceneSkyThemeId = (): ReturnType<typeof sceneThemeId> => {
   const sky = useSkyState();
   const resolved = useResolvedSkyState();
   const sceneOn = useSceneOn();
+  const [systemTheme] = useSetting(settingsAtom, 'useSystemTheme');
+  const [themeId] = useSetting(settingsAtom, 'themeId');
+  // A person's own theme wins over 'auto'; a fixed sky state is itself a choice and wins over the theme.
+  return sceneThemeId(sky, resolved, sceneOn, chosenTheme(systemTheme, themeId));
+};
+
+/** The ink the page wears over the scene (`sceneInk`, skyInk.ts), or undefined when the theme's own ink stands. */
+export const useSceneInk = (): SkyInk | undefined => {
+  const themeId = useSceneSkyThemeId();
+  const state = useResolvedSkyState();
+  const sceneOn = useSceneOn();
+  const phone = useScreenSizeContext() === ScreenSize.Mobile;
+  return useMemo(() => sceneInk(themeId, sceneOn, state, phone), [themeId, sceneOn, state, phone]);
+};
+
+const SkyInkContext = createContext<SkyInk | undefined>(undefined);
+export const SkyInkContextProvider = SkyInkContext.Provider;
+/** The ink for this sky state and viewport (provided once by the theme manager), or undefined for the theme's own. */
+export const useSkyInk = (): SkyInk | undefined => useContext(SkyInkContext);
+
+export const useActiveTheme = (): Theme => {
   const systemThemeKind = useSystemThemeKind();
   const themes = useThemes();
   const [systemTheme] = useSetting(settingsAtom, 'useSystemTheme');
   const [themeId] = useSetting(settingsAtom, 'themeId');
   const [lightThemeId] = useSetting(settingsAtom, 'lightThemeId');
   const [darkThemeId] = useSetting(settingsAtom, 'darkThemeId');
-  // A person's own theme wins over 'auto'; a fixed sky state is itself a choice and wins over the theme.
-  const skyTheme = toTheme(sceneThemeId(sky, resolved, sceneOn, chosenTheme(systemTheme, themeId)));
+  const skyTheme = toTheme(useSceneSkyThemeId());
 
   if (skyTheme) return skyTheme;
 

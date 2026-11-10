@@ -10,16 +10,20 @@ function hashCode(str) {
   for (i = 0; i < str.length; i += 1) {
     chr = str.charCodeAt(i);
     // eslint-disable-next-line no-bitwise
-    hash = ((hash << 5) - hash) + chr;
+    hash = (hash << 5) - hash + chr;
     // eslint-disable-next-line no-bitwise
     hash |= 0;
   }
   return Math.abs(hash);
 }
 
+/** Which of the eight user colours (1..8) a user id takes. */
+export function indexColorMXID(userId) {
+  return (hashCode(userId) % 8) + 1;
+}
+
 export function cssColorMXID(userId) {
-  const colorNumber = hashCode(userId) % 8;
-  return `--mx-uc-${colorNumber + 1}`;
+  return `--mx-uc-${indexColorMXID(userId)}`;
 }
 
 export default function colorMXID(userId) {

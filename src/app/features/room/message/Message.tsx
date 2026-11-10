@@ -82,6 +82,8 @@ import { useRoomPinnedEvents } from '../../../hooks/useRoomPinnedEvents';
 import { MemberPowerTag, StateEvent } from '../../../../types/matrix/room';
 import { PowerIcon } from '../../../components/power';
 import colorMXID from '../../../../util/colorMXID';
+import { useSkyInk } from '../../../hooks/useTheme';
+import { userColorInk } from '../../scene/skyInk';
 import { getPowerTagIconSrc } from '../../../hooks/useMemberPowerTag';
 
 export type ReactionHandler = (keyOrMxc: string, shortcode: string) => void;
@@ -723,6 +725,7 @@ export const Message = as<'div', MessageProps>(
     ref
   ) => {
     const mx = useMatrixClient();
+    const skyInk = useSkyInk();
     const useAuthentication = useMediaAuthentication();
     const senderId = mEvent.getSender() ?? '';
 
@@ -743,7 +746,8 @@ export const Message = as<'div', MessageProps>(
       ? getPowerTagIconSrc(mx, useAuthentication, memberPowerTag.icon)
       : undefined;
 
-    const usernameColor = legacyUsernameColor ? colorMXID(senderId) : tagColor;
+    const hashColor = skyInk ? userColorInk(senderId, skyInk) : colorMXID(senderId);
+    const usernameColor = legacyUsernameColor ? hashColor : tagColor;
 
     const headerJSX = !collapse && (
       <Box
