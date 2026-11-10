@@ -117,7 +117,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
   return (
     <Page ref={roomViewRef}>
       <Box grow="Yes" direction="Column">
-        {isZone && (
+        {isZone && !eventId && (
           <button
             type="button"
             className={albumCss.Back}

@@ -6,8 +6,11 @@ describe('zoneView', () => {
     expect(zoneView(undefined, undefined)).toBe('albums');
     expect(zoneView(undefined, '$e')).toBe('timeline');
   });
-  it('lets the user go back to albums or on to the timeline whatever the link said', () => {
-    expect(zoneView('albums', '$e')).toBe('albums');
+  it('lets an event link win over an earlier choice of albums', () => {
+    expect(zoneView('albums', '$e')).toBe('timeline');
+  });
+  it('honours the choice when there is no event link', () => {
+    expect(zoneView('albums', undefined)).toBe('albums');
     expect(zoneView('timeline', undefined)).toBe('timeline');
   });
 });

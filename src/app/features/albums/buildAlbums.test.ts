@@ -120,7 +120,7 @@ describe('buildAlbums', () => {
     const a = one({ event_id: '$r', content: { msgtype: 'm.text' } }, [
       { event_id: '$a', content: { msgtype: 'm.audio' } },
     ]);
-    expect(a).toMatchObject({ title: '', author: '', ts: 0, count: 1 });
+    expect(a).toMatchObject({ title: 'Untitled album', author: '', ts: 0, count: 1 });
   });
 
   it('does not read inherited object keys as file kinds', () => {
@@ -158,5 +158,59 @@ describe('buildAlbums', () => {
     expect(one(edited, []).title).toBe('renamed');
     const emptyEdit = root('$q', 1, { unsigned: { 'm.relations': { 'm.replace': {} } } });
     expect(one(emptyEdit, []).title).toBe('album $q');
+  });
+
+  it('survives null or non-object entries in inputs and replies', () => {
+    const bad = [null, undefined, 'x', 7] as unknown as ZoneEvent[];
+    const a = buildAlbums([
+      null as unknown as AlbumInput,
+      { root: null as unknown as ZoneEvent, replies: [] },
+      { root: root('$r', 1), replies: [...bad, reply('$ok', 2, 'm.audio')] },
+      { root: root('$s', 2), replies: null as unknown as ZoneEvent[] },
+    ]);
+    expect(a.map((x) => x.id)).toEqual(['$s', '$r']);
+    expect(a[1].files.map((f) => f.id)).toEqual(['$ok']);
+  });
+
+  it('treats a non-numeric timestamp as 0 so it sorts first, not by string order', () => {
+    const a = one(root('$r', 1), [
+      reply('$b', 20, 'm.audio'),
+      { ...reply('$bad', 0, 'm.audio'), origin_server_ts: '5' as unknown as number },
+      { ...reply('$nan', 0, 'm.audio'), origin_server_ts: NaN },
+      reply('$a', 10, 'm.audio'),
+    ]);
+    expect(a.files.map((f) => f.id)).toEqual(['$bad', '$nan', '$a', '$b']);
+    const albums = buildAlbums([
+      { root: root('$x', 100), replies: [] },
+      { root: root('$y', 0, { origin_server_ts: '999' as unknown as number }), replies: [] },
+    ]);
+    expect(albums.map((x) => [x.id, x.ts])).toEqual([
+      ['$x', 100],
+      ['$y', 0],
+    ]);
+  });
+
+  it('gives an album with an empty body a fallback title', () => {
+    expect(one(root('$r', 1, { content: { msgtype: 'm.text', body: '' } }), []).title).toBe(
+      'Untitled album'
+    );
+    expect(one(root('$q', 1, { content: { msgtype: 'm.text' } }), []).title).toBe('Untitled album');
+  });
+
+  it('never counts an edit event as a file or an album', () => {
+    const edit = reply('$e', 9, 'm.audio', '* x', {
+      'm.relates_to': { rel_type: 'm.replace', event_id: '$a' },
+      'm.new_content': { msgtype: 'm.audio', body: 'x' },
+    });
+    const a = one(root('$r', 1), [reply('$a', 5, 'm.audio'), edit]);
+    expect(a.files.map((f) => f.id)).toEqual(['$a']);
+    const rootEdit = root('$re', 1, {
+      content: { msgtype: 'm.text', body: '* t', 'm.relates_to': { rel_type: 'm.replace' } },
+    });
+    expect(buildAlbums([{ root: rootEdit, replies: [] }])).toEqual([]);
+    const threaded = reply('$t', 6, 'm.audio', 't', {
+      'm.relates_to': { rel_type: 'm.thread', event_id: '$r' },
+    });
+    expect(one(root('$q', 1), [threaded]).count).toBe(1);
   });
 });

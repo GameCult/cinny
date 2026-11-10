@@ -47,10 +47,16 @@ const KIND_OF_MSGTYPE = new Map<string, FileKind>([
 const live = (
   e: ZoneEvent
 ): e is ZoneEvent & { event_id: string; content: Record<string, unknown> } =>
+  !!e &&
+  typeof e === 'object' &&
   !!e.event_id &&
+  // An edit is an m.room.message too, but it revises an event; it is never a file or an album.
+  (e.content?.['m.relates_to'] as { rel_type?: unknown } | undefined)?.rel_type !== 'm.replace' &&
   !e.unsigned?.redacted_because &&
   (e.type === undefined || e.type === 'm.room.message') &&
   typeof e.content?.msgtype === 'string';
+
+const tsOf = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
@@ -62,10 +68,12 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     id: e.event_id,
     kind,
     name: asString(e.content.filename) || asString(e.content.body),
-    ts: e.origin_server_ts ?? 0,
+    ts: tsOf(e.origin_server_ts),
     content: e.content,
   };
 };
+
+export const UNTITLED = 'Untitled album';
 
 // An edited root carries its latest edit under unsigned["m.relations"]["m.replace"]; the title is
 // that edit's m.new_content.body, else the original body.
@@ -73,13 +81,14 @@ const titleOf = (root: ZoneEvent & { content: Record<string, unknown> }): string
   const relations = root.unsigned?.['m.relations'] as Record<string, unknown> | undefined;
   const edit = relations?.['m.replace'] as ZoneEvent | undefined;
   const edited = (edit?.content?.['m.new_content'] as Record<string, unknown> | undefined)?.body;
-  return asString(edited) || asString(root.content.body);
+  return asString(edited) || asString(root.content.body) || UNTITLED;
 };
 
-const toAlbum = ({ root, replies }: AlbumInput): Album | undefined => {
+const toAlbum = (input: AlbumInput): Album | undefined => {
+  const { root, replies } = input ?? {};
   if (!live(root)) return undefined;
   const seen = new Set<string>();
-  const files = replies
+  const files = (Array.isArray(replies) ? replies : [])
     .map(toFile)
     .filter((f): f is AlbumFile => {
       if (!f || seen.has(f.id)) return false;
@@ -91,7 +100,7 @@ const toAlbum = ({ root, replies }: AlbumInput): Album | undefined => {
     id: root.event_id,
     title: titleOf(root),
     author: root.sender ?? '',
-    ts: root.origin_server_ts ?? 0,
+    ts: tsOf(root.origin_server_ts),
     cover: files.find((f) => f.kind === 'image'),
     files,
     count: files.length,
