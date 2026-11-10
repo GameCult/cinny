@@ -35,6 +35,7 @@ import {
 } from './loginUtil';
 import { PasswordInput } from '../../../components/password-input';
 import { FieldError } from '../FiledError';
+import { loginErrorMessage } from '../authMessages';
 import { getResetPasswordPath } from '../../pathUtils';
 import { stopPropagation } from '../../../utils/keyboard';
 
@@ -215,10 +216,10 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
         {loginState.status === AsyncStatus.Error && (
           <>
             {loginState.error.errcode === LoginError.ServerNotAllowed && (
-              <FieldError message="Login with custom server not allowed by your client instance." />
+              <FieldError message={loginErrorMessage(LoginError.ServerNotAllowed)} />
             )}
             {loginState.error.errcode === LoginError.InvalidServer && (
-              <FieldError message="Failed to find your Matrix ID server." />
+              <FieldError message={loginErrorMessage(LoginError.InvalidServer)} />
             )}
           </>
         )}
@@ -232,19 +233,19 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
           {loginState.status === AsyncStatus.Error && (
             <>
               {loginState.error.errcode === LoginError.Forbidden && (
-                <FieldError message="Invalid Username or Password." />
+                <FieldError message={loginErrorMessage(LoginError.Forbidden)} />
               )}
               {loginState.error.errcode === LoginError.UserDeactivated && (
-                <FieldError message="This account has been deactivated." />
+                <FieldError message={loginErrorMessage(LoginError.UserDeactivated)} />
               )}
               {loginState.error.errcode === LoginError.InvalidRequest && (
-                <FieldError message="Failed to login. Part of your request data is invalid." />
+                <FieldError message={loginErrorMessage(LoginError.InvalidRequest)} />
               )}
               {loginState.error.errcode === LoginError.RateLimited && (
-                <FieldError message="Failed to login. Your login request has been rate-limited by server, Please try after some time." />
+                <FieldError message={loginErrorMessage(LoginError.RateLimited)} />
               )}
               {loginState.error.errcode === LoginError.Unknown && (
-                <FieldError message="Failed to login. Unknown reason." />
+                <FieldError message={loginErrorMessage(LoginError.Unknown)} />
               )}
             </>
           )}
