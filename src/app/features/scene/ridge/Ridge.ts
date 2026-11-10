@@ -61,7 +61,9 @@ function scatter(
   widthPx: number,
   heightPx: number,
   t0: number,
-  tPerPx: number
+  tPerPx: number,
+  bandX = 0,
+  bandW = widthPx
 ) {
   if (sky.sunAzimuth === undefined || transmittance(spec) >= 1) return; // the nearest layer takes none
   const g = ctx.createLinearGradient(0, 0, widthPx, 0);
@@ -72,7 +74,7 @@ function scatter(
   }
   ctx.globalCompositeOperation = 'source-atop';
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, widthPx, heightPx);
+  ctx.fillRect(bandX, 0, bandW, heightPx);
   ctx.globalCompositeOperation = 'source-over';
 }
 
@@ -82,14 +84,16 @@ interface Job {
 }
 
 /**
- * One layer's stretch of world-x `[m * chunk, (m + 1) * chunk)` painted onto `el`. The pixels come from
- * `bakeSlice`, a slice of columns per call, sized to the task budget by measuring the last one. A blur
- * (where the 2D `filter` exists) needs neighbours, so the pixels are baked `pad` columns past both
- * ends and bottom, then blurred once into the chunk canvas: seams show no fade.
+ * One layer's stretch of world-x `[m * chunk, (m + 1) * chunk)` painted onto `el`, in three phases of
+ * column bands, each band sized to the task budget by measuring the last one: bake the pixels
+ * (`bakeSlice`), put them on a canvas with the in-scatter, and (where the 2D `filter` exists) blur them
+ * into `el`. The blur needs neighbours, so the pixels are baked `pad` columns past both ends and
+ * the bottom into a scratch canvas this job owns, and each blurred band reads `pad` columns either side of
+ * itself: seams show no fade. The scratch is made when the job first runs and dropped when it ends.
  */
 function chunkJob(
   el: HTMLCanvasElement,
-  scratch: HTMLCanvasElement,
+  makeCanvas: () => HTMLCanvasElement,
   spec: LayerSpec,
   sky: SkyColours,
   size: Size,
@@ -104,16 +108,6 @@ function chunkJob(
   const pad = blur > 0 && 'filter' in ctx ? Math.ceil(3 * blur) : 0;
   const cols = size.chunk + 2 * pad;
   const rows = size.height + pad;
-  const sctx = pad > 0 ? context2d(scratch) : ctx;
-  if (!sctx) return null;
-  if (pad > 0) {
-    scratch.width = cols;
-    scratch.height = rows;
-  } else {
-    el.width = size.chunk;
-    el.height = size.height;
-  }
-  const img = sctx.createImageData(cols, rows);
   const params: BakeParams = {
     spec,
     sky,
@@ -126,62 +120,89 @@ function chunkJob(
     cols,
   };
   const paint = layerPaint(spec, sky);
-  let next = 0;
-  let stage = 0;
+  const t0World = params.px0 / size.period;
+  let scratch: HTMLCanvasElement | undefined;
+  let sctx: CanvasRenderingContext2D | null = ctx;
+  let img: ImageData | undefined;
+  /** 0 bake, 1 put and in-scatter, 2 blur into el; a chunk with no blur ends after 1. */
+  let phase = 0;
+  let pos = 0;
   let sliceCols = 32;
   let total = 0;
   let longest = 0;
+  const last = pad > 0 ? 2 : 1;
+  const start = (): boolean => {
+    if (pad > 0) {
+      scratch = makeCanvas();
+      scratch.width = cols;
+      scratch.height = rows;
+      sctx = context2d(scratch);
+    } else {
+      el.width = size.chunk;
+      el.height = size.height;
+    }
+    if (!sctx) return false;
+    img = sctx.createImageData(cols, rows);
+    return true;
+  };
+  const work = (x: number, n: number) => {
+    if (!img || !sctx) return;
+    if (phase === 0) bakeSlice(img.data, params, paint, x, x + n);
+    else if (phase === 1) {
+      sctx.putImageData(img, 0, 0, x, 0, n, rows);
+      scatter(sctx, spec, sky, cols, rows, t0World, 1 / size.period, x, n);
+    } else {
+      // One draw: a blurred draw cut into bands costs more in the margins than it saves in task length.
+      ctx.drawImage(scratch as HTMLCanvasElement, -pad, 0);
+    }
+  };
   return {
     step(budgetMs) {
       const t0 = clock();
-      let done = false;
-      const baking = next < cols;
-      const putNow = stage === 0;
-      while (next < cols && clock() - t0 < budgetMs) {
-        const n = Math.min(cols - next, sliceCols);
-        const s0 = clock();
-        bakeSlice(img.data, params, paint, next, next + n);
-        next += n;
-        const dt = Math.max(clock() - s0, 0.02);
-        if (Number.isFinite(budgetMs))
-          sliceCols = Math.max(8, Math.min(512, Math.round((n * budgetMs * 0.4) / dt)));
-        else sliceCols = cols;
-      }
-      // Finishing is its own tasks, so no one task is longer than a slice: put and in-scatter, then the blur.
-      // A caller with no budget (the first view) runs it all in this one.
-      if (next >= cols && (!Number.isFinite(budgetMs) || !baking)) {
-        if (stage === 0) {
-          if (pad > 0) {
-            sctx.putImageData(img, 0, 0);
-            scatter(sctx, spec, sky, cols, rows, params.px0 / size.period, 1 / size.period);
-          } else {
-            ctx.putImageData(img, 0, 0);
-            scatter(
-              ctx,
-              spec,
-              sky,
-              size.chunk,
-              size.height,
-              params.px0 / size.period,
-              1 / size.period
-            );
-          }
-          stage = 1;
-          done = pad === 0;
+      // Allocating the canvases and the pixel buffer is a task of its own.
+      if (!img) {
+        if (!start()) return true;
+        if (Number.isFinite(budgetMs)) {
+          total += clock() - t0;
+          longest = Math.max(longest, clock() - t0);
+          return false;
         }
-        if (stage === 1 && !done && (!Number.isFinite(budgetMs) || !putNow)) {
+      }
+      while (phase <= last && clock() - t0 < budgetMs) {
+        const end = phase === 2 ? size.chunk : cols;
+        if (pos === 0 && phase === 2) {
           el.width = size.chunk;
           el.height = size.height;
           ctx.filter = `blur(${blur}px)`;
-          ctx.drawImage(scratch, -pad, 0);
-          ctx.filter = 'none';
-          done = true;
+        }
+        const n = phase === 2 ? end : Math.min(end - pos, sliceCols);
+        const s0 = clock();
+        work(pos, n);
+        pos += n;
+        const dt = Math.max(clock() - s0, 0.02);
+        sliceCols = Number.isFinite(budgetMs)
+          ? Math.max(8, Math.min(512, Math.round((n * budgetMs * 0.4) / dt)))
+          : cols;
+        if (pos >= end) {
+          if (phase === 2) ctx.filter = 'none';
+          phase += 1;
+          pos = 0;
+          if (phase === 1 || phase === 2) sliceCols = Number.isFinite(budgetMs) ? 64 : cols;
         }
       }
       const dt = clock() - t0;
       total += dt;
       longest = Math.max(longest, dt);
-      if (done) record(total, longest);
+      const done = phase > last;
+      if (done) {
+        img = undefined;
+        if (scratch) {
+          scratch.width = 0;
+          scratch.height = 0;
+        }
+        scratch = undefined;
+        record(total, longest);
+      }
       return done;
     },
   };
@@ -212,6 +233,8 @@ interface Built {
   /** CSS px to canvas px, and the viewport's height in canvas px, as baked. */
   scale: number;
   viewH: number;
+  /** Makes a canvas, bound to the document the scene was built in. */
+  makeCanvas: () => HTMLCanvasElement;
   /** The twinkling stars' own canvas, between the sky and the ridges; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
 }
@@ -247,7 +270,6 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   let jobTimer: ReturnType<typeof setTimeout> | undefined;
   let queue: Chunk[] = [];
   let generation = 0;
-  let scratch: HTMLCanvasElement | undefined;
   let disposed = false;
   let raf = 0;
   let readout: HTMLElement | undefined;
@@ -265,7 +287,6 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     clearTimeout(jobTimer);
     jobTimer = undefined;
     queue = [];
-    scratch = undefined;
     built?.sway?.cancel();
     built?.layers.forEach((l) => l.anim?.cancel());
     built?.rig.remove();
@@ -288,10 +309,10 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
    */
   const bake = (l: LayerState, c: Chunk, first: boolean): boolean => {
     if (!built) return false;
-    const { scale, viewH } = built;
+    const { scale, viewH, makeCanvas } = built;
     const job = chunkJob(
       c.el,
-      scratch as HTMLCanvasElement,
+      makeCanvas,
       l.spec,
       sky,
       built.size,
@@ -333,7 +354,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   const chunkSeconds = (spec: LayerSpec, size: Size) => (spec.seconds * size.chunk) / size.period;
 
   /** One chunk of drift as one animation, holding its end until `rotate` hands the track the next chunk. */
-  const startDrift = (l: LayerState) => {
+  const startDrift = (l: LayerState, onEnd: (l: LayerState) => void) => {
     if (!built) return;
     const { size, scale } = built;
     l.anim = l.track.animate?.(
@@ -343,7 +364,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       ],
       { duration: chunkSeconds(l.spec, size) * 1000, easing: 'linear', fill: 'forwards' }
     );
-    if (l.anim) l.anim.onfinish = () => rotate(l);
+    if (l.anim) l.anim.onfinish = () => onEnd(l);
   };
 
   /**
@@ -363,7 +384,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       c.el.style.left = `${(i * size.chunk) / scale}px`;
     });
     l.anim?.cancel();
-    startDrift(l);
+    startDrift(l, rotate);
     bake(l, s0, false);
     pump();
     syncPlayState();
@@ -429,7 +450,6 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       pointerEvents: 'none',
       willChange: 'transform',
     });
-    scratch = document.createElement('canvas');
     const layers: LayerState[] = LAYERS.map((spec) => {
       const track = document.createElement('div');
       Object.assign(track.style, {
@@ -442,6 +462,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       });
       const slots: Chunk[] = [0, 1, 2].map((i) => {
         const el = document.createElement('canvas');
+        el.width = size.chunk;
+        el.height = size.height;
         Object.assign(el.style, {
           position: 'absolute',
           bottom: '0',
@@ -452,7 +474,16 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       });
       return { spec, track, slots };
     });
-    built = { rig, layers, size, scale, viewH: canvas.height, twinkle };
+    const doc = document;
+    built = {
+      rig,
+      layers,
+      size,
+      scale,
+      viewH: canvas.height,
+      makeCanvas: () => doc.createElement('canvas'),
+      twinkle,
+    };
     // First view: only slot 0 of each layer, in this task. The window sees nothing else for the first
     // fifth of a chunk's drift; slots 1 and 2 are baked in short tasks behind it.
     if (!layers.every((l) => bake(l, l.slots[0], true))) {
@@ -471,7 +502,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     });
     // DOM order is paint order: farthest first, so the nearest ridge ends up on top.
     parent.appendChild(rig);
-    layers.forEach((l) => startDrift(l));
+    layers.forEach((l) => startDrift(l, rotate));
     built.sway = startSway(rig, w, h);
     pump();
     syncPlayState();

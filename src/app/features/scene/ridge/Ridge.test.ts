@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRidgeScene } from './Ridge';
+import { bakeSlice, BakeParams, layerPaint } from './ridgeBake';
 import { valueNoise, hash2 } from './noise';
 import { FrameSampler, frameStats, SLOW_P95_MS, WARMUP_FRAMES, WINDOW_MS } from './probe';
 import {
@@ -217,8 +218,21 @@ function fakeEl(tag = 'div') {
       this.children.push(c);
       return c;
     },
-    animate: vi.fn(() => {
-      const a = { currentTime: 0, play: vi.fn(), pause: vi.fn(), cancel: vi.fn() };
+    animate: vi.fn((keyframes: any[], options: any) => {
+      const a: any = {
+        currentTime: 0,
+        keyframes,
+        options,
+        onfinish: null,
+        play: vi.fn(),
+        pause: vi.fn(),
+        cancel: vi.fn(),
+        /** The animation reaches its end: what the compositor's finish event does. */
+        finish() {
+          a.currentTime = options.duration;
+          a.onfinish?.();
+        },
+      };
       el.anims.push(a);
       return a;
     }),
@@ -236,6 +250,10 @@ const DAY: SkyColours = {
   sunAzimuth: 0.3,
 };
 const draws: string[] = [];
+/** Every ImageData put on any canvas, in order. */
+const puts: any[] = [];
+/** For every drawImage: the source canvas's width as it was at the moment of the draw. */
+const drawnWidths: number[] = [];
 function ctx(withFilter = false) {
   const c: any = {
     globalCompositeOperation: 'source-over',
@@ -243,12 +261,16 @@ function ctx(withFilter = false) {
     fillRect() {
       draws.push(c.globalCompositeOperation === 'source-atop' ? 'scatter' : 'sky');
     },
+    save() {},
+    restore() {},
+    rect() {},
+    clip() {},
     createImageData: (w: number, h: number) => ({
       data: new Uint8ClampedArray(w * h * 4),
       width: w,
       height: h,
     }),
-    putImageData() {},
+    putImageData: (img: any) => puts.push(img),
     beginPath() {},
     moveTo() {},
     lineTo() {},
@@ -266,7 +288,10 @@ function ctx(withFilter = false) {
       if (c.arcing) c.arcing = false;
       else draws.push('fill');
     },
-    drawImage: () => draws.push('flatten'),
+    drawImage: (src: any) => {
+      drawnWidths.push(src.width);
+      draws.push('flatten');
+    },
     set fillStyle(_v: unknown) {},
   };
   if (withFilter) c.filter = 'none';
@@ -281,6 +306,8 @@ let search: string;
 beforeEach(() => {
   rafQueue = [];
   draws.length = 0;
+  puts.length = 0;
+  drawnWidths.length = 0;
   search = '';
   motion = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   doc = Object.assign(new EventTarget(), {
@@ -673,5 +700,115 @@ describe('the starfield in the scene', () => {
     s.dispose();
     expect(parent.children).toEqual([canvas]);
     expect(rafQueue).toHaveLength(0);
+  });
+});
+
+describe('endless drift: chunks baked on demand and recycled', () => {
+  const size = layerSize(400, 800, 2); // the fake host: 400 x 800 CSS px at DPR 2
+  const until = async (cond: () => boolean) => {
+    const t0 = Date.now();
+    while (!cond()) {
+      if (Date.now() - t0 > 10000) throw new Error('timed out waiting for the background bakes');
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  };
+  /** The pixels chunk `m` of layer `li` must hold: the pure bake of its world columns, no blur. */
+  const expected = (li: number, m: number) => {
+    const p: BakeParams = {
+      spec: LAYERS[li],
+      sky: DAY,
+      period: size.period,
+      scale: 2,
+      viewH: 1600,
+      rows: size.height,
+      bandH: size.height,
+      px0: m * size.chunk,
+      cols: size.chunk,
+    };
+    const out = new Uint8ClampedArray(p.cols * p.rows * 4);
+    bakeSlice(out, p, layerPaint(p.spec, DAY), 0, p.cols);
+    return Buffer.from(out.buffer);
+  };
+  /** Each distinct ImageData put, in order of first appearance: one per baked chunk. */
+  const baked = () => [...new Set(puts)].map((img) => Buffer.from(img.data.buffer));
+  const start = () => {
+    const { parent, canvas } = host();
+    const records: any[] = [];
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, onBake: (b) => records.push(b) })!;
+    return { parent, s, records };
+  };
+
+  it('bakes every chunk from its own world columns: no offset, the next chunk continues the last', async () => {
+    const { s, records } = start();
+    await until(() => records.length === 3 * LAYERS.length);
+    // First view: chunk 0 of each layer; then, per layer in queue order, chunks 1 and 2.
+    const order = [
+      ...LAYERS.map((l) => [l.index, 0]),
+      ...LAYERS.flatMap((l) => [
+        [l.index, 1],
+        [l.index, 2],
+      ]),
+    ];
+    expect(records.map((r) => [r.layer, r.chunk])).toEqual(order);
+    const imgs = baked();
+    expect(imgs).toHaveLength(order.length);
+    order.forEach(([li, m], i) => expect(imgs[i].equals(expected(li, m))).toBe(true));
+    s.dispose();
+  });
+
+  it('when the drift animation ends, the chunks move one slot left and the track restarts', async () => {
+    const { parent, s, records } = start();
+    await until(() => records.length === 3 * LAYERS.length);
+    const track = tracksOf(parent)[0];
+    const [e0, e1, e2] = track.children;
+    const first = track.anims[0];
+    // One chunk of drift, not one viewport: the track slides by the width of a chunk.
+    expect(first.keyframes[1].transform).toContain(`${-size.chunk / 2}px`);
+    expect(track.animate).toHaveBeenCalledTimes(1);
+    first.finish();
+    expect(first.cancel).toHaveBeenCalled();
+    expect(track.animate).toHaveBeenCalledTimes(2);
+    const w = size.chunk / 2;
+    expect([e1.style.left, e2.style.left, e0.style.left]).toEqual(['0px', `${w}px`, `${2 * w}px`]);
+    expect(track.anims[1].keyframes[1].transform).toContain(`${-w}px`);
+    s.dispose();
+  });
+
+  it('the canvas that left is baked with the next stretch of world, and each rotation after it, without end', async () => {
+    const { parent, s, records } = start();
+    await until(() => records.length === 3 * LAYERS.length);
+    const track = tracksOf(parent)[0];
+    const done = () => records.filter((r) => r.layer === 0).map((r) => r.chunk);
+    for (let m = 3; m <= 5; m += 1) {
+      track.anims[track.anims.length - 1].finish();
+      await until(() => done().includes(m));
+    }
+    expect(done()).toEqual([0, 1, 2, 3, 4, 5]);
+    // The pixels of chunks 3 to 5 are the world's, not a repeat of an earlier one.
+    const imgs = baked();
+    const layer0 = imgs.filter((_, i) => records[i].layer === 0);
+    [3, 4, 5].forEach((m, k) => expect(layer0[3 + k].equals(expected(0, m))).toBe(true));
+    expect(layer0[3].equals(layer0[0])).toBe(false);
+    s.dispose();
+  });
+
+  it('with the blur, each chunk is blurred from a scratch canvas of its own width: seams stay opaque and exact', async () => {
+    const orig = (document as any).createElement;
+    (document as any).createElement = (tag: string) => {
+      const el = orig(tag);
+      el.getContext = vi.fn(() => ctx(true));
+      return el;
+    };
+    const { s, records } = start();
+    await until(() => records.length === 3 * LAYERS.length);
+    const want = new Set(
+      LAYERS.filter((l) => edgeBlur(l) > 0).map(
+        (l) => size.chunk + 2 * Math.ceil(3 * edgeBlur(l) * 2)
+      )
+    );
+    expect(want.size).toBeGreaterThan(1); // the layers' pads differ, which is what a shared canvas gets wrong
+    // Every blur reads a source exactly as wide as that chunk's padded bake, at the moment of the draw.
+    expect(new Set(drawnWidths)).toEqual(want);
+    s.dispose();
   });
 });

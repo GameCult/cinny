@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BakeParams, bakeSlice, faceLight, layerPaint, sunDirection } from './ridgeBake';
-import { LAYERS, profile } from './ridgeWorld';
+import { LACUNARITY, LAYERS, profile } from './ridgeWorld';
 import { skyColours, SkyColours } from './skyColour';
 
 const SKY: SkyColours = { ...skyColours(), sunAzimuth: 0.3 }; // sun toward +x
@@ -217,5 +217,87 @@ describe('bake cost', () => {
     console.info(
       `ridge bake ms per layer (node, 1 chunk, 1280x720): ${ms.map((v) => v.toFixed(1)).join(' ')}`
     );
+  });
+});
+
+describe('the ridged multifractal core, each rule on its own', () => {
+  const one = { ...LAYERS[0], octaves: 1, warp: 0, crag: 1 };
+
+  it('folds each octave at its crest: a creased, sharp ridge line, not a smooth swell', () => {
+    // Largest second difference over a fine scan. A smooth curve of this size stays in the hundreds;
+    // a fold leaves a crease where the noise crosses its midpoint.
+    const h = 1e-3;
+    let worst = 0;
+    for (let i = 1; i < 20000; i += 1) {
+      const t = i * h;
+      worst = Math.max(
+        worst,
+        Math.abs(profile(one, t + h) - 2 * profile(one, t) + profile(one, t - h)) / (h * h)
+      );
+    }
+    expect(worst).toBeGreaterThan(2000);
+  });
+
+  it('domain-warps: the same layer without its warp is a measurably different line', () => {
+    const spec = LAYERS[1];
+    let diff = 0;
+    for (let i = 0; i < 2000; i += 1)
+      diff += Math.abs(profile(spec, i / 100) - profile({ ...spec, warp: 0 }, i / 100));
+    expect(diff / 2000).toBeGreaterThan(0.02);
+  });
+
+  it('weights each octave by the previous one: where the first octave is low, the later ones add almost nothing', () => {
+    const lo = { ...LAYERS[1], octaves: 1, warp: 0 };
+    const hi = { ...LAYERS[1], octaves: 5, warp: 0 };
+    let valley = 0;
+    let nv = 0;
+    let peak = 0;
+    let np = 0;
+    for (let i = 0; i < 10000; i += 1) {
+      const a = profile(lo, i / 500);
+      const d = Math.abs(profile(hi, i / 500) - a);
+      if (a < 0.12) {
+        valley += d;
+        nv += 1;
+      } else if (a > 0.35) {
+        peak += d;
+        np += 1;
+      }
+    }
+    expect(nv).toBeGreaterThan(200);
+    expect(np).toBeGreaterThan(200);
+    expect(valley / nv).toBeLessThan(0.25 * (peak / np));
+  });
+
+  it('octave lattices do not line up: the lacunarity is not a power of two', () => {
+    expect(Number.isInteger(Math.log2(LACUNARITY))).toBe(false);
+    expect(Number.isInteger(LACUNARITY)).toBe(false);
+  });
+
+  it('distance flattens relief: contrast falls from the nearest layer to the farthest', () => {
+    const c = LAYERS.map((spec) => layerPaint(spec, SKY).contrast);
+    expect(c[LAYERS.length - 1]).toBe(1);
+    for (let i = 1; i < c.length; i += 1) expect(c[i]).toBeGreaterThan(c[i - 1]);
+    // and it shows in the pixels: the lit/shadow difference is smaller on the farthest layer than the nearest
+    const gap = (li: number) => {
+      const cols = 700;
+      const d = bake(params(li, 0, cols));
+      const slope = (x: number) => (solidRow(d, cols, x - 1) - solidRow(d, cols, x + 1)) / 2;
+      const avg = (pick: (s: number) => boolean) => {
+        const xs = Array.from({ length: cols - 4 }, (_, k) => k + 2).filter((x) => pick(slope(x)));
+        return (
+          xs.reduce((a, x) => a + lum(d, cols, x, solidRow(d, cols, x) + 12), 0) /
+          Math.max(1, xs.length)
+        );
+      };
+      return (
+        Math.abs(avg((s) => s < -0.8) - avg((s) => s > 0.8)) /
+        Math.max(
+          1,
+          avg(() => true)
+        )
+      );
+    };
+    expect(gap(0)).toBeLessThan(gap(3));
   });
 });

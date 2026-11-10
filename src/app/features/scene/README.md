@@ -10,14 +10,14 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   function, a parameter row per layer; nothing repeats). World-x is baked in chunks (1.2 viewport widths, integer pixels)
   onto plain 2D canvases over a baked sky gradient on the host canvas. Per layer a track holds three chunk canvases: two
   the window can reach and one ahead. The first view bakes only the first chunk of each layer; the others are baked in
-  tasks of about 6 ms (`setTimeout`, columns per task sized from the last slice's time). Per frame the only motion is the
+  tasks of about 6 ms (`setTimeout`; a chunk is baked, put on a canvas with its in-scatter, and blurred in column bands, each sized from the last band's time). Per frame the only motion is the
   compositor sliding the track with a CSS transform (a Web Animation of `translate3d`, one chunk long, `fill: forwards`,
   150-420 s per viewport width, farther is slower); when it finishes the chunks move one slot left and the track restarts
   at 0 in the same task (no jump), and the canvas that left is baked with the next stretch of world. A second animation
   sways the whole rig (up to 5% of the width sideways, 3% of the height down, 150 s loop): the slow yaw and pitch.
   No script runs per frame. The host canvas and the layers' parent must be positioned and the canvas should fill the parent.
 - `ridge/ridgeBake.ts` is the pixel function (pure, no DOM): per column the crest's slope gives a normal, lit against the
-  sun (`sunDirection` from `sunAzimuth`: +x for azimuth 0.25-0.5); the face under it has a light-to-haze gradient, erosion
+  sun (`sunDirection`: x = 0.9 sin(2 pi \* `sunAzimuth`), so the sun is toward +x for azimuth 0 to 0.5, strongest at 0.25, toward -x for 0.5 to 1; with no `sunAzimuth` the face lighting falls back to 0.3 and the in-scatter is off); the face under it has a light-to-haze gradient, erosion
   streaks (a folded noise at gully width, darker with steepness) and a lit rim on the crest. Contrast scales with
   `transmittance`; the base colour, haze and blur are the aerial perspective below, not redone.
 - Paused when the tab is hidden; under `prefers-reduced-motion` the layers are painted but never played.
