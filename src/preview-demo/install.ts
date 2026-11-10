@@ -7,6 +7,8 @@
 import { removeFallbackSession } from '../app/state/sessions';
 import { DEMO_ORIGIN } from './fixtures';
 import { createDemoServer, DemoServer } from './server';
+import { demoDesk } from './deskForks';
+import { setDeskSource } from '../app/features/desk/source';
 
 export type Route = 'own' | 'demo' | 'refuse';
 
@@ -88,6 +90,7 @@ export const dropForeignSession = (storage: Storage) => {
 export const installDemo = (win: Window & typeof globalThis = window) => {
   dropForeignSession(win.localStorage);
   const server = createDemoServer();
+  setDeskSource(demoDesk);
   const { origin } = win.location;
   const realFetch = win.fetch.bind(win);
 

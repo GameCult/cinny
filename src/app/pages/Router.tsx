@@ -12,6 +12,7 @@ import { ClientConfig } from '../hooks/useClientConfig';
 import { AuthLayout, Login, Register, ResetPassword } from './auth';
 import {
   DIRECT_PATH,
+  DESK_PATH,
   EXPLORE_PATH,
   HOME_PATH,
   LOGIN_PATH,
@@ -48,6 +49,7 @@ import { Notifications, Inbox, Invites } from './client/inbox';
 import { setAfterLoginRedirectPath } from './afterLoginRedirectPath';
 import { Room } from '../features/room';
 import { Lobby } from '../features/lobby';
+import { Desk } from '../features/desk';
 import { WelcomePage } from './client/WelcomePage';
 import { EstatePageNav } from './client/EstatePageNav';
 import { PageRoot } from '../components/page';
@@ -246,6 +248,15 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
           <Route path={_FEATURED_PATH} element={<FeaturedRooms />} />
           <Route path={_SERVER_PATH} element={<PublicRooms />} />
         </Route>
+        <Route
+          path={DESK_PATH}
+          element={
+            // The navigator shows beside the desk on wide screens; a phone shows the desk alone.
+            <PageRoot nav={<EstatePageNav path={HOME_PATH} />}>
+              <Desk />
+            </PageRoot>
+          }
+        />
         <Route path={CREATE_PATH} element={<Create />} />
         <Route
           path={INBOX_PATH}
