@@ -43,9 +43,17 @@ describe('the sign-in footer band, as emitted', () => {
     ]);
   });
 
-  it('declares exactly these properties, so nothing else (a shadow, a prefixed override) rides along', async () => {
+  it('declares exactly these properties, so nothing else (a shadow, a stray override) rides along', async () => {
     const [rule] = declarations(await emitted(), over);
+    // -webkit-backdrop-filter is the one prefixed property, for Safari 14; it must blur exactly as the standard one does.
+    const blur = (prop: string) =>
+      rule
+        .find((d) => d.startsWith(`${prop}:`))
+        ?.split(':')[1]
+        .trim();
+    expect(blur('-webkit-backdrop-filter')).toBe(blur('backdrop-filter'));
     expect(rule.map((d) => d.slice(0, d.indexOf(':'))).sort()).toEqual([
+      '-webkit-backdrop-filter',
       'backdrop-filter',
       'background-color',
       'background-color',

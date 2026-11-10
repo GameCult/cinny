@@ -22,6 +22,7 @@ import {
   SKY_FRAG,
 } from './terrainShaders';
 import { createTerrainStars } from './terrainStars';
+import { overlayRequested } from '../debugOverlays';
 import { showTierLabel } from './tierLabel';
 
 export type TerrainOptions = Pick<
@@ -36,8 +37,10 @@ export type TerrainOptions = Pick<
   band?: SkyBand;
   /** Terrain seed: the height map is sampled at an offset taken from it. Default 0. */
   seed?: number;
-  /** Show the rAF median/p95 readout (plus triangle count). Default: the page URL has `?probe=1`. */
+  /** Show the rAF median/p95 readout (plus triangle count). Default: the page URL has `?probe=1`, where `debug` allows it. */
   probe?: boolean;
+  /** The diagnostic overlays (readout, tier label) may be asked for by URL (debugOverlays.ts). Default: no. */
+  debug?: boolean;
   onProbe?: (s: FrameStats & { still: boolean; triangles: number }) => void;
 };
 
@@ -89,7 +92,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
   const tier = opts.tier ?? 'full';
   if (tier === 'off') return null;
   const { canvas } = opts;
-  const probe = opts.probe ?? new URLSearchParams(window.location.search).get('probe') === '1';
+  const probe = opts.probe ?? overlayRequested('probe', opts.debug === true);
   const gl = canvas.getContext('webgl2', {
     antialias: false,
     alpha: false,
@@ -395,7 +398,7 @@ export function createTerrainScene(opts: TerrainOptions): Scene | null {
     });
     canvas.parentElement.appendChild(readout);
   }
-  const removeLabel = showTierLabel(canvas, tier);
+  const removeLabel = showTierLabel(canvas, tier, opts.debug === true);
   if (still) settleToStill();
   else wake();
   if (!still && !moving()) draw(0);

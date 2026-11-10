@@ -1,5 +1,6 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
+import { debugOverlaysAllowed } from './debugOverlays';
 import { getSkyState, subscribe } from './skyState';
 import type { SkyState } from './skyState';
 
@@ -17,7 +18,7 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 
 async function create(
   config: BackgroundSceneConfig | undefined,
-  options: StartOptions & { tier: SceneTier },
+  options: StartOptions & { tier: SceneTier; debug?: boolean },
   state: SkyState
 ): Promise<Scene | null> {
   let createScene: (o: SceneOptions) => Scene | null;
@@ -82,7 +83,8 @@ export async function startBackgroundScene(
 ): Promise<Scene | null> {
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
-  const build = (state: SkyState) => create(config, { ...options, tier }, state);
+  const debug = debugOverlaysAllowed(config);
+  const build = (state: SkyState) => create(config, { ...options, tier, debug }, state);
   const state = getSkyState();
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, state);
   const first = await build(state);

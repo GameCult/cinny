@@ -1,4 +1,5 @@
 import type { Scene, SceneOptions } from '../Scene';
+import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
@@ -14,8 +15,10 @@ import {
 } from './ridgeWorld';
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
-  /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`. */
+  /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`, where `debug` allows it. */
   probe?: boolean;
+  /** The diagnostic overlays may be asked for by URL (debugOverlays.ts). Default: no. */
+  debug?: boolean;
   /** Each time the readout would update, and once with `still` when the fallback fires. */
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
@@ -151,7 +154,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   const parent = canvas.parentElement;
   if (!parent) return null;
   const sky = opts.sky ?? skyColours();
-  const probe = opts.probe ?? new URLSearchParams(window.location.search).get('probe') === '1';
+  const probe = opts.probe ?? overlayRequested('probe', opts.debug === true);
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   let built: Built | undefined;

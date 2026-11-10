@@ -428,13 +428,24 @@ describe('createRidgeScene', () => {
   it('?probe=1 keeps the rAF loop alive and shows median and p95', () => {
     search = '?probe=1';
     const { parent, canvas } = host();
-    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, debug: true })!;
     const readout = parent.children[parent.children.length - 1];
     runFrames(16.7, 300);
     expect(rafQueue.length).toBe(1); // still sampling
     expect(readout.textContent).toMatch(/median 16\.\d ms · p95 1[67]\.\d ms/);
     s.dispose();
     expect(parent.children.some((c: any) => c === readout)).toBe(false);
+  });
+
+  it('?probe=1 does nothing where the overlays are not allowed: no readout, the loop ends', () => {
+    search = '?probe=1';
+    const { parent, canvas } = host();
+    const before = parent.children.length;
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
+    expect(parent.children.length).toBe(before + LAYERS.length);
+    runFrames(16.7, 300);
+    expect(rafQueue.length).toBe(0);
+    s.dispose();
   });
 
   it('a scene started at zero size paints nothing, then builds on the first non-zero resize', async () => {

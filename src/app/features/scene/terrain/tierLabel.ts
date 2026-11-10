@@ -1,13 +1,19 @@
+import { overlayRequested } from '../debugOverlays';
+
 // A tiny label naming which terrain path is on screen ('full', 'low', 'still', or 'sky-only' where WebGL2 is missing),
-// so a screenshot of a preview says what it shows. Built into preview builds only (VITE_PREVIEW_DEMO=1), or by `?tierlabel=1`.
-const wanted = (): boolean =>
-  import.meta.env?.VITE_PREVIEW_DEMO === '1' ||
-  new URLSearchParams(window.location.search).get('tierlabel') === '1';
+// so a screenshot of a preview says what it shows. Built into preview builds (VITE_PREVIEW_DEMO=1), or by `?tierlabel=1`
+// where the diagnostic overlays are allowed (debugOverlays.ts).
+const wanted = (allowed: boolean): boolean =>
+  import.meta.env?.VITE_PREVIEW_DEMO === '1' || overlayRequested('tierlabel', allowed);
 
 /** Adds the label to the canvas's parent; returns its remover, or null when no label is wanted. */
-export function showTierLabel(canvas: HTMLCanvasElement, text: string): (() => void) | null {
+export function showTierLabel(
+  canvas: HTMLCanvasElement,
+  text: string,
+  allowed: boolean
+): (() => void) | null {
   const parent = canvas.parentElement;
-  if (!parent || !wanted()) return null;
+  if (!parent || !wanted(allowed)) return null;
   const el = document.createElement('div');
   el.textContent = `terrain · ${text}`;
   Object.assign(el.style, {
