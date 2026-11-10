@@ -1,6 +1,6 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
-import { getResolvedSkyState, getSkyState, subscribe } from './skyState';
+import { getSkyState, subscribe } from './skyState';
 import type { SkyState } from './skyState';
 
 export type { Scene, SceneStats } from './Scene';
@@ -45,6 +45,24 @@ async function create(
 }
 
 /**
+ * What a rebuild is for: the sky options the scene would be built from. A change of choice that draws the same sky
+ * (Day picked while the clock says day, 'auto' to the fixed state it resolves to) is not a rebuild; the page URL steers
+ * only 'auto' (`terrainSkyFor`), so there the two differ and the key says so.
+ */
+async function skyKey(
+  config: BackgroundSceneConfig | undefined,
+  state: SkyState
+): Promise<string | null> {
+  try {
+    const { ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
+    return JSON.stringify(config?.style === 'terrain' ? terrainSkyFor(state) : ridgeSkyFor(state));
+  } catch {
+    // The chunk failed to load: no key, so every change rebuilds (and `create` reports the failure).
+    return null;
+  }
+}
+
+/**
  * The client's one door to the scene. When the tier resolves to 'off' nothing is imported and no
  * canvas context is requested; otherwise the scene code loads on demand, so it stays out of the
  * main chunk. `config.style` picks the scene: the ridges unless it says 'raymarch' or 'terrain' (which falls back to its
@@ -66,7 +84,7 @@ export async function startBackgroundScene(
   if (tier === 'off') return null;
   const build = (state: SkyState) => create(config, { ...options, tier }, state);
   const state = getSkyState();
-  const key0 = `${state}:${getResolvedSkyState()}`;
+  const key0 = config?.style === 'raymarch' ? null : await skyKey(config, state);
   const first = await build(state);
   if (!first || config?.style === 'raymarch') return first;
 
@@ -75,11 +93,11 @@ export async function startBackgroundScene(
   let loggedIn = false;
   let disposed = false;
   let generation = 0;
-  // A rebuild is for a new choice or a new resolved sky ('auto' crossing a boundary), not for a repeat of either.
+  // A rebuild is for a different sky ('auto' crossing a boundary, a new choice), not for a repeat of the one drawn.
   const rebuild = async () => {
     const next = getSkyState();
-    const key = `${next}:${getResolvedSkyState()}`;
-    if (key === built) return;
+    const key = await skyKey(config, next);
+    if ((key !== null && key === built) || disposed) return;
     generation += 1;
     const mine = generation;
     built = key;

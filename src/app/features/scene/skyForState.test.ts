@@ -183,6 +183,14 @@ describe('terrainSkyFor', () => {
     expect(night.high).toBeLessThanOrEqual(needs('night').ceiling);
   });
 
+  it('keeps a URL-steered sky at night no lighter than the Night backdrop the text was checked against', () => {
+    setSkyClock(() => atStandardTime(0, 0));
+    ['?sun=60', '?sun=10&az=40', '?sun=2&az=250', '?sky=noonday'].forEach((q) => {
+      search = q;
+      expect(terrainDrawn('auto').lightest).toBeLessThanOrEqual(skyBackdrop('night').lightest);
+    });
+  });
+
   it('lets an explicit state beat the URL, as before auto had one', () => {
     search = '?sun=30&az=120&sky=midnight';
     expect(terrainSkyFor('day')).toEqual({ sky: 'noonday', band: SKY_BAND.day });
@@ -280,12 +288,24 @@ describe('skyBackdrop holds the union of what the scenes draw', () => {
     return { darkest: hunt(-1), lightest: hunt(1) };
   };
 
+  // At night a sky the page URL steers (?sun= ?sky=) is shaped to the band's ceiling, so the lightest it can show is one
+  // 8-bit step above the ceiling's own grey: the Night constant must cover it too, or text is checked against a sky
+  // lighter than the one it sits on.
+  const steeredNight = displayedLuminance(
+    [SKY_BAND.night.ceiling, SKY_BAND.night.ceiling, SKY_BAND.night.ceiling],
+    'high'
+  );
+
   const computed = (state: FixedSkyState) => {
     const r = [ridgeDrawn(state), terrainDrawn(state)];
     const ind = extremes(state);
     return {
       darkest: Math.min(...r.map((x) => x.darkest), ind.darkest),
-      lightest: Math.max(...r.map((x) => x.lightest), ind.lightest),
+      lightest: Math.max(
+        ...r.map((x) => x.lightest),
+        ind.lightest,
+        ...(state === 'night' ? [steeredNight] : [])
+      ),
     };
   };
 

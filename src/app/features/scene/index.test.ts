@@ -45,14 +45,14 @@ describe('startBackgroundScene follows the sky state', () => {
     scene?.dispose();
   });
 
-  it('rebuilds when auto is replaced by the explicit state it already resolves to (a URL may steer only auto)', async () => {
-    const [a, b] = [fakeScene(), fakeScene()];
-    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b);
+  it('does not rebuild when auto is replaced by the explicit state it already resolves to', async () => {
+    const a = fakeScene();
+    createRidgeScene.mockReturnValueOnce(a);
     const scene = await startBackgroundScene(config, caps, { canvas });
     setSkyState('night');
     await flush();
-    expect(a.dispose).toHaveBeenCalledOnce();
-    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(a.dispose).not.toHaveBeenCalled();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
     scene?.dispose();
   });
 
@@ -146,14 +146,13 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(first.dispose).toHaveBeenCalledOnce();
   });
 
-  it('drops a scene whose rebuild finishes after dispose', async () => {
-    const second = fakeScene();
-    createRidgeScene.mockReturnValueOnce(fakeScene()).mockReturnValueOnce(second);
+  it('builds nothing for a rebuild that is disposed before it starts', async () => {
+    createRidgeScene.mockReturnValueOnce(fakeScene()).mockReturnValueOnce(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     setSkyState('day');
     scene?.dispose();
     await flush();
-    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
   });
 
   it('keeps only the latest of two quick changes', async () => {

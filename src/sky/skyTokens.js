@@ -19,6 +19,10 @@ const luma = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 export const GRADIENT_STOPS = 7;
 export const AA = 4.5; // WCAG 2.x AA, normal text
 
+// The lightest the Night sky draws behind the page (src/app/features/scene/skyState.ts, `skyBackdrop('night')`; a test in
+// skyTheme.test.ts fails if the two drift). Midnight Sky's link also sits on bare sky, so it must clear AA against this.
+export const NIGHT_SKY_LIGHTEST = 0.081642;
+
 // Where and when the theme is lit. Equinox, 45N on the prime meridian: noon sun at 45 degrees.
 export const MOMENTS = {
   noonday: { time: '2026-09-22T12:00:00Z', lat: 45, lon: 0 },
@@ -186,10 +190,10 @@ export function bakeSky(name) {
     bubbles.Own,
   ];
   const readable = (h) => grounds.every((g) => contrast(h, g) >= AA);
-  const fit = (albedo) => {
+  const fit = (albedo, ok = () => true) => {
     let key = 0.5;
     let h = hex(albedo, key);
-    for (let n = 0; n < 80 && !readable(h); n += 1) {
+    for (let n = 0; n < 80 && !(readable(h) && ok(h)); n += 1) {
       key *= dark ? 1.05 : 0.95;
       h = hex(albedo, key);
     }
@@ -207,7 +211,10 @@ export function bakeSky(name) {
     gradient,
     tokens,
     bubbles,
-    userColors: PIGMENTS.map(fit),
-    link: fit(dark ? ALBEDO.leafPale : ALBEDO.leaf),
+    userColors: PIGMENTS.map((p) => fit(p)),
+    // The dark link also has to clear AA on the bare Night sky: brightened, in its own hue, until it does.
+    link: dark
+      ? fit(ALBEDO.leafPale, (h) => luminance(h) >= AA * (NIGHT_SKY_LIGHTEST + 0.05) - 0.05)
+      : fit(ALBEDO.leaf),
   };
 }

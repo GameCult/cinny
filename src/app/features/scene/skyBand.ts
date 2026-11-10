@@ -58,12 +58,14 @@ export interface SkyBand {
 /**
  * The shaping targets, in linear luma. The floor sits 0.019 above the text bound (0.2983): the screen encoding is
  * gamma 2.2, which reads about 0.006 darker through the sRGB curve at this level, and 8-bit rounding with the sky
- * pass's dither at its worst (one step in every channel) takes about 0.007 more.
+ * pass's dither at its worst (one step in every channel) takes about 0.007 more. The night ceiling is lower than the text bound
+ * (0.0931) by more than that: 0.077394 is the luma at which one step up reads 0.08164, the lightest the baked night sky shows
+ * (skyState.ts), so a sky the page URL steers at night, scaled down to the ceiling, cannot show lighter than the baked one.
  */
 export const SKY_BAND: Record<FixedSkyState, SkyBand> = {
   day: { floor: 0.317, ceiling: 1, lift: hexToLinear('#e2f4ff') },
   dusk: { floor: 0.317, ceiling: 1, lift: hexToLinear('#eba0b9') },
-  night: { floor: 0, ceiling: 0.085, lift: hexToLinear('#5a6a9a') },
+  night: { floor: 0, ceiling: 0.077394, lift: hexToLinear('#5a6a9a') },
 };
 
 /**
