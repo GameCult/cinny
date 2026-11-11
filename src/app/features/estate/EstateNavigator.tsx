@@ -213,11 +213,14 @@ function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup })
 
 /**
  * Groups of rooms the user has not joined, behind one quiet entry. Closed until opened, on every screen; the opening is
- * remembered per device like any other section.
+ * remembered per device and screen class like any other section.
  */
 function Browse({ tierId, groups }: { tierId: string; groups: EstateGroup[] }) {
+  const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const [toggled, setToggled] = useAtom(useClosedNavCategoriesAtom());
-  const key = makeNavCategoryId('estate', 'browse', tierId);
+  // The store holds sections flipped from their default (it keeps Cinny's name, and its localStorage key). Browse's
+  // default is closed, so a key here means open; like Collapsible it is kept per screen class.
+  const key = makeNavCategoryId('estate', mobile ? 'phone' : 'wide', 'browse', tierId);
   const open = toggled.has(key);
   const count = groups.reduce((n, g) => n + g.rooms.length, 0);
 
