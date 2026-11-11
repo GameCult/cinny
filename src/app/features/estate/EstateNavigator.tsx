@@ -1,16 +1,18 @@
 import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color, config } from 'folds';
+import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
 import {
   NavButton,
   NavCategory,
   NavCategoryHeader,
+  NavGutter,
   NavItem,
   NavItemContent,
+  NavLevel,
 } from '../../components/nav';
-import { NavAction, NavLabel } from '../../components/nav/styles.css';
+import { NAV_ICON_REST_OPACITY, NavAction, NavLabel } from '../../components/nav/styles.css';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { JoinAddressPrompt } from '../../components/join-address-prompt';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
@@ -77,12 +79,14 @@ function JoinRow({ room }: { room: EstateRoom }) {
 
   return (
     <NavItem variant="Background" radii="400">
-      <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px', minHeight: 38 }}>
+      <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px 0 0', minHeight: 38 }}>
         <NavItemContent>
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
-            <Avatar size="200" radii="400">
-              <Icon src={Icons.Hash} size="100" style={{ opacity: config.opacity.P300 }} />
-            </Avatar>
+            <NavGutter>
+              <Avatar size="200" radii="400">
+                <Icon src={Icons.Hash} size="100" style={{ opacity: NAV_ICON_REST_OPACITY }} />
+              </Avatar>
+            </NavGutter>
             <Text className={NavLabel} as="span" size="Inherit" truncate>
               {room.name}
             </Text>
@@ -166,7 +170,7 @@ function Collapsible({ categoryId, label, rooms, trailing, children }: Collapsib
         </RoomNavCategoryButton>
         {trailing}
       </NavCategoryHeader>
-      {!closed && children}
+      {!closed && <NavLevel>{children}</NavLevel>}
     </NavCategory>
   );
 }
@@ -206,7 +210,13 @@ function Browse({ tierId, groups }: { tierId: string; groups: EstateGroup[] }) {
           {`Browse ${count} more ${count === 1 ? 'room' : 'rooms'}`}
         </RoomNavCategoryButton>
       </NavCategoryHeader>
-      {open && groups.map((g) => <GroupSection key={g.mind} tierId={tierId} group={g} />)}
+      {open && (
+        <NavLevel>
+          {groups.map((g) => (
+            <GroupSection key={g.mind} tierId={tierId} group={g} />
+          ))}
+        </NavLevel>
+      )}
     </NavCategory>
   );
 }
@@ -235,9 +245,11 @@ function EntryPoints() {
         <NavButton onClick={() => navigate(getHomeCreatePath())}>
           <NavItemContent>
             <Box as="span" grow="Yes" alignItems="Center" gap="200">
-              <Avatar size="200" radii="400">
-                <Icon src={Icons.Plus} size="100" />
-              </Avatar>
+              <NavGutter>
+                <Avatar size="200" radii="400">
+                  <Icon src={Icons.Plus} size="100" style={{ opacity: NAV_ICON_REST_OPACITY }} />
+                </Avatar>
+              </NavGutter>
               <Text as="span" size="Inherit" truncate>
                 Create Room
               </Text>
@@ -252,9 +264,15 @@ function EntryPoints() {
               <NavButton onClick={() => setOpen(true)}>
                 <NavItemContent>
                   <Box as="span" grow="Yes" alignItems="Center" gap="200">
-                    <Avatar size="200" radii="400">
-                      <Icon src={Icons.Link} size="100" />
-                    </Avatar>
+                    <NavGutter>
+                      <Avatar size="200" radii="400">
+                        <Icon
+                          src={Icons.Link}
+                          size="100"
+                          style={{ opacity: NAV_ICON_REST_OPACITY }}
+                        />
+                      </Avatar>
+                    </NavGutter>
                     <Text as="span" size="Inherit" truncate>
                       Join with Address
                     </Text>

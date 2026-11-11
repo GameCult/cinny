@@ -13,6 +13,29 @@ const SCRIM_HOVER = '14%';
 const SCRIM_SELECTED = '22%';
 const SCRIM_PRESSED = '48%';
 
+// The navigator's one column grid. Every row, section header and join row begins with a gutter of
+// the same width, with its chevron, room icon or avatar centred in it, so every label starts at
+// the same x for its depth; each nesting level (NavLevel) indents by one constant step.
+const GUTTER = toRem(32);
+const LEVEL_STEP = toRem(16);
+
+export const NavGutter = style({
+  width: GUTTER,
+  minWidth: GUTTER,
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+});
+
+export const NavLevel = style({
+  paddingLeft: LEVEL_STEP,
+});
+
+// Chevrons and room icons share one resting weight, so a foldout is not outweighed by its rooms.
+export const NAV_ICON_REST_OPACITY = 0.6;
+export const NAV_ICON_UNREAD_OPACITY = 0.9;
+
 export const NavCategory = style([
   DefaultReset,
   {
@@ -22,6 +45,11 @@ export const NavCategory = style([
 
 export const NavCategoryHeader = style({
   gap: config.space.S100,
+  selectors: {
+    // The header's own side padding would shift its gutter off the rows': the section button
+    // carries the same left inset as NavItemContent instead.
+    '&&': { paddingLeft: 0 },
+  },
   '@media': {
     // Category labels sit on the scene like the rows do, and need a wash to be read (wide screens;
     // a phone's list is plain text).
