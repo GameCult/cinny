@@ -1,6 +1,8 @@
 // Pure: turns the thread roots of a file-zone room and each root's thread replies, in the JSON
 // Synapse returns from GET /rooms/{roomId}/threads and GET /rooms/{roomId}/relations/{root}/m.thread,
 // into albums. See docs/file-zone.md for the rulings this encodes.
+import { MINDS } from '../../components/message/pose/poses';
+import { FILE_HASH_KEY, FILE_RECEIVED } from './fileReceipt';
 
 /** The slice of a Matrix event this module reads. Every field may be missing. */
 export type ZoneEvent = {
@@ -16,6 +18,9 @@ export type AlbumInput = { root: ZoneEvent; replies: ZoneEvent[] };
 
 export type FileKind = 'audio' | 'image' | 'video' | 'file';
 
+/** A Mind's verified receipt for one file: its sender, who the Matrix server says posted it. */
+export type FileReader = { sender: string; ts: number };
+
 export type AlbumFile = {
   id: string;
   kind: FileKind;
@@ -23,6 +28,8 @@ export type AlbumFile = {
   ts: number;
   /** The event content, as RenderMessageContent reads it. */
   content: Record<string, unknown>;
+  /** Receipts in this album that name this file, one per sender (the latest), oldest first. */
+  readBy: FileReader[];
 };
 
 export type Album = {
@@ -70,7 +77,46 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     name: asString(e.content.filename) || asString(e.content.body),
     ts: tsOf(e.origin_server_ts),
     content: e.content,
+    readBy: [],
   };
+};
+
+// A receipt is a thread reply of type org.gamecult.file_received whose content names a file of this
+// album; it carries no msgtype, so it never passes `live`.
+const receiptOf = (e: ZoneEvent) => {
+  if (!e || typeof e !== 'object' || e.type !== FILE_RECEIVED || !e.event_id) return undefined;
+  if (e.unsigned?.redacted_because) return undefined;
+  const body = e.content?.[FILE_RECEIVED] as { event_id?: unknown; sha256?: unknown } | undefined;
+  if (typeof body?.event_id !== 'string' || typeof body.sha256 !== 'string') return undefined;
+  if (typeof e.sender !== 'string') return undefined;
+  return {
+    file: body.event_id,
+    sender: e.sender,
+    ts: tsOf(e.origin_server_ts),
+    sha256: body.sha256,
+  };
+};
+
+// Only the event's sender counts, never a name inside the content, and only a Mind's own Matrix
+// identity on this homeserver (`@<mind>:<server>`, the mind named in the Persona catalogue). "Read" means verified: the receipt's hash must be
+// the file event's own.
+const isMind = (sender: string, server: string) => MINDS.some((m) => sender === `@${m}:${server}`);
+
+const attachReceipts = (files: AlbumFile[], replies: ZoneEvent[], server: string) => {
+  const byId = new Map(files.map((f) => [f.id, f]));
+  replies
+    .map(receiptOf)
+    .filter((r): r is NonNullable<typeof r> => !!r && isMind(r.sender, server))
+    .sort((a, b) => a.ts - b.ts)
+    .forEach((r) => {
+      const file = byId.get(r.file);
+      const sent = (file?.content.info as Record<string, unknown> | undefined)?.[FILE_HASH_KEY];
+      if (!file || typeof sent !== 'string' || sent !== r.sha256) return;
+      file.readBy = [
+        ...file.readBy.filter((x) => x.sender !== r.sender),
+        { sender: r.sender, ts: r.ts },
+      ];
+    });
 };
 
 export const UNTITLED = 'Untitled album';
@@ -84,7 +130,7 @@ const titleOf = (root: ZoneEvent & { content: Record<string, unknown> }): string
   return asString(edited) || asString(root.content.body) || UNTITLED;
 };
 
-const toAlbum = (input: AlbumInput): Album | undefined => {
+const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
   const { root, replies } = input ?? {};
   if (!live(root)) return undefined;
   const seen = new Set<string>();
@@ -96,6 +142,7 @@ const toAlbum = (input: AlbumInput): Album | undefined => {
       return true;
     })
     .sort((a, b) => a.ts - b.ts);
+  attachReceipts(files, Array.isArray(replies) ? replies : [], server);
   return {
     id: root.event_id,
     title: titleOf(root),
@@ -108,10 +155,11 @@ const toAlbum = (input: AlbumInput): Album | undefined => {
 };
 
 /** Newest album first; files oldest first. Loose room messages never reach this function. */
-export const buildAlbums = (inputs: AlbumInput[]): Album[] => {
+/** `server` is the homeserver's own domain: only its Minds' receipts count. */
+export const buildAlbums = (inputs: AlbumInput[], server = ''): Album[] => {
   const seen = new Set<string>();
   return inputs
-    .map(toAlbum)
+    .map((i) => toAlbum(i, server))
     .filter((a): a is Album => {
       if (!a || seen.has(a.id)) return false;
       seen.add(a.id);

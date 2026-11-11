@@ -99,6 +99,7 @@ import {
   getImageMsgContent,
   getVideoMsgContent,
 } from './msgContent';
+import { FILE_HASH_KEY, hashForSend } from '../albums/fileReceipt';
 import { getMemberDisplayName, getMentionContent, trimReplyFromBody } from '../../utils/room';
 import { CommandAutocomplete } from './CommandAutocomplete';
 import { Command, SHRUG, TABLEFLIP, UNFLIP, useCommands } from '../../hooks/useCommands';
@@ -280,16 +281,23 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
         const fileItem = selectedFiles.find((f) => f.file === upload.file);
         if (!fileItem) throw new Error('Broken upload');
 
+        let content: IContent;
         if (fileItem.file.type.startsWith('image')) {
-          return getImageMsgContent(mx, fileItem, upload.mxc);
+          content = await getImageMsgContent(mx, fileItem, upload.mxc);
+        } else if (fileItem.file.type.startsWith('video')) {
+          content = await getVideoMsgContent(mx, fileItem, upload.mxc);
+        } else if (fileItem.file.type.startsWith('audio')) {
+          content = getAudioMsgContent(fileItem, upload.mxc);
+        } else {
+          content = getFileMsgContent(fileItem, upload.mxc);
         }
-        if (fileItem.file.type.startsWith('video')) {
-          return getVideoMsgContent(mx, fileItem, upload.mxc);
+        // A Mind verifies what it fetched against this. An encrypted file already carries the
+        // ciphertext hash in file.hashes; a plaintext hash would leak the file's identity.
+        if (!fileItem.encInfo) {
+          const sha256 = await hashForSend(fileItem.originalFile);
+          if (sha256) content.info = { ...content.info, [FILE_HASH_KEY]: sha256 };
         }
-        if (fileItem.file.type.startsWith('audio')) {
-          return getAudioMsgContent(fileItem, upload.mxc);
-        }
-        return getFileMsgContent(fileItem, upload.mxc);
+        return content;
       });
       handleCancelUpload(uploads);
       const contents = fulfilledPromiseSettledResult(await Promise.allSettled(contentsPromises));

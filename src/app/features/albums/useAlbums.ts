@@ -59,7 +59,7 @@ export const useAlbums = (room: Room): AlbumsState => {
             )
           ).chunk ?? [],
       }));
-      return buildAlbums(inputs);
+      return buildAlbums(inputs, mx.getDomain() ?? '');
     },
     retry: 1,
     refetchInterval: REFRESH_MS,
