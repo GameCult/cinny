@@ -145,7 +145,7 @@ describe("a question's age", () => {
     expect(html('2026-11-11T11:40:00Z')).toContain('raised just now');
   });
   it('shows no age when the card carries none, or an instant that does not parse or is ahead of the clock', () => {
-    ['null', 'yesterday', '2027-01-01T00:00:00Z'].forEach((v) => {
+    ['null', 'yesterday', '2027-01-01T00:00:00Z', '2026-11-06', 'Nov 6 2026', '0', '2026-02-30T00:00:00Z'].forEach((v) => {
       expect(html(v === 'null' ? null : v)).not.toContain('raised ');
     });
   });
@@ -172,6 +172,31 @@ describe('counts when the ids are withheld', () => {
       </ScreenSizeProvider>
     );
     expect(html).toContain('3 deciders · 2 answerers');
+  });
+  it('shows no count line for a served count outside the contract', () => {
+    const bad = (card: object, record: object): string => {
+      const entry = STATES.noAnswers.forks[0];
+      const list = {
+        ...STATES.noAnswers,
+        forks: [{ card: { ...entry.card, ...card }, record: { ...entry.record, ...record } }],
+      } as ForkList;
+      return renderToStaticMarkup(
+        <ScreenSizeProvider value={ScreenSize.Desktop}>
+          <DeskView mind="void" label="Void" list={list} />
+        </ScreenSizeProvider>
+      );
+    };
+    [
+      [{ decider_count: 0 }, {}],
+      [{ decider_count: 65 }, {}],
+      [{ decider_count: undefined }, {}],
+      [{}, { answerer_count: -1 }],
+      [{}, { answerer_count: 1.5 }],
+    ].forEach(([c, r]) => {
+      const out = bad(c, r);
+      expect(out).not.toContain('undefined');
+      expect(out).not.toMatch(/deciders? ·/);
+    });
   });
   it('says the singular for one', () => {
     const html = view('noAnswers', ScreenSize.Desktop);

@@ -83,9 +83,11 @@ function Row({ row, now }: { row: DeskRow; now: number }) {
           {raisedAge(row.raisedAt, now) && (
             <p className={css.Quiet}>{raisedAge(row.raisedAt, now)}</p>
           )}
-          <p className={css.Quiet}>
-            {`${plural(row.deciderCount, 'decider')} · ${plural(row.answererCount, 'answerer')}`}
-          </p>
+          {row.deciderCount !== undefined && row.answererCount !== undefined && (
+            <p className={css.Quiet}>
+              {`${plural(row.deciderCount, 'decider')} · ${plural(row.answererCount, 'answerer')}`}
+            </p>
+          )}
           <p className={css.Body}>{row.context}</p>
           <ul className={css.Options}>
             {row.options.map((o) => (
