@@ -77,6 +77,12 @@ describe('the bands the text ink needs', () => {
 });
 
 describe('ridgeSkyFor', () => {
+  it('carries the state band, which the layers are shaped into', () => {
+    for (const state of ['day', 'dusk', 'night'] as const) {
+      expect(ridgeSkyFor(state).band).toEqual(SKY_BAND[state]);
+    }
+  });
+
   it('draws the gradient of the sky auto resolves to, never nothing', () => {
     setSkyClock(() => atStandardTime(12, 0));
     expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('day'));
