@@ -29,6 +29,8 @@ import { _RoomSearchParams } from '../../pages/paths';
 import { searchModalAtom } from '../../state/searchModal';
 import { getCanonicalAliasOrRoomId } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
+import { useClientConfig } from '../../hooks/useClientConfig';
+import { isFileZone } from '../albums/isFileZone';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
@@ -140,11 +142,9 @@ type CollapsibleProps = {
   categoryId: string;
   label: string;
   rooms: EstateRoom[];
-  /** Sits in the header beside the label, so a collapsed section still shows it. */
-  trailing?: ReactNode;
   children: ReactNode;
 };
-function Collapsible({ categoryId, label, rooms, trailing, children }: CollapsibleProps) {
+function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
   const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const selectedRoomId = useSelectedRoom();
   const roomToUnread = useAtomValue(roomToUnreadAtom);
@@ -168,22 +168,44 @@ function Collapsible({ categoryId, label, rooms, trailing, children }: Collapsib
         <RoomNavCategoryButton closed={closed} onClick={handleClick}>
           {label}
         </RoomNavCategoryButton>
-        {trailing}
       </NavCategoryHeader>
       {!closed && <NavLevel>{children}</NavLevel>}
     </NavCategory>
   );
 }
 
+/** The Mind's media pages (file-zone rooms) first, then its other rooms in their given order. */
+function useMediaFirst(rooms: EstateRoom[]): EstateRoom[] {
+  const mx = useMatrixClient();
+  const clientConfig = useClientConfig();
+  return useMemo(() => {
+    const isMedia = (r: EstateRoom) => {
+      const mxRoom = mx.getRoom(r.roomId);
+      return (
+        !!mxRoom &&
+        isFileZone(
+          {
+            roomId: r.roomId,
+            aliases: [mxRoom.getCanonicalAlias(), ...mxRoom.getAltAliases()].filter(
+              (a): a is string => !!a
+            ),
+            createType: mxRoom.currentState.getStateEvents('m.room.create', '')?.getContent().type,
+          },
+          clientConfig
+        )
+      );
+    };
+    const media = rooms.filter(isMedia);
+    return [...media, ...rooms.filter((r) => !media.includes(r))];
+  }, [mx, clientConfig, rooms]);
+}
+
 function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
+  const rooms = useMediaFirst(group.rooms);
   return (
-    <Collapsible
-      categoryId={`${tierId}|${group.mind}`}
-      label={group.label}
-      rooms={group.rooms}
-      trailing={<DeskEntry mind={group.mind} />}
-    >
-      {group.rooms.map((r) => (
+    <Collapsible categoryId={`${tierId}|${group.mind}`} label={group.label} rooms={group.rooms}>
+      <DeskEntry mind={group.mind} />
+      {rooms.map((r) => (
         <EstateRow key={r.roomId} room={r} />
       ))}
     </Collapsible>

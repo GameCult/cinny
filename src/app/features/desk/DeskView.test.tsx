@@ -139,12 +139,14 @@ describe('DeskEntry', () => {
     setDeskSource(() => ({ ...STATES.empty, open_count: 5 }));
     expect(entry('void')).toContain('Desk · 5 open');
   });
-  it('is absent at zero open, when nothing is published, and when only settled forks exist', () => {
-    setDeskSource(() => STATES.empty);
-    expect(entry('void')).toBe('');
-    setDeskSource(() => undefined);
-    expect(entry('void')).toBe('');
-    setDeskSource(() => ({ ...STATES.settled, open_count: 0 }));
-    expect(entry('void')).toBe('');
+  it('is pinned even at zero open, when nothing is published, and when only settled forks exist', () => {
+    const bare = (html: string) => html.replace(/<[^>]*>/g, '');
+    const states = [STATES.empty, undefined, { ...STATES.settled, open_count: 0 }];
+    states.forEach((state) => {
+      setDeskSource(() => state);
+      const html = entry('void');
+      expect(bare(html)).toBe('Desk');
+      expect(html).toContain('href="/desk/void"');
+    });
   });
 });
