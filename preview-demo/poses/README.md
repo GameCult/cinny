@@ -1,6 +1,6 @@
 # Demo pose thumbnails
 
-These 24 PNGs (about 200 KB, 160 px wide, palette-quantised) are downscaled copies of GameCult's own
+These 36 PNGs (eureka, void and nibu, 12 each; about 1.8 MB, up to 480 px wide, palette-quantised) are downscaled copies of GameCult's own
 Persona art from `/opt/commons/cast-art/poses`. That directory carries no provenance or licence note:
 the image model that made the art and the terms it was made under are not recorded.
 
