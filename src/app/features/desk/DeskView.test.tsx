@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ScreenSize, ScreenSizeProvider } from '../../hooks/useScreenSize';
 import { DeskEntry } from './DeskEntry';
 import { DeskView, SIGN_IN_NOTE } from './DeskView';
+import { ForkList } from './forkContract';
 import { STATES } from './fixtures';
 import { setDeskSource } from './source';
 
@@ -118,6 +119,35 @@ describe('DeskView', () => {
   });
   it('shows no booth before anything is published', () => {
     expect(view('unpublished', ScreenSize.Desktop)).not.toContain('data-pose');
+  });
+});
+
+describe("a question's age", () => {
+  const NOW = Date.parse('2026-11-11T12:00:00Z');
+  const listRaised = (raisedAt: string | null): ForkList => {
+    const entry = STATES.noAnswers.forks[0];
+    return {
+      ...STATES.noAnswers,
+      forks: [{ ...entry, card: { ...entry.card, raised_at: raisedAt } }],
+    };
+  };
+  const html = (raisedAt: string | null) =>
+    renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={listRaised(raisedAt)} now={NOW} />
+      </ScreenSizeProvider>
+    );
+  it('reads days since the card was first admitted', () => {
+    expect(html('2026-11-06T12:00:00Z')).toContain('raised 5d ago');
+  });
+  it('reads hours inside a day, and just now inside an hour', () => {
+    expect(html('2026-11-11T07:30:00Z')).toContain('raised 4h ago');
+    expect(html('2026-11-11T11:40:00Z')).toContain('raised just now');
+  });
+  it('shows no age when the card carries none, or an instant that does not parse or is ahead of the clock', () => {
+    ['null', 'yesterday', '2027-01-01T00:00:00Z'].forEach((v) => {
+      expect(html(v === 'null' ? null : v)).not.toContain('raised ');
+    });
   });
 });
 

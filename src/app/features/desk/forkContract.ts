@@ -24,6 +24,12 @@ export type ForkCard = {
   /** Not shown by the desk. */
   flag: string | null;
   raised_in: { kind: string; id: string } | null;
+  /**
+   * When the question was first admitted (an RFC3339 instant, as `answered_at`), or nil when the mind holds no
+   * admission time. Always written; outside `options_hash`; it never moves when the question is edited. Age is
+   * the client's: now minus `raised_at`.
+   */
+  raised_at: string | null;
   deciders: string[];
   status: 'open' | 'closed';
   /** The ruling id when a ruling closed the fork; nil when open, and nil on a closed card withdrawn with no ruling. */

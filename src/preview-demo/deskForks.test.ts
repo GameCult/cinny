@@ -18,6 +18,7 @@ const KEYS = {
     'leans',
     'flag',
     'raised_in',
+    'raised_at',
     'deciders',
     'status',
     'ruling',

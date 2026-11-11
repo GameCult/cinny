@@ -16,6 +16,7 @@ export const card = (label: string, over: Partial<ForkCard> = {}): ForkCard => (
   leans: null,
   flag: null,
   raised_in: null,
+  raised_at: null,
   deciders: ['d1'],
   status: 'open',
   ruling: null,

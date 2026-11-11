@@ -28,6 +28,8 @@ export type DeskRow =
       /** The recommendation resolved to its option's text; absent if it names no option. */
       recommended?: string;
       depends: string[];
+      /** When the question was first admitted, as served; absent when the card carries none. */
+      raisedAt?: string;
       /** In admission order, as served. */
       answers: AnswerRow[];
     };
@@ -83,6 +85,7 @@ export const buildDesk = (
       options: card.options.map((o) => ({ ...o, recommended: o.id === card.recommendation })),
       recommended: card.options.find((o) => o.id === card.recommendation)?.text,
       depends: card.depends,
+      raisedAt: card.raised_at ?? undefined,
       answers: record.answers.map((a) => answerRow(a, entry)),
     });
   });
