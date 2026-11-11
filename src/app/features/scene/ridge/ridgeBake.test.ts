@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BakeParams, bakeSlice, faceLight, layerPaint, sunDirection } from './ridgeBake';
+import { SKY_BAND } from '../skyBand';
+import { ridgeSkyFor } from '../skyForState';
 import { LACUNARITY, LAYERS, profile } from './ridgeWorld';
 import { skyColours, SkyColours } from './skyColour';
 
@@ -155,22 +157,41 @@ describe('shading from the slope normal', () => {
     }
   });
 
-  it('the foot of the face is hazier than its top: it moves toward the haze colour', () => {
+  it('the foot of the face is clearly darker than its top, on every layer: volume from the depth below the crest', () => {
+    // Without the depth shading the bottom row is 0.93 to 0.98 of the luminance 12 rows under the crest; with it, 0.73 to 0.82.
+    for (const li of [0, 1, 2, 3]) {
+      const cols = 900;
+      const d = bake(params(li, 0, cols, { spec: { ...LAYERS[li], mist: 0, gully: 0 } }));
+      let ratio = 0;
+      let n = 0;
+      for (let x = 0; x < cols; x += 1) {
+        const y = solidRow(d, cols, x);
+        if (y + 90 >= BAND) continue;
+        n += 1;
+        ratio += lum(d, cols, x, BAND - 1) / Math.max(1, lum(d, cols, x, y + 12));
+      }
+      expect(n).toBeGreaterThan(30);
+      expect(ratio / n).toBeLessThan(0.88);
+    }
+  });
+
+  it('the valley mist still pulls the foot toward the haze colour', () => {
     const cols = 300;
     const p = params(0, 0, cols);
-    const d = bake(p);
+    const misty = bake(p);
+    const clear = bake(params(0, 0, cols, { spec: { ...LAYERS[0], mist: 0 } }));
     const haze = layerPaint(p.spec, p.sky).haze;
-    const dist = (x: number, y: number) => {
+    const dist = (d: Uint8ClampedArray, x: number, y: number) => {
       const o = (y * cols + x) * 4;
       return Math.hypot(d[o] - haze[0], d[o + 1] - haze[1], d[o + 2] - haze[2]);
     };
     let nearer = 0;
     let n = 0;
     for (let x = 0; x < cols; x += 1) {
-      const y = solidRow(d, cols, x);
+      const y = solidRow(misty, cols, x);
       if (y + 200 >= BAND) continue;
       n += 1;
-      if (dist(x, y + 200) < dist(x, y + 20)) nearer += 1;
+      if (dist(misty, x, y + 200) < dist(clear, x, y + 200)) nearer += 1;
     }
     expect(n).toBeGreaterThan(50);
     expect(nearer / n).toBeGreaterThan(0.9);
@@ -299,5 +320,85 @@ describe('the ridged multifractal core, each rule on its own', () => {
       );
     };
     expect(gap(0)).toBeLessThan(gap(3));
+  });
+});
+
+describe('the state band: the theme ink clears 4.5:1 on a ridge as on bare sky', () => {
+  const linear = (v: number) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luma = (d: Uint8ClampedArray, o: number) =>
+    0.2126 * linear(d[o]) + 0.7152 * linear(d[o + 1]) + 0.0722 * linear(d[o + 2]);
+  /** Lowest and highest luminance over the solid pixels of every layer. */
+  const range = (band: typeof SKY_BAND[keyof typeof SKY_BAND] | undefined) => {
+    let lo = 1;
+    let hi = 0;
+    for (const li of [0, 1, 2, 3]) {
+      const p = params(li, 0, 700, { sky: { ...SKY, band } });
+      const d = bake(p);
+      for (let o = 0; o < d.length; o += 4) {
+        if (d[o + 3] < 255) continue;
+        const l = luma(d, o);
+        lo = Math.min(lo, l);
+        hi = Math.max(hi, l);
+      }
+    }
+    return { lo, hi };
+  };
+
+  it("day and dusk: no ridge pixel is darker than the text floor (Day's), on every layer", () => {
+    for (const band of [SKY_BAND.day, SKY_BAND.dusk]) {
+      expect(range(band).lo).toBeGreaterThanOrEqual(SKY_BAND.day.floor);
+    }
+  });
+
+  it('night: no ridge pixel is lighter than the ceiling', () => {
+    expect(range(SKY_BAND.night).hi).toBeLessThanOrEqual(SKY_BAND.night.ceiling);
+  });
+
+  it('is the identity with no band, so nothing else changes', () => {
+    expect(layerPaint(LAYERS[2], SKY).shift).toBeNull();
+    expect(range(undefined).lo).toBeLessThan(SKY_BAND.day.floor);
+  });
+
+  it('keeps the shading: the foot is still darker than the top inside the band', () => {
+    // Inside the band the face's range is compressed, not removed: dusk, no mist or gullies, bottom row over 12 rows under the crest.
+    const sky = { ...SKY, band: SKY_BAND.dusk };
+    for (const li of [0, 1, 2, 3]) {
+      const cols = 900;
+      const d = bake(params(li, 0, cols, { sky, spec: { ...LAYERS[li], mist: 0, gully: 0 } }));
+      let ratio = 0;
+      let n = 0;
+      for (let x = 0; x < cols; x += 1) {
+        const y = solidRow(d, cols, x);
+        if (y + 90 >= BAND) continue;
+        n += 1;
+        ratio += luma(d, ((BAND - 1) * cols + x) * 4) / luma(d, ((y + 12) * cols + x) * 4);
+      }
+      expect(n).toBeGreaterThan(30);
+      // Measured 0.84, 0.85, 0.91, 0.97 far to near: the nearest ground is near black, so its range is small in absolute terms.
+      expect(ratio / n).toBeLessThan(li < 3 ? 0.95 : 1);
+    }
+  });
+
+  it('the real states, over a sweep of the sun: no pixel overflows the encoding (an overflow reads as a stray black or yellow channel)', () => {
+    for (const state of ['day', 'dusk', 'night'] as const) {
+      for (const sunAzimuth of [0, 0.1, 0.25, 0.3, 0.5, 0.75, 0.9]) {
+        const sky = { ...ridgeSkyFor(state), sunAzimuth };
+        for (const li of [0, 1, 2, 3]) {
+          const d = bake(params(li, 1000, 400, { sky }));
+          let stray = 0;
+          for (let o = 0; o < d.length; o += 4) {
+            if (d[o + 3] < 255) continue;
+            // A channel far below both others is the signature of a lookup that read past its table.
+            const lo = Math.min(d[o], d[o + 1], d[o + 2]);
+            const mid = d[o] + d[o + 1] + d[o + 2] - lo - Math.max(d[o], d[o + 1], d[o + 2]);
+            if (mid - lo > 120) stray += 1;
+          }
+          expect(stray).toBe(0);
+        }
+      }
+    }
   });
 });

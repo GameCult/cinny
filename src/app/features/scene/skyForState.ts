@@ -20,7 +20,8 @@ const rgbHex = (c: Srgb) => `#${c.map((v) => v.toString(16).padStart(2, '0')).jo
 const rgb = (hex: string): Srgb =>
   [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as unknown as Srgb;
 
-const fromGradient = (g: readonly string[], ground: Srgb): SkyColours => ({
+const fromGradient = (g: readonly string[], ground: Srgb, band: SkyBand): SkyColours => ({
+  band,
   top: rgb(g[0]),
   mid: rgb(g[Math.floor(g.length / 2)]),
   horizon: rgb(g[g.length - 1]),
@@ -46,15 +47,16 @@ export function ridgeSkyFor(state: SkyState): SkyColours {
       const band = SKY_BAND.dusk;
       return {
         ...twilight,
+        band,
         top: inBand(twilight.top, band),
         mid: inBand(twilight.mid, band),
         horizon: inBand(twilight.horizon, band),
       };
     }
     case 'day':
-      return fromGradient(baked.noonday.gradient, ground);
+      return fromGradient(baked.noonday.gradient, ground, SKY_BAND.day);
     default:
-      return fromGradient(baked.midnight.gradient, ground);
+      return fromGradient(baked.midnight.gradient, ground, SKY_BAND.night);
   }
 }
 
