@@ -61,7 +61,8 @@ import {
 import { MessageLayout, MessageSpacing, settingsAtom } from '../../../state/settings';
 import { useSetting } from '../../../state/hooks/settings';
 import { PoseAvatar } from '../../../components/message/pose/PoseAvatar';
-import { POSE_KEY, MINDS, mindOfSender, resolvePose } from '../../../components/message/pose/poses';
+import { MINDS, mindOfSender } from '../../../components/message/pose/poses';
+import { messagePose } from '../../../components/message/pose/sentiment';
 import { useEntranceDelay } from '../../../components/message/pose/entrance';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { useRecentEmoji } from '../../../hooks/useRecentEmoji';
@@ -835,7 +836,7 @@ export const Message = as<'div', MessageProps>(
     const poseJSX = !collapse && mind && (
       <PoseAvatar
         mind={mind}
-        pose={resolvePose(mind, mEvent.getContent()[POSE_KEY])}
+        pose={messagePose(mind, mEvent.getContent())}
         userId={senderId}
         alt={poseAlt}
         enter={enterDelay !== undefined}
