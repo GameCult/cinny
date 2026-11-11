@@ -10,7 +10,13 @@ import type { SkyColours, Srgb } from './ridge/skyColour';
 import { skyColours } from './ridge/skyColour';
 import { resolveSkyState } from './skyState';
 import type { SkyState } from './skyState';
-import { displayedLuminance, hexToLinear, shapeToBand, SKY_BAND } from './skyBand';
+import {
+  displayedLuminance,
+  hexToLinear,
+  RIDGE_NIGHT_BAND,
+  shapeToBand,
+  SKY_BAND,
+} from './skyBand';
 import type { SkyBand } from './skyBand';
 import { luminance } from '../../../sky/skyTokens.js';
 import { CAMERA } from './terrain/terrainWorld';
@@ -38,7 +44,7 @@ const toByte = (v: number): number =>
 const inBand = (c: Srgb, band: SkyBand): Srgb =>
   shapeToBand(hexToLinear(rgbHex(c)), band).map(toByte) as unknown as Srgb;
 
-/** The ridge scene's `sky` option: the gradient of the state's sky ('auto': of the sky it resolves to). Dusk's twilight stops are shaped into its band. */
+/** The ridge scene's `sky` option: the gradient of the state's sky ('auto': of the sky it resolves to). Dusk's twilight stops and night's baked stops are shaped into their bands (night's is the ridge's own, lower one). */
 export function ridgeSkyFor(state: SkyState): SkyColours {
   const { ground } = skyColours();
   switch (resolveSkyState(state)) {
@@ -55,8 +61,15 @@ export function ridgeSkyFor(state: SkyState): SkyColours {
     }
     case 'day':
       return fromGradient(baked.noonday.gradient, ground, SKY_BAND.day);
-    default:
-      return fromGradient(baked.midnight.gradient, ground, SKY_BAND.night);
+    default: {
+      const night = fromGradient(baked.midnight.gradient, ground, RIDGE_NIGHT_BAND);
+      return {
+        ...night,
+        top: inBand(night.top, RIDGE_NIGHT_BAND),
+        mid: inBand(night.mid, RIDGE_NIGHT_BAND),
+        horizon: inBand(night.horizon, RIDGE_NIGHT_BAND),
+      };
+    }
   }
 }
 

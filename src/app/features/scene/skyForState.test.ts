@@ -12,7 +12,7 @@ import {
   terrainDrawn,
   terrainSkyFor,
 } from './skyForState';
-import { displayedLuminance, luma, shapeToBand, SKY_BAND } from './skyBand';
+import { displayedLuminance, luma, RIDGE_NIGHT_BAND, shapeToBand, SKY_BAND } from './skyBand';
 import type { FixedSkyState } from './skyBand';
 import { setSkyClock, skyBackdrop } from './skyState';
 import { view } from './terrain/terrainWorld';
@@ -78,9 +78,22 @@ describe('the bands the text ink needs', () => {
 
 describe('ridgeSkyFor', () => {
   it('carries the state band, which the layers are shaped into', () => {
-    for (const state of ['day', 'dusk', 'night'] as const) {
-      expect(ridgeSkyFor(state).band).toEqual(SKY_BAND[state]);
-    }
+    expect(ridgeSkyFor('day').band).toEqual(SKY_BAND.day);
+    expect(ridgeSkyFor('dusk').band).toEqual(SKY_BAND.dusk);
+    expect(ridgeSkyFor('night').band).toBe(RIDGE_NIGHT_BAND);
+    expect(terrainSkyFor('night').band).toBe(SKY_BAND.night);
+  });
+
+  it("night's stops are shaped into the ridge's own ceiling, the hue kept", () => {
+    const night = ridgeSkyFor('night');
+    const baseline = [baked.midnight.gradient[0], baked.midnight.gradient[6]].map((h) =>
+      [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+    );
+    [night.top, night.horizon].forEach((stop, i) => {
+      expect(luminance(hex(stop))).toBeLessThanOrEqual(RIDGE_NIGHT_BAND.ceiling + 0.0005);
+      // The brightest channel is the same one: scaling down in linear light does not turn the hue.
+      expect(stop.indexOf(Math.max(...stop))).toBe(baseline[i].indexOf(Math.max(...baseline[i])));
+    });
   });
 
   it('draws the gradient of the sky auto resolves to, never nothing', () => {
@@ -109,8 +122,11 @@ describe('ridgeSkyFor', () => {
     const night = ridgeSkyFor('night');
     expect(hex(day.top)).toBe(baked.noonday.gradient[0]);
     expect(hex(day.horizon)).toBe(baked.noonday.gradient[6]);
-    expect(hex(night.top)).toBe(baked.midnight.gradient[0]);
-    expect(hex(night.horizon)).toBe(baked.midnight.gradient[6]);
+    // Night's stops are the baked ones shaped into the ridge's lower ceiling (next test), so only darker or equal.
+    expect(luminance(hex(night.top))).toBeLessThanOrEqual(luminance(baked.midnight.gradient[0]));
+    expect(luminance(hex(night.horizon))).toBeLessThanOrEqual(
+      luminance(baked.midnight.gradient[6])
+    );
   });
 
   it.each(STATES)('%s: every stop and blend lies in the band its text ink needs', (state) => {

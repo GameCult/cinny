@@ -74,6 +74,13 @@ export const SKY_BAND: Record<FixedSkyState, SkyBand> = {
 };
 
 /**
+ * The ridge sky's night band: the same night, with a lower ceiling. The foldout headers wear a dimmer ink than the
+ * page text (L 0.386 against 0.594), and that ink needs a backdrop of at most 0.047 for 4.5:1. The terrain sky keeps
+ * SKY_BAND.night.
+ */
+export const RIDGE_NIGHT_BAND: SkyBand = { ...SKY_BAND.night, ceiling: 0.04 };
+
+/**
  * Shape a linear sky colour into the band. Below the floor it mixes toward `lift` by exactly the amount
  * that lands on the floor (continuous at the floor, hue kept); above the ceiling it scales down to the
  * ceiling. The colour is clamped to 0..1 first, as the screen does.
