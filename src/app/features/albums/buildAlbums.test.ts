@@ -214,3 +214,62 @@ describe('buildAlbums', () => {
     expect(one(root('$q', 1), [threaded]).count).toBe(1);
   });
 });
+
+describe('Mind receipts', () => {
+  const HASH = 'a'.repeat(64);
+  const file = (id: string, sha?: string) =>
+    reply(id, 10, 'm.audio', id, { info: sha ? { 'org.gamecult.sha256': sha } : {} });
+  const receipt = (id: string, ts: number, sender: string, fileId: unknown, sha?: unknown) =>
+    ({
+      event_id: id,
+      type: 'org.gamecult.file_received',
+      sender,
+      origin_server_ts: ts,
+      content: { 'org.gamecult.file_received': { event_id: fileId, sha256: sha } },
+    } as ZoneEvent);
+
+  it('shows who read a file, with the hash agreeing', () => {
+    const a = one(root('$r', 1), [file('$f', HASH), receipt('$x', 20, '@void:x', '$f', HASH)]);
+    expect(a.files[0].readBy).toEqual([{ sender: '@void:x', ts: 20, hash: 'match' }]);
+    expect(a.count).toBe(1);
+  });
+  it('flags a hash that differs, and leaves one unchecked when either side has none', () => {
+    const a = one(root('$r', 1), [
+      file('$f', HASH),
+      file('$g'),
+      receipt('$x', 20, '@void:x', '$f', 'b'.repeat(64)),
+      receipt('$y', 21, '@void:x', '$g', HASH),
+      receipt('$z', 22, '@void:x', '$f', undefined),
+    ]);
+    expect(a.files.find((f) => f.id === '$g')?.readBy[0].hash).toBe('unchecked');
+    expect(a.files.find((f) => f.id === '$f')?.readBy).toEqual([
+      { sender: '@void:x', ts: 22, hash: 'unchecked' },
+    ]);
+  });
+  it('keeps one receipt per Mind, the latest, and a second Mind beside it', () => {
+    const a = one(root('$r', 1), [
+      file('$f', HASH),
+      receipt('$1', 20, '@void:x', '$f', 'b'.repeat(64)),
+      receipt('$2', 30, '@void:x', '$f', HASH),
+      receipt('$3', 25, '@eureka:x', '$f', HASH),
+    ]);
+    expect(a.files[0].readBy.map((r) => [r.sender, r.hash])).toEqual([
+      ['@eureka:x', 'match'],
+      ['@void:x', 'match'],
+    ]);
+  });
+  it('ignores a receipt for a file not in the album, a malformed one, and a redacted one', () => {
+    const redacted = {
+      ...receipt('$d', 20, '@void:x', '$f', HASH),
+      unsigned: { redacted_because: {} },
+    };
+    const a = one(root('$r', 1), [
+      file('$f', HASH),
+      receipt('$a', 20, '@void:x', '$elsewhere', HASH),
+      receipt('$b', 21, '@void:x', 42, HASH),
+      redacted,
+    ]);
+    expect(a.files[0].readBy).toEqual([]);
+    expect(a.count).toBe(1);
+  });
+});

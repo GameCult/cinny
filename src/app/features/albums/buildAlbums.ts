@@ -1,6 +1,7 @@
 // Pure: turns the thread roots of a file-zone room and each root's thread replies, in the JSON
 // Synapse returns from GET /rooms/{roomId}/threads and GET /rooms/{roomId}/relations/{root}/m.thread,
 // into albums. See docs/file-zone.md for the rulings this encodes.
+import { FILE_HASH_KEY, FILE_RECEIVED } from './fileReceipt';
 
 /** The slice of a Matrix event this module reads. Every field may be missing. */
 export type ZoneEvent = {
@@ -16,6 +17,9 @@ export type AlbumInput = { root: ZoneEvent; replies: ZoneEvent[] };
 
 export type FileKind = 'audio' | 'image' | 'video' | 'file';
 
+/** A Mind's receipt for one file. `hash` is whether its sha256 equals the one the file event carries. */
+export type FileReader = { sender: string; ts: number; hash: 'match' | 'differs' | 'unchecked' };
+
 export type AlbumFile = {
   id: string;
   kind: FileKind;
@@ -23,6 +27,8 @@ export type AlbumFile = {
   ts: number;
   /** The event content, as RenderMessageContent reads it. */
   content: Record<string, unknown>;
+  /** Receipts in this album that name this file, one per sender (the latest), oldest first. */
+  readBy: FileReader[];
 };
 
 export type Album = {
@@ -70,7 +76,41 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     name: asString(e.content.filename) || asString(e.content.body),
     ts: tsOf(e.origin_server_ts),
     content: e.content,
+    readBy: [],
   };
+};
+
+// A receipt is a thread reply of type org.gamecult.file_received whose content names a file of this
+// album; it carries no msgtype, so it never passes `live`.
+const receiptOf = (e: ZoneEvent) => {
+  if (!e || typeof e !== 'object' || e.type !== FILE_RECEIVED || !e.event_id) return undefined;
+  if (e.unsigned?.redacted_because) return undefined;
+  const body = e.content?.[FILE_RECEIVED] as { event_id?: unknown; sha256?: unknown } | undefined;
+  if (typeof body?.event_id !== 'string' || typeof e.sender !== 'string') return undefined;
+  return {
+    file: body.event_id,
+    sender: e.sender,
+    ts: tsOf(e.origin_server_ts),
+    sha256: body.sha256,
+  };
+};
+
+const attachReceipts = (files: AlbumFile[], replies: ZoneEvent[]) => {
+  const byId = new Map(files.map((f) => [f.id, f]));
+  replies
+    .map(receiptOf)
+    .filter((r): r is NonNullable<typeof r> => !!r)
+    .sort((a, b) => a.ts - b.ts)
+    .forEach((r) => {
+      const file = byId.get(r.file);
+      if (!file) return;
+      const sent = (file.content.info as Record<string, unknown> | undefined)?.[FILE_HASH_KEY];
+      let hash: FileReader['hash'] = 'unchecked';
+      if (typeof sent === 'string' && typeof r.sha256 === 'string')
+        hash = sent === r.sha256 ? 'match' : 'differs';
+      const others = file.readBy.filter((x) => x.sender !== r.sender);
+      file.readBy = [...others, { sender: r.sender, ts: r.ts, hash }];
+    });
 };
 
 export const UNTITLED = 'Untitled album';
@@ -96,6 +136,7 @@ const toAlbum = (input: AlbumInput): Album | undefined => {
       return true;
     })
     .sort((a, b) => a.ts - b.ts);
+  attachReceipts(files, Array.isArray(replies) ? replies : []);
   return {
     id: root.event_id,
     title: titleOf(root),

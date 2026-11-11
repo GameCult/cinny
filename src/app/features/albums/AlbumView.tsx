@@ -15,6 +15,7 @@ import { getBlobSafeMimeType } from '../../utils/mimeTypes';
 import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
 import { Album, AlbumFile } from './buildAlbums';
+import { readLine } from './fileReceipt';
 import { useAlbums } from './useAlbums';
 import * as css from './AlbumView.css';
 
@@ -47,6 +48,11 @@ function FileRow({ room, file, author }: FileRowProps) {
       <Text size="T300" truncate>
         {file.name}
       </Text>
+      {file.readBy.length > 0 && (
+        <Text size="T200" className={css.Dim}>
+          {readLine(file.readBy, (id) => getMemberDisplayName(room, id) ?? id)}
+        </Text>
+      )}
       {audio ? (
         <AudioContent {...audio} renderMediaControl={(p) => <MediaControl {...p} />} />
       ) : (
