@@ -1,11 +1,12 @@
 import { POSE_KEY, NEUTRAL, resolvePose } from './poses';
 
+// catalogue.json beside this file is a vendored copy of /opt/commons/cast-art/poses/catalogue.json
+// (npm run sync:poses); nothing else publishes it to the browser.
 // Local sentiment -> pose label. A lexicon over the message text, no network, no model: the
 // same text always gives the same pose. Rules are tried in order and the first hit wins, so a
-// message that says "sorry" and "thanks" reads as concerned. Labels outside a Mind's art fall
-// back to neutral in resolvePose, so 'concerned' and 'determined' need no per-Mind table.
+// message that says "wow" and "thanks" reads as surprised. Only the shared labels (identical art
+// for all eight Minds, catalogue.json) are ever output; signature labels are explicit-only.
 const RULES: [string, RegExp][] = [
-  ['concerned', /\b(errors?|sorry|apolog\w+|oops|fail(ed|s|ure)?|broke(n)?|crash\w*|bug)\b/i],
   ['annoyed', /\b(annoy\w*|ugh+|argh+|frustrat\w*|again\?|why won'?t|stop it)\b/i],
   ['surprised', /\b(wow|whoa|woah|omg|no way|unexpected\w*|surpris\w*|wait,? what)\b|[?!]{2,}/i],
   [

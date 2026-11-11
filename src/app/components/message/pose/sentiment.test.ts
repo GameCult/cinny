@@ -3,14 +3,13 @@ import { classifyPose, messagePose } from './sentiment';
 
 describe('classifyPose', () => {
   it.each([
-    ['concerned', 'Sorry, that build failed with an error'],
     ['annoyed', 'ugh, this again'],
     ['surprised', 'wow, no way'],
-    ['determined', "on it, I'll fix that"],
     ['amused', 'hahaha that is funny'],
     ['happy', 'thanks, great work'],
     ['thinking', 'should we ship it?'],
     ['neutral', 'Merged the branch.'],
+    ['neutral', 'sorry, that failed with an error'],
   ])('%s', (label, text) => expect(classifyPose(text)).toBe(label));
   it('is neutral for empty or non-string text', () => {
     expect(classifyPose('')).toBe('neutral');
@@ -33,9 +32,8 @@ describe('messagePose', () => {
       'neutral'
     );
   });
-  it('classifies when there is no label, and drops labels the Mind lacks', () => {
+  it('classifies when there is no label, and never outputs a signature label', () => {
     expect(messagePose('aqua', { body: 'thanks!' })).toBe('happy');
-    expect(messagePose('aqua', { body: 'sorry' })).toBe('concerned');
     expect(messagePose('kiko', { body: 'sorry' })).toBe('neutral');
     expect(messagePose('aqua', {})).toBe('neutral');
   });
