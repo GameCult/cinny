@@ -19,6 +19,16 @@ export const mediaRoomIdFromStewardships = (content: unknown, mind: string): str
   return typeof id === 'string' && id.startsWith('!') ? id : undefined;
 };
 
+/**
+ * The Mind's media room among the rooms the client already knows: the first one whose room type (or the
+ * fileZoneRooms config) says it is a file zone. The type is the authority; the alias is only how an unknown
+ * room is found, below.
+ */
+export const typedMediaRoom = (
+  rooms: readonly EstateRoom[],
+  isZone: (roomId: string) => boolean
+): EstateRoom | undefined => rooms.find((r) => r.state === 'joined' && isZone(r.roomId));
+
 type MediaClient = {
   getRoomIdForAlias(alias: string): Promise<{ room_id: string; servers?: string[] }>;
 };

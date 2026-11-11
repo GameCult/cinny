@@ -4,6 +4,9 @@ import { useAtomValue } from 'jotai';
 import { Avatar, Box, Icon, Icons, Text } from 'folds';
 import { NavGutter, NavItem, NavItemContent, NavLink } from '../../components/nav';
 import { NAV_ROOM_ICON_REST_OPACITY, NavLabel } from '../../components/nav/styles.css';
+import { EstateRoom } from './buildEstate';
+import { isFileZone } from '../albums/isFileZone';
+import { useClientConfig } from '../../hooks/useClientConfig';
 import { MINDS } from '../../components/message/pose/poses';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { allRoomsAtom } from '../../state/room-list/roomList';
@@ -15,6 +18,7 @@ import {
   lookupMediaRoom,
   mediaRoomIdFromStewardships,
   mediaRow,
+  typedMediaRoom,
 } from './mediaRoom';
 
 const mediaIcon = (
@@ -58,12 +62,31 @@ export function MediaLink({ to }: { to: string }) {
 }
 
 /** The Mind's media room as the navigator sees it right now. */
-export const useMindMedia = (mind: string): MediaRowState => {
+export const useMindMedia = (mind: string, rooms: readonly EstateRoom[]): MediaRowState => {
   const mx = useMatrixClient();
   const { rootId } = useEstateRootId();
   const joined = useAtomValue(allRoomsAtom);
   const invited = useAtomValue(allInvitesAtom);
+  const config = useClientConfig();
   const server = mx.getDomain() ?? '';
+  // A joined room whose type says it is a file zone is the Media row; the alias or carried id only finds a
+  // room the client cannot type yet (not joined).
+  const typed = typedMediaRoom(rooms, (roomId) => {
+    const room = mx.getRoom(roomId);
+    return (
+      !!room &&
+      isFileZone(
+        {
+          roomId,
+          aliases: [room.getCanonicalAlias(), ...room.getAltAliases()].filter(
+            (a): a is string => !!a
+          ),
+          createType: room.currentState.getStateEvents('m.room.create', '')?.getContent().type,
+        },
+        config
+      )
+    );
+  });
   const carried = mediaRoomIdFromStewardships(
     rootId
       ? mx.getRoom(rootId)?.currentState.getStateEvents(STEWARDSHIPS_KEY, '')?.getContent()
@@ -74,10 +97,11 @@ export const useMindMedia = (mind: string): MediaRowState => {
     queryKey: ['mind-media', mind, server, carried],
     queryFn: () => lookupMediaRoom(mx, mind, server, carried),
     staleTime: 60_000,
-    enabled: MINDS.includes(mind),
+    enabled: MINDS.includes(mind) && !typed,
   });
   const membership = new Map<string, 'join' | 'invite'>();
   invited.forEach((id) => membership.set(id, 'invite'));
   joined.forEach((id) => membership.set(id, 'join'));
+  if (typed) return { kind: 'room', room: { ...typed, name: 'Media' } };
   return mediaRow(lookup.data, membership);
 };

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { lookupMediaRoom, mediaAlias, mediaRoomIdFromStewardships, mediaRow } from './mediaRoom';
+import {
+  lookupMediaRoom,
+  mediaAlias,
+  mediaRoomIdFromStewardships,
+  mediaRow,
+  typedMediaRoom,
+} from './mediaRoom';
 
 const notFound = Object.assign(new Error('Room alias not found'), {
   httpStatus: 404,
@@ -89,5 +95,24 @@ describe('the Media row of a Mind', () => {
   it('shows no room while the lookup is out, and none for a room that is not there', () => {
     expect(mediaRow(undefined, new Map())).toEqual({ kind: 'checking' });
     expect(mediaRow({ found: false, reason: 'unset' }, new Map())).toEqual({ kind: 'unset' });
+  });
+
+  it('takes the joined room whose type says file zone, whatever its alias, before any alias lookup', () => {
+    const room = (roomId: string, state: 'joined' | 'joinable') => ({
+      roomId,
+      name: roomId,
+      state,
+      via: [],
+      parentId: null,
+      direct: false,
+    });
+    const rooms = [
+      room('!chat', 'joined'),
+      room('!old-files-slug', 'joined'),
+      room('!unjoined', 'joinable'),
+    ];
+    const zones = new Set(['!old-files-slug', '!unjoined']);
+    expect(typedMediaRoom(rooms, (id) => zones.has(id))?.roomId).toBe('!old-files-slug');
+    expect(typedMediaRoom(rooms, () => false)).toBeUndefined();
   });
 });

@@ -32,10 +32,10 @@ export const NavLevel = style({
   paddingLeft: LEVEL_STEP,
 });
 
-// Chevrons and room icons are matched in weight, so a foldout is not outweighed by its rooms.
-export const NAV_ICON_REST_OPACITY = 0.6;
+// Chevrons and room icons are matched in measured ink (a room glyph is about 1.7x a chevron's; unread rooms stay far above), so a foldout is not outweighed by its rooms.
+export const NAV_ICON_REST_OPACITY = 0.9;
 // A room's glyph is bigger and denser than the chevron, so it rests lighter to read as the same weight.
-export const NAV_ROOM_ICON_REST_OPACITY = 0.42;
+export const NAV_ROOM_ICON_REST_OPACITY = 0.26;
 export const NAV_ICON_UNREAD_OPACITY = 0.9;
 
 export const NavCategory = style([
