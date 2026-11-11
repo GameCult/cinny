@@ -1,7 +1,7 @@
 # Ratatoskr: target and prose map
 
 Ratatoskr is GameCult's Matrix chat client: this fork of Cinny, forge
-`GameCult/cinny` (to be renamed `GameCult/Ratatoskr`; see the cut sequence).
+`GameCult/Ratatoskr` (renamed from `GameCult/cinny`; the forge redirects the old name).
 Void stewards it. Campaign `ratatoskr` lives in the eureka mind for now, beside
 the rulings it rests on. Under `eureka-body:ruling:ruling-home-steward-mind` it
 is handed to Void's mind once, by procedure, as soon as that hand-off procedure
@@ -346,7 +346,6 @@ Each later cut is one line, with what it waits on.
   attention document, scoped to room members; waits on Huginn publishing it.
 - `rename-ratatoskr`: package name, app name and branding, manifest and
   titles, the `/preview/` path and its deploy, and every in-repo `cinny`
-  reference that is ours (not upstream engine paths); waits on Void's forge
-  rename of `GameCult/cinny` to `GameCult/Ratatoskr`
-  (`eureka-body:ruling:chat-client-named-ratatoskr`), and the campaign's repo
-  list moves with it.
+  reference that is ours (not upstream engine paths). The forge rename of
+  `GameCult/cinny` to `GameCult/Ratatoskr` is done
+  (`eureka-body:ruling:chat-client-named-ratatoskr`).
