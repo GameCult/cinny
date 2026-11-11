@@ -3,6 +3,7 @@
 // send messages and get a Mind's canned answer. It touches no network and no storage; the
 // fetch guard that routes requests here lives in install.ts.
 import {
+  ALBUMS,
   COMMONS,
   DEMO_DEVICE,
   DEMO_ORIGIN,
@@ -10,14 +11,17 @@ import {
   DEMO_TOKEN,
   DemoEvent,
   DemoRoom,
+  FILES,
   ME,
   MIND_IDS,
   REPLIES,
   ROOMS,
   USERS,
 } from './fixtures';
+import { DemoMedia, pngGradient, wavTone } from './media';
 
-export type DemoResponse = { status: number; body: unknown };
+/** `raw` answers a media download with bytes instead of JSON. */
+export type DemoResponse = { status: number; body: unknown; raw?: DemoMedia };
 export type DemoRequest = { method: string; url: string; body?: unknown; signal?: AbortSignal };
 
 const POSE_KEY = 'org.gamecult.pose';
@@ -79,7 +83,12 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
       mk(
         'm.room.create',
         creator,
-        room.space ? { type: 'm.space', room_version: '10' } : { room_version: '10' },
+        {
+          room_version: '10',
+          ...((room.space ? 'm.space' : room.type)
+            ? { type: room.space ? 'm.space' : room.type }
+            : {}),
+        },
         t0,
         ''
       ),
@@ -157,6 +166,45 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
   timeline.sort((a, b) => a.event.origin_server_ts - b.event.origin_server_ts);
   accountData.set('m.direct', {
     [`@eureka:${DEMO_SERVER}`]: ROOMS.filter((r) => r.direct).map((r) => r.id),
+  });
+
+  // The file zone's albums live outside the sync timeline: thread roots per room, replies per
+  // root, media by mxc id. The thread endpoints and media downloads answer from these.
+  const threadRoots = new Map<string, DemoEvent[]>();
+  const threadReplies = new Map<string, DemoEvent[]>();
+  const media = new Map<string, DemoMedia>();
+  ALBUMS.forEach((album, a) => {
+    const t0 = now() - album.minutesAgo * 60 * 1000;
+    const root = mk('m.room.message', album.mind, { msgtype: 'm.text', body: album.title }, t0);
+    threadRoots.set(FILES, [...(threadRoots.get(FILES) ?? []), root]);
+    threadReplies.set(
+      root.event_id,
+      album.files.map((f, i) => {
+        const id = `album${a}file${i}`;
+        const m =
+          f.kind === 'audio'
+            ? wavTone(f.seed as number)
+            : pngGradient(f.seed as [number, number, number]);
+        media.set(id, m);
+        return mk(
+          'm.room.message',
+          album.mind,
+          {
+            msgtype: f.kind === 'audio' ? 'm.audio' : 'm.image',
+            body: f.name,
+            url: `mxc://${DEMO_SERVER}/${id}`,
+            info: { mimetype: m.type, size: m.data.length },
+            'm.relates_to': {
+              rel_type: 'm.thread',
+              event_id: root.event_id,
+              is_falling_back: true,
+              'm.in_reply_to': { event_id: root.event_id },
+            },
+          },
+          t0 + (i + 1) * 60 * 1000
+        );
+      })
+    );
   });
 
   const notify = () => {
@@ -290,6 +338,11 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     if (p === '/.well-known/matrix/client')
       return ok({ 'm.homeserver': { base_url: DEMO_ORIGIN } });
     if (!p.startsWith('/_matrix/')) return err(404, 'M_NOT_FOUND', 'Not found');
+    g = p.match(/^\/_matrix\/(?:client\/v1\/media|media\/v3)\/download\/[^/]+\/([^/]+)$/);
+    if (g) {
+      const found = media.get(g[1]);
+      return found ? { status: 200, body: null, raw: found } : err(404, 'M_NOT_FOUND', 'No media');
+    }
     const c = p.replace(/^\/_matrix\/client\/(v\d+|r0|unstable)/, '');
     if (p.endsWith('/versions'))
       return ok({ versions: ['v1.1', 'v1.5', 'v1.11'], unstable_features: {} });
@@ -393,6 +446,13 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     g = c.match(/^\/rooms\/([^/]+)\/members$/);
     if (g) {
       return ok({ chunk: (stateOf.get(g[1]) ?? []).filter((e) => e.type === 'm.room.member') });
+    }
+    g = c.match(/^\/rooms\/([^/]+)\/threads$/);
+    if (g) return ok({ chunk: [...(threadRoots.get(g[1]) ?? [])].reverse() });
+    g = c.match(/^\/rooms\/([^/]+)\/relations\/([^/]+)\/m\.thread$/);
+    if (g) {
+      const oldestFirst = [...(threadReplies.get(g[2]) ?? [])];
+      return ok({ chunk: u.searchParams.get('dir') === 'f' ? oldestFirst : oldestFirst.reverse() });
     }
     g = c.match(/^\/rooms\/([^/]+)\/messages$/);
     if (g) return ok({ chunk: [], start: 'p0', end: 'p0' });

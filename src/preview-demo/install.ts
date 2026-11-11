@@ -4,8 +4,11 @@
 // only by a build with VITE_PREVIEW_DEMO=1 whose config.json says previewDemo: true (src/index.tsx).
 // Own-origin requests (the app's static files) pass; the demo origin is answered in-page; any
 // other origin is refused, so no real homeserver can be contacted while this is on.
+import { removeFallbackSession } from '../app/state/sessions';
 import { DEMO_ORIGIN } from './fixtures';
 import { createDemoServer, DemoServer } from './server';
+import { demoDesk } from './deskForks';
+import { setDeskSource } from '../app/features/desk/source';
 
 export type Route = 'own' | 'demo' | 'refuse';
 
@@ -27,8 +30,6 @@ const refusal = (what: string, url: string) =>
   new Error(`preview: pretend server only; ${what} to ${url} refused`);
 
 const BANNER_TEXT = 'preview: pretend server. Any password works.';
-const FOREIGN_SESSION_TEXT =
-  'preview: pretend server. A login for another server is stored here and cannot be used.';
 
 // In flow, above the app: body becomes a column and the app root takes the rest, so the banner
 // never covers the room header or the connection strip.
@@ -72,14 +73,30 @@ export const guardedFetch =
       body: parseBody(raw),
       signal: init?.signal ?? req?.signal ?? undefined,
     });
+    if (out.raw) {
+      return new Response(out.raw.data, {
+        status: out.status,
+        headers: { 'Content-Type': out.raw.type },
+      });
+    }
     return new Response(JSON.stringify(out.body), {
       status: out.status,
       headers: { 'Content-Type': 'application/json' },
     });
   };
 
+// Every preview of this site shares one origin, so one localStorage: a login another preview left
+// (a real homeserver) would make the app connect to that server, which the guard refuses. The
+// demo has one server, so a stored login for any other is dropped before the app reads it.
+export const dropForeignSession = (storage: Storage) => {
+  const base = storage.getItem('cinny_hs_base_url');
+  if (base !== null && base !== DEMO_ORIGIN) removeFallbackSession(storage);
+};
+
 export const installDemo = (win: Window & typeof globalThis = window) => {
+  dropForeignSession(win.localStorage);
   const server = createDemoServer();
+  setDeskSource(demoDesk);
   const { origin } = win.location;
   const realFetch = win.fetch.bind(win);
 
@@ -111,7 +128,6 @@ export const installDemo = (win: Window & typeof globalThis = window) => {
       routeOf(String(url), origin) === 'own' ? realBeacon(url, data) : false;
   }
 
-  const stored = win.localStorage.getItem('cinny_hs_base_url');
-  showBanner(stored !== null && stored !== DEMO_ORIGIN ? FOREIGN_SESSION_TEXT : BANNER_TEXT);
+  showBanner(BANNER_TEXT);
   return server;
 };

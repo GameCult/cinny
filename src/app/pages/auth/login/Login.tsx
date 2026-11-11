@@ -9,10 +9,13 @@ import { PasswordLoginForm } from './PasswordLoginForm';
 import { SSOLogin } from '../SSOLogin';
 import { TokenLogin } from './TokenLogin';
 import { OrDivider } from '../OrDivider';
+import { RegisterEntry } from '../RegisterEntry';
+import { registrationEntry } from '../registrationEntry';
 import { getLoginPath, getRegisterPath, withSearchParam } from '../../pathUtils';
 import { usePathWithOrigin } from '../../../hooks/usePathWithOrigin';
 import { LoginPathSearchParams } from '../../paths';
 import { useClientConfig } from '../../../hooks/useClientConfig';
+import { noSignInMethodMessage } from '../authMessages';
 
 const getLoginTokenSearchParam = () => {
   // when using hasRouter query params in existing route
@@ -36,7 +39,8 @@ const useLoginSearchParams = (searchParams: URLSearchParams): LoginPathSearchPar
 
 export function Login() {
   const server = useAuthServer();
-  const { hashRouter, previewDemo } = useClientConfig();
+  const config = useClientConfig();
+  const { hashRouter, previewDemo } = config;
   const { loginFlows } = useAuthFlows();
   const [searchParams] = useSearchParams();
   const loginSearchParams = useLoginSearchParams(searchParams);
@@ -85,15 +89,17 @@ export function Login() {
       )}
       {!parsedFlows.password && !parsedFlows.sso && (
         <>
-          <Text style={{ color: color.Critical.Main }}>
-            {`This client does not support login on "${server}" homeserver. Password and SSO based login method not found.`}
-          </Text>
+          <Text style={{ color: color.Critical.Main }}>{noSignInMethodMessage(server)}</Text>
           <span data-spacing-node />
         </>
       )}
-      <Text align="Center">
-        Do not have an account? <Link to={getRegisterPath(server)}>Register</Link>
-      </Text>
+      {registrationEntry(config) ? (
+        <RegisterEntry />
+      ) : (
+        <Text align="Center">
+          Do not have an account? <Link to={getRegisterPath(server)}>Register</Link>
+        </Text>
+      )}
     </Box>
   );
 }

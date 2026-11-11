@@ -3,6 +3,8 @@ import { Room } from 'matrix-js-sdk';
 import React from 'react';
 import { useStateEvent } from '../../hooks/useStateEvent';
 import { useClientConfig } from '../../hooks/useClientConfig';
+import { useSkyInk } from '../../hooks/useTheme';
+import { noticeInk } from '../scene/skyInk';
 import {
   ROOM_NOTICE_EVENT_TYPE,
   parseRoomNotice,
@@ -14,12 +16,16 @@ import {
 export function RoomTrainingLine({ room }: { room: Room }) {
   const event = useStateEvent(room, ROOM_NOTICE_EVENT_TYPE);
   const { previewDemo } = useClientConfig();
+  const skyInk = useSkyInk();
   const line = roomTrainingLine(parseRoomNotice(event?.getContent()), previewDemo);
   if (!line) return null;
   return (
     <Text
       size="T200"
-      style={{ padding: `${config.space.S100} 0`, color: color.SurfaceVariant.OnContainer }}
+      style={{
+        padding: `${config.space.S100} 0`,
+        color: (skyInk && noticeInk(skyInk)) ?? color.SurfaceVariant.OnContainer,
+      }}
     >
       {line}
     </Text>

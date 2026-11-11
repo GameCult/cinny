@@ -5,14 +5,23 @@ const ROW = 4;
 // `shape-outside: url()` cannot do this: the browser sizes that image at its natural size and
 // anchors it at the margin box, which the phone layout's negative top margin shifts down by the
 // overhang, so the exclusion neither matches the art's size nor its place.
-export const silhouette = (img: HTMLImageElement, textOnRight: boolean): string | undefined => {
-  const w = Math.round(img.clientWidth);
-  const h = Math.round(img.clientHeight);
+//
+// `view` is the part of the displayed image that shows (the button's box, in displayed pixels):
+// the portrait is cropped by the bubble, so the polygon is traced over what is left of the art.
+export type View = { x: number; y: number; width: number; height: number };
+
+export const silhouette = (
+  img: HTMLImageElement,
+  textOnRight: boolean,
+  view?: View
+): string | undefined => {
+  const w = Math.round(view?.width ?? img.clientWidth);
+  const h = Math.round(view?.height ?? img.clientHeight);
   const ctx = w > 0 && h > 0 ? document.createElement('canvas').getContext('2d') : null;
   if (!ctx) return undefined;
   ctx.canvas.width = w;
   ctx.canvas.height = h;
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.drawImage(img, 0 - (view?.x ?? 0), 0 - (view?.y ?? 0), img.clientWidth, img.clientHeight);
   const { data } = ctx.getImageData(0, 0, w, h);
   const outer = textOnRight ? 0 : w;
   const edge: string[] = [];

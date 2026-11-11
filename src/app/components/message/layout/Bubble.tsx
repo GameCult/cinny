@@ -30,10 +30,8 @@ type BubbleLayoutProps = {
   hideBubble?: boolean;
   /** The sender is the signed-in user: right-aligned, in the accent colour, no avatar. */
   own?: boolean;
-  /** A Mind's pose portrait; it replaces the avatar and sits beside (wide) or inside (phone) the bubble. */
+  /** A Mind's pose portrait; it replaces the avatar and nests in a corner of the bubble. */
   pose?: ReactNode;
-  /** On phones the portrait floats on the other side. */
-  alt?: boolean;
   /** Delay in ms before the first-appearance animation; undefined plays none. */
   enterDelay?: number;
   before?: ReactNode;
@@ -41,7 +39,7 @@ type BubbleLayoutProps = {
 };
 
 export const BubbleLayout = as<'div', BubbleLayoutProps>(
-  ({ hideBubble, own, pose, alt, enterDelay, before, header, children, style, ...props }, ref) => {
+  ({ hideBubble, own, pose, enterDelay, before, header, children, style, ...props }, ref) => {
     // `false` is a Mind's message continuing a run: aligned with the portraits, showing none.
     const poseRow = pose !== undefined;
     const arrow = !!before && !poseRow && !own;
@@ -50,12 +48,7 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
       <Box
         gap="300"
         {...props}
-        className={classNames(
-          poseRow && css.BubbleRowPose,
-          pose && css.BubbleRowPortrait,
-          own && css.BubbleRowOwn,
-          props.className
-        )}
+        className={classNames(own && css.BubbleRowOwn, props.className)}
         style={entering ? { ...style, ['--enter-delay' as string]: `${enterDelay}ms` } : style}
         ref={ref}
       >
@@ -67,19 +60,9 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
         <Box
           grow={own ? 'No' : 'Yes'}
           direction="Column"
-          className={classNames(poseRow && css.BubbleColumnPose, own && css.BubbleColumnOwn)}
+          className={classNames(own && css.BubbleColumnOwn)}
         >
-          {header && (
-            <div
-              className={classNames(
-                pose && css.BubbleHeaderPose,
-                pose && alt && css.BubbleHeaderPoseAlt,
-                own && css.BubbleHeaderOwn
-              )}
-            >
-              {header}
-            </div>
-          )}
+          {header && <div className={classNames(own && css.BubbleHeaderOwn)}>{header}</div>}
           {hideBubble ? (
             children
           ) : (
@@ -89,6 +72,7 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
                   css.BubbleContent,
                   arrow && css.BubbleContentArrowLeft,
                   poseRow && css.BubbleContentPose,
+                  pose && css.BubbleContentPortrait,
                   own && css.BubbleContentOwn,
                   entering && css.EnterBubble
                 )}

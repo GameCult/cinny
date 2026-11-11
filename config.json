@@ -1,6 +1,13 @@
 {
-  "defaultHomeserver": 1,
-  "homeserverList": ["converser.eu", "matrix.org", "mozilla.org", "unredacted.org", "xmr.se"],
+  "defaultHomeserver": 0,
+  "homeserverList": [
+    "gamecult.org",
+    "converser.eu",
+    "matrix.org",
+    "mozilla.org",
+    "unredacted.org",
+    "xmr.se"
+  ],
   "allowCustomHomeservers": true,
   "featuredCommunities": {
     "openAsDefault": false,
@@ -20,5 +27,14 @@
 
   "backgroundScene": {
     "tier": "off"
+  },
+
+  "dings": {
+    "enabled": false
+  },
+
+  "registration": {
+    "enabled": false,
+    "url": ""
   }
 }

@@ -123,7 +123,8 @@ import { useSpaceOptionally } from '../../hooks/useSpace';
 import { useRoomCreators } from '../../hooks/useRoomCreators';
 import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { useAccessiblePowerTagColors, useGetMemberPowerTag } from '../../hooks/useMemberPowerTag';
-import { useTheme } from '../../hooks/useTheme';
+import { useSkyInk, useTheme } from '../../hooks/useTheme';
+import { skyLabelInk } from '../scene/skyLabelInk';
 import { useRoomCreatorsTag } from '../../hooks/useRoomCreatorsTag';
 import { usePowerLevelTags } from '../../hooks/usePowerLevelTags';
 
@@ -462,10 +463,12 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
   const getMemberPowerTag = useGetMemberPowerTag(room, creators, powerLevels);
 
   const theme = useTheme();
+  const skyInk = useSkyInk();
   const accessiblePowerTagColors = useAccessiblePowerTagColors(
     theme.kind,
     creatorsTag,
-    powerLevelTags
+    powerLevelTags,
+    skyInk
   );
 
   const permissions = useRoomPermissions(creators, powerLevels);
@@ -1674,9 +1677,9 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
       newDivider && eventJSX && eventSender !== mx.getUserId() ? (
         <MessageBase space={messageSpacing}>
           <TimelineDivider style={{ color: color.Success.Main }} variant="Inherit">
-            <Badge as="span" size="500" variant="Success" fill="Solid" radii="300">
-              <Text size="L400">New Messages</Text>
-            </Badge>
+            <Text as="span" size="L400" style={{ color: skyLabelInk(color.Surface.OnContainer) }}>
+              New Messages
+            </Text>
           </TimelineDivider>
         </MessageBase>
       ) : null;

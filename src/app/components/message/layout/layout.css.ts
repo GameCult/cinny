@@ -1,6 +1,7 @@
 import { createVar, globalStyle, keyframes, style, styleVariants } from '@vanilla-extract/css';
 import { recipe, RecipeVariants } from '@vanilla-extract/recipes';
 import { DefaultReset, color, config, toRem } from 'folds';
+import { MOBILE_BREAKPOINT } from '../../../hooks/useScreenSize';
 
 export const StickySection = style({
   position: 'sticky',
@@ -152,38 +153,20 @@ export const BubbleContentArrowLeft = style({
   borderTopLeftRadius: 0,
 });
 
-// Look of the three-doors mock-up (chat.gamecult.org/mockups/three-doors): a Mind's pose sits
-// beside its bubble on wide screens; on phones it floats inside the bubble, overhanging the top
-// edge, and the text wraps around its silhouette (shape-outside on the alpha channel).
+// A Mind's pose nests in the corner of its bubble, on phones and wide screens alike: the sprite's
+// body sits in the bubble's padding and the bubble's edge cuts it, so nothing hangs outside; the
+// text wraps around its silhouette (shape-outside, traced from the alpha channel) and the bubble
+// grows to hold it. How much of the art the edge may cut comes from pose/nest.ts.
+// Displayed width of the whole sprite image; the crop fractions are multiples of it.
+export const portraitWidth = createVar();
 const PHONE = 'screen and (max-width: 700px)';
+const PORTRAIT = toRem(190);
 const PHONE_PORTRAIT = 'min(38vw, 160px)';
 const PHONE_TEXT_FLOOR = toRem(170);
-const PORTRAIT_OVERHANG = 58;
-const PORTRAIT = toRem(124);
-const POSE_GUTTER = toRem(14);
+const BUBBLE_PAD = toRem(12);
 const BUBBLE_CORNER = toRem(6);
 const POP = 'cubic-bezier(0.34, 1.7, 0.64, 1)';
 const RISE = 'cubic-bezier(0.34, 1.45, 0.64, 1)';
-
-export const BubbleRowPose = style({
-  position: 'relative',
-  paddingLeft: `calc(${PORTRAIT} + ${POSE_GUTTER})`,
-  '@media': {
-    [PHONE]: {
-      paddingLeft: 0,
-    },
-  },
-});
-
-// A row that shows a portrait: room for it to hang above the bubble on phones.
-export const BubbleRowPortrait = style({
-  minHeight: PORTRAIT,
-  '@media': {
-    [PHONE]: {
-      minHeight: 0,
-    },
-  },
-});
 
 export const BubbleRowOwn = style({
   justifyContent: 'flex-end',
@@ -198,64 +181,29 @@ export const BubbleHeaderOwn = style({
   alignSelf: 'flex-end',
 });
 
-// Phone: name and time are one plain line in flow above the bubble, on the side opposite the
-// portrait. It is as wide as the full name needs, up to the room beside the portrait; only a name
-// longer than that wraps (and then the time drops below it). It is capped by the viewport, not by
-// the column: a short bubble's column is narrower than its own name, and a percentage cap there
-// truncated names to one letter.
-export const BubbleHeaderPose = style({
-  '@media': {
-    [PHONE]: {
-      alignSelf: 'flex-end',
-      // The band above the bubble where the portrait overhangs: the header sits at its foot, beside
-      // the portrait, so the overhang needs no margin of its own.
-      minHeight: toRem(PORTRAIT_OVERHANG),
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'flex-end',
-      margin: `0 ${toRem(14)} ${toRem(2)}`,
-      width: 'max-content',
-      maxWidth: `calc(100vw - ${PHONE_PORTRAIT} - ${toRem(64)})`,
-      textAlign: 'right',
-    },
-  },
-});
-
-export const BubbleHeaderPoseAlt = style({
-  '@media': {
-    [PHONE]: {
-      alignSelf: 'flex-start',
-      textAlign: 'left',
-    },
-  },
-});
-
-// A portrait row with no header (nothing to fill the overhang band) keeps the band as a margin.
-globalStyle(`${BubbleRowPortrait}:not(:has(.${BubbleHeaderPose}))`, {
-  '@media': {
-    [PHONE]: {
-      marginTop: toRem(PORTRAIT_OVERHANG),
-    },
-  },
-});
-
-export const BubbleColumnPose = style({
-  position: 'relative',
-});
-
+// The message body is a flex column, which forms its own block formatting context and would sit
+// whole beside the floated portrait; as a plain block its lines wrap around the silhouette and
+// then run the bubble's full width below it.
 export const BubbleContentPose = style({
-  borderRadius: config.radii.R500,
-  borderTopLeftRadius: BUBBLE_CORNER,
+  display: 'flow-root',
+  overflow: 'clip',
+  padding: BUBBLE_PAD,
+});
+
+// A bubble that shows a portrait is at least portrait + a readable column wide, or the text beside
+// it collapses to a strip.
+export const BubbleContentPortrait = style({
+  vars: { [portraitWidth]: PORTRAIT },
+  minWidth: `min(100%, calc(${portraitWidth} + ${PHONE_TEXT_FLOOR}))`,
   '@media': {
     [PHONE]: {
-      display: 'flow-root',
-      // A bubble with a portrait is at least portrait + a readable column wide, or the text
-      // beside the portrait collapses to a strip.
-      minWidth: `min(100%, calc(${PHONE_PORTRAIT} + ${PHONE_TEXT_FLOOR}))`,
-      borderTopLeftRadius: config.radii.R500,
-      padding: `${toRem(24)} ${toRem(14)} ${toRem(14)}`,
+      vars: { [portraitWidth]: PHONE_PORTRAIT },
     },
   },
+});
+
+globalStyle(`${BubbleContentPose} > div`, {
+  display: 'block',
 });
 
 export const BubbleContentOwn = style({
@@ -266,51 +214,37 @@ export const BubbleContentOwn = style({
   borderTopRightRadius: BUBBLE_CORNER,
 });
 
+// The button is the visible part of the sprite (the part inside the bubble's corner); the image
+// inside it is offset by the crop. The inline --pose-* fractions (of the image width) come from
+// nestView; until the art's size is known the button is simply the whole image.
 export const PoseButton = style({
-  position: 'absolute',
-  top: 0,
-  left: `calc(-1 * (${PORTRAIT} + ${POSE_GUTTER}))`,
-  width: PORTRAIT,
-  height: PORTRAIT,
+  float: 'left',
+  width: `var(--pose-bw, ${portraitWidth})`,
+  height: 'var(--pose-bh, auto)',
+  // Out into the padding on the top, bottom and outer side, so the bubble's edge is the crop.
+  margin: `calc(-1 * ${BUBBLE_PAD}) ${toRem(6)} calc(-1 * ${BUBBLE_PAD}) calc(-1 * ${BUBBLE_PAD})`,
   padding: 0,
   border: 'none',
   background: 'none',
   cursor: 'pointer',
   lineHeight: 0,
+  overflow: 'hidden',
+  shapeMargin: toRem(7),
   transformOrigin: '50% 90%',
-  '@media': {
-    [PHONE]: {
-      position: 'static',
-      float: 'left',
-      width: PHONE_PORTRAIT,
-      height: 'auto',
-      margin: `${toRem(-82)} ${toRem(8)} 0 ${toRem(-12)}`,
-      shapeMargin: toRem(7),
-      WebkitMaskImage: 'linear-gradient(#000 84%, transparent)',
-      maskImage: 'linear-gradient(#000 84%, transparent)',
-    },
-  },
 });
 
 export const PoseButtonAlt = style({
-  '@media': {
-    [PHONE]: {
-      float: 'right',
-      margin: `${toRem(-82)} ${toRem(-12)} 0 ${toRem(8)}`,
-    },
-  },
+  float: 'right',
+  margin: `calc(-1 * ${BUBBLE_PAD}) calc(-1 * ${BUBBLE_PAD}) calc(-1 * ${BUBBLE_PAD}) ${toRem(6)}`,
 });
 
 export const PosePortrait = style({
-  width: '100%',
-  height: '100%',
-  objectFit: 'contain',
-  objectPosition: 'top',
-  '@media': {
-    [PHONE]: {
-      height: 'auto',
-    },
-  },
+  display: 'block',
+  width: portraitWidth,
+  maxWidth: 'none',
+  height: 'auto',
+  marginLeft: 'var(--pose-ix, 0)',
+  marginTop: 'var(--pose-iy, 0)',
 });
 
 const pop = keyframes({
@@ -350,6 +284,9 @@ export const BubbleLeftArrow = style({
   zIndex: 1,
 });
 
+// Phone tap target: a sender name is 23 px tall, so the button grows 11 px above and below (44+ px to tap) and the
+// negative margin takes the growth back out of the layout. Hit area only: no background, border or outline moves.
+const SCREEN_PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
 export const Username = style({
   overflow: 'hidden',
   whiteSpace: 'nowrap',
@@ -357,6 +294,9 @@ export const Username = style({
   selectors: {
     'button&': {
       cursor: 'pointer',
+      '@media': {
+        [SCREEN_PHONE]: { paddingBlock: 11, marginBlock: -11 },
+      },
     },
     'button&:hover, button&:focus-visible': {
       textDecoration: 'underline',
@@ -395,61 +335,12 @@ export const MessageTextBody = recipe({
 
 export type MessageTextBodyVariants = RecipeVariants<typeof MessageTextBody>;
 
-// The message content is a flex column, which forms its own block formatting context and so sits
-// whole beside the floated portrait: the text stays as narrow as the gap beside it for the
-// bubble's full height. As a plain block its lines wrap around the silhouette and then run the
-// bubble's full width below it.
-globalStyle(`${BubbleContentPose} > div`, {
-  '@media': {
-    [PHONE]: {
-      display: 'block',
-    },
-  },
-});
-
-// The name wraps instead of ellipsising: the header already caps its own width, and Username's own
-// nowrap + ellipsis, and the truncate on the Text inside it, clipped long names to "Heimdall o…".
-globalStyle(`${BubbleHeaderPose} ${Username}, ${BubbleHeaderPose} ${Username} *`, {
-  '@media': {
-    [PHONE]: {
-      whiteSpace: 'normal',
-      overflow: 'visible',
-      textOverflow: 'clip',
-      overflowWrap: 'break-word',
-    },
-  },
-});
-
-// A name too long for one line takes its own lines and the time drops below it, instead of the
-// name shrinking to a sliver beside the time (the header's one child is the flex row of both). The
-// row hugs the side the header sits on, so a dropped time stays under the name's edge.
-globalStyle(`${BubbleHeaderPose} > div`, {
-  '@media': {
-    [PHONE]: {
-      flexWrap: 'wrap',
-      justifyContent: 'flex-end',
-    },
-  },
-});
-
-globalStyle(`${BubbleHeaderPoseAlt} > div`, {
-  '@media': {
-    [PHONE]: {
-      justifyContent: 'flex-start',
-    },
-  },
-});
-
 // An outside list marker hangs left of its item's text and ignores the portrait's silhouette, so
 // beside a left portrait the number lands under the art. Inside, it is a word on the first line
 // and wraps around the silhouette like the rest.
 globalStyle(`${BubbleContentPose} ol, ${BubbleContentPose} ul`, {
-  '@media': {
-    [PHONE]: {
-      listStylePosition: 'inside',
-      paddingLeft: 0,
-    },
-  },
+  listStylePosition: 'inside',
+  paddingLeft: 0,
 });
 
 // While the background scene runs (html[data-scene]) a chat bubble is the one filled surface in

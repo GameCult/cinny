@@ -1,10 +1,18 @@
 /* eslint-disable max-classes-per-file, no-promise-executor-return, no-useless-constructor, no-empty-function, no-void, @typescript-eslint/no-non-null-assertion */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ClientEvent, MatrixClient, SyncState, createClient } from 'matrix-js-sdk';
-import { DEMO_ORIGIN, ME, ROOMS, GENERAL, COMMONS } from './fixtures';
-import { guardedFetch, installDemo, routeOf } from './install';
+import {
+  ClientEvent,
+  ClientPrefix,
+  MatrixClient,
+  Method,
+  SyncState,
+  createClient,
+} from 'matrix-js-sdk';
+import { ALBUMS, DEMO_ORIGIN, ME, ROOMS, GENERAL, COMMONS, FILES } from './fixtures';
+import { dropForeignSession, guardedFetch, installDemo, routeOf } from './install';
 import { createDemoServer, DemoServer } from './server';
 import { seedDemoSettings } from './seed';
+import { getFallbackSession } from '../app/state/sessions';
 import { mindOfSender, POSE_KEY, resolvePose } from '../app/components/message/pose/poses';
 import { parseRoomNotice, roomTrainingLine } from '../app/utils/trainingNotice';
 
@@ -28,6 +36,9 @@ const waitFor = <T>(read: () => T | undefined, ms = 5000): Promise<T> =>
     };
     tick();
   });
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Ev = { event_id: string; content: Record<string, any> };
 
 const live: { server: DemoServer; mx: MatrixClient }[] = [];
 afterEach(() => {
@@ -115,7 +126,12 @@ describe('the pretend homeserver through matrix-js-sdk', () => {
       const ev = mx.getRoom(r.id)!.currentState.getStateEvents('org.gamecult.notice', '');
       return [r.name, roomTrainingLine(parseRoomNotice(ev?.getContent())) !== undefined];
     });
-    expect(Object.fromEntries(lines)).toEqual({ General: true, Ratatoskr: false, Huginn: false });
+    expect(Object.fromEntries(lines)).toEqual({
+      General: true,
+      Files: false,
+      Ratatoskr: false,
+      Huginn: false,
+    });
   });
 
   it('sends a message, echoes it once with its transaction id, and a Mind answers with a pose', async () => {
@@ -169,6 +185,56 @@ describe('the pretend homeserver through matrix-js-sdk', () => {
       .flatMap((r) => r.children_state)
       .map((c) => (c.content as Record<string, unknown>)['org.gamecult.steward']);
     expect(stewards.filter(Boolean).length).toBe(2);
+  });
+
+  it('syncs the file zone as a joined room whose create type marks it', async () => {
+    const { mx } = await syncedClient();
+    const create = mx.getRoom(FILES)!.currentState.getStateEvents('m.room.create', '')!;
+    expect(create.getContent().type).toBe('org.gamecult.file_zone');
+    expect(
+      mx.getRoom(GENERAL)!.currentState.getStateEvents('m.room.create', '')!.getContent().type
+    ).toBeUndefined();
+  });
+
+  it('serves the zone albums through the thread endpoints and their media as bytes', async () => {
+    const { mx } = await syncedClient();
+    const get = (path: string, params?: Record<string, string>) =>
+      mx.http.authedRequest<{ chunk: Ev[] }>(Method.Get, path, params, undefined, {
+        prefix: ClientPrefix.V1,
+      });
+    const roots = (await get(`/rooms/${encodeURIComponent(FILES)}/threads`)).chunk;
+    expect(roots.map((r) => r.content.body).sort()).toEqual(ALBUMS.map((a) => a.title).sort());
+    const counts: Record<string, string[]> = {};
+    await Promise.all(
+      roots.map(async (root: Ev) => {
+        const rel = `/rooms/${encodeURIComponent(FILES)}/relations/${encodeURIComponent(
+          root.event_id
+        )}/m.thread`;
+        const oldest = (await get(rel, { dir: 'f' })).chunk;
+        const newest = (await get(rel)).chunk;
+        expect(newest.map((e: Ev) => e.event_id)).toEqual(
+          oldest.map((e: Ev) => e.event_id).reverse()
+        );
+        counts[root.content.body] = oldest.map((e: Ev) => e.content.msgtype);
+        expect(oldest.every((e: Ev) => e.content['m.relates_to'].event_id === root.event_id)).toBe(
+          true
+        );
+      })
+    );
+    expect(counts).toEqual({
+      void: ['m.audio', 'm.audio', 'm.audio'],
+      nibu: ['m.image', 'm.image'],
+    });
+    const f = guardedFetch(createDemoServer(), PAGE, never as never);
+    const wav = await f(`${DEMO_ORIGIN}/_matrix/client/v1/media/download/demo.invalid/album0file0`);
+    expect(wav.headers.get('content-type')).toBe('audio/wav');
+    expect(new TextDecoder().decode((await wav.arrayBuffer()).slice(0, 4))).toBe('RIFF');
+    const png = await f(`${DEMO_ORIGIN}/_matrix/media/v3/download/demo.invalid/album1file1`);
+    expect(png.headers.get('content-type')).toBe('image/png');
+    expect((await png.arrayBuffer()).byteLength).toBeGreaterThan(100);
+    expect(
+      (await f(`${DEMO_ORIGIN}/_matrix/client/v1/media/download/demo.invalid/nope`)).status
+    ).toBe(404);
   });
 
   it('answers a long poll with nothing new after its timeout', async () => {
@@ -233,6 +299,7 @@ describe('the guard', () => {
       localStorage: {
         getItem: (k: string) => store.get(k) ?? null,
         setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
       },
     } as unknown as Window & typeof globalThis;
     vi.stubGlobal('document', {
@@ -251,6 +318,59 @@ describe('the guard', () => {
     win.XMLHttpRequest.prototype.open('GET', '/same-origin');
     expect(open).toHaveBeenCalledTimes(1);
     expect(win.navigator.sendBeacon('https://matrix.org/x')).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('drops a stored login for a real homeserver before the app reads it, keeps the demo one', () => {
+    const SESSION = {
+      cinny_access_token: 'tok',
+      cinny_device_id: 'DEV',
+      cinny_user_id: '@a:b',
+      cinny_hs_base_url: 'https://chat.gamecult.org',
+    };
+    const store = new Map<string, string>(Object.entries({ ...SESSION, settings: '{}' }));
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    } as Storage;
+    dropForeignSession(storage);
+    expect(getFallbackSession(storage)).toBeUndefined();
+    expect([...store.keys()]).toEqual(['settings']);
+
+    Object.entries({ ...SESSION, cinny_hs_base_url: DEMO_ORIGIN }).forEach(([k, v]) =>
+      store.set(k, v)
+    );
+    dropForeignSession(storage);
+    expect(getFallbackSession(storage)?.baseUrl).toBe(DEMO_ORIGIN);
+  });
+
+  it('installDemo clears a foreign login so the app starts at the login screen', () => {
+    const store = new Map<string, string>([
+      ['cinny_hs_base_url', 'https://chat.gamecult.org'],
+      ['cinny_access_token', 'tok'],
+      ['cinny_device_id', 'DEV'],
+      ['cinny_user_id', '@a:b'],
+    ]);
+    const win = {
+      location: { origin: PAGE },
+      fetch: never,
+      WebSocket: class {},
+      XMLHttpRequest: { prototype: { open: vi.fn() } },
+      navigator: {},
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        removeItem: (k: string) => void store.delete(k),
+      },
+    } as unknown as Window & typeof globalThis;
+    vi.stubGlobal('document', {
+      createElement: () => ({ style: {}, setAttribute: vi.fn() }),
+      getElementById: () => null,
+      body: { style: {}, insertBefore: vi.fn() },
+    });
+    const server = installDemo(win);
+    live.push({ server, mx: clientFor(server) });
+    expect(store.size).toBe(0);
     vi.unstubAllGlobals();
   });
 

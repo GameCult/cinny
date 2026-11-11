@@ -23,6 +23,7 @@ import {
   SPACE_ROOM_PATH,
   SPACE_SEARCH_PATH,
   CREATE_PATH,
+  DESK_PATH,
 } from './paths';
 import { trimLeadingSlash, trimTrailingSlash } from '../utils/common';
 import { HashRouterConfig } from '../hooks/useClientConfig';
@@ -152,6 +153,9 @@ export const getExploreServerPath = (server: string): string => {
   };
   return generatePath(EXPLORE_SERVER_PATH, params);
 };
+
+export const getDeskPath = (mind: string): string =>
+  generatePath(DESK_PATH, { mind: encodeURIComponent(mind) });
 
 export const getCreatePath = (): string => CREATE_PATH;
 

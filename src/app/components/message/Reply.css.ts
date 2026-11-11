@@ -31,6 +31,7 @@ export const Reply = style({
 });
 
 export const ReplyContent = style({
+  minWidth: 0,
   opacity: config.opacity.P300,
 
   selectors: {
@@ -38,4 +39,20 @@ export const ReplyContent = style({
       opacity: config.opacity.P500,
     },
   },
+});
+
+export const ReplyText = style({
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  overflow: 'hidden',
+  minWidth: 0,
+  maxWidth: '100%',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+});
+
+export const ReplyWrap = style({
+  minWidth: 0,
+  maxWidth: '100%',
 });

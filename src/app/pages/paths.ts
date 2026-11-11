@@ -17,6 +17,8 @@ export const REGISTER_PATH = '/register/:server?/';
 export type ResetPasswordPathSearchParams = {
   email?: string;
 };
+export const SIGNED_UP_PATH = '/signed-up/';
+
 export const RESET_PASSWORD_PATH = '/reset-password/:server?/';
 
 export const _CREATE_PATH = 'create/';
@@ -73,6 +75,9 @@ export type ExploreServerPathSearchParams = {
   instance?: string;
 };
 export const EXPLORE_SERVER_PATH = `/explore/${_SERVER_PATH}`;
+
+/** One Mind's desk: its open questions, read-only until sign-in reaches chat. */
+export const DESK_PATH = '/desk/:mind/';
 
 export const CREATE_PATH = '/create';
 

@@ -2,12 +2,17 @@
 // non-zero when the page or the fake homeserver's log says otherwise.
 const fs = require('fs');
 const fails = [];
+let asserted = 0;
 exports.expect = (label, ok, detail = '') => {
+  asserted += 1;
   console.log(`[ASSERT] ${ok ? 'PASS' : 'FAIL'} ${label}${ok ? '' : ` :: ${detail}`}`);
   if (!ok) fails.push(label);
 };
-/** Exit code for the drive: 4 when any assertion failed. */
-exports.done = () => (fails.length ? 4 : 0);
+/** Exit code for the drive: 4 when any assertion failed, 5 when none ran (a drive that asserts nothing proves nothing). */
+exports.done = () => {
+  if (fails.length) return 4;
+  return asserted === 0 ? 5 : 0;
+};
 /** The fake homeserver's request log (HSLOG is shared with the server process). */
 exports.hsLog = () => fs.readFileSync(process.env.HSLOG, 'utf8').split('\n');
 /** Bodies of the account-data PUTs for m.direct, in order. */

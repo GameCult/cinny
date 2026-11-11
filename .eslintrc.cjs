@@ -1,3 +1,8 @@
+// Airbnb's own bans, kept: a `no-restricted-syntax` entry below replaces the whole list.
+const airbnbRestrictedSyntax = require('eslint-config-airbnb-base/rules/style').rules[
+  'no-restricted-syntax'
+];
+
 module.exports = {
   env: {
     browser: true,
@@ -62,6 +67,21 @@ module.exports = {
     "@typescript-eslint/no-shadow": "error"
   },
   overrides: [
+    {
+      // The one join path: a join is `joinEstateRoom`, which files the DM before it sends the join.
+      files: ['src/**/*.ts', 'src/**/*.tsx'],
+      excludedFiles: ['src/app/features/estate/joinEstateRoom.ts', 'src/**/*.test.*'],
+      rules: {
+        'no-restricted-syntax': [
+          ...airbnbRestrictedSyntax,
+          {
+            selector: "CallExpression[callee.property.name='joinRoom']",
+            message:
+              'Join a room through joinEstateRoom (features/estate/joinEstateRoom.ts), the one join path.',
+          },
+        ],
+      },
+    },
     {
       files: ['*.ts'],
       rules: {

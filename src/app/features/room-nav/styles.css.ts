@@ -1,6 +1,7 @@
 import { style } from '@vanilla-extract/css';
 import { config } from 'folds';
 import { surfaceInk } from '../scene/sceneShell.css';
+import { skyLabelInk } from '../scene/skyLabelInk';
 
 export const CategoryButton = style({
   flexGrow: 1,
@@ -15,6 +16,7 @@ export const CategoryButton = style({
           borderRadius: 0,
         },
         ':root[data-scene] &&': {
+          color: skyLabelInk('inherit'),
           textShadow: `0 0 3px ${surfaceInk}, 0 0 8px ${surfaceInk}`,
           filter: `drop-shadow(0 0 3px ${surfaceInk})`,
         },
