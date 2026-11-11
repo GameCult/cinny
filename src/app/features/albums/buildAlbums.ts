@@ -98,15 +98,15 @@ const receiptOf = (e: ZoneEvent) => {
 };
 
 // Only the event's sender counts, never a name inside the content, and only a Mind's own Matrix
-// identity (localpart in the Persona catalogue). "Read" means verified: the receipt's hash must be
+// identity on this homeserver (`@<mind>:<server>`, the mind named in the Persona catalogue). "Read" means verified: the receipt's hash must be
 // the file event's own.
-const isMind = (sender: string) => MINDS.includes(sender.replace(/^@/, '').split(':')[0]);
+const isMind = (sender: string, server: string) => MINDS.some((m) => sender === `@${m}:${server}`);
 
-const attachReceipts = (files: AlbumFile[], replies: ZoneEvent[]) => {
+const attachReceipts = (files: AlbumFile[], replies: ZoneEvent[], server: string) => {
   const byId = new Map(files.map((f) => [f.id, f]));
   replies
     .map(receiptOf)
-    .filter((r): r is NonNullable<typeof r> => !!r && isMind(r.sender))
+    .filter((r): r is NonNullable<typeof r> => !!r && isMind(r.sender, server))
     .sort((a, b) => a.ts - b.ts)
     .forEach((r) => {
       const file = byId.get(r.file);
@@ -130,7 +130,7 @@ const titleOf = (root: ZoneEvent & { content: Record<string, unknown> }): string
   return asString(edited) || asString(root.content.body) || UNTITLED;
 };
 
-const toAlbum = (input: AlbumInput): Album | undefined => {
+const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
   const { root, replies } = input ?? {};
   if (!live(root)) return undefined;
   const seen = new Set<string>();
@@ -142,7 +142,7 @@ const toAlbum = (input: AlbumInput): Album | undefined => {
       return true;
     })
     .sort((a, b) => a.ts - b.ts);
-  attachReceipts(files, Array.isArray(replies) ? replies : []);
+  attachReceipts(files, Array.isArray(replies) ? replies : [], server);
   return {
     id: root.event_id,
     title: titleOf(root),
@@ -155,10 +155,11 @@ const toAlbum = (input: AlbumInput): Album | undefined => {
 };
 
 /** Newest album first; files oldest first. Loose room messages never reach this function. */
-export const buildAlbums = (inputs: AlbumInput[]): Album[] => {
+/** `server` is the homeserver's own domain: only its Minds' receipts count. */
+export const buildAlbums = (inputs: AlbumInput[], server = ''): Album[] => {
   const seen = new Set<string>();
   return inputs
-    .map(toAlbum)
+    .map((i) => toAlbum(i, server))
     .filter((a): a is Album => {
       if (!a || seen.has(a.id)) return false;
       seen.add(a.id);

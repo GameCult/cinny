@@ -235,6 +235,8 @@ describe('Mind receipts', () => {
       content: { 'org.gamecult.file_received': { event_id: fileId, sha256: sha, ...extra } },
     } as ZoneEvent);
 
+  const one = (r: ZoneEvent, replies: ZoneEvent[]) => buildAlbums([{ root: r, replies }], 'x')[0];
+
   it('shows who read a file when the receipt carries the file event hash', () => {
     const a = one(root('$r', 1), [file('$f', HASH), receipt('$x', 20, '@void:x', '$f', HASH)]);
     expect(a.files[0].readBy).toEqual([{ sender: '@void:x', ts: 20 }]);
@@ -258,12 +260,14 @@ describe('Mind receipts', () => {
     ]);
     expect(a.files[0].readBy).toEqual([]);
   });
-  it('counts only a Mind identity: the localpart, not a display name or a lookalike server part', () => {
+  it('counts only a Mind of this homeserver: not another server, a lookalike, or a bare name', () => {
     const a = one(root('$r', 1), [
       file('$f', HASH),
       receipt('$x', 20, '@void-fan:x', '$f', HASH),
       receipt('$y', 21, '@x:void', '$f', HASH),
       receipt('$z', 22, '@aqua:x', '$f', HASH),
+      receipt('$e', 23, '@void:evil.example', '$f', HASH),
+      receipt('$b', 24, 'void:x', '$f', HASH),
     ]);
     expect(a.files[0].readBy.map((r) => r.sender)).toEqual(['@aqua:x']);
   });

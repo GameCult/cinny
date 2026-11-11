@@ -24,11 +24,11 @@ A file event is an `m.room.message` whose `msgtype` is `m.audio`, `m.image`, `m.
 | `info.size`        | content | bytes of the file as uploaded                                                                                                                                                              |
 | `info.sha256`      | content | lower-case hex sha256 of the plaintext bytes, computed by the client before send; written in unencrypted rooms only (a plaintext hash in an encrypted room would leak the file's identity) |
 
-The hash is computed over the same bytes that are uploaded. A file sent by something other than this
+The hash is computed over the same bytes that are uploaded, reading the whole file into memory before send (large videos pay for it); if hashing fails the file is sent without one. A file sent by something other than this
 client may lack `info.sha256`; the mouth then logs the hash it computed, and the row can show no `read by`
 for it.
 
-Image and video events also carry `info.w`, `info.h`, `info.xyz.amorgan.blurhash` and a thumbnail
+`info.mimetype` and `info.size` are written on audio and file events always; on image and video events `info` exists only if the browser could load the media, otherwise `info` holds `sha256` alone. Image and video events also carry `info.w`, `info.h`, `info.xyz.amorgan.blurhash` and a thumbnail
 reference; audio carries no duration. A Mind should not rely on any of those.
 
 ## Limits and refusals
@@ -62,7 +62,7 @@ Two rules, both enforced on each side:
 
 1. **The sender is the Mind.** The row trusts the Matrix `sender` of the receipt event and nothing inside it:
    no Mind field is read. `read by X` counts only when the sender is X's own Matrix identity (the
-   localpart is a Mind in the Persona catalogue; a display name or a lookalike does not count).
+   full id is `@<mind>:<this homeserver>` for a Mind in the Persona catalogue; a display name, a lookalike or another server's `@void:evil.example` does not count).
 2. **Read means verified.** The Mind posts only after the sha256 of the bytes it fetched equals the file
    event's `info.sha256`, and the receipt carries that hash. On a mismatch it posts nothing (or a typed
    refusal that the row does not draw). The row checks it again: the receipt's `sha256` must equal the
