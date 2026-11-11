@@ -6,7 +6,7 @@ and your own place in it) instead of an invite list. Mobile first.
 
 **Live now:** the Cinny engine (matrix-js-sdk, Rust crypto, sync) under a
 Ratatoskr UI: branding, GameCult theme, estate navigation, pose portraits
-(opt-in setting), a background scene and soundscape (opt-in, off by default).
+(opt-in setting), a background scene (on in the dev config, `backgroundScene.tier`; the device can lower it) and an opt-in soundscape.
 **Planned:** see [`docs/gamecult/ratatoskr-target.md`](docs/gamecult/ratatoskr-target.md)
 for the target and cut sequence. Internal names that are protocol or stored
 state (`cinny_*` localStorage keys, the `in.cinny.room.power_level_tags` event
