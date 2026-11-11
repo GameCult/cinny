@@ -93,7 +93,8 @@ const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
   const { root, replies } = input ?? {};
   if (!live(root)) return undefined;
   const seen = new Set<string>();
-  const files = (Array.isArray(replies) ? replies : [])
+  const list = Array.isArray(replies) ? replies : [];
+  const files = list
     .map(toFile)
     .filter((f): f is AlbumFile => {
       if (!f || seen.has(f.id)) return false;
@@ -101,7 +102,7 @@ const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
       return true;
     })
     .sort((a, b) => a.ts - b.ts)
-    .map((f) => ({ ...f, readBy: readersOf(replies, f.id, f.content, server) }));
+    .map((f) => ({ ...f, readBy: readersOf(list, f.id, f.content, server) }));
   return {
     id: root.event_id,
     title: titleOf(root),

@@ -41,9 +41,11 @@ export const useFileReaders = (
       );
     };
     scan();
-    room.on(RoomEvent.Timeline, scan);
+    // A redaction removes a tick and a reset drops the window: both rescan, not only a new event.
+    const events = [RoomEvent.Timeline, RoomEvent.Redaction, RoomEvent.TimelineReset] as const;
+    events.forEach((ev) => room.on(ev, scan));
     return () => {
-      room.off(RoomEvent.Timeline, scan);
+      events.forEach((ev) => room.off(ev, scan));
     };
   }, [room, fileId, content, server]);
   return readers;

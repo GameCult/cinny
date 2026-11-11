@@ -90,6 +90,8 @@ what the hash and the Mind's own account show.
 - Files sent from the composer carry no thread relation, so they reach an album only if written into a
   thread by another tool; the album upload path (docs/file-zone.md, "Upload") is unwritten. Their receipts are plain
   room events, and the timeline row for the file shows `read by` from them.
+- A receipt that is still encrypted when it arrives is not seen until a later timeline event triggers a rescan; zones are
+  unencrypted and the hash is written only there, so this is the encrypted-room limit again.
 - The timeline row reads the room's loaded timeline only: a receipt older than what the client has paged in is not
   seen there (an album's own listing reads the thread, which is paged separately).
 - Encrypted zones are not listed.
