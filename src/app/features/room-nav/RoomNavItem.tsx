@@ -22,7 +22,7 @@ import FocusTrap from 'focus-trap-react';
 import { useAtom, useAtomValue } from 'jotai';
 import { NavGutter, NavItem, NavItemContent, NavItemOptions, NavLink } from '../../components/nav';
 import {
-  NAV_ICON_REST_OPACITY,
+  NAV_ROOM_ICON_REST_OPACITY,
   NAV_ICON_UNREAD_OPACITY,
   NavLabel,
 } from '../../components/nav/styles.css';
@@ -354,7 +354,7 @@ export function RoomNavItem({
                 ) : (
                   <RoomIcon
                     style={{
-                      opacity: unread ? NAV_ICON_UNREAD_OPACITY : NAV_ICON_REST_OPACITY,
+                      opacity: unread ? NAV_ICON_UNREAD_OPACITY : NAV_ROOM_ICON_REST_OPACITY,
                     }}
                     filled={selected}
                     size="100"

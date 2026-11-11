@@ -32,8 +32,10 @@ export const NavLevel = style({
   paddingLeft: LEVEL_STEP,
 });
 
-// Chevrons and room icons share one resting weight, so a foldout is not outweighed by its rooms.
+// Chevrons and room icons are matched in weight, so a foldout is not outweighed by its rooms.
 export const NAV_ICON_REST_OPACITY = 0.6;
+// A room's glyph is bigger and denser than the chevron, so it rests lighter to read as the same weight.
+export const NAV_ROOM_ICON_REST_OPACITY = 0.42;
 export const NAV_ICON_UNREAD_OPACITY = 0.9;
 
 export const NavCategory = style([
@@ -264,22 +266,18 @@ globalStyle(`:root[data-scene] ${NavItemBase} svg, :root[data-scene] ${NavItemBa
   },
 });
 
-// The Join action on a phone is a plain underlined word, not a pill.
+// The Join action is a plain underlined word on every screen, not a pill.
 export const NavAction = style({
-  '@media': {
-    [PHONE]: {
-      selectors: {
-        '&&': {
-          backgroundColor: 'transparent',
-          boxShadow: 'none',
-          border: 'none',
-          borderRadius: 0,
-          minWidth: 0,
-          textDecoration: 'underline',
-          textUnderlineOffset: toRem(4),
-          flexShrink: 0,
-        },
-      },
+  selectors: {
+    '&&': {
+      backgroundColor: 'transparent',
+      boxShadow: 'none',
+      border: 'none',
+      borderRadius: 0,
+      minWidth: 0,
+      textDecoration: 'underline',
+      textUnderlineOffset: toRem(4),
+      flexShrink: 0,
     },
   },
 });
