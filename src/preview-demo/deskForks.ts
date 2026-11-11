@@ -27,6 +27,7 @@ const card = (label: string, order: number, over: Partial<ForkCard>): ForkCard =
   raised_in: null,
   raised_at: null,
   deciders: ['demo-decider'],
+  decider_count: 1,
   status: 'open',
   ruling: null,
   ruled_from: [],
@@ -75,6 +76,7 @@ const entry = (
     fork_id: c.fork_id,
     options_hash: c.options_hash,
     counted_answer_id: counted,
+    answerer_count: new Set(answers.map((a) => a.answerer)).size,
     answers,
   },
 });

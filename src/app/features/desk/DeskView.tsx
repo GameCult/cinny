@@ -12,6 +12,8 @@ import * as css from './DeskView.css';
 /** Slice 1 has no session: every viewer is signed out, and the note says why it cannot be used. */
 export const SIGN_IN_NOTE = 'Answering opens with sign-in. Until then you can read the questions.';
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 const date = (iso: string) => iso.slice(0, 10);
 
 const OUTCOME: Record<AnswerRow['outcome'], string> = {
@@ -81,6 +83,9 @@ function Row({ row, now }: { row: DeskRow; now: number }) {
           {raisedAge(row.raisedAt, now) && (
             <p className={css.Quiet}>{raisedAge(row.raisedAt, now)}</p>
           )}
+          <p className={css.Quiet}>
+            {`${plural(row.deciderCount, 'decider')} · ${plural(row.answererCount, 'answerer')}`}
+          </p>
           <p className={css.Body}>{row.context}</p>
           <ul className={css.Options}>
             {row.options.map((o) => (

@@ -30,6 +30,9 @@ export type DeskRow =
       depends: string[];
       /** When the question was first admitted, as served; absent when the card carries none. */
       raisedAt?: string;
+      /** Counts as served: the same in the decider and the withheld view, so they show either way. */
+      deciderCount: number;
+      answererCount: number;
       /** In admission order, as served. */
       answers: AnswerRow[];
     };
@@ -86,6 +89,8 @@ export const buildDesk = (
       recommended: card.options.find((o) => o.id === card.recommendation)?.text,
       depends: card.depends,
       raisedAt: card.raised_at ?? undefined,
+      deciderCount: card.decider_count,
+      answererCount: record.answerer_count,
       answers: record.answers.map((a) => answerRow(a, entry)),
     });
   });

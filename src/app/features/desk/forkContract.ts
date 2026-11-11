@@ -30,7 +30,13 @@ export type ForkCard = {
    * the client's: now minus `raised_at`.
    */
   raised_at: string | null;
+  /**
+   * Who may answer. Empty when this reader is not a decider (the ids are withheld); otherwise it holds exactly
+   * `decider_count` ids.
+   */
   deciders: string[];
+  /** How many deciders there are, 1..64: the same number in both reader views. */
+  decider_count: number;
   status: 'open' | 'closed';
   /** The ruling id when a ruling closed the fork; nil when open, and nil on a closed card withdrawn with no ruling. */
   ruling: string | null;
@@ -64,7 +70,8 @@ export type DeskAnswer = {
   answered_at: string;
   received_at: string;
   claim_in_future: boolean;
-  answerer: string;
+  /** Who answered; nil when this reader is not a decider (withheld). */
+  answerer: string | null;
   authority: string;
   request_id: string;
 };
@@ -75,6 +82,8 @@ export type ForkRecord = {
   options_hash: string;
   /** Derived by the receiver; the page renders it and never recomputes it. */
   counted_answer_id: string | null;
+  /** Distinct answerers over every stored answer, refusals included, at least 0: the same number in both views. */
+  answerer_count: number;
   /** In admission order. */
   answers: DeskAnswer[];
 };

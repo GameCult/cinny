@@ -151,6 +151,34 @@ describe("a question's age", () => {
   });
 });
 
+describe('counts when the ids are withheld', () => {
+  const withheld = (): ForkList => {
+    const entry = STATES.noAnswers.forks[0];
+    return {
+      ...STATES.noAnswers,
+      forks: [
+        {
+          ...entry,
+          card: { ...entry.card, deciders: [], decider_count: 3 },
+          record: { ...entry.record, answerer_count: 2 },
+        },
+      ],
+    };
+  };
+  it('shows how many deciders and answerers there are, naming none', () => {
+    const html = renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={withheld()} />
+      </ScreenSizeProvider>
+    );
+    expect(html).toContain('3 deciders · 2 answerers');
+  });
+  it('says the singular for one', () => {
+    const html = view('noAnswers', ScreenSize.Desktop);
+    expect(html).toContain('1 decider · 0 answerers');
+  });
+});
+
 describe('DeskEntry', () => {
   afterEach(() => setDeskSource(() => undefined));
   const entry = (mind: string) =>
