@@ -27,7 +27,7 @@
   },
 
   "backgroundScene": {
-    "tier": "off"
+    "tier": "full"
   },
 
   "dings": {
