@@ -235,15 +235,15 @@ describe('Mind receipts', () => {
       content: { 'org.gamecult.file_received': { event_id: fileId, sha256: sha, ...extra } },
     } as ZoneEvent);
 
-  const one = (r: ZoneEvent, replies: ZoneEvent[]) => buildAlbums([{ root: r, replies }], 'x')[0];
+  const oneX = (r: ZoneEvent, replies: ZoneEvent[]) => buildAlbums([{ root: r, replies }], 'x')[0];
 
   it('shows who read a file when the receipt carries the file event hash', () => {
-    const a = one(root('$r', 1), [file('$f', HASH), receipt('$x', 20, '@void:x', '$f', HASH)]);
+    const a = oneX(root('$r', 1), [file('$f', HASH), receipt('$x', 20, '@void:x', '$f', HASH)]);
     expect(a.files[0].readBy).toEqual([{ sender: '@void:x', ts: 20 }]);
     expect(a.count).toBe(1);
   });
   it('counts nothing for a hash that differs, a missing hash on either side, or a bad hash', () => {
-    const a = one(root('$r', 1), [
+    const a = oneX(root('$r', 1), [
       file('$f', HASH),
       file('$g'),
       receipt('$x', 20, '@void:x', '$f', 'b'.repeat(64)),
@@ -254,14 +254,14 @@ describe('Mind receipts', () => {
     expect(a.files.every((f) => f.readBy.length === 0)).toBe(true);
   });
   it('trusts the event sender, never a Mind field inside the content', () => {
-    const a = one(root('$r', 1), [
+    const a = oneX(root('$r', 1), [
       file('$f', HASH),
       receipt('$x', 20, '@mallory:x', '$f', HASH, { mind: 'void', sender: '@void:x' }),
     ]);
     expect(a.files[0].readBy).toEqual([]);
   });
   it('counts only a Mind of this homeserver: not another server, a lookalike, or a bare name', () => {
-    const a = one(root('$r', 1), [
+    const a = oneX(root('$r', 1), [
       file('$f', HASH),
       receipt('$x', 20, '@void-fan:x', '$f', HASH),
       receipt('$y', 21, '@x:void', '$f', HASH),
@@ -272,7 +272,7 @@ describe('Mind receipts', () => {
     expect(a.files[0].readBy.map((r) => r.sender)).toEqual(['@aqua:x']);
   });
   it('keeps one receipt per Mind, the latest, and a second Mind beside it', () => {
-    const a = one(root('$r', 1), [
+    const a = oneX(root('$r', 1), [
       file('$f', HASH),
       receipt('$1', 20, '@void:x', '$f', HASH),
       receipt('$2', 30, '@void:x', '$f', HASH),
@@ -288,7 +288,7 @@ describe('Mind receipts', () => {
       ...receipt('$d', 20, '@void:x', '$f', HASH),
       unsigned: { redacted_because: {} },
     };
-    const a = one(root('$r', 1), [
+    const a = oneX(root('$r', 1), [
       file('$f', HASH),
       receipt('$a', 20, '@void:x', '$elsewhere', HASH),
       receipt('$b', 21, '@void:x', 42, HASH),
