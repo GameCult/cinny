@@ -78,6 +78,23 @@ holds a GL context gives no 2D one, so a GL failure after context creation (comp
   x `AMBIENT_GAIN` 0.25 x `NIGHT_LIFT` up to 4; now `ambient_linear` as baked, so midnight's fill is about 2.5 to 3.5 times darker than
   the lifted one). `HAZE_K` (0.0004 per metre) is unchanged.
 
+## Ridge scene: Vienna, the real horizon and the weather
+
+The ridge sky is the physical atmosphere (`ridge/earthAtmosphere.ts`) lit by the real sun over the viewpoint, 48.1929826 N, 16.3534237 E
+(`ridge/vienna.ts`). Its farthest layer is the real horizon of that viewpoint, standing still under the sun: `ridge/viennaHorizon.json`,
+baked by `scripts/bake-horizon.py` from Copernicus DEM GLO-30 (nine 1 degree tiles, about 380 MB, kept out of the repo). The file carries its
+own `source` block with the dataset, tiles, licence and the attribution the licence requires. Its elevation range is 2.1 degrees, so the
+layer draws the shape of the ring stretched to a fixed relief, not its scale.
+
+The weather is one number (`ridge/weather.ts`), from the page URL's `?weather=`, else `weather.json` beside `config.json`, else clear.
+The browser never calls a weather service. `weather.json` is written by a refresher outside the client (`scripts/refresh-weather.mjs` is the
+reference; run no more often than every 5 minutes) from GeoSphere Austria's TAWES station 11035 (Wien Hohe Warte), credit
+"Datenquelle: GeoSphere Austria - https://data.hub.geosphere.at". Shape: `{fetched_at, observed_at, station, precip_mm_10min, humidity_pct,
+glow_wm2, sunshine_s_10min, attribution}`, null for a missing measurement. A file whose `observed_at` is more than 30 minutes old is a clear
+sky. Rain is the gauge; cloud is an estimate from the global radiation against Haurwitz's clear-sky value, cross-checked by the sunshine
+duration, with the humidity as the fallback when the sun is low (`ridge/weatherFeed.ts`). The weather draws a cloud deck in the sky
+(`ridge/clouds.ts`), thickens the layers' valley mist, and lays tiled rain streaks over everything (`ridge/rain.ts`, compositor-driven, none in a still).
+
 ## Entry points
 
 - `index.ts` `startBackgroundScene(config.backgroundScene, capabilities, options)` is the host's

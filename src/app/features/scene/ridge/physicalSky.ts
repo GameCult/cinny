@@ -4,10 +4,10 @@
 import type { FixedSkyState } from '../skyBand';
 import { bakeAtmosphere } from './earthAtmosphere';
 import type { Atmosphere } from './earthAtmosphere';
-import { domeSize, HORIZON_AT, renderDome, viewFor } from './skyDome';
+import { domeSize, HORIZON_AT, renderDome, SUN_RADIUS, sunOnScreen, viewFor, VFOV_DEG } from './skyDome';
 import type { Dome, DomeView } from './skyDome';
 import type { Srgb } from './skyColour';
-import { display8, fitDisplay } from './toneMap';
+import { display8, fitDisplay, holdBudget } from './toneMap';
 import type { Display, Fit } from './toneMap';
 import { sunForState, VIENNA } from './vienna';
 import type { SunSample } from './vienna';
@@ -54,7 +54,7 @@ export function makePhysicalSky(state: FixedSkyState, now: Date, weatherValue: n
     mieScale: weather.mieScale,
     observerKm: VIENNA.altitudeKm,
   });
-  const dome = renderDome(atm, sun, viewFor(sun, CANON.aspect), CANON.w, CANON.h);
+  const dome = renderDome(atm, sun, viewFor(sun, CANON.aspect), CANON.w, CANON.h, weather.cover);
   const fit = fitDisplay(state, dome.hdr, dome.meanLuma);
   const at = (f: number) => rowMean(dome, fit.display, Math.round(f * CANON.h));
   return {
@@ -75,21 +75,44 @@ export interface SkyPixels {
   data: Uint8ClampedArray;
   dome: Dome;
   view: DomeView;
+  /** The sun's disc for the host to draw on the upscaled canvas (it is smaller than a texel): place as fractions of the image, colour, radius in fractions of the height, opacity after the cloud. */
+  sunDisc?: { x: number; y: number; rgb: Srgb; radius: number; alpha: number };
 }
 
 /** The sky for a viewport, as a small RGBA grid the host canvas upscales smoothly. */
 export function paintSky(p: PhysicalSky, cssW: number, cssH: number): SkyPixels {
   const { w, h } = domeSize(cssW, cssH);
   const view = viewFor(p.sun, cssW / cssH);
-  const dome = renderDome(p.atm, p.sun, view, w, h);
+  const dome = renderDome(p.atm, p.sun, view, w, h, p.weather.cover);
   const data = new Uint8ClampedArray(w * h * 4);
   const out = [0, 0, 0];
+  const display = holdBudget(p.state, dome.hdr, p.fit.display);
   for (let i = 0; i < w * h; i += 1) {
-    display8(dome.hdr[i * 3], dome.hdr[i * 3 + 1], dome.hdr[i * 3 + 2], p.fit.display, out);
+    display8(dome.hdr[i * 3], dome.hdr[i * 3 + 1], dome.hdr[i * 3 + 2], display, out);
     data[i * 4] = out[0];
     data[i * 4 + 1] = out[1];
     data[i * 4 + 2] = out[2];
     data[i * 4 + 3] = 255;
   }
-  return { w, h, data, dome, view };
+  return { w, h, data, dome, view, sunDisc: sunDisc(p, view) };
+}
+
+const smooth01 = (a: number, b: number, v: number): number => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * The sun's disc: always brighter than the display's white, so what is left of it is its colour, the air's transmittance to the sun
+ * normalised to its strongest channel (white high up, orange near the horizon). Thick cloud hides it.
+ */
+function sunDisc(p: PhysicalSky, view: DomeView): SkyPixels['sunDisc'] {
+  const at = sunOnScreen(p.sun, view);
+  const alpha = 1 - smooth01(0.1, 0.6, p.weather.cover);
+  if (!at || alpha <= 0) return undefined;
+  const trans = [0, 0, 0];
+  p.atm.transmittanceToSpace(Math.max(Math.sin((p.sun.elevation * Math.PI) / 180), 0), trans);
+  const top = Math.max(...trans, 1e-9);
+  const rgb = trans.map((t) => Math.round(255 * (t / top) ** 0.6)) as unknown as Srgb;
+  return { ...at, rgb, radius: (SUN_RADIUS * 180) / Math.PI / VFOV_DEG, alpha };
 }

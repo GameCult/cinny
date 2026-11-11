@@ -31,3 +31,24 @@ export function horizonNormal(azimuth: number): [number, number, number] {
   const l = Math.hypot(e, 1, n);
   return [-e / l, 1 / l, -n / l];
 }
+
+/** The elevations blurred over +-SMOOTH_DEG (a box, around the ring): at 30 m a city's roofs are the horizon's teeth, and a silhouette of them reads as a fence. */
+const SMOOTH_DEG = 1.5;
+const SMOOTH = Array.from({ length: N }, (_, i) => {
+  const k = Math.round(SMOOTH_DEG / bake.stepDeg);
+  let sum = 0;
+  for (let d = -k; d <= k; d += 1) sum += bake.elevationDeg[(i + d + N) % N];
+  return sum / (2 * k + 1);
+});
+const MIN_E = Math.min(...SMOOTH);
+const RANGE_E = Math.max(...SMOOTH) - MIN_E;
+
+/** The horizon at an azimuth as 0..1 of the ring's own range (the lowest point of the horizon 0, the highest 1): the silhouette's shape, not its scale. */
+export const horizonShape = (azimuth: number): number => (lerp(SMOOTH, azimuth) - MIN_E) / RANGE_E;
+
+/** Real range of the smoothed horizon, degrees: what `horizonShape` stretches to the layer's relief. */
+export const HORIZON_RANGE_DEG = RANGE_E;
+
+/** Horizontal field of view, degrees, of a camera with the sky's vertical field (`skyDome.ts` VFOV_DEG) at an aspect ratio. */
+export const hfovDeg = (aspect: number, vfovDeg: number): number =>
+  (2 * Math.atan(aspect * Math.tan((vfovDeg * Math.PI) / 360)) * 180) / Math.PI;

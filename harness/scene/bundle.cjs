@@ -29,6 +29,7 @@ esbuild
     plugins: [rawPlugin],
     format: 'iife',
     target: 'es2020',
+    define: { 'import.meta.env.BASE_URL': '"/"' },
   })
   .then(() => {
     if (ridge) {

@@ -1,9 +1,16 @@
-// One weather number, 0..1, and what it does to the sky. No network source yet: the number is a constant, or the page URL's
-// `?weather=` for a still. 0 clear, about 0.3 fair (a few clouds), 0.55 overcast, 0.75 drizzle and mist, 1 steady rain.
+// One weather number, 0..1, and what it does to the sky. It is the page URL's `?weather=` (for a still), else the number the
+// observation file gives (`weatherFeed.ts`, set by `setFedWeather`), else a clear sky. 0 clear, about 0.3 fair (a few clouds), 0.55 overcast, 0.75 drizzle and mist, 1 steady rain.
 // What each part touches: haze multiplies the atmosphere's Mie coefficients before the LUTs are baked (`earthAtmosphere.ts`:
 // the same air, more aerosol); cloud cover, mist and rain are layers over the baked sky (`clouds.ts`, `Ridge.ts`).
 
-export const DEFAULT_WEATHER = 0.3;
+let fed: number | undefined;
+/** The weather number read from `weather.json`, or undefined to forget it. */
+export const setFedWeather = (v: number | undefined): void => {
+  fed = v;
+};
+
+/** The weather the ridge sky is drawn for: the URL's, else the file's, else clear. */
+export const ridgeWeather = (): number => urlWeather() ?? fed ?? 0;
 
 export interface Weather {
   /** The number it was made from. */
@@ -25,7 +32,7 @@ const smooth = (a: number, b: number, v: number): number => {
 };
 
 export function weatherOf(value: number): Weather {
-  const w = clamp01(Number.isFinite(value) ? value : DEFAULT_WEATHER);
+  const w = clamp01(Number.isFinite(value) ? value : 0);
   return {
     value: w,
     cover: smooth(0.1, 0.7, w),

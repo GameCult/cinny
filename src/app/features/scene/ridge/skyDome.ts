@@ -1,8 +1,9 @@
 // The sky as a camera sees it: for each texel of a small grid, the view ray, its radiance out of the atmosphere's sky-view
-// LUT (`earthAtmosphere.ts`), the sun's disc, and nothing else; one lookup per texel, no march. The result is linear HDR
+// LUT (`earthAtmosphere.ts`), and nothing else; one lookup per texel, no march. The result is linear HDR
 // radiance per unit of sun irradiance (a `Float32Array`); `toneMap.ts` makes it pixels.
 import type { Atmosphere } from './earthAtmosphere';
 import type { SunSample } from './vienna';
+import { cloudAmount, cloudRadiance } from './clouds';
 
 const RAD = Math.PI / 180;
 /** The sun's angular radius in radians (Hillaire's/Bruneton's `sun_angular_radius`). */
@@ -40,11 +41,16 @@ export const domeSize = (cssW: number, cssH: number): { w: number; h: number } =
 });
 
 /**
- * Render the HDR sky. Rays below the horizon take the horizon's radiance (the ridges cover them). `sunVisible` false leaves the
- * disc out (the glare it would add is still in the LUT); the disc is the transmittance-attenuated sun, its coverage of each
- * texel computed from the angular distance, not a hard edge.
+ * Render the HDR sky. Rays below the horizon take the horizon's radiance (the ridges cover them). The sun's disc is not here: it is smaller than a texel, so the host draws it on the upscaled canvas (`sunOnScreen`). `cover` (0..1, `weather.ts`) lays the cloud deck (`clouds.ts`) over it.
  */
-export function renderDome(atm: Atmosphere, sun: SunSample, view: DomeView, w: number, h: number): Dome {
+export function renderDome(
+  atm: Atmosphere,
+  sun: SunSample,
+  view: DomeView,
+  w: number,
+  h: number,
+  cover = 0
+): Dome {
   const hdr = new Float32Array(w * h * 3);
   const tanHalf = Math.tan((VFOV_DEG * RAD) / 2);
   const fa = view.azimuthDeg * RAD;
@@ -54,15 +60,16 @@ export function renderDome(atm: Atmosphere, sun: SunSample, view: DomeView, w: n
   const ry = -Math.sin(fa);
   const sunAz = sun.azimuth * RAD;
   const sunEl = sun.elevation * RAD;
-  const sx = Math.cos(sunEl) * Math.sin(sunAz);
-  const sy = Math.cos(sunEl) * Math.cos(sunAz);
   const sz = Math.sin(sunEl);
   const trans = [0, 0, 0];
-  atm.transmittanceToSpace(Math.max(sz, 0), trans);
-  // The disc's radiance for unit irradiance: 1 / (pi r^2), through the air to the sun.
-  const discRadiance = 1 / (Math.PI * SUN_RADIUS * SUN_RADIUS);
-  const texelAngle = (2 * tanHalf) / h; // radians per texel, small-angle
+  atm.transmittanceToSpace(Math.max(sz, 0), trans); // the cloud's sunlight
   const rgb = [0, 0, 0];
+  const cloud = [0, 0, 0];
+  if (cover > 0) {
+    const zenith = [0, 0, 0];
+    atm.radiance(1, 1, zenith);
+    cloudRadiance(sz, trans, zenith, cover, cloud);
+  }
   let logSum = 0;
   for (let j = 0; j < h; j += 1) {
     const v = (HORIZON_AT - (j + 0.5) / h) * 2 * tanHalf;
@@ -78,22 +85,38 @@ export function renderDome(atm: Atmosphere, sun: SunSample, view: DomeView, w: n
       let r = rgb[0];
       let g = rgb[1];
       let b = rgb[2];
-      if (sz > -0.01 && vz > 0) {
-        const cosSun = (dx * sx + dy * sy + dz * sz) / n;
-        const ang = Math.acos(Math.max(-1, Math.min(1, cosSun)));
-        const cover = Math.max(0, Math.min(1, (SUN_RADIUS - ang) / texelAngle + 0.5));
-        if (cover > 0) {
-          r += discRadiance * cover * trans[0];
-          g += discRadiance * cover * trans[1];
-          b += discRadiance * cover * trans[2];
-        }
+      let lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+      if (cover > 0) {
+        const c = cloudAmount(dx / n, dy / n, vz, cover);
+        lum += (0.2126 * cloud[0] + 0.7152 * cloud[1] + 0.0722 * cloud[2] - lum) * c;
+        r += (cloud[0] - r) * c;
+        g += (cloud[1] - g) * c;
+        b += (cloud[2] - b) * c;
       }
       const o = (j * w + i) * 3;
       hdr[o] = r;
       hdr[o + 1] = g;
       hdr[o + 2] = b;
-      logSum += Math.log(Math.max(1e-9, 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]));
+      logSum += Math.log(Math.max(1e-9, lum));
     }
   }
   return { w, h, hdr, meanLuma: Math.exp(logSum / (w * h)) };
+}
+
+/** Where the sun is on the image, as fractions of its width and height (y down), or null when it is behind the camera or below the horizon. */
+export function sunOnScreen(sun: SunSample, view: DomeView): { x: number; y: number } | null {
+  if (sun.elevation < -0.3) return null;
+  const tanHalf = Math.tan((VFOV_DEG * RAD) / 2);
+  const fa = view.azimuthDeg * RAD;
+  const az = sun.azimuth * RAD;
+  const el = sun.elevation * RAD;
+  const sx = Math.cos(el) * Math.sin(az);
+  const sy = Math.cos(el) * Math.cos(az);
+  const along = sx * Math.sin(fa) + sy * Math.cos(fa);
+  if (along <= 0.05) return null;
+  const u = (sx * Math.cos(fa) - sy * Math.sin(fa)) / along;
+  const v = Math.sin(el) / along;
+  const x = u / (view.aspect * 2 * tanHalf) + 0.5;
+  const y = HORIZON_AT - v / (2 * tanHalf);
+  return x < -0.05 || x > 1.05 || y < -0.05 || y > 1.05 ? null : { x, y };
 }

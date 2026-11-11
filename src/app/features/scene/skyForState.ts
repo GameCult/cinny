@@ -10,7 +10,8 @@ import type { SkyColours, Srgb } from './ridge/skyColour';
 import { skyColours } from './ridge/skyColour';
 import { makePhysicalSky } from './ridge/physicalSky';
 import { BUDGET } from './ridge/toneMap';
-import { DEFAULT_WEATHER, urlWeather } from './ridge/weather';
+import { ridgeWeather, setFedWeather } from './ridge/weather';
+import { currentWeather, fetchWeatherFile } from './ridge/weatherFeed';
 import { resolveSkyState, skyNow } from './skyState';
 import type { SkyState } from './skyState';
 import { displayedLuminance, SKY_BAND } from './skyBand';
@@ -27,9 +28,21 @@ export const DUSK_SUN_ELEVATION = 2;
  */
 export const ridgeSkyKey = (
   state: SkyState,
-  weather: number = urlWeather() ?? DEFAULT_WEATHER,
+  weather: number = ridgeWeather(),
   now: Date = skyNow()
 ): string => `ridge:${resolveSkyState(state, now)}:${weather}`;
+
+const WEATHER_REFRESH_MS = 10 * 60_000;
+let weatherAt = -Infinity;
+/**
+ * Read `weather.json` (the page's own, next to config.json) into the weather the ridge sky is drawn for; at most once in ten minutes.
+ * Never throws: a missing, stale or broken file is a clear sky (`currentWeather`).
+ */
+export async function loadWeather(url: string, now: Date = skyNow()): Promise<void> {
+  if (now.getTime() - weatherAt < WEATHER_REFRESH_MS) return;
+  weatherAt = now.getTime();
+  setFedWeather(currentWeather(await fetchWeatherFile(url), now));
+}
 
 /**
  * The ridge scene's `sky` option: the physical sky over Vienna for the state ('auto': the real sun now; a forced state: the
@@ -38,7 +51,7 @@ export const ridgeSkyKey = (
  */
 export function ridgeSkyFor(
   state: SkyState,
-  weather: number = urlWeather() ?? DEFAULT_WEATHER,
+  weather: number = ridgeWeather(),
   now: Date = skyNow()
 ): SkyColours {
   const { ground } = skyColours();

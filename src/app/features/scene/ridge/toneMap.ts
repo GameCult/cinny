@@ -153,3 +153,42 @@ export function fitDisplay(state: FixedSkyState, hdr: Float32Array, meanLuma: nu
   }
   return { display: { exposure, lift }, lo: r.lo, hi: r.hi, keyExposure };
 }
+
+/**
+ * The display, moved only as far as the budget needs, for a grid other than the one it was fitted on (another viewport's shape,
+ * its own texels): the fit is made once on a canonical grid so that resizing repaints the same sky, and this keeps a texel the canonical
+ * grid did not have inside the state's bounds. A display that already holds them is returned as it is.
+ */
+export function holdBudget(state: FixedSkyState, hdr: Float32Array, d: Display): Display {
+  const b = BUDGET[state];
+  const n = hdr.length / 3;
+  const tmp = [0, 0, 0];
+  const range = (x: Display) => {
+    let lo = 2;
+    let hi = -1;
+    for (let i = 0; i < n; i += 1) {
+      const l = displayLumaOf(hdr[i * 3], hdr[i * 3 + 1], hdr[i * 3 + 2], x, tmp);
+      if (l < lo) lo = l;
+      if (l > hi) hi = l;
+    }
+    return { lo, hi };
+  };
+  let cur = d;
+  let r = range(cur);
+  if (r.hi > b.ceiling) {
+    let lo = 0;
+    let hiE = cur.exposure;
+    for (let k = 0; k < 20; k += 1) {
+      const mid = (lo + hiE) / 2;
+      if (range({ exposure: mid, lift: cur.lift }).hi > b.ceiling) hiE = mid;
+      else lo = mid;
+    }
+    cur = { exposure: lo, lift: cur.lift };
+    r = range(cur);
+  }
+  for (let k = 0; k < 8 && r.lo < b.floor; k += 1) {
+    cur = { exposure: cur.exposure, lift: cur.lift + ((b.floor - r.lo) / (1 - r.lo)) * 1.05 + 1e-4 };
+    r = range(cur);
+  }
+  return cur;
+}

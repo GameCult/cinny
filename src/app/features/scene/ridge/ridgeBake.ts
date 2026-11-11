@@ -3,7 +3,7 @@
 // slope of the heightfield's crest line against the sun; the face under it takes a light-to-haze
 // gradient, erosion streaks and a lit rim on the crest. The depth treatment (colour, haze, contrast
 // by distance) is ridgeWorld's `layerColour`, `hazeColour` and `transmittance`, used here and not redone.
-import { gullyAt, LayerSpec, profile, hazeColour, layerColour, transmittance } from './ridgeWorld';
+import { gullyAt, HorizonView, LayerSpec, layerProfile, hazeColour, layerColour, transmittance } from './ridgeWorld';
 import type { SkyBand } from '../skyBand';
 import { LUMA, SKY_BAND } from '../skyBand';
 import type { SkyColours, Srgb } from './skyColour';
@@ -45,6 +45,8 @@ export interface BakeParams {
   rows: number;
   /** Row count of the visible band; the crest is measured from the top of it. */
   bandH: number;
+  /** Where world-x is a compass azimuth, for the horizon layer (`LayerSpec.horizon`); absent: every layer is noise. */
+  horizonView?: HorizonView;
   /** World pixel of the buffer's column 0 (may be fractional-free negative: a chunk's left minus its padding). */
   px0: number;
   /** Columns of the buffer. */
@@ -67,6 +69,8 @@ export interface LayerPaint {
   warm: Srgb;
   contrast: number;
   sun: Vec3;
+  /** How much the weather's mist multiplies the layer's own (`weather.ts`): 1 in clear air. */
+  mistK: number;
 }
 
 const decode = (v: number): number => {
@@ -123,6 +127,7 @@ export function layerPaint(spec: LayerSpec, sky: SkyColours): LayerPaint {
     // Distance flattens relief: the same transmittance that thins the colour.
     contrast: 0.35 + 0.65 * transmittance(spec),
     sun: sunDirection(sky),
+    mistK: 1 + 2.5 * (sky.physical?.weather.mist ?? 0),
   };
 }
 
@@ -132,7 +137,7 @@ function crestRows(p: BakeParams, c0: number, c1: number): Float64Array {
   const amp = p.spec.relief * p.viewH;
   const lift = p.spec.base * p.viewH;
   for (let c = c0 - 1; c <= c1; c += 1) {
-    const top = Math.min(p.bandH, lift + amp * profile(p.spec, (p.px0 + c) / p.period));
+    const top = Math.min(p.bandH, lift + amp * layerProfile(p.spec, (p.px0 + c) / p.period, p.horizonView));
     out[c - c0 + 1] = p.bandH - top;
   }
   return out;
@@ -155,7 +160,7 @@ export function bakeSlice(
   const faceH = 0.45 * p.viewH;
   const rim = 2.2 * p.scale;
   const glow = 9 * p.scale;
-  const { base, haze, warm, contrast, sun, shift } = paint;
+  const { base, haze, warm, contrast, sun, shift, mistK } = paint;
   for (let c = c0; c < c1; c += 1) {
     const cy = crest[c - c0 + 1];
     const slope = (crest[c - c0 + 2] - crest[c - c0]) * -0.5; // rows up per column
@@ -182,7 +187,7 @@ export function bakeSlice(
         (clamp01(1 - d / rim) * 0.4 + (d < glow * 5 ? Math.exp(-d / glow) * 0.08 : 0)) *
         contrast *
         (0.3 + 0.7 * lit);
-      const mist = spec.mist * smoothstep(0, 1, dn);
+      const mist = Math.min(0.9, spec.mist * mistK) * smoothstep(0, 1, dn);
       const o = (y * p.cols + c) * 4;
       for (let i = 0; i < 3; i += 1) {
         let v = base[i] * shade + warm[i] * (warmK + rimK);

@@ -16,6 +16,9 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
   onActive?: () => void;
 };
 
+/** The observation file the ridge sky reads: the page's own, beside config.json. The browser calls no weather service. */
+const weatherUrl = (): string => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/weather.json`;
+
 async function create(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier; debug?: boolean },
@@ -23,7 +26,7 @@ async function create(
 ): Promise<Scene | null> {
   try {
     // Loaded here, with the scenes, so the main chunk does not carry the terrain sky or the baked tables.
-    const { ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
+    const { loadWeather, ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
     if (config?.style === 'raymarch') return (await import('./Scene')).createScene(options);
     if (config?.style === 'terrain') {
       const { createTerrainScene } = await import('./terrain/Terrain');
@@ -35,6 +38,7 @@ async function create(
       return createTerrainSkyScene({ ...options, ...sky });
     }
     const { createRidgeScene } = await import('./ridge/Ridge');
+    await loadWeather(weatherUrl());
     return createRidgeScene({ ...options, sky: ridgeSkyFor(state) });
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
@@ -52,8 +56,10 @@ async function skyKey(
   state: SkyState
 ): Promise<string | null> {
   try {
-    const { ridgeSkyKey, terrainSkyFor } = await import('./skyForState');
-    return config?.style === 'terrain' ? JSON.stringify(terrainSkyFor(state)) : ridgeSkyKey(state);
+    const { loadWeather, ridgeSkyKey, terrainSkyFor } = await import('./skyForState');
+    if (config?.style === 'terrain') return JSON.stringify(terrainSkyFor(state));
+    await loadWeather(weatherUrl());
+    return ridgeSkyKey(state);
   } catch {
     // The chunk failed to load: no key, so every change rebuilds (and `create` reports the failure).
     return null;
