@@ -2,6 +2,7 @@ import React from 'react';
 import { as, Chip, Icon, Icons, Text } from 'folds';
 import classNames from 'classnames';
 import { NavGutter } from '../../components/nav';
+import { NavPlate } from '../../components/nav/styles.css';
 import * as css from './styles.css';
 
 export const RoomNavCategoryButton = as<'button', { closed?: boolean }>(
@@ -21,7 +22,7 @@ export const RoomNavCategoryButton = as<'button', { closed?: boolean }>(
           src={closed ? Icons.ChevronRight : Icons.ChevronBottom}
         />
       </NavGutter>
-      <Text size="O400" priority="300" truncate>
+      <Text className={NavPlate} size="O400" priority="300" truncate>
         {children}
       </Text>
     </Chip>

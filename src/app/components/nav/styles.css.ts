@@ -2,7 +2,6 @@ import { ComplexStyleRule, StyleRule, createVar, globalStyle, style } from '@van
 import { RecipeVariants, recipe } from '@vanilla-extract/recipes';
 import { ContainerColor, DefaultReset, Disabled, RadiiVariant, color, config, toRem } from 'folds';
 import { surfaceInk } from '../../features/scene/sceneShell.css';
-import { skyLabelInk } from '../../features/scene/skyLabelInk';
 
 // Wash strengths over the scene: rows and labels are faint, and hover, selected and pressed rows
 // are three distinct steps above them.
@@ -32,10 +31,10 @@ export const NavLevel = style({
   paddingLeft: LEVEL_STEP,
 });
 
-// Chevrons and room icons are matched in weight, so a foldout is not outweighed by its rooms.
-export const NAV_ICON_REST_OPACITY = 0.6;
+// Chevrons and room icons are matched in measured ink (a room glyph is about 1.7x a chevron's, unread rooms stay far above), so a foldout is not outweighed by its rooms.
+export const NAV_ICON_REST_OPACITY = 0.9;
 // A room's glyph is bigger and denser than the chevron, so it rests lighter to read as the same weight.
-export const NAV_ROOM_ICON_REST_OPACITY = 0.42;
+export const NAV_ROOM_ICON_REST_OPACITY = 0.26;
 export const NAV_ICON_UNREAD_OPACITY = 0.9;
 
 export const NavCategory = style([
@@ -252,9 +251,17 @@ phoneLabel(`.${NavItemBase}:has(.${NavLink}:active) ${label}`, {
   opacity: 0.6,
   textDecorationLine: 'underline',
 });
-phoneLabel(`:root[data-scene] ${label}`, {
-  color: skyLabelInk('inherit'),
-  textShadow: `0 0 3px ${surfaceInk}, 0 0 8px ${surfaceInk}`,
+// Over the scene a label sits on a feathered plate of the theme's own surface (not a card: no edge, the
+// shadow carries it past the text) and wears the theme's own ink, the colour that surface was made for.
+// The plate is on the label itself, so the label is at full strength here: an opacity would fade the plate too.
+const LABEL_PLATE = `color-mix(in srgb, ${surfaceInk} 80%, transparent)`;
+/** The same plate for text that is not a row label (a foldout's heading). */
+export const NavPlate = style({});
+globalStyle(`:root[data-scene] ${label}, :root[data-scene] .${NavPlate}`, {
+  opacity: 1,
+  backgroundColor: LABEL_PLATE,
+  boxShadow: `0 0 6px 5px ${LABEL_PLATE}`,
+  borderRadius: toRem(6),
 });
 
 // Icons, dots and the Join action share the label's halo over the scene.
