@@ -106,6 +106,7 @@ import { GetContentCallback, MessageEvent, StateEvent } from '../../../types/mat
 import { useKeyDown } from '../../hooks/useKeyDown';
 import { useDocumentFocusChange } from '../../hooks/useDocumentFocusChange';
 import { RenderMessageContent } from '../../components/RenderMessageContent';
+import { FileReadBy, isFileMessage } from '../albums/FileReadBy';
 import { Image } from '../../components/media';
 import { ImageViewer } from '../../components/image-viewer';
 import { roomToParentsAtom } from '../../state/room/roomToParents';
@@ -1110,6 +1111,9 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
                 linkifyOpts={linkifyOpts}
                 outlineAttachment={messageLayout === MessageLayout.Bubble}
               />
+            )}
+            {!mEvent.isRedacted() && isFileMessage(mEvent) && (
+              <FileReadBy room={room} fileId={mEventId} content={mEvent.getContent()} />
             )}
           </Message>
         );
