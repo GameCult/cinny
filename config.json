@@ -1,6 +1,7 @@
 {
   "defaultHomeserver": 0,
   "homeserverList": [
+    "chat.gamecult.org",
     "gamecult.org",
     "converser.eu",
     "matrix.org",

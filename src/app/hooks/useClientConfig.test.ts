@@ -3,9 +3,9 @@ import { ClientConfig, clientDefaultServer } from './useClientConfig';
 import config from '../../../config.json';
 
 describe('default homeserver', () => {
-  it('is gamecult.org when the config names none', () => {
-    expect(clientDefaultServer({})).toBe('gamecult.org');
-    expect(clientDefaultServer({ homeserverList: [] })).toBe('gamecult.org');
+  it('is chat.gamecult.org when the config names none', () => {
+    expect(clientDefaultServer({})).toBe('chat.gamecult.org');
+    expect(clientDefaultServer({ homeserverList: [] })).toBe('chat.gamecult.org');
   });
 
   it('is the listed server the config points at', () => {
@@ -14,7 +14,7 @@ describe('default homeserver', () => {
     ).toBe('chat.gamecult.org');
   });
 
-  it('is gamecult.org in the repo config.json too', () => {
-    expect(clientDefaultServer(config as ClientConfig)).toBe('gamecult.org');
+  it('is chat.gamecult.org in the repo config.json too', () => {
+    expect(clientDefaultServer(config as ClientConfig)).toBe('chat.gamecult.org');
   });
 });
