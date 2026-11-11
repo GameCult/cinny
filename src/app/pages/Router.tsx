@@ -9,16 +9,13 @@ import {
 } from 'react-router-dom';
 
 import { ClientConfig } from '../hooks/useClientConfig';
-import { AuthLayout, Login, Register, ResetPassword } from './auth';
+import { authRoutes } from './auth/authRoutes';
 import {
   DIRECT_PATH,
   DESK_PATH,
   EXPLORE_PATH,
   HOME_PATH,
-  LOGIN_PATH,
   INBOX_PATH,
-  REGISTER_PATH,
-  RESET_PASSWORD_PATH,
   SPACE_PATH,
   _CREATE_PATH,
   _FEATURED_PATH,
@@ -57,7 +54,7 @@ import { ScreenSize } from '../hooks/useScreenSize';
 import { MobileFriendlyPageNav } from './MobileFriendly';
 import { ClientInitStorageAtom } from './client/ClientInitStorageAtom';
 import { ClientNonUIFeatures } from './client/ClientNonUIFeatures';
-import { AuthRouteThemeManager, UnAuthRouteThemeManager } from './ThemeManager';
+import { AuthRouteThemeManager } from './ThemeManager';
 import { ReceiveSelfDeviceVerification } from '../components/DeviceVerification';
 import { AutoRestoreBackupOnVerification } from '../components/BackupRestore';
 import { RoomSettingsRenderer } from '../features/room-settings';
@@ -88,25 +85,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
           return redirect(getLoginPath());
         }}
       />
-      <Route
-        loader={() => {
-          if (getFallbackSession()) {
-            return redirect(getHomePath());
-          }
-
-          return null;
-        }}
-        element={
-          <>
-            <AuthLayout />
-            <UnAuthRouteThemeManager />
-          </>
-        }
-      >
-        <Route path={LOGIN_PATH} element={<Login />} />
-        <Route path={REGISTER_PATH} element={<Register />} />
-        <Route path={RESET_PASSWORD_PATH} element={<ResetPassword />} />
-      </Route>
+      {authRoutes()}
 
       <Route
         loader={() => {

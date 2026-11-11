@@ -17,6 +17,8 @@ export const REGISTER_PATH = '/register/:server?/';
 export type ResetPasswordPathSearchParams = {
   email?: string;
 };
+export const SIGNED_UP_PATH = '/signed-up/';
+
 export const RESET_PASSWORD_PATH = '/reset-password/:server?/';
 
 export const _CREATE_PATH = 'create/';

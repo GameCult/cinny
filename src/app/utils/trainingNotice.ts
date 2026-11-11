@@ -28,6 +28,13 @@ export const trainingNoticeText = (previewDemo?: boolean): string =>
  * else is malformed. Absent or malformed in any way means no train line.
  */
 export const MAX_NOTICE_VERSION = 4294967295;
+
+/**
+ * The version of the notice wording above. Registration shows it with the text, and a room's
+ * notice event carries the same number, so one text has one version on both surfaces. Bump it
+ * with the wording and nowhere else.
+ */
+export const TRAINING_NOTICE_VERSION = 1;
 export const ROOM_NOTICE_EVENT_TYPE = StateEvent.GameCultNotice;
 
 export type RoomNotice = { version: number; scope: 'show' | 'study' | 'train' };

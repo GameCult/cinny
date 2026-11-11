@@ -57,7 +57,14 @@ export const serverTroubleMessage = (
 export const noSignInMethodMessage = (server: string): string =>
   `${server} does not offer a way to sign in that this app can use. Pick another server from the Homeserver list, or tell whoever runs ${server}.`;
 
-export type RegisterTrouble = 'closed' | 'rate-limited' | 'invalid' | 'unsupported';
+export type RegisterTrouble =
+  | 'closed'
+  | 'rate-limited'
+  | 'invalid'
+  | 'unsupported'
+  | 'password-weak'
+  | 'password-short'
+  | 'unknown';
 
 export const registerTroubleMessage = (trouble: RegisterTrouble, server: string): string => {
   switch (trouble) {
@@ -67,6 +74,12 @@ export const registerTroubleMessage = (trouble: RegisterTrouble, server: string)
       return 'Too many tries in a short time. Wait a minute, then try again.';
     case 'invalid':
       return `${server} did not accept the request to make an account. Reload the page and try again; if it keeps failing, tell whoever invited you.`;
+    case 'password-weak':
+      return 'That password is too easy to guess. Pick a longer one, with more than one kind of character.';
+    case 'password-short':
+      return 'That password is too short. Pick a longer one.';
+    case 'unknown':
+      return `Something went wrong making the account on ${server}. Try again in a minute; if it keeps failing, tell whoever invited you.`;
     case 'unsupported':
     default:
       return `${server} asks for something this app cannot do when making an account. Tell whoever invited you.`;

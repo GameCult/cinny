@@ -30,7 +30,15 @@ import {
 import { useUIACompleted, useUIAFlow, useUIAParams } from '../../../hooks/useUIAFlows';
 import { AsyncState, AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { useAutoDiscoveryInfo } from '../../../hooks/useAutoDiscoveryInfo';
-import { RegisterError, RegisterResult, register, useRegisterComplete } from './registerUtil';
+import {
+  RegisterError,
+  RegisterResult,
+  register,
+  registerErrorTrouble,
+  useRegisterComplete,
+} from './registerUtil';
+import { registerTroubleMessage } from '../authMessages';
+import { useAuthServer } from '../../../hooks/useAuthServer';
 import { FieldError } from '../FiledError';
 import { TrainingNotice } from '../TrainingNotice';
 import {
@@ -185,6 +193,7 @@ export function PasswordRegisterForm({
   defaultEmail,
   defaultRegisterToken,
 }: PasswordRegisterFormProps) {
+  const server = useAuthServer();
   const serverDiscovery = useAutoDiscoveryInfo();
   const baseUrl = serverDiscovery['m.homeserver'].base_url;
   const mx = useMemo(() => createClient({ baseUrl }), [baseUrl]);
@@ -207,6 +216,9 @@ export function PasswordRegisterForm({
   const registerError =
     registerState.status === AsyncStatus.Error ? registerState.error : undefined;
 
+  // The password troubles show under the password field; the rest is the form's.
+  const registerTrouble = registerError && registerErrorTrouble(registerError.errcode);
+  const formTrouble = registerTrouble?.startsWith('password-') ? undefined : registerTrouble;
   useRegisterComplete(customRegisterResp);
 
   const handleSubmit: ChangeEventHandler<HTMLFormElement> = (evt) => {
@@ -298,20 +310,10 @@ export function PasswordRegisterForm({
                   required
                 />
                 {registerError?.errcode === RegisterError.PasswordWeak && (
-                  <FieldError
-                    message={
-                      registerError.data.error ??
-                      'Weak Password. Password rejected by server please choosing more strong Password.'
-                    }
-                  />
+                  <FieldError message={registerTroubleMessage('password-weak', server)} />
                 )}
                 {registerError?.errcode === RegisterError.PasswordShort && (
-                  <FieldError
-                    message={
-                      registerError.data.error ??
-                      'Short Password. Password rejected by server please choosing more long Password.'
-                    }
-                  />
+                  <FieldError message={registerTroubleMessage('password-short', server)} />
                 )}
               </Box>
               <Box direction="Column" gap="100">
@@ -378,18 +380,7 @@ export function PasswordRegisterForm({
             </Text>
           </Box>
         )}
-        {registerError?.errcode === RegisterError.RateLimited && (
-          <FieldError message="Failed to register. Your register request has been rate-limited by server, Please try after some time." />
-        )}
-        {registerError?.errcode === RegisterError.Forbidden && (
-          <FieldError message="Failed to register. The homeserver does not permit registration." />
-        )}
-        {registerError?.errcode === RegisterError.InvalidRequest && (
-          <FieldError message="Failed to register. Invalid request." />
-        )}
-        {registerError?.errcode === RegisterError.Unknown && (
-          <FieldError message={registerError.data.error ?? 'Failed to register. Unknown Reason.'} />
-        )}
+        {formTrouble && <FieldError message={registerTroubleMessage(formTrouble, server)} />}
         <span data-spacing-node />
         <TrainingNotice checked={trainingAck} onToggle={() => setTrainingAck((ack) => !ack)} />
         <Button variant="Primary" size="500" type="submit" disabled={!trainingAck}>
