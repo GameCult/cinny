@@ -45,7 +45,9 @@ reference; audio carries no duration. A Mind should not rely on any of those.
 ## Receipt: `org.gamecult.file_received`
 
 The Mind posts one event of type `org.gamecult.file_received` after a successful fetch, to the room of the
-file, as a reply in the album's thread so it arrives with the album's own listing (no extra request):
+file. When the file has an album root the receipt is a reply in the album's thread, so it arrives with the album's
+own listing; otherwise (a composer file sent with no thread) it is a plain room event with no `m.relates_to`. Both
+count, and the client finds a receipt by its `event_id` anywhere in the room's loaded timeline or the album's thread:
 
 ```json
 {
@@ -57,6 +59,12 @@ file, as a reply in the album's thread so it arrives with the album's own listin
   }
 }
 ```
+
+A plain room-event receipt may also carry `m.relates_to: {rel_type: "m.reference", event_id: <file event id>}`, which lets
+the mouth find its earlier receipts through `/relations` for dedup. The client matches by `content.event_id` and reads no
+relation but this one: if a `m.reference` is present its `event_id` must equal `content.event_id`, else the receipt counts
+for nothing. A thread relation is not read. However many receipts a Mind has posted for a file, the row draws one
+`read by` for that Mind.
 
 Two rules, both enforced on each side:
 
@@ -80,6 +88,8 @@ what the hash and the Mind's own account show.
 ## Not built yet
 
 - Files sent from the composer carry no thread relation, so they reach an album only if written into a
-  thread by another tool; the album upload path (docs/file-zone.md, "Upload") is unwritten. Receipts are
-  thread replies, so they show only where the file is.
+  thread by another tool; the album upload path (docs/file-zone.md, "Upload") is unwritten. Their receipts are plain
+  room events, and the timeline row for the file shows `read by` from them.
+- The timeline row reads the room's loaded timeline only: a receipt older than what the client has paged in is not
+  seen there (an album's own listing reads the thread, which is paged separately).
 - Encrypted zones are not listed.

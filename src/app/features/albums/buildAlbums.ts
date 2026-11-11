@@ -1,8 +1,8 @@
 // Pure: turns the thread roots of a file-zone room and each root's thread replies, in the JSON
 // Synapse returns from GET /rooms/{roomId}/threads and GET /rooms/{roomId}/relations/{root}/m.thread,
 // into albums. See docs/file-zone.md for the rulings this encodes.
-import { MINDS } from '../../components/message/pose/poses';
-import { FILE_HASH_KEY, FILE_RECEIVED } from './fileReceipt';
+import { readersOf } from './fileReceipt';
+import type { FileReader } from './fileReceipt';
 
 /** The slice of a Matrix event this module reads. Every field may be missing. */
 export type ZoneEvent = {
@@ -17,9 +17,6 @@ export type ZoneEvent = {
 export type AlbumInput = { root: ZoneEvent; replies: ZoneEvent[] };
 
 export type FileKind = 'audio' | 'image' | 'video' | 'file';
-
-/** A Mind's verified receipt for one file: its sender, who the Matrix server says posted it. */
-export type FileReader = { sender: string; ts: number };
 
 export type AlbumFile = {
   id: string;
@@ -81,44 +78,6 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
   };
 };
 
-// A receipt is a thread reply of type org.gamecult.file_received whose content names a file of this
-// album; it carries no msgtype, so it never passes `live`.
-const receiptOf = (e: ZoneEvent) => {
-  if (!e || typeof e !== 'object' || e.type !== FILE_RECEIVED || !e.event_id) return undefined;
-  if (e.unsigned?.redacted_because) return undefined;
-  const body = e.content?.[FILE_RECEIVED] as { event_id?: unknown; sha256?: unknown } | undefined;
-  if (typeof body?.event_id !== 'string' || typeof body.sha256 !== 'string') return undefined;
-  if (typeof e.sender !== 'string') return undefined;
-  return {
-    file: body.event_id,
-    sender: e.sender,
-    ts: tsOf(e.origin_server_ts),
-    sha256: body.sha256,
-  };
-};
-
-// Only the event's sender counts, never a name inside the content, and only a Mind's own Matrix
-// identity on this homeserver (`@<mind>:<server>`, the mind named in the Persona catalogue). "Read" means verified: the receipt's hash must be
-// the file event's own.
-const isMind = (sender: string, server: string) => MINDS.some((m) => sender === `@${m}:${server}`);
-
-const attachReceipts = (files: AlbumFile[], replies: ZoneEvent[], server: string) => {
-  const byId = new Map(files.map((f) => [f.id, f]));
-  replies
-    .map(receiptOf)
-    .filter((r): r is NonNullable<typeof r> => !!r && isMind(r.sender, server))
-    .sort((a, b) => a.ts - b.ts)
-    .forEach((r) => {
-      const file = byId.get(r.file);
-      const sent = (file?.content.info as Record<string, unknown> | undefined)?.[FILE_HASH_KEY];
-      if (!file || typeof sent !== 'string' || sent !== r.sha256) return;
-      file.readBy = [
-        ...file.readBy.filter((x) => x.sender !== r.sender),
-        { sender: r.sender, ts: r.ts },
-      ];
-    });
-};
-
 export const UNTITLED = 'Untitled album';
 
 // An edited root carries its latest edit under unsigned["m.relations"]["m.replace"]; the title is
@@ -141,8 +100,8 @@ const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
       seen.add(f.id);
       return true;
     })
-    .sort((a, b) => a.ts - b.ts);
-  attachReceipts(files, Array.isArray(replies) ? replies : [], server);
+    .sort((a, b) => a.ts - b.ts)
+    .map((f) => ({ ...f, readBy: readersOf(replies, f.id, f.content, server) }));
   return {
     id: root.event_id,
     title: titleOf(root),
