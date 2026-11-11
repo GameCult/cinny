@@ -3,6 +3,7 @@ import type { Scene, SceneOptions } from '../Scene';
 import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
+import { paintSky as paintPhysicalSky } from './physicalSky';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import { bakeSlice, BakeParams, layerPaint } from './ridgeBake';
 import { LAYERS, LayerSpec, edgeBlur, layerSize, scatterAlpha, transmittance } from './ridgeWorld';
@@ -34,9 +35,35 @@ function context2d(c: HTMLCanvasElement): CanvasRenderingContext2D | null {
   return c.getContext('2d');
 }
 
-function paintSky(canvas: HTMLCanvasElement, sky: SkyColours): boolean {
+/**
+ * The host canvas's sky: the physical sky (`physicalSky.ts`) as a small grid of display pixels, scaled up smoothly (it is a soft
+ * field); without one, the three-stop gradient.
+ */
+function paintSky(
+  canvas: HTMLCanvasElement,
+  sky: SkyColours,
+  cssW: number,
+  cssH: number,
+  makeCanvas: () => HTMLCanvasElement
+): boolean {
   const ctx = context2d(canvas);
   if (!ctx) return false;
+  if (sky.physical) {
+    const px = paintPhysicalSky(sky.physical, cssW, cssH);
+    const small = makeCanvas();
+    small.width = px.w;
+    small.height = px.h;
+    const sctx = context2d(small);
+    if (sctx) {
+      const img = sctx.createImageData(px.w, px.h);
+      img.data.set(px.data);
+      sctx.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
+      return true;
+    }
+  }
   const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
   g.addColorStop(0, css(sky.top));
   g.addColorStop(0.5, css(sky.mid));
@@ -415,7 +442,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const size = layerSize(w, h, scale);
     canvas.width = size.period;
     canvas.height = Math.round(h * scale);
-    if (!paintSky(canvas, sky)) return false;
+    if (!paintSky(canvas, sky, w, h, () => document.createElement('canvas'))) return false;
     // Every star is baked into the sky; the twinkling ones get their own canvas, which a per-frame
     // pass clears and paints over. 'still' has no overlay.
     const stars = makeStars(sky, w, h);

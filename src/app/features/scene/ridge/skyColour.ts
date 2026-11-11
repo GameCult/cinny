@@ -5,6 +5,7 @@
 // and bakes the result.
 
 import type { SkyBand } from '../skyBand';
+import type { PhysicalSky } from './physicalSky';
 
 export type Srgb = readonly [number, number, number];
 
@@ -21,6 +22,8 @@ export interface SkyColours {
   sunAzimuth?: number;
   /** The state's luminance band (skyBand.ts): the layers are shaped into it as the sky is, so the theme ink clears 4.5:1 on a ridge as on bare sky. Omit for none. */
   band?: SkyBand;
+  /** The physical sky this palette was read from; when present the host canvas is painted from it, not from the three stops. */
+  physical?: PhysicalSky;
 }
 
 export function skyColours(_now: Date = new Date()): SkyColours {

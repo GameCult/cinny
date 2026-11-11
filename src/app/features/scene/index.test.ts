@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
-import { baked } from '../../../sky/baked';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
 import { setSkyClock, setSkyState } from './skyState';
@@ -79,7 +78,7 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('day');
     await flush();
     expect(first.dispose).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(baked.noonday.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day').top));
     scene?.dispose();
     expect(second.dispose).toHaveBeenCalledOnce();
   });
@@ -92,7 +91,7 @@ describe('startBackgroundScene follows the sky state', () => {
     const scene = await started;
     await flush();
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(baked.noonday.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day').top));
     expect(a.dispose).toHaveBeenCalledOnce();
     scene?.dispose();
     expect(b.dispose).toHaveBeenCalledOnce();

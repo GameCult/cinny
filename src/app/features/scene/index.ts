@@ -52,8 +52,8 @@ async function skyKey(
   state: SkyState
 ): Promise<string | null> {
   try {
-    const { ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
-    return JSON.stringify(config?.style === 'terrain' ? terrainSkyFor(state) : ridgeSkyFor(state));
+    const { ridgeSkyKey, terrainSkyFor } = await import('./skyForState');
+    return config?.style === 'terrain' ? JSON.stringify(terrainSkyFor(state)) : ridgeSkyKey(state);
   } catch {
     // The chunk failed to load: no key, so every change rebuilds (and `create` reports the failure).
     return null;

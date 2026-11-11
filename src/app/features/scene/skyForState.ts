@@ -8,69 +8,48 @@ import { chooseSky, skyColour, urlSky } from './terrain/terrainSky';
 import type { SkyName } from './terrain/terrainSky';
 import type { SkyColours, Srgb } from './ridge/skyColour';
 import { skyColours } from './ridge/skyColour';
-import { resolveSkyState } from './skyState';
+import { makePhysicalSky } from './ridge/physicalSky';
+import { BUDGET } from './ridge/toneMap';
+import { DEFAULT_WEATHER, urlWeather } from './ridge/weather';
+import { resolveSkyState, skyNow } from './skyState';
 import type { SkyState } from './skyState';
-import {
-  displayedLuminance,
-  hexToLinear,
-  RIDGE_NIGHT_BAND,
-  shapeToBand,
-  SKY_BAND,
-} from './skyBand';
+import { displayedLuminance, SKY_BAND } from './skyBand';
 import type { SkyBand } from './skyBand';
 import { luminance } from '../../../sky/skyTokens.js';
 import { CAMERA } from './terrain/terrainWorld';
 
-const rgbHex = (c: Srgb) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-
-const rgb = (hex: string): Srgb =>
-  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as unknown as Srgb;
-
-const fromGradient = (g: readonly string[], ground: Srgb, band: SkyBand): SkyColours => ({
-  band,
-  top: rgb(g[0]),
-  mid: rgb(g[Math.floor(g.length / 2)]),
-  horizon: rgb(g[g.length - 1]),
-  ground,
-});
-
 /** Sun elevation in degrees for the terrain's dusk: just above the horizon, between the two bakes (as `?sun=` puts it). */
 export const DUSK_SUN_ELEVATION = 2;
 
-const toByte = (v: number): number =>
-  Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055));
+/**
+ * What a rebuild of the ridge scene is for: the fixed state it draws and the weather. The sun moves with the clock inside a state and
+ * is not part of the key (the scene is baked at its start), as the sky was one gradient per state before.
+ */
+export const ridgeSkyKey = (
+  state: SkyState,
+  weather: number = urlWeather() ?? DEFAULT_WEATHER,
+  now: Date = skyNow()
+): string => `ridge:${resolveSkyState(state, now)}:${weather}`;
 
-/** A stop moved into the state's band, the way the terrain sky is (`shapeToBand`), through the sRGB curve the canvas draws with. */
-const inBand = (c: Srgb, band: SkyBand): Srgb =>
-  shapeToBand(hexToLinear(rgbHex(c)), band).map(toByte) as unknown as Srgb;
-
-/** The ridge scene's `sky` option: the gradient of the state's sky ('auto': of the sky it resolves to). Dusk's twilight stops are shaped into its band. */
-export function ridgeSkyFor(state: SkyState): SkyColours {
+/**
+ * The ridge scene's `sky` option: the physical sky over Vienna for the state ('auto': the real sun now; a forced state: the
+ * sun of today at a moment inside it, `sunForState`), as a palette for the layers and stars plus the `physical` sky the host canvas
+ * is painted from. The atmosphere LUTs are baked here, once per scene start (tens of ms).
+ */
+export function ridgeSkyFor(
+  state: SkyState,
+  weather: number = urlWeather() ?? DEFAULT_WEATHER,
+  now: Date = skyNow()
+): SkyColours {
   const { ground } = skyColours();
-  switch (resolveSkyState(state)) {
-    case 'dusk': {
-      const twilight = skyColours();
-      const band = SKY_BAND.dusk;
-      return {
-        ...twilight,
-        band,
-        top: inBand(twilight.top, band),
-        mid: inBand(twilight.mid, band),
-        horizon: inBand(twilight.horizon, band),
-      };
-    }
-    case 'day':
-      return fromGradient(baked.noonday.gradient, ground, SKY_BAND.day);
-    default: {
-      const night = fromGradient(baked.midnight.gradient, ground, RIDGE_NIGHT_BAND);
-      return {
-        ...night,
-        top: inBand(night.top, RIDGE_NIGHT_BAND),
-        mid: inBand(night.mid, RIDGE_NIGHT_BAND),
-        horizon: inBand(night.horizon, RIDGE_NIGHT_BAND),
-      };
-    }
-  }
+  const fixed = resolveSkyState(state, now);
+  const physical = makePhysicalSky(fixed, now, weather);
+  return {
+    ...physical.stops,
+    ground,
+    band: SKY_BAND[fixed],
+    physical,
+  };
 }
 
 /**
@@ -106,26 +85,12 @@ export interface Range {
 }
 
 /**
- * The ridge sky's range: its top, middle and horizon stops and the blends between them (the canvas interpolates
- * encoded sRGB, and luminance is convex in it, so a blend can be darker than both ends: each stop pair is sampled).
+ * The ridge sky's range: what its display is fitted to hold (`BUDGET`, toneMap.ts), which `physicalSky.test.ts` proves over the
+ * sun's whole year over Vienna. Dark ink needs the floor; light ink the ceiling.
  */
 export function ridgeDrawn(state: SkyState): Range {
-  const { top, mid, horizon } = ridgeSkyFor(state);
-  const l: number[] = [];
-  [
-    [top, mid],
-    [mid, horizon],
-    [top, horizon],
-  ].forEach(([a, b]) => {
-    for (let k = 0; k <= 100; k += 1) {
-      l.push(
-        luminance(
-          rgbHex(a.map((v, i) => Math.round(v + ((b[i] - v) * k) / 100)) as unknown as Srgb)
-        )
-      );
-    }
-  });
-  return { darkest: Math.min(...l), lightest: Math.max(...l) };
+  const b = BUDGET[resolveSkyState(state)];
+  return { darkest: b.floor, lightest: b.ceiling };
 }
 
 /**

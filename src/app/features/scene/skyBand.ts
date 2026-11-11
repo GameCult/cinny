@@ -74,14 +74,6 @@ export const SKY_BAND: Record<FixedSkyState, SkyBand> = {
 };
 
 /**
- * The ridge scene's night band, lower than the state's: the navigator's foldout headers wear a dimmer ink than its room rows
- * (L 0.386 against 0.594 measured on screen, rat-crest-a7c95ce-20261111), so they need a backdrop of at most 0.047 where rows need 0.093,
- * and the baked sky (0.058 to 0.077) sat above it (headers 3.9 to 4.2:1). 0.04 leaves the 8-bit rounding and the sky's blur
- * its share. The ridge draws its own sky, so it takes the darker ceiling alone; the terrain keeps SKY_BAND.night.
- */
-export const RIDGE_NIGHT_BAND: SkyBand = { ...SKY_BAND.night, ceiling: 0.04 };
-
-/**
  * Shape a linear sky colour into the band. Below the floor it mixes toward `lift` by exactly the amount
  * that lands on the floor (continuous at the floor, hue kept); above the ceiling it scales down to the
  * ceiling. The colour is clamped to 0..1 first, as the screen does.
