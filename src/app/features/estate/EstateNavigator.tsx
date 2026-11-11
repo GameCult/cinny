@@ -12,7 +12,7 @@ import {
   NavItemContent,
   NavLevel,
 } from '../../components/nav';
-import { NAV_ICON_REST_OPACITY, NavAction, NavLabel } from '../../components/nav/styles.css';
+import { NAV_ROOM_ICON_REST_OPACITY, NavAction, NavLabel } from '../../components/nav/styles.css';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { JoinAddressPrompt } from '../../components/join-address-prompt';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
@@ -86,7 +86,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
             <NavGutter>
               <Avatar size="200" radii="400">
-                <Icon src={Icons.Hash} size="100" style={{ opacity: NAV_ICON_REST_OPACITY }} />
+                <Icon src={Icons.Hash} size="100" style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }} />
               </Avatar>
             </NavGutter>
             <Text className={NavLabel} as="span" size="Inherit" truncate>
@@ -108,7 +108,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           variant={room.state === 'invited' ? 'Primary' : 'Secondary'}
           fill="Soft"
           radii="Pill"
-          before={busy ? <Spinner size="100" /> : <Icon src={Icons.Plus} size="50" />}
+          before={busy ? <Spinner size="100" /> : undefined}
           onClick={join}
           disabled={busy}
           aria-label={`Join ${room.name}`}
@@ -269,7 +269,11 @@ function EntryPoints() {
             <Box as="span" grow="Yes" alignItems="Center" gap="200">
               <NavGutter>
                 <Avatar size="200" radii="400">
-                  <Icon src={Icons.Plus} size="100" style={{ opacity: NAV_ICON_REST_OPACITY }} />
+                  <Icon
+                    src={Icons.Plus}
+                    size="100"
+                    style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }}
+                  />
                 </Avatar>
               </NavGutter>
               <Text as="span" size="Inherit" truncate>
@@ -291,7 +295,7 @@ function EntryPoints() {
                         <Icon
                           src={Icons.Link}
                           size="100"
-                          style={{ opacity: NAV_ICON_REST_OPACITY }}
+                          style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }}
                         />
                       </Avatar>
                     </NavGutter>
