@@ -21,12 +21,11 @@ async function create(
   options: StartOptions & { tier: SceneTier; debug?: boolean },
   state: SkyState
 ): Promise<Scene | null> {
-  let createScene: (o: SceneOptions) => Scene | null;
   try {
     // Loaded here, with the scenes, so the main chunk does not carry the terrain sky or the baked tables.
     const { ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
-    if (config?.style === 'raymarch') createScene = (await import('./Scene')).createScene;
-    else if (config?.style === 'terrain') {
+    if (config?.style === 'raymarch') return (await import('./Scene')).createScene(options);
+    if (config?.style === 'terrain') {
       const { createTerrainScene } = await import('./terrain/Terrain');
       const sky = terrainSkyFor(state);
       const scene = createTerrainScene({ ...options, ...sky });
@@ -34,15 +33,13 @@ async function create(
       if (scene) return scene;
       const { createTerrainSkyScene } = await import('./terrain/TerrainSky2D');
       return createTerrainSkyScene({ ...options, ...sky });
-    } else {
-      const { createRidgeScene } = await import('./ridge/Ridge');
-      return createRidgeScene({ ...options, sky: ridgeSkyFor(state) });
     }
+    const { createRidgeScene } = await import('./ridge/Ridge');
+    return createRidgeScene({ ...options, sky: ridgeSkyFor(state) });
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
     return null;
   }
-  return createScene(options);
 }
 
 /**
