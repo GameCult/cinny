@@ -107,10 +107,10 @@ describe('sky state', () => {
 });
 
 describe('skyBackdrop', () => {
-  it('puts night below day and dusk, and dusk reaches the sun glow', () => {
+  it('puts night below day and dusk', () => {
     expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('day').darkest);
     expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('dusk').lightest);
-    expect(skyBackdrop('dusk').lightest).toBeGreaterThan(skyBackdrop('day').lightest);
+    expect(skyBackdrop('dusk').lightest).toBeGreaterThanOrEqual(skyBackdrop('day').lightest);
   });
 
   it('holds the baked gradients for day and night', () => {

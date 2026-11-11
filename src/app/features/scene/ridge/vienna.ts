@@ -1,11 +1,11 @@
-// The sun over Vienna (48.2082 N, 16.3738 E, 151 m) at a real moment: one ephemeris, `sunPosition` of src/sky/sun.js (the
+// The sun over the server's viewpoint in Vienna (48.1929826 N, 16.3534237 E, 183 m: Meta's location, the Copernicus DSM height there) at a real moment: one ephemeris, `sunPosition` of src/sky/sun.js (the
 // low-precision NOAA/Meeus series, a hundredth of a degree for 1900..2100; no refraction), and the choice of a moment for each
 // fixed sky state. The ridge sky is the physical atmosphere (`earthAtmosphere.ts`) lit from this sun.
 import { sunPosition } from '../../../../sky/sun.js';
 import { DAY_FROM } from '../skyState';
 import type { FixedSkyState } from '../skyBand';
 
-export const VIENNA = { lat: 48.2082, lon: 16.3738, altitudeKm: 0.151 } as const;
+export const VIENNA = { lat: 48.1929826, lon: 16.3534237, altitudeKm: 0.183 } as const;
 
 export interface SunSample {
   /** Degrees above the horizon, no refraction. */

@@ -63,11 +63,11 @@ export interface Budget {
 export const MARGIN = 0.004;
 
 /**
- * Day and Dusk wear dark ink (floor: its bound plus margin, `SKY_BAND` day 0.317, dusk 0.4744); Night wears light ink, and its
+ * Day and Dusk wear the same dark ink, so one floor: its bound plus margin, 0.4744, which is what the dark link needs (about 0.4554 for 4.5:1, skyTheme.test.ts); a lower day floor (0.317 was tried) leaves the link at 3.3:1. Night wears light ink, and its
  * dimmer foldout headers (L 0.386 on screen, rat-crest-a7c95ce-20261111) need a backdrop of at most 0.047.
  */
 export const BUDGET: Record<FixedSkyState, Budget> = {
-  day: { floor: 0.317 + MARGIN, ceiling: 1, key: 0.45, min: 4, max: 60 },
+  day: { floor: 0.4744 + MARGIN, ceiling: 1, key: 0.45, min: 4, max: 60 },
   dusk: { floor: 0.4744 + MARGIN, ceiling: 1, key: 0.5, min: 4, max: 400 },
   night: { floor: 0, ceiling: 0.047 - MARGIN, key: 0.03, min: 8, max: 3000 },
 };

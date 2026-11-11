@@ -134,7 +134,7 @@ export interface SkyBackdrop {
 // Night's lightest also covers a sky the page URL steers (shaped to the band ceiling, skyBand.ts).
 // Bounds what the 8-bit screen shows too (one step each way for rounding and dither), rounded outward to six places.
 const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
-  day: { darkest: 0.321, lightest: 1 },
+  day: { darkest: 0.461063, lightest: 1 },
   dusk: { darkest: 0.460352, lightest: 1 },
   night: { darkest: 0, lightest: 0.081642 },
 };

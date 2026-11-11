@@ -20,8 +20,8 @@ describe('the sun over Vienna', () => {
     expect(viennaSun(new Date(noon.getTime() + 3 * 3600_000)).azimuth).toBeGreaterThan(210);
   });
 
-  it('solar noon at 16.37 E falls near 10:40 UTC in mid November', () => {
-    // 16.3738 E is 65.5 minutes ahead of Greenwich; the equation of time in mid November is +15 minutes (sun early): 12:00 - 65.5 - 15 = 10:40 UTC.
+  it('solar noon at 16.35 E falls near 10:40 UTC in mid November', () => {
+    // 16.3534 E is 65.4 minutes ahead of Greenwich; the equation of time in mid November is +15 minutes (sun early): 12:00 - 65.5 - 15 = 10:40 UTC.
     const n = solarNoon(at('2026-11-11T12:00:00Z'));
     const minutes = n.getUTCHours() * 60 + n.getUTCMinutes();
     expect(minutes).toBeGreaterThan(10 * 60 + 30);
