@@ -16,7 +16,9 @@ export const card = (label: string, over: Partial<ForkCard> = {}): ForkCard => (
   leans: null,
   flag: null,
   raised_in: null,
+  raised_at: null,
   deciders: ['d1'],
+  decider_count: 1,
   status: 'open',
   ruling: null,
   ruled_from: [],
@@ -60,6 +62,7 @@ export const entry = (
       fork_id: c.fork_id,
       options_hash: c.options_hash,
       counted_answer_id: counted,
+      answerer_count: new Set(answers.map((a) => a.answerer)).size,
       answers,
     },
   };

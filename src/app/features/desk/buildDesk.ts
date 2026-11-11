@@ -28,6 +28,11 @@ export type DeskRow =
       /** The recommendation resolved to its option's text; absent if it names no option. */
       recommended?: string;
       depends: string[];
+      /** When the question was first admitted, as served; absent when the card carries none. */
+      raisedAt?: string;
+      /** Counts as served: the same in the decider and the withheld view, so they show either way. Absent when the served number is outside the contract's range or not an integer. */
+      deciderCount?: number;
+      answererCount?: number;
       /** In admission order, as served. */
       answers: AnswerRow[];
     };
@@ -57,6 +62,9 @@ const answerRow = (a: DeskAnswer, entry: ForkEntry): AnswerRow => ({
   counted: entry.record.counted_answer_id === a.answer_id,
 });
 
+const validCount = (n: number, min: number, max: number): number | undefined =>
+  Number.isInteger(n) && n >= min && n <= max ? n : undefined;
+
 export const buildDesk = (
   list: ForkList | undefined,
   unverified: ReadonlySet<string> = new Set()
@@ -83,6 +91,9 @@ export const buildDesk = (
       options: card.options.map((o) => ({ ...o, recommended: o.id === card.recommendation })),
       recommended: card.options.find((o) => o.id === card.recommendation)?.text,
       depends: card.depends,
+      raisedAt: card.raised_at ?? undefined,
+      deciderCount: validCount(card.decider_count, 1, 64),
+      answererCount: validCount(record.answerer_count, 0, Infinity),
       answers: record.answers.map((a) => answerRow(a, entry)),
     });
   });

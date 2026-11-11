@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ScreenSize, ScreenSizeProvider } from '../../hooks/useScreenSize';
 import { DeskEntry } from './DeskEntry';
 import { DeskView, SIGN_IN_NOTE } from './DeskView';
+import { ForkList } from './forkContract';
 import { STATES } from './fixtures';
 import { setDeskSource } from './source';
 
@@ -118,6 +119,88 @@ describe('DeskView', () => {
   });
   it('shows no booth before anything is published', () => {
     expect(view('unpublished', ScreenSize.Desktop)).not.toContain('data-pose');
+  });
+});
+
+describe("a question's age", () => {
+  const NOW = Date.parse('2026-11-11T12:00:00Z');
+  const listRaised = (raisedAt: string | null): ForkList => {
+    const entry = STATES.noAnswers.forks[0];
+    return {
+      ...STATES.noAnswers,
+      forks: [{ ...entry, card: { ...entry.card, raised_at: raisedAt } }],
+    };
+  };
+  const html = (raisedAt: string | null) =>
+    renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={listRaised(raisedAt)} now={NOW} />
+      </ScreenSizeProvider>
+    );
+  it('reads days since the card was first admitted', () => {
+    expect(html('2026-11-06T12:00:00Z')).toContain('raised 5d ago');
+  });
+  it('reads hours inside a day, and just now inside an hour', () => {
+    expect(html('2026-11-11T07:30:00Z')).toContain('raised 4h ago');
+    expect(html('2026-11-11T11:40:00Z')).toContain('raised just now');
+  });
+  it('shows no age when the card carries none, or an instant that does not parse or is ahead of the clock', () => {
+    ['null', 'yesterday', '2027-01-01T00:00:00Z', '2026-11-06', 'Nov 6 2026', '0', '2026-02-30T00:00:00Z'].forEach((v) => {
+      expect(html(v === 'null' ? null : v)).not.toContain('raised ');
+    });
+  });
+});
+
+describe('counts when the ids are withheld', () => {
+  const withheld = (): ForkList => {
+    const entry = STATES.noAnswers.forks[0];
+    return {
+      ...STATES.noAnswers,
+      forks: [
+        {
+          ...entry,
+          card: { ...entry.card, deciders: [], decider_count: 3 },
+          record: { ...entry.record, answerer_count: 2 },
+        },
+      ],
+    };
+  };
+  it('shows how many deciders and answerers there are, naming none', () => {
+    const html = renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={withheld()} />
+      </ScreenSizeProvider>
+    );
+    expect(html).toContain('3 deciders · 2 answerers');
+  });
+  it('shows no count line for a served count outside the contract', () => {
+    const bad = (card: object, record: object): string => {
+      const entry = STATES.noAnswers.forks[0];
+      const list = {
+        ...STATES.noAnswers,
+        forks: [{ card: { ...entry.card, ...card }, record: { ...entry.record, ...record } }],
+      } as ForkList;
+      return renderToStaticMarkup(
+        <ScreenSizeProvider value={ScreenSize.Desktop}>
+          <DeskView mind="void" label="Void" list={list} />
+        </ScreenSizeProvider>
+      );
+    };
+    [
+      [{ decider_count: 0 }, {}],
+      [{ decider_count: 65 }, {}],
+      [{ decider_count: undefined }, {}],
+      [{}, { answerer_count: -1 }],
+      [{}, { answerer_count: 1.5 }],
+    ].forEach(([c, r]) => {
+      const out = bad(c, r);
+      expect(out).not.toContain('undefined');
+      expect(out).not.toMatch(/deciders? ·/);
+    });
+  });
+  it('says the singular for one', () => {
+    const html = view('noAnswers', ScreenSize.Desktop);
+    expect(html).toContain('1 decider · 0 answerers');
   });
 });
 
