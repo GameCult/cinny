@@ -195,7 +195,7 @@ function MindMedia({ media }: { media: MediaRowState }) {
 }
 
 function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
-  const media = useMindMedia(group.mind);
+  const media = useMindMedia(group.mind, group.rooms);
   const hasMedia = MINDS.includes(group.mind);
   // The media room is the Media row; it is not listed a second time among the Mind's rooms.
   const rooms =
