@@ -36,7 +36,7 @@ export const NavLevel = style({
 export const NAV_ICON_REST_OPACITY = 0.9;
 // A room's glyph is bigger and denser than the chevron, so it rests lighter to read as the same weight.
 export const NAV_ROOM_ICON_REST_OPACITY = 0.26;
-export const NAV_ICON_UNREAD_OPACITY = 0.9;
+export const NAV_ICON_UNREAD_OPACITY = 0.6;
 
 export const NavCategory = style([
   DefaultReset,
