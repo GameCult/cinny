@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BakeParams, bakeSlice, faceLight, layerPaint, sunDirection } from './ridgeBake';
-import { SKY_BAND } from '../skyBand';
+import { RIDGE_NIGHT_BAND, SKY_BAND } from '../skyBand';
 import { ridgeSkyFor } from '../skyForState';
 import { LACUNARITY, LAYERS, profile } from './ridgeWorld';
 import { skyColours, SkyColours } from './skyColour';
@@ -353,8 +353,9 @@ describe('the state band: the theme ink clears 4.5:1 on a ridge as on bare sky',
     }
   });
 
-  it('night: no ridge pixel is lighter than the ceiling', () => {
+  it("night: no ridge pixel is lighter than the ceiling, the state's or the ridge's own", () => {
     expect(range(SKY_BAND.night).hi).toBeLessThanOrEqual(SKY_BAND.night.ceiling);
+    expect(range(RIDGE_NIGHT_BAND).hi).toBeLessThanOrEqual(RIDGE_NIGHT_BAND.ceiling);
   });
 
   it('is the identity with no band, so nothing else changes', () => {

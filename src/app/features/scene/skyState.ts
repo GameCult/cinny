@@ -132,7 +132,7 @@ export interface SkyBackdrop {
 const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
   day: { darkest: 0.461063, lightest: 0.901108 },
   dusk: { darkest: 0.460352, lightest: 0.968744 },
-  night: { darkest: 0.05987, lightest: 0.081642 },
+  night: { darkest: 0.039159, lightest: 0.081642 },
 };
 
 export const skyBackdrop = (state: SkyState): SkyBackdrop => BACKDROPS[resolveSkyState(state)];

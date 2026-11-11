@@ -12,7 +12,14 @@ import {
   terrainDrawn,
   terrainSkyFor,
 } from './skyForState';
-import { displayedLuminance, luma, shapeToBand, SKY_BAND } from './skyBand';
+import {
+  displayedLuminance,
+  hexToLinear,
+  luma,
+  RIDGE_NIGHT_BAND,
+  shapeToBand,
+  SKY_BAND,
+} from './skyBand';
 import type { FixedSkyState } from './skyBand';
 import { setSkyClock, skyBackdrop } from './skyState';
 import { view } from './terrain/terrainWorld';
@@ -79,7 +86,9 @@ describe('the bands the text ink needs', () => {
 describe('ridgeSkyFor', () => {
   it('carries the state band, which the layers are shaped into', () => {
     for (const state of ['day', 'dusk', 'night'] as const) {
-      expect(ridgeSkyFor(state).band).toEqual(SKY_BAND[state]);
+      expect(ridgeSkyFor(state).band).toEqual(
+        state === 'night' ? RIDGE_NIGHT_BAND : SKY_BAND[state]
+      );
     }
   });
 
@@ -104,13 +113,24 @@ describe('ridgeSkyFor', () => {
     expect(h[1]).toBeGreaterThan(h[2]);
   });
 
-  it('draws the baked gradients for day and night', () => {
+  it('draws the baked gradient for day', () => {
     const day = ridgeSkyFor('day');
-    const night = ridgeSkyFor('night');
     expect(hex(day.top)).toBe(baked.noonday.gradient[0]);
     expect(hex(day.horizon)).toBe(baked.noonday.gradient[6]);
-    expect(hex(night.top)).toBe(baked.midnight.gradient[0]);
-    expect(hex(night.horizon)).toBe(baked.midnight.gradient[6]);
+  });
+
+  it("night: draws the baked gradient's hues, lowered to the ridge's night ceiling, which the layers carry", () => {
+    const night = ridgeSkyFor('night');
+    const lum = (c: readonly [number, number, number]) => luma(hexToLinear(hex(c)));
+    expect(night.band).toBe(RIDGE_NIGHT_BAND);
+    expect(RIDGE_NIGHT_BAND.ceiling).toBeLessThan(SKY_BAND.night.ceiling);
+    const BYTE = 0.0005; // the stop is rounded to 8 bits after it is shaped
+    expect(lum(night.top)).toBeLessThanOrEqual(RIDGE_NIGHT_BAND.ceiling + BYTE);
+    expect(lum(night.horizon)).toBeLessThanOrEqual(RIDGE_NIGHT_BAND.ceiling + BYTE);
+    // the hue survives: the brightest stop is the baked one's brightest channel
+    const b = hexToLinear(baked.midnight.gradient[6]);
+    const d = hexToLinear(hex(night.horizon));
+    expect(d.indexOf(Math.max(...d))).toBe(b.indexOf(Math.max(...b)));
   });
 
   it.each(STATES)('%s: every stop and blend lies in the band its text ink needs', (state) => {

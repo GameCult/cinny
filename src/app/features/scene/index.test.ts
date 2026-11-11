@@ -48,7 +48,7 @@ describe('startBackgroundScene follows the sky state', () => {
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     expect(createRidgeScene).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(baked.midnight.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night').top));
     scene?.dispose();
   });
 
@@ -67,7 +67,7 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('night');
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(baked.midnight.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night').top));
     scene?.dispose();
   });
 
