@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clientDefaultServer } from './useClientConfig';
+import { ClientConfig, clientDefaultServer } from './useClientConfig';
 import config from '../../../config.json';
 
 describe('default homeserver', () => {
@@ -15,6 +15,6 @@ describe('default homeserver', () => {
   });
 
   it('is gamecult.org in the repo config.json too', () => {
-    expect(clientDefaultServer(config)).toBe('gamecult.org');
+    expect(clientDefaultServer(config as ClientConfig)).toBe('gamecult.org');
   });
 });
