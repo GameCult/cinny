@@ -14,19 +14,19 @@ time. A room the Mind is not in is refused by the mouth, whatever the client wro
 
 A file event is an `m.room.message` whose `msgtype` is `m.audio`, `m.image`, `m.video` or `m.file`:
 
-| field | where | note |
-|---|---|---|
-| `msgtype` | content | selects the kind from the file's mimetype prefix |
-| `body`, `filename` | content | both the file's name (display only; never a path) |
-| `url` | content | the `mxc://` of an unencrypted file; the mouth reads it |
-| `file` | content | present instead of `url` in an encrypted room: `{url, key, iv, hashes.sha256 (ciphertext), v}`. A Mind has no key; the mouth refuses it |
-| `info.mimetype` | content | the browser-reported type, normalised by `safeFile` (e.g. `application/ogg` becomes `audio/ogg`). A claim, not proof: the mouth sniffs magic bytes |
-| `info.size` | content | bytes of the file as uploaded |
-| `info["org.gamecult.sha256"]` | content | lower-case hex sha256 of the plaintext bytes, computed by the client before send; written in unencrypted rooms only (a plaintext hash in an encrypted room would leak the file's identity) |
+| field              | where   | note                                                                                                                                                                                       |
+| ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `msgtype`          | content | selects the kind from the file's mimetype prefix                                                                                                                                           |
+| `body`, `filename` | content | both the file's name (display only; never a path)                                                                                                                                          |
+| `url`              | content | the `mxc://` of an unencrypted file; the mouth reads it                                                                                                                                    |
+| `file`             | content | present instead of `url` in an encrypted room: `{url, key, iv, hashes.sha256 (ciphertext), v}`. A Mind has no key; the mouth refuses it                                                    |
+| `info.mimetype`    | content | the browser-reported type, normalised by `safeFile` (e.g. `application/ogg` becomes `audio/ogg`). A claim, not proof: the mouth sniffs magic bytes                                         |
+| `info.size`        | content | bytes of the file as uploaded                                                                                                                                                              |
+| `info.sha256`      | content | lower-case hex sha256 of the plaintext bytes, computed by the client before send; written in unencrypted rooms only (a plaintext hash in an encrypted room would leak the file's identity) |
 
 The hash is computed over the same bytes that are uploaded. A file sent by something other than this
-client may lack `info["org.gamecult.sha256"]`; the mouth then logs the hash it computed and the receipt
-below is displayed as unchecked.
+client may lack `info.sha256`; the mouth then logs the hash it computed, and the row can show no `read by`
+for it.
 
 Image and video events also carry `info.w`, `info.h`, `info.xyz.amorgan.blurhash` and a thumbnail
 reference; audio carries no duration. A Mind should not rely on any of those.
@@ -44,8 +44,8 @@ reference; audio carries no duration. A Mind should not rely on any of those.
 
 ## Receipt: `org.gamecult.file_received`
 
-After a successful fetch the Mind posts one event of type `org.gamecult.file_received` to the room of the
-file, as a reply in the album's thread, so it arrives with the album's own listing (no extra request):
+The Mind posts one event of type `org.gamecult.file_received` after a successful fetch, to the room of the
+file, as a reply in the album's thread so it arrives with the album's own listing (no extra request):
 
 ```json
 {
@@ -58,19 +58,24 @@ file, as a reply in the album's thread, so it arrives with the album's own listi
 }
 ```
 
-No paths, no URLs, no filenames. The Mind is the event's `sender`. The receipt carries no `msgtype`, so
-older clients and the album's file listing ignore it.
+Two rules, both enforced on each side:
 
-The client draws it on the file row as `read by <Mind>`:
+1. **The sender is the Mind.** The row trusts the Matrix `sender` of the receipt event and nothing inside it:
+   no Mind field is read. `read by X` counts only when the sender is X's own Matrix identity (the
+   localpart is a Mind in the Persona catalogue; a display name or a lookalike does not count).
+2. **Read means verified.** The Mind posts only after the sha256 of the bytes it fetched equals the file
+   event's `info.sha256`, and the receipt carries that hash. On a mismatch it posts nothing (or a typed
+   refusal that the row does not draw). The row checks it again: the receipt's `sha256` must equal the
+   file event's `info.sha256`. A file event with no `info.sha256` can show no `read by`.
 
-- one receipt per Mind per file, the latest wins, a second Mind adds a name;
-- `sha256` equal to `info["org.gamecult.sha256"]`: plain `read by <Mind>`;
-- both present and different: `read by <Mind> (hash differs)`;
-- either missing: plain `read by <Mind>`, unverified;
-- a receipt whose `event_id` is not a file in that album, a malformed one, or a redacted one is ignored.
+The receipt is inert: no paths, URLs, filenames or anything a browser would fetch, and the client reads only
+`event_id`, `sha256` and the sender. It has no `msgtype`, so the album's file listing ignores it. The mouth's
+log is the fuller record for Minds; this event is the public tick.
 
-A receipt is a claim by its sender and is shown to anyone in the room; any member could post one.
-It proves nothing about who read the file.
+The row draws `read by <Mind>`: one receipt per Mind per file (the latest), several Minds side by side. A
+receipt for an event that is not a file of that album, a malformed one, and a redacted one are ignored.
+The sender check keeps a member from ticking for a Mind; it does not prove the Mind read the file beyond
+what the hash and the Mind's own account show.
 
 ## Not built yet
 

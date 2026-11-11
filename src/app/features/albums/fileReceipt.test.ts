@@ -22,17 +22,16 @@ describe('hashForSend', () => {
 });
 
 describe('readLine', () => {
-  const name = (s: string) => s.slice(1, s.indexOf(':'));
-  it('names each reader and flags a hash that differs', () => {
+  it('names each reader', () => {
+    const name = (s: string) => s.slice(1, s.indexOf(':'));
     expect(
       readLine(
         [
-          { sender: '@void:x', ts: 1, hash: 'match' },
-          { sender: '@eureka:x', ts: 2, hash: 'differs' },
-          { sender: '@aqua:x', ts: 3, hash: 'unchecked' },
+          { sender: '@void:x', ts: 1 },
+          { sender: '@eureka:x', ts: 2 },
         ],
         name
       )
-    ).toBe('read by void, eureka (hash differs), aqua');
+    ).toBe('read by void, eureka');
   });
 });

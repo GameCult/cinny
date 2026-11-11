@@ -218,44 +218,65 @@ describe('buildAlbums', () => {
 describe('Mind receipts', () => {
   const HASH = 'a'.repeat(64);
   const file = (id: string, sha?: string) =>
-    reply(id, 10, 'm.audio', id, { info: sha ? { 'org.gamecult.sha256': sha } : {} });
-  const receipt = (id: string, ts: number, sender: string, fileId: unknown, sha?: unknown) =>
+    reply(id, 10, 'm.audio', id, { info: sha ? { sha256: sha } : {} });
+  const receipt = (
+    id: string,
+    ts: number,
+    sender: string,
+    fileId: unknown,
+    sha?: unknown,
+    extra: Record<string, unknown> = {}
+  ) =>
     ({
       event_id: id,
       type: 'org.gamecult.file_received',
       sender,
       origin_server_ts: ts,
-      content: { 'org.gamecult.file_received': { event_id: fileId, sha256: sha } },
+      content: { 'org.gamecult.file_received': { event_id: fileId, sha256: sha, ...extra } },
     } as ZoneEvent);
 
-  it('shows who read a file, with the hash agreeing', () => {
+  it('shows who read a file when the receipt carries the file event hash', () => {
     const a = one(root('$r', 1), [file('$f', HASH), receipt('$x', 20, '@void:x', '$f', HASH)]);
-    expect(a.files[0].readBy).toEqual([{ sender: '@void:x', ts: 20, hash: 'match' }]);
+    expect(a.files[0].readBy).toEqual([{ sender: '@void:x', ts: 20 }]);
     expect(a.count).toBe(1);
   });
-  it('flags a hash that differs, and leaves one unchecked when either side has none', () => {
+  it('counts nothing for a hash that differs, a missing hash on either side, or a bad hash', () => {
     const a = one(root('$r', 1), [
       file('$f', HASH),
       file('$g'),
       receipt('$x', 20, '@void:x', '$f', 'b'.repeat(64)),
       receipt('$y', 21, '@void:x', '$g', HASH),
       receipt('$z', 22, '@void:x', '$f', undefined),
+      receipt('$w', 23, '@void:x', '$f', 7),
     ]);
-    expect(a.files.find((f) => f.id === '$g')?.readBy[0].hash).toBe('unchecked');
-    expect(a.files.find((f) => f.id === '$f')?.readBy).toEqual([
-      { sender: '@void:x', ts: 22, hash: 'unchecked' },
+    expect(a.files.every((f) => f.readBy.length === 0)).toBe(true);
+  });
+  it('trusts the event sender, never a Mind field inside the content', () => {
+    const a = one(root('$r', 1), [
+      file('$f', HASH),
+      receipt('$x', 20, '@mallory:x', '$f', HASH, { mind: 'void', sender: '@void:x' }),
     ]);
+    expect(a.files[0].readBy).toEqual([]);
+  });
+  it('counts only a Mind identity: the localpart, not a display name or a lookalike server part', () => {
+    const a = one(root('$r', 1), [
+      file('$f', HASH),
+      receipt('$x', 20, '@void-fan:x', '$f', HASH),
+      receipt('$y', 21, '@x:void', '$f', HASH),
+      receipt('$z', 22, '@aqua:x', '$f', HASH),
+    ]);
+    expect(a.files[0].readBy.map((r) => r.sender)).toEqual(['@aqua:x']);
   });
   it('keeps one receipt per Mind, the latest, and a second Mind beside it', () => {
     const a = one(root('$r', 1), [
       file('$f', HASH),
-      receipt('$1', 20, '@void:x', '$f', 'b'.repeat(64)),
+      receipt('$1', 20, '@void:x', '$f', HASH),
       receipt('$2', 30, '@void:x', '$f', HASH),
       receipt('$3', 25, '@eureka:x', '$f', HASH),
     ]);
-    expect(a.files[0].readBy.map((r) => [r.sender, r.hash])).toEqual([
-      ['@eureka:x', 'match'],
-      ['@void:x', 'match'],
+    expect(a.files[0].readBy).toEqual([
+      { sender: '@eureka:x', ts: 25 },
+      { sender: '@void:x', ts: 30 },
     ]);
   });
   it('ignores a receipt for a file not in the album, a malformed one, and a redacted one', () => {
