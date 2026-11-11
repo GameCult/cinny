@@ -1,4 +1,11 @@
-import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } from 'react';
+import React, {
+  ComponentProps,
+  MouseEventHandler,
+  ReactNode,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
@@ -29,8 +36,9 @@ import { _RoomSearchParams } from '../../pages/paths';
 import { searchModalAtom } from '../../state/searchModal';
 import { getCanonicalAliasOrRoomId } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
-import { useClientConfig } from '../../hooks/useClientConfig';
-import { isFileZone } from '../albums/isFileZone';
+import { MINDS } from '../../components/message/pose/poses';
+import { MediaLink, MediaNote, useMindMedia } from './MediaRow';
+import { MediaRow as MediaRowState } from './mediaRoom';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
@@ -49,6 +57,8 @@ import * as css from './EstateNavigator.css';
 import { DeskEntry } from '../desk';
 import { SkyStateControl } from '../scene/SkyStateControl';
 
+type IconSrc = ComponentProps<typeof Icon>['src'];
+
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
 
@@ -62,7 +72,7 @@ const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom
   return getHomeRoomPath(alias);
 };
 
-function JoinRow({ room }: { room: EstateRoom }) {
+function JoinRow({ room, icon = Icons.Hash }: { room: EstateRoom; icon?: IconSrc }) {
   const mx = useMatrixClient();
   const navigate = useNavigate();
   const [state, join] = useAsyncCallback(
@@ -86,7 +96,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
             <NavGutter>
               <Avatar size="200" radii="400">
-                <Icon src={Icons.Hash} size="100" style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }} />
+                <Icon src={icon} size="100" style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }} />
               </Avatar>
             </NavGutter>
             <Text className={NavLabel} as="span" size="Inherit" truncate>
@@ -174,37 +184,26 @@ function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
   );
 }
 
-/** The Mind's media pages (file-zone rooms) first, then its other rooms in their given order. */
-function useMediaFirst(rooms: EstateRoom[]): EstateRoom[] {
+/** The Media row every Mind in the roster has: its file-zone room, or an honest note that there is none yet. */
+function MindMedia({ media }: { media: MediaRowState }) {
   const mx = useMatrixClient();
-  const clientConfig = useClientConfig();
-  return useMemo(() => {
-    const isMedia = (r: EstateRoom) => {
-      const mxRoom = mx.getRoom(r.roomId);
-      return (
-        !!mxRoom &&
-        isFileZone(
-          {
-            roomId: r.roomId,
-            aliases: [mxRoom.getCanonicalAlias(), ...mxRoom.getAltAliases()].filter(
-              (a): a is string => !!a
-            ),
-            createType: mxRoom.currentState.getStateEvents('m.room.create', '')?.getContent().type,
-          },
-          clientConfig
-        )
-      );
-    };
-    const media = rooms.filter(isMedia);
-    return [...media, ...rooms.filter((r) => !media.includes(r))];
-  }, [mx, clientConfig, rooms]);
+  if (media.kind === 'checking') return <MediaNote note="looking" />;
+  if (media.kind === 'unset') return <MediaNote note="not set up" />;
+  if (media.kind === 'error') return <MediaNote note="unavailable" title={media.message} />;
+  if (media.room.state === 'joined') return <MediaLink to={estateRoomPath(mx, media.room)} />;
+  return <JoinRow room={media.room} icon={Icons.Photo} />;
 }
 
 function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
-  const rooms = useMediaFirst(group.rooms);
+  const media = useMindMedia(group.mind);
+  const hasMedia = MINDS.includes(group.mind);
+  // The media room is the Media row; it is not listed a second time among the Mind's rooms.
+  const rooms =
+    media.kind === 'room' ? group.rooms.filter((r) => r.roomId !== media.room.roomId) : group.rooms;
   return (
     <Collapsible categoryId={`${tierId}|${group.mind}`} label={group.label} rooms={group.rooms}>
       <DeskEntry mind={group.mind} />
+      {hasMedia && <MindMedia media={media} />}
       {rooms.map((r) => (
         <EstateRow key={r.roomId} room={r} />
       ))}
