@@ -26,6 +26,9 @@ export type ClientConfig = {
   // Per-Mind notification earcons (src/app/features/dings). Off unless `enabled: true`.
   dings?: DingsConfig;
 
+  // Rooms (ids or aliases) shown as the album view; a room whose create type is org.gamecult.file_zone needs no entry.
+  fileZoneRooms?: string[];
+
   // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
   previewDemo?: boolean;
 };

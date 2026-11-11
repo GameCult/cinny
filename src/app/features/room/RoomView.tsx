@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Box, Text, config } from 'folds';
 import { EventType } from 'matrix-js-sdk';
 import { ReactEditor } from 'slate-react';
@@ -23,6 +23,10 @@ import { useSetting } from '../../state/hooks/settings';
 import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { useRoomCreators } from '../../hooks/useRoomCreators';
 import { useRoom } from '../../hooks/useRoom';
+import { AlbumView } from '../albums/AlbumView';
+import * as albumCss from '../albums/AlbumView.css';
+import { useIsFileZone } from '../albums/useAlbums';
+import { ZoneView, zoneView } from '../albums/zoneView';
 
 const FN_KEYS_REGEX = /^F\d+$/;
 const shouldFocusMessageField = (evt: KeyboardEvent): boolean => {
@@ -64,6 +68,12 @@ export function RoomView({ eventId }: { eventId?: string }) {
   const room = useRoom();
   const { roomId } = room;
   const editor = useEditor();
+  const isZone = useIsFileZone(room);
+  // A zone shows its albums; the timeline stays one tap away, and an event deep link opens it.
+  const [choice, setChoice] = useState<{ roomId: string; view: ZoneView }>();
+  const fileZone =
+    isZone &&
+    zoneView(choice && choice.roomId === roomId ? choice.view : undefined, eventId) === 'albums';
 
   const mx = useMatrixClient();
 
@@ -78,7 +88,7 @@ export function RoomView({ eventId }: { eventId?: string }) {
     window,
     useCallback(
       (evt) => {
-        if (editableActiveElement()) return;
+        if (fileZone || editableActiveElement()) return;
         const portalContainer = document.getElementById('portalContainer');
         if (portalContainer && portalContainer.children.length > 0) {
           return;
@@ -87,13 +97,35 @@ export function RoomView({ eventId }: { eventId?: string }) {
           ReactEditor.focus(editor);
         }
       },
-      [editor]
+      [editor, fileZone]
     )
   );
+
+  // The file zone is its own view: no timeline, no composer.
+  if (fileZone) {
+    return (
+      <Page ref={roomViewRef}>
+        <AlbumView
+          key={roomId}
+          room={room}
+          onTimeline={() => setChoice({ roomId, view: 'timeline' })}
+        />
+      </Page>
+    );
+  }
 
   return (
     <Page ref={roomViewRef}>
       <Box grow="Yes" direction="Column">
+        {isZone && !eventId && (
+          <button
+            type="button"
+            className={albumCss.Back}
+            onClick={() => setChoice({ roomId, view: 'albums' })}
+          >
+            <Text size="B400">‹ Albums</Text>
+          </button>
+        )}
         <RoomTimeline
           key={roomId}
           room={room}
