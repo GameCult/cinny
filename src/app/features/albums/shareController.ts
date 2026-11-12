@@ -58,9 +58,10 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
       });
       deps.onSent?.();
       const left = remainingAfter(files, res);
-      if (left.length === 0) clear();
-      else set({ files: left });
-      set({ phase: { kind: 'done', text: resultNote(res) } });
+      const phase: SharePhase = { kind: 'done', text: resultNote(res) };
+      // One notification: no state is ever drawn with the pick emptied and the send still running.
+      if (left.length === 0) set({ files: [], title: '', epoch: state.epoch + 1, phase });
+      else set({ files: left, phase });
     } catch (e: any) {
       set({ phase: { kind: 'done', text: `Could not share: ${e?.message ?? 'send failed'}` } });
     } finally {

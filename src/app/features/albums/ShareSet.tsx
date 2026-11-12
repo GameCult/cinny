@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useSyncExternalStore } from 'react';
+import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { Text } from 'folds';
 import { useQueryClient } from '@tanstack/react-query';
 import { Room } from 'matrix-js-sdk';
@@ -104,42 +104,46 @@ export function ShareSet({ room }: { room: Room }) {
   const mx = useMatrixClient();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
-  const controller: ShareController<File> = useMemo(
-    () =>
-      createShareController<File>({
-        roomId: room.roomId,
-        isEncrypted: () => room.hasEncryptionStateEvent(),
-        onSent: () => queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] }),
-        run: (files, title, onFile) =>
-          sendShareSet(
-            {
-              send: async (content) => (await mx.sendMessage(room.roomId, content as any)).event_id,
-              contentOf: async (f) => {
-                const file = safeFile(f.file);
-                const mxc = await new Promise<string>((resolve, reject) => {
-                  uploadContent(mx, file, { onSuccess: resolve, onError: reject });
-                });
-                const content = await getMsgContent(
-                  mx,
-                  {
-                    file,
-                    originalFile: f.file,
-                    metadata: { markedAsSpoiler: false },
-                    encInfo: undefined,
-                  },
-                  mxc
-                );
-                const sha256 = await hashForSend(f.file);
-                if (sha256) content.info = { ...content.info, [FILE_HASH_KEY]: sha256 };
-                return content;
-              },
-              onFile,
+  // Built once per mount (AlbumView keys the panel by room): the pick lives in the controller, so a
+  // rerender with a new client or Room object must not build another. Live values go through `live`.
+  const live = useRef({ mx, room, queryClient });
+  live.current = { mx, room, queryClient };
+  const [controller]: [ShareController<File>, unknown] = useState(() =>
+    createShareController<File>({
+      roomId: room.roomId,
+      isEncrypted: () => live.current.room.hasEncryptionStateEvent(),
+      onSent: () =>
+        live.current.queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] }),
+      run: (files, title, onFile) =>
+        sendShareSet(
+          {
+            send: async (content) =>
+              (await live.current.mx.sendMessage(room.roomId, content as any)).event_id,
+            contentOf: async (f) => {
+              const file = safeFile(f.file);
+              const mxc = await new Promise<string>((resolve, reject) => {
+                uploadContent(live.current.mx, file, { onSuccess: resolve, onError: reject });
+              });
+              const content = await getMsgContent(
+                live.current.mx,
+                {
+                  file,
+                  originalFile: f.file,
+                  metadata: { markedAsSpoiler: false },
+                  encInfo: undefined,
+                },
+                mxc
+              );
+              const sha256 = await hashForSend(f.file);
+              if (sha256) content.info = { ...content.info, [FILE_HASH_KEY]: sha256 };
+              return content;
             },
-            title,
-            files.map((file) => ({ name: file.name, mimeType: file.type, file }))
-          ),
-      }),
-    [mx, room, queryClient]
+            onFile,
+          },
+          title,
+          files.map((file) => ({ name: file.name, mimeType: file.type, file }))
+        ),
+    })
   );
   const state = useSyncExternalStore(controller.subscribe, controller.getState);
   return (

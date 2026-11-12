@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENCRYPTED_NOTE, Picked, ShareDeps, createShareController } from './shareController';
+import { Picked, ShareDeps, createShareController } from './shareController';
 import { ShareResult } from './shareSet';
 
 const file = (name: string): Picked => ({ name, type: 'audio/ogg' });
@@ -190,13 +190,58 @@ describe('progress and results', () => {
   });
 });
 
+describe('what a send leaves behind', () => {
+  it('keeps the title when some files failed, so the retry has the same name', async () => {
+    const { c, h } = make();
+    c.pick([file('a'), file('b')]);
+    c.setTitle('Take 4');
+    const p = c.send();
+    h.release({ albumId: '$r', sent: 1, failed: ['b'], failedAt: [1] });
+    await p;
+    expect(c.getState().title).toBe('Take 4');
+  });
+
+  it('tells the room list only after the send settled, and not when it threw', async () => {
+    const { c, h, sentTo } = make();
+    c.pick([file('a')]);
+    const p = c.send();
+    expect(sentTo).toEqual([]);
+    h.release(ok(1));
+    await p;
+    expect(sentTo).toEqual(['!zone:x']);
+
+    const bad = make();
+    bad.c.pick([file('a')]);
+    const q = bad.c.send();
+    bad.h.fail(new Error('boom'));
+    await q;
+    expect(bad.sentTo).toEqual([]);
+  });
+
+  it('a success lands in one notification: the pick is never empty while still sending', async () => {
+    const { c, h } = make();
+    c.pick([file('a')]);
+    const p = c.send();
+    const seen: string[] = [];
+    c.subscribe(() => {
+      const st = c.getState();
+      seen.push(`${st.files.length}:${st.phase.kind}`);
+    });
+    h.release(ok(1));
+    await p;
+    expect(seen).toEqual(['0:done']);
+  });
+});
+
 describe('an encrypted room', () => {
   it('says so, sends nothing and keeps the pick', async () => {
     const { c, h } = make({ isEncrypted: () => true });
     c.pick([file('a')]);
     await c.send();
-    expect(ENCRYPTED_NOTE).toBe('Not shared: this room is encrypted.');
-    expect(c.getState().phase).toEqual({ kind: 'done', text: ENCRYPTED_NOTE });
+    expect(c.getState().phase).toEqual({
+      kind: 'done',
+      text: 'Not shared: this room is encrypted.',
+    });
     expect(c.getState().files).toHaveLength(1);
     expect(h.calls).toHaveLength(0);
   });
@@ -208,6 +253,9 @@ describe('an encrypted room', () => {
     encrypted = true;
     await c.send();
     expect(h.calls).toHaveLength(0);
-    expect(c.getState().phase).toMatchObject({ kind: 'done', text: ENCRYPTED_NOTE });
+    expect(c.getState().phase).toMatchObject({
+      kind: 'done',
+      text: 'Not shared: this room is encrypted.',
+    });
   });
 });

@@ -6,7 +6,11 @@ import type { ClientConfig } from '../../hooks/useClientConfig';
 import { ShareState } from './shareController';
 import { ShareSetView, shareEnabled, useShareEnabled } from './ShareSet';
 
-const text = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+const text = (html: string) =>
+  html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 const noop = () => undefined;
 const file = (name: string) => ({ name, type: 'audio/ogg' } as File);
 
@@ -45,11 +49,16 @@ describe('the share panel, drawn', () => {
   });
 
   it('sending: progress replaces Send and Cancel, and the title is locked', () => {
-    const html = view({ files: [file('a'), file('b'), file('c')], phase: { kind: 'sending', done: 2 } });
+    const html = view({
+      files: [file('a'), file('b'), file('c')],
+      phase: { kind: 'sending', done: 2 },
+    });
     expect(text(html)).toContain('Sending 2 of 3…');
     expect(text(html)).not.toContain('Send 3 files');
     expect(text(html)).not.toContain('Cancel');
-    expect(html).toMatch(/aria-label="Album title"[^>]*disabled|disabled[^>]*aria-label="Album title"/);
+    expect(html).toMatch(
+      /aria-label="Album title"[^>]*disabled|disabled[^>]*aria-label="Album title"/
+    );
   });
 
   it('the encrypted note shows above the kept pick', () => {
