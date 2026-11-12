@@ -146,8 +146,12 @@ describe('sceneInk: an explicit theme wins over the auto ink', () => {
     });
     // auto, but the person chose a theme: it wins, the theme's own ink stands.
     expect(sceneInk(sceneThemeId('auto', 'dusk', true, true), true, 'dusk', true)).toBeUndefined();
-    // a fixed sky state is itself a choice and wins over the theme (skyTheme.ts), so its ink applies.
-    expect(sceneInk(sceneThemeId('night', 'night', true, true), true, 'night', false)).toEqual({
+    // a fixed sky state does not override the person's theme either: the theme's own ink stands.
+    expect(
+      sceneInk(sceneThemeId('night', 'night', true, true), true, 'night', false)
+    ).toBeUndefined();
+    // a fixed sky state with no theme of the person's own: the sky theme's ink applies.
+    expect(sceneInk(sceneThemeId('night', 'night', true, false), true, 'night', false)).toEqual({
       state: 'night',
       phone: false,
     });

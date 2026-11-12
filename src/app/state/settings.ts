@@ -18,6 +18,8 @@ export enum MessageLayout {
 
 export interface Settings {
   themeId?: string;
+  /** Set when a theme is picked in the menu, so a picked default (Midnight Sky) reads as chosen. Absent until then. */
+  themeChosen?: boolean;
   useSystemTheme: boolean;
   lightThemeId?: string;
   darkThemeId?: string;

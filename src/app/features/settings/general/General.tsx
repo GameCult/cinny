@@ -81,6 +81,7 @@ function SelectTheme({ disabled }: { disabled?: boolean }) {
   const themes = useThemes();
   const themeNames = useThemeNames();
   const [themeId, setThemeId] = useSetting(settingsAtom, 'themeId');
+  const [, setThemeChosen] = useSetting(settingsAtom, 'themeChosen');
   const [menuCords, setMenuCords] = useState<RectCords>();
   const selectedTheme = themes.find((theme) => theme.id === themeId) ?? LightTheme;
 
@@ -90,6 +91,7 @@ function SelectTheme({ disabled }: { disabled?: boolean }) {
 
   const handleThemeSelect = (theme: Theme) => {
     setThemeId(theme.id);
+    setThemeChosen(true);
     setMenuCords(undefined);
   };
 
