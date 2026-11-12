@@ -38,14 +38,13 @@ production: it rewrites `dist/config.json` for preview (hash router, chosen tier
 **The handoff build (what the host installs).**
 `/opt/commons/handoff/ratatoskr-main-build/build-prod-dist.sh <full-sha>` (see its `README.md`)
 writes `/opt/commons/handoff/ratatoskr-main-<full-sha>/{dist,SHA256SUMS,BUILD-INFO,build.log}`,
-locks the files read-only and refuses to overwrite. It does **not** ship the repo's `config.json`:
-it discards it and writes its own pinned `config.production.json` into `dist/config.json`, and
-BUILD-INFO says so (`config_json_source`). That pin (sha256 `a26d846b…`, pinned 2026-11-09) has no
-`backgroundScene` block, so it no longer equals the served file, and the script's live-config
-check stops the build; earlier handoffs ran it with `SKIP_LIVE_CHECK=1` or a modified copy whose
-pin was the repo's config (see `config_json_pinned_path` in
-`ratatoskr-main-df245e0b76fd83d7ee14fe725b0df9994f36755f/BUILD-INFO`). Repin deliberately
-(README, "The pinned production config") or say in the handoff which config the dist carries.
+locks the files read-only and refuses to overwrite. The dist carries the repo's `config.json` at
+that sha (BUILD-INFO `config_json_source`, `config_json_sha256`); there is no separate pinned copy.
+Its live check always runs: it fetches the served config and compares it byte for byte with the
+repo's. A difference prints the diff and stops the build. `ALLOW_CONFIG_DRIFT=1` builds anyway and
+BUILD-INFO records `config_json_live_check: DIFFERS ...` and `config_json_live_sha256`, so the
+handoff states which config differs and the installer decides. From Yggdrasil the public name does
+not resolve: pass `LIVE_CURL_ARGS="--resolve chat.gamecult.org:443:127.0.0.1"`.
 The folder, with the three pins (`SHA256SUMS` sha256, `BUILD-INFO` sha256, lockfile sha256) and
 the node and npm versions, is what the install request names.
 
@@ -81,7 +80,7 @@ cmp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json
 so even equal content differs. Read the difference (`diff` the two) and settle which config
 ships. To keep the host's config byte-for-byte, as past installs did,
 `cp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json`; `sha256sum -c` then flags
-`config.json` only (read that one line, or use `--ignore-missing`).
+`config.json` only (read that one line; `--ignore-missing` does not hide a mismatch).
 
 Switch (a single symlink swap; `ln -sfn` unlinks then links, so there is a moment with no link):
 
@@ -92,7 +91,7 @@ ln -sfn releases/$R /srv/cinny/current
 ## 3. Verify
 
 - `readlink /srv/cinny/current` names `releases/$R`.
-- `curl -s https://chat.gamecult.org/config.json | sha256sum` equals the release's `config.json`.
+- `curl -s https://chat.gamecult.org/config.json | sha256sum` equals `sha256sum /srv/cinny/releases/$R/config.json`.
 - Load https://chat.gamecult.org/ and hard-refresh (the service worker, `sw.js`, can hold the
   previous assets). Sign-in card shows, the background scene draws, the browser console has no
   page errors, a poses/asset request returns 200 and not index.html.
@@ -114,4 +113,5 @@ Hard-refresh to clear `sw.js`. Do not delete the failed release; leave it for di
   `terrain` where the repo says `ridge` (#106, Meta 2026-11-11), lacks the repo's `dings`,
   `fileZoneShare` and `registration` blocks (all off in the repo), and has no trailing newline.
   The new keys default off or inert when absent, so only the style is a decision. Meta says which
-  style ships. The handoff script's pin is stale against live (section 1).
+  style ships. Until the served file is replaced, every handoff build stops at the live check
+  unless `ALLOW_CONFIG_DRIFT=1` is set (section 1).
