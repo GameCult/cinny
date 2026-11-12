@@ -63,3 +63,18 @@ export const sendShareSet = async <F extends ShareFile>(
   }
   return result;
 };
+
+/**
+ * What stays picked after a send: only the files that did not go, so a retry is one tap. A retry
+ * makes a second album (adding to an existing one is not built), and a share where nothing went
+ * leaves its root as a lone message the album list does not show (it lists threads with replies).
+ */
+export const remainingAfter = <F extends ShareFile>(files: F[], result: ShareResult): F[] =>
+  files.filter((f) => result.failed.includes(f.name));
+
+export const resultNote = (result: ShareResult): string => {
+  if (result.failed.length === 0)
+    return `Shared ${result.sent} ${result.sent === 1 ? 'file' : 'files'}.`;
+  if (result.sent === 0) return `Nothing was shared. Not sent: ${result.failed.join(', ')}`;
+  return `Shared ${result.sent}. Not sent: ${result.failed.join(', ')}`;
+};

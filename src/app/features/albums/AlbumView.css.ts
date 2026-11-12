@@ -50,7 +50,7 @@ export const FilesWide = style({
 
 export const Dim = style({ opacity: config.opacity.P300 });
 
-/** The share panel: only mounted once files are picked, so the idle zone shows one row. */
+/** The share panel: idle it is one row; the title, names and Send mount only once files are picked. */
 export const SharePanel = style({
   display: 'flex',
   flexDirection: 'column',
@@ -64,4 +64,8 @@ export const ShareTitle = style({
   width: '100%',
   borderBottom: `1px solid ${color.Background.ContainerLine}`,
   color: color.Background.OnContainer,
+  ':focus-visible': { borderBottomColor: color.Background.OnContainer },
 });
+
+/** Picked names and send notes wrap, even a long unbroken name. */
+export const ShareNames = style({ overflowWrap: 'anywhere' });

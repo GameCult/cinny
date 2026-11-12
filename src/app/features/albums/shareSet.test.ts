@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import config from '../../../../config.json';
 import { ZoneEvent, buildAlbums } from './buildAlbums';
-import { DEFAULT_TITLE, ShareFile, SharePort, sendShareSet, threadRelation } from './shareSet';
+import {
+  DEFAULT_TITLE,
+  ShareFile,
+  SharePort,
+  remainingAfter,
+  resultNote,
+  sendShareSet,
+  threadRelation,
+} from './shareSet';
 
 const kindOf = (f: ShareFile) => (f.mimeType.startsWith('audio') ? 'm.audio' : 'm.file');
 
@@ -105,5 +113,28 @@ describe('sendShareSet', () => {
 describe('the share flag', () => {
   it('ships off', () => {
     expect(config.fileZoneShare).toEqual({ enabled: false });
+  });
+});
+
+describe('after a send', () => {
+  it('keeps only the failed files picked, so a retry is one tap', async () => {
+    const r = room(['b.ogg']);
+    const res = await sendShareSet(r.port, 't', clips);
+    expect(remainingAfter(clips, res).map((f) => f.name)).toEqual(['b.ogg']);
+    expect(resultNote(res)).toBe('Shared 2. Not sent: b.ogg');
+  });
+
+  it('keeps everything and says nothing was shared when every upload failed', async () => {
+    const r = room(clips.map((c) => c.name));
+    const res = await sendShareSet(r.port, 't', clips);
+    expect(remainingAfter(clips, res)).toEqual(clips);
+    expect(resultNote(res)).toBe('Nothing was shared. Not sent: a.ogg, b.ogg, c.txt');
+  });
+
+  it('clears the pick on full success', async () => {
+    const r = room();
+    const res = await sendShareSet(r.port, 't', clips);
+    expect(remainingAfter(clips, res)).toEqual([]);
+    expect(resultNote(res)).toBe('Shared 3 files.');
   });
 });

@@ -136,7 +136,12 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     <Scroll hideTrack visibility="Hover">
       <div className={css.Column}>
         {body}
-        {canShare && !open && <ShareSet room={room} />}
+        {/* Stays mounted while an album is open, so a running send keeps its progress. */}
+        {canShare && (
+          <div hidden={!!open}>
+            <ShareSet room={room} />
+          </div>
+        )}
         <button type="button" className={css.Row} onClick={onTimeline}>
           <Text size="B400">Timeline ›</Text>
         </button>

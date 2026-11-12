@@ -1,12 +1,18 @@
 {
   "defaultHomeserver": 0,
-  "homeserverList": ["chat.gamecult.org"],
+  "homeserverList": [
+    "chat.gamecult.org"
+  ],
   "allowCustomHomeservers": false,
   "featuredCommunities": {
     "openAsDefault": false,
-    "spaces": ["#gamecult:gamecult.org"],
+    "spaces": [
+      "#gamecult:gamecult.org"
+    ],
     "rooms": [],
-    "servers": ["gamecult.org"]
+    "servers": [
+      "gamecult.org"
+    ]
   },
   "hashRouter": {
     "enabled": true,

@@ -8,7 +8,7 @@ import { uploadContent } from '../../utils/matrix';
 import { safeFile } from '../../utils/mimeTypes';
 import { getMsgContent } from '../room/msgContent';
 import { FILE_HASH_KEY, hashForSend } from './fileReceipt';
-import { DEFAULT_TITLE, sendShareSet } from './shareSet';
+import { DEFAULT_TITLE, remainingAfter, resultNote, sendShareSet } from './shareSet';
 import * as css from './AlbumView.css';
 
 /** Off unless `fileZoneShare.enabled` is true. An encrypted zone is never offered the share. */
@@ -25,6 +25,7 @@ export function ShareSet({ room }: { room: Room }) {
   const mx = useMatrixClient();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
+  const busy = useRef(false);
   const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -36,6 +37,10 @@ export function ShareSet({ room }: { room: Room }) {
   };
 
   const send = async () => {
+    // One send at a time, and never into a room that has turned encrypted since the panel mounted.
+    if (busy.current || room.hasEncryptionStateEvent()) return;
+    busy.current = true;
+    const items = files.map((file) => ({ name: file.name, mimeType: file.type, file }));
     setPhase({ kind: 'sending', done: 0 });
     let settled = 0;
     try {
@@ -67,18 +72,17 @@ export function ShareSet({ room }: { room: Room }) {
           },
         },
         title,
-        files.map((file) => ({ name: file.name, mimeType: file.type, file }))
+        items
       );
       queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] });
-      reset();
-      setPhase({
-        kind: 'done',
-        text: res.failed.length
-          ? `Shared ${res.sent}. Not sent: ${res.failed.join(', ')}`
-          : `Shared ${res.sent} ${res.sent === 1 ? 'file' : 'files'}.`,
-      });
+      const left = remainingAfter(items, res).map((i) => i.file);
+      setFiles(left);
+      if (left.length === 0) reset();
+      setPhase({ kind: 'done', text: resultNote(res) });
     } catch (e: any) {
       setPhase({ kind: 'done', text: `Could not share: ${e?.message ?? 'send failed'}` });
+    } finally {
+      busy.current = false;
     }
   };
 
@@ -99,7 +103,11 @@ export function ShareSet({ room }: { room: Room }) {
           <Text size="B400">Share files ›</Text>
         </button>
       )}
-      {phase.kind === 'done' && <Text size="T200">{phase.text}</Text>}
+      {phase.kind === 'done' && (
+        <Text size="T200" className={css.ShareNames}>
+          {phase.text}
+        </Text>
+      )}
       {files.length > 0 && (
         <>
           <input
@@ -110,7 +118,7 @@ export function ShareSet({ room }: { room: Room }) {
             disabled={phase.kind === 'sending'}
             onChange={(e) => setTitle(e.target.value)}
           />
-          <Text size="T200" className={css.Dim}>
+          <Text size="T200" className={`${css.Dim} ${css.ShareNames}`}>
             {files.map((f) => f.name).join(' · ')}
           </Text>
           {phase.kind === 'sending' ? (
