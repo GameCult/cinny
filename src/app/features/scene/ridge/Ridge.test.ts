@@ -17,6 +17,7 @@ import {
 } from './ridgeWorld';
 import { skyColours, SkyColours } from './skyColour';
 import { makeStars } from './stars';
+import { makePhysicalSky } from './physicalSky';
 import { startBackgroundScene } from '../index';
 
 describe('noise', () => {
@@ -208,6 +209,7 @@ function fakeEl(tag = 'div') {
       this.attrs[k] = v;
     },
     getContext: vi.fn(() => ctx()),
+    toDataURL: () => 'data:,',
     remove() {
       if (this.parentElement)
         this.parentElement.children = this.parentElement.children.filter((c: any) => c !== this);
@@ -273,6 +275,8 @@ function ctx(withFilter = false) {
     putImageData: (img: any) => puts.push(img),
     beginPath() {},
     moveTo() {},
+    stroke() {},
+    createRadialGradient: () => ({ addColorStop: vi.fn() }),
     lineTo() {},
     closePath() {},
     // Stars: arc+fill is one draw. A context that has cleared a rect is the twinkle overlay's.
@@ -378,9 +382,9 @@ describe('createRidgeScene', () => {
     expect(s).not.toBeNull();
     const tracks = tracksOf(parent);
     expect(tracks).toHaveLength(LAYERS.length);
-    tracks.forEach((t: any) => {
+    tracks.forEach((t: any, i: number) => {
       expect(t.children).toHaveLength(3);
-      expect(t.animate).toHaveBeenCalledTimes(1);
+      expect(t.animate).toHaveBeenCalledTimes(Number.isFinite(LAYERS[i].seconds) ? 1 : 0);
       t.children.forEach((c: any) => {
         expect(Number.isInteger(c.width) && Number.isInteger(c.height)).toBe(true);
         expect(c.width).toBe(layerSize(400, 800, 2).chunk);
@@ -428,7 +432,7 @@ describe('createRidgeScene', () => {
     const { canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
     const anims = animsOf(canvas.parentElement);
-    expect(anims.length).toBe(LAYERS.length + 1); // one drift per layer and the sway
+    expect(anims.length).toBe(LAYERS.filter((l) => Number.isFinite(l.seconds)).length + 1); // one drift per drifting layer (the horizon does not) and the sway
     expect(anims.every((a: any) => a.pause.mock.calls.length > 0)).toBe(true);
     anims.forEach((a: any) => expect(a.play).not.toHaveBeenCalled());
     expect(rafQueue).toHaveLength(0);
@@ -759,7 +763,7 @@ describe('endless drift: chunks baked on demand and recycled', () => {
   it('when the drift animation ends, the chunks move one slot left and the track restarts', async () => {
     const { parent, s, records } = start();
     await until(() => records.length === 3 * LAYERS.length);
-    const track = tracksOf(parent)[0];
+    const track = tracksOf(parent)[1]; // the first layer that drifts: the horizon, [0], stands still
     const [e0, e1, e2] = track.children;
     const first = track.anims[0];
     // One chunk of drift, not one viewport: the track slides by the width of a chunk.
@@ -777,8 +781,8 @@ describe('endless drift: chunks baked on demand and recycled', () => {
   it('the canvas that left is baked with the next stretch of world, and each rotation after it, without end', async () => {
     const { parent, s, records } = start();
     await until(() => records.length === 3 * LAYERS.length);
-    const track = tracksOf(parent)[0];
-    const done = () => records.filter((r) => r.layer === 0).map((r) => r.chunk);
+    const track = tracksOf(parent)[1];
+    const done = () => records.filter((r) => r.layer === 1).map((r) => r.chunk);
     for (let m = 3; m <= 5; m += 1) {
       track.anims[track.anims.length - 1].finish();
       await until(() => done().includes(m));
@@ -786,9 +790,9 @@ describe('endless drift: chunks baked on demand and recycled', () => {
     expect(done()).toEqual([0, 1, 2, 3, 4, 5]);
     // The pixels of chunks 3 to 5 are the world's, not a repeat of an earlier one.
     const imgs = baked();
-    const layer0 = imgs.filter((_, i) => records[i].layer === 0);
-    [3, 4, 5].forEach((m, k) => expect(layer0[3 + k].equals(expected(0, m))).toBe(true));
-    expect(layer0[3].equals(layer0[0])).toBe(false);
+    const layer1 = imgs.filter((_, i) => records[i].layer === 1);
+    [3, 4, 5].forEach((m, k) => expect(layer1[3 + k].equals(expected(1, m))).toBe(true));
+    expect(layer1[3].equals(layer1[0])).toBe(false);
     s.dispose();
   });
 
@@ -809,6 +813,46 @@ describe('endless drift: chunks baked on demand and recycled', () => {
     expect(want.size).toBeGreaterThan(1); // the layers' pads differ, which is what a shared canvas gets wrong
     // Every blur reads a source exactly as wide as that chunk's padded bake, at the moment of the draw.
     expect(new Set(drawnWidths)).toEqual(want);
+    s.dispose();
+  });
+});
+
+describe('rain in the scene', () => {
+  const rainy = (w: number): SkyColours => ({ ...DAY, physical: makePhysicalSky('day', new Date('2026-06-21T10:40:00Z'), w) });
+  const rainEls = (parent: any) => parent.children.filter((c: any) => c.tag === 'div' && c !== rigOf(parent));
+
+  it('lays one falling tile per rain layer over the ridges when it rains, each slid by its own height on the compositor', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: rainy(1) })!;
+    const els = rainEls(parent);
+    expect(els).toHaveLength(2);
+    els.forEach((e: any) => {
+      expect(e.anims).toHaveLength(1);
+      expect(e.anims[0].options.iterations).toBe(Infinity);
+    });
+    s.dispose();
+    expect(rainEls(parent)).toHaveLength(0);
+    els.forEach((e: any) => expect(e.anims[0].cancel).toHaveBeenCalled());
+  });
+
+  it('draws no rain in dry weather, and none in a still', () => {
+    const dry = host();
+    createRidgeScene({ canvas: dry.canvas, tier: 'full', sky: rainy(0.3) })!.dispose();
+    const a = host();
+    const sa = createRidgeScene({ canvas: a.canvas, tier: 'full', sky: rainy(0.3) })!;
+    expect(rainEls(a.parent)).toHaveLength(0);
+    sa.dispose();
+    const still = host();
+    const ss = createRidgeScene({ canvas: still.canvas, tier: 'still', sky: rainy(1) })!;
+    expect(rainEls(still.parent)).toHaveLength(0);
+    ss.dispose();
+  });
+
+  it('pauses with the rest when motion is reduced', () => {
+    motion.matches = true;
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: rainy(1) })!;
+    rainEls(parent).forEach((e: any) => expect(e.anims[0].play).not.toHaveBeenCalled());
     s.dispose();
   });
 });
