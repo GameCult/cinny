@@ -62,10 +62,11 @@ export const RECOVER_RELOAD_MIN_GAP_MS = 60_000;
 /** Reload to bring a dead connection back, at most once a minute, so a server that is down cannot loop us. */
 export const reloadToRecoverSync = (
   now: number = Date.now(),
-  store: Pick<Storage, 'getItem' | 'setItem'> = sessionStorage,
+  getStore: () => Pick<Storage, 'getItem' | 'setItem'> = () => sessionStorage,
   reload: () => void = () => window.location.reload()
 ): boolean => {
   try {
+    const store = getStore();
     const last = Number(store.getItem(RECOVER_RELOAD_KEY) ?? 0);
     if (now - last < RECOVER_RELOAD_MIN_GAP_MS) return false;
     store.setItem(RECOVER_RELOAD_KEY, String(now));
@@ -76,6 +77,12 @@ export const reloadToRecoverSync = (
   return true;
 };
 
+/** Ages in ms of the sends this page made that are still pending: the only ones it may judge stalled. */
+export const ownPendingAges = (userId: string, now: number = Date.now()): number[] =>
+  loadOutbox(userId)
+    .filter((e) => e.status === 'pending' && e.tab === PAGE_ID)
+    .map((e) => now - e.ts);
+
 const started = new WeakSet<MatrixClient>();
 
 export const startClient = async (mx: MatrixClient) => {
@@ -84,10 +91,7 @@ export const startClient = async (mx: MatrixClient) => {
   started.add(mx);
   startResumeSync(mx);
   startWatchdog({
-    pendingAges: () =>
-      loadOutbox(mx.getUserId() ?? '')
-        .filter((e) => e.status === 'pending' && e.tab === PAGE_ID)
-        .map((e) => Date.now() - e.ts),
+    pendingAges: () => ownPendingAges(mx.getUserId() ?? ''),
     isVisible: () => document.visibilityState === 'visible',
     isOnline: () => navigator.onLine,
     recover: () => reloadToRecoverSync(),
