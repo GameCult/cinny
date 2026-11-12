@@ -25,7 +25,7 @@ A file event is an `m.room.message` whose `msgtype` is `m.audio`, `m.image`, `m.
 | `info.sha256`      | content | lower-case hex sha256 of the plaintext bytes, computed by the client before send; written in unencrypted rooms only (a plaintext hash in an encrypted room would leak the file's identity) |
 
 The hash is computed over the same bytes that are uploaded, reading the whole file into memory before send (large videos pay for it); if hashing fails the file is sent without one. A file sent by something other than this
-client may lack `info.sha256`; the mouth then logs the hash it computed, and the row can show no `read by`
+client may lack `info.sha256`; the mouth then logs the hash it computed, and the row can show no `fetched for`
 for it.
 
 `info.mimetype` and `info.size` are written on audio and file events always; on image and video events `info` exists only if the browser could load the media, otherwise `info` holds `sha256` alone. Image and video events also carry `info.w`, `info.h`, `info.xyz.amorgan.blurhash` and a thumbnail
@@ -35,7 +35,7 @@ reference; audio carries no duration. A Mind should not rely on any of those.
 
 - Size: the mouth streams at most 5 MiB and refuses a larger file. The client does not enforce this cap;
   its own limit is the homeserver's `m.upload.size`. A file over 5 MiB can be shared with people and
-  not read by a Mind.
+  not fetched for a Mind.
 - Refusals are the mouth's and are typed: not a member of the room, bridged or Discord room, encrypted
   file, over the cap, content type not matching the magic bytes. The client does not re-check them and
   nothing in the client depends on the mouth's log.
@@ -64,24 +64,25 @@ A plain room-event receipt may also carry `m.relates_to: {rel_type: "m.reference
 the mouth find its earlier receipts through `/relations` for dedup. The client matches by `content.event_id` and reads no
 relation but this one: if a `m.reference` is present its `event_id` must equal `content.event_id`, else the receipt counts
 for nothing. A thread relation is not read. However many receipts a Mind has posted for a file, the row draws one
-`read by` for that Mind.
+`fetched for` for that Mind.
 
 Two rules, both enforced on each side:
 
 1. **The sender is the Mind.** The row trusts the Matrix `sender` of the receipt event and nothing inside it:
-   no Mind field is read. `read by X` counts only when the sender is X's own Matrix identity (the
+   no Mind field is read. `fetched for X` counts only when the sender is X's own Matrix identity (the
    full id is `@<mind>:<this homeserver>` for a Mind in the Persona catalogue; a display name, a lookalike or another server's `@void:evil.example` does not count).
-2. **Read means verified.** The Mind posts only after the sha256 of the bytes it fetched equals the file
+2. **Fetched means verified.** The Mind posts only after the sha256 of the bytes it fetched equals the file
    event's `info.sha256`, and the receipt carries that hash. On a mismatch it posts nothing (or a typed
    refusal that the row does not draw). The row checks it again: the receipt's `sha256` must equal the
-   file event's `info.sha256`. A file event with no `info.sha256` can show no `read by`.
+   file event's `info.sha256`. A file event with no `info.sha256` can show no `fetched for`.
 
 The receipt is inert: no paths, URLs, filenames or anything a browser would fetch, and the client reads only
 `event_id`, `sha256` and the sender. It has no `msgtype`, so the album's file listing ignores it. The mouth's
 log is the fuller record for Minds; this event is the public tick.
 
-The row draws `read by <Mind>`: one receipt per Mind per file (the latest), several Minds side by side. A
+The row draws `fetched for <Mind>`: one receipt per Mind per file (the latest), several Minds side by side. A
 receipt for an event that is not a file of that album, a malformed one, and a redacted one are ignored.
+The wording is deliberate: the receipt says the mouth fetched and stored the file for the Mind, not that it is in the Mind's sandbox and not that it was read. Client strings never say "saved" or "read".
 The sender check keeps a member from ticking for a Mind; it does not prove the Mind read the file beyond
 what the hash and the Mind's own account show.
 
@@ -89,7 +90,7 @@ what the hash and the Mind's own account show.
 
 - Files sent from the composer carry no thread relation, so they reach an album only if written into a
   thread by another tool; the album upload path (docs/file-zone.md, "Upload") is unwritten. Their receipts are plain
-  room events, and the timeline row for the file shows `read by` from them.
+  room events, and the timeline row for the file shows `fetched for` from them.
 - A receipt that is still encrypted when it arrives is not seen until a later timeline event triggers a rescan; zones are
   unencrypted and the hash is written only there, so this is the encrypted-room limit again.
 - The timeline row reads the room's loaded timeline only: a receipt older than what the client has paged in is not

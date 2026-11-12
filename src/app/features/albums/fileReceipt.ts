@@ -37,7 +37,7 @@ export const hashForSend = async (data: Blob): Promise<string | undefined> => {
 };
 
 export const readLine = (readBy: FileReader[], name: (sender: string) => string): string =>
-  `read by ${readBy.map((r) => name(r.sender)).join(', ')}`;
+  `fetched for ${readBy.map((r) => name(r.sender)).join(', ')}`;
 
 const receiptOf = (e: ReceiptEvent) => {
   if (!e || typeof e !== 'object' || e.type !== FILE_RECEIVED || !e.event_id) return undefined;

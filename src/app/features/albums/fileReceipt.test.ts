@@ -32,7 +32,7 @@ describe('readLine', () => {
         ],
         name
       )
-    ).toBe('read by void, eureka');
+    ).toBe('fetched for void, eureka');
   });
 });
 
