@@ -33,6 +33,8 @@ export type DemoLine = {
   body: string;
   html?: string;
   pose?: string;
+  // Index of an earlier line in the same room this one replies to.
+  replyTo?: number;
   minutesAgo: number;
 };
 export type DemoRoom = {
@@ -116,6 +118,14 @@ export const ROOMS: DemoRoom[] = [
       },
       // A long display name: the name pill has to show all of it on a phone.
       { from: user('heimdall'), body: 'Ok.', pose: 'thinking', minutesAgo: 20 },
+      // A long message to reply to: the quote above each reply must stay inside its column on a phone.
+      {
+        from: user('visitor'),
+        body: "The read exists from 2026-11-04. It's research only, nothing is wired up yet, so please do not treat the notes_in_a_single_unbroken_token_that_keeps_going_past_the_edge as a decision.",
+        minutesAgo: 12,
+      },
+      { from: ME, body: 'Noted, thank you.', replyTo: 8, minutesAgo: 11 },
+      { from: user('void'), body: 'Same here.', replyTo: 8, minutesAgo: 10 },
     ],
   },
   {

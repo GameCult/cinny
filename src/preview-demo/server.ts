@@ -145,21 +145,27 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
 
   ROOMS.forEach((room) => {
     stateOf.set(room.id, buildState(room));
+    const lineIds: string[] = [];
     room.lines.forEach((l) => {
+      const event = mk(
+        'm.room.message',
+        l.from,
+        {
+          msgtype: 'm.text',
+          body: l.body,
+          ...(l.html ? { format: 'org.matrix.custom.html', formatted_body: l.html } : {}),
+          ...(l.pose ? { [POSE_KEY]: l.pose } : {}),
+          ...(l.replyTo === undefined
+            ? {}
+            : { 'm.relates_to': { 'm.in_reply_to': { event_id: lineIds[l.replyTo] } } }),
+        },
+        now() - l.minutesAgo * 60 * 1000
+      );
+      lineIds.push(event.event_id);
       timeline.push({
         version: 1,
         roomId: room.id,
-        event: mk(
-          'm.room.message',
-          l.from,
-          {
-            msgtype: 'm.text',
-            body: l.body,
-            ...(l.html ? { format: 'org.matrix.custom.html', formatted_body: l.html } : {}),
-            ...(l.pose ? { [POSE_KEY]: l.pose } : {}),
-          },
-          now() - l.minutesAgo * 60 * 1000
-        ),
+        event,
       });
     });
   });

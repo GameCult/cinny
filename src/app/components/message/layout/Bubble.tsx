@@ -60,13 +60,13 @@ export const BubbleLayout = as<'div', BubbleLayoutProps>(
         <Box
           grow={own ? 'No' : 'Yes'}
           direction="Column"
-          className={classNames(own && css.BubbleColumnOwn)}
+          className={classNames(css.BubbleColumn, own && css.BubbleColumnOwn)}
         >
           {header && <div className={classNames(own && css.BubbleHeaderOwn)}>{header}</div>}
           {hideBubble ? (
             children
           ) : (
-            <Box>
+            <Box className={css.BubbleContentRow}>
               <Box
                 className={classNames(
                   css.BubbleContent,
