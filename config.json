@@ -25,6 +25,9 @@
   "dings": {
     "enabled": false
   },
+  "fileZoneShare": {
+    "enabled": false
+  },
   "registration": {
     "enabled": false,
     "url": ""

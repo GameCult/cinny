@@ -16,6 +16,7 @@ import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
 import { Album, AlbumFile } from './buildAlbums';
 import { FileReadBy } from './FileReadBy';
+import { ShareSet, useShareEnabled } from './ShareSet';
 import { useAlbums } from './useAlbums';
 import * as css from './AlbumView.css';
 
@@ -93,6 +94,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
   const open: Album | undefined = albums.find((a) => a.id === openId);
   const authorOf = (a: Album) => getMemberDisplayName(room, a.author) ?? a.author;
   const encrypted = room.hasEncryptionStateEvent();
+  const canShare = useShareEnabled(room);
 
   let body: React.ReactNode;
   if (loading) body = <Text>Loading albums…</Text>;
@@ -134,6 +136,12 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     <Scroll hideTrack visibility="Hover">
       <div className={css.Column}>
         {body}
+        {/* Stays mounted while an album is open, so a running send keeps its progress. */}
+        {canShare && (
+          <div hidden={!!open}>
+            <ShareSet room={room} />
+          </div>
+        )}
         <button type="button" className={css.Row} onClick={onTimeline}>
           <Text size="B400">Timeline ›</Text>
         </button>

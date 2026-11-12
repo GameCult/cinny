@@ -34,6 +34,9 @@ export type ClientConfig = {
   // Rooms (ids or aliases) shown as the album view; a room whose create type is org.gamecult.file_zone needs no entry.
   fileZoneRooms?: string[];
 
+  // Sharing a set of files into a file-zone room as one album. Off unless `enabled` is true.
+  fileZoneShare?: { enabled?: boolean };
+
   // The sign-up entry on the sign-in page. Off unless `enabled` is true; `url` is the account
   // service's own registration page (a value, never a route this client invents).
   registration?: RegistrationConfig;
