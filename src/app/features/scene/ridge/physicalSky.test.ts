@@ -69,6 +69,19 @@ describe('weather in the sky', () => {
 });
 
 describe('the sun disc', () => {
+  it('keeps the display floor the dark link was fitted to, at every hour it is drawn', () => {
+    const lin = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+    let drawn = 0;
+    for (const state of ['day', 'dusk'] as FixedSkyState[]) {
+      for (let m = 0; m < 24 * 60; m += 10) {
+        const d = paintSky(makePhysicalSky(state, new Date(Date.UTC(2026, 10, 11, 0, m)), 0), 1280, 720).sunDisc;
+        if (!d) continue;
+        drawn += 1;
+        expect(0.2126 * lin(d.rgb[0]) + 0.7152 * lin(d.rgb[1]) + 0.0722 * lin(d.rgb[2])).toBeGreaterThanOrEqual(0.4744);
+      }
+    }
+    expect(drawn).toBeGreaterThan(0);
+  });
   const noon = new Date('2026-11-11T10:40:00Z'); // 21 degrees: in June the noon sun is above the top of the image
   it('is drawn by the host, in a clear sky by day, white with the sun high', () => {
     const d = paintSky(makePhysicalSky('day', noon, 0), 1280, 720).sunDisc;

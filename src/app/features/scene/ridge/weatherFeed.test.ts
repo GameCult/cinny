@@ -105,6 +105,18 @@ describe('the weather now', () => {
   });
 });
 
+describe('bad instrument values', () => {
+  it('a negative sunshine is no reading, not full cloud', () => {
+    expect(cloudEstimate(file({ glow_wm2: null, sunshine_s_10min: -5 }), 21)).toBeNull();
+  });
+  it('the radiation is set against the sun of the ten minutes it averaged, not the sun now', () => {
+    // Sun rising: 07:45Z observation (mean of 07:35-07:45), read 35 minutes later at the stale limit.
+    const f = file({ observed_at: '2026-11-11T07:45:00Z', fetched_at: '2026-11-11T07:46:00Z', glow_wm2: 100, sunshine_s_10min: null, humidity_pct: 50 });
+    const at = (m: number) => currentWeather(f, new Date(Date.parse(f.observed_at) + m * 60_000));
+    expect(at(0)).toBe(at(29));
+  });
+});
+
 describe('reading weather.json', () => {
   it('parses the agreed shape, keeping nulls and the sunshine it never reads', () => {
     const raw = { ...file(), precip_mm_10min: null, glow_wm2: 12, sunshine_s_10min: 0 };
@@ -115,6 +127,10 @@ describe('reading weather.json', () => {
     expect(parseWeatherFile({ ...file(), fetched_at: undefined })).toBeNull();
     expect(parseWeatherFile(null)).toBeNull();
     expect(parseWeatherFile('x')).toBeNull();
+  });
+  it('rejects a time with no zone: it would be read in the client\'s local time', () => {
+    expect(parseWeatherFile({ ...file(), observed_at: '2026-11-10T10:40:00' })).toBeNull();
+    expect(parseWeatherFile({ ...file(), observed_at: '2026-11-10T11:40:00+01:00' })).not.toBeNull();
   });
   it('is no observation when the file is missing, fails, or is not JSON', async () => {
     expect(await fetchWeatherFile('/weather.json', (async () => ({ ok: false })) as unknown as typeof fetch)).toBeNull();

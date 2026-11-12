@@ -29,12 +29,14 @@ export interface WeatherFile {
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/** An ISO time that names its zone (`Z` or an offset); `Date.parse` would read a bare one in the client's local time. */
+const isZonedTime = (v: unknown): v is string => typeof v === 'string' && /(Z|[+-]\d\d:?\d\d)$/.test(v) && !Number.isNaN(Date.parse(v));
+
 /** A `WeatherFile` from parsed JSON, or null when it does not have the shape (times missing or unparseable). */
 export function parseWeatherFile(json: unknown): WeatherFile | null {
   const j = json as Record<string, unknown> | null;
   if (!j || typeof j !== 'object') return null;
-  if (typeof j.observed_at !== 'string' || Number.isNaN(Date.parse(j.observed_at))) return null;
-  if (typeof j.fetched_at !== 'string' || Number.isNaN(Date.parse(j.fetched_at))) return null;
+  if (!isZonedTime(j.observed_at) || !isZonedTime(j.fetched_at)) return null;
   return {
     fetched_at: j.fetched_at,
     observed_at: j.observed_at,
@@ -68,7 +70,7 @@ export function cloudFromGlow(glow: number | null, sunEl: number): number | null
 
 /** The cloud the sunshine duration implies: the share of the ten minutes the sun did not shine. Null when the sun is too low or it is unreported. */
 export function cloudFromSunshine(so: number | null, sunEl: number): number | null {
-  if (so === null || sunEl < GLOW_FROM_DEG) return null;
+  if (so === null || so < 0 || sunEl < GLOW_FROM_DEG) return null;
   return 1 - clamp01(so / 600);
 }
 
@@ -99,7 +101,8 @@ export function currentWeather(f: WeatherFile | null, now: Date = new Date()): n
   if (!f) return CLEAR_SKY;
   const age = now.getTime() - Date.parse(f.observed_at);
   if (!(age <= STALE_MS && age >= -SKEW_MS)) return CLEAR_SKY; // stale, or from further ahead of the clock than clocks differ
-  return weatherFromFile(f, viennaSun(now).elevation);
+  // GLOW and SO are means of the ten minutes ending at observed_at: the sun of their midpoint is the one to set them against.
+  return weatherFromFile(f, viennaSun(new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
 }
 
 /** Fetch and parse `weather.json`; null on any failure. */
