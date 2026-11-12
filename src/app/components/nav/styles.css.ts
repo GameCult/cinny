@@ -53,6 +53,10 @@ export const NavCategoryHeader = style({
     '&&': { paddingLeft: 0 },
   },
   '@media': {
+    // A phone's section header is as tall as its 44 px button, so it does not overlap the next row.
+    'screen and (max-width: 750px)': {
+      selectors: { '&&': { minHeight: toRem(44), height: toRem(44) } },
+    },
     // Category labels sit on the scene like the rows do, and need a wash to be read (wide screens;
     // a phone's list is plain text).
     'screen and (min-width: 751px)': {
@@ -117,6 +121,8 @@ const NavItemBase = style({
     [PHONE]: {
       backgroundColor: 'transparent',
       borderRadius: 0,
+      // The row is as tall as the 44 px tap target inside it (EstateNavigator.css.ts), so neighbours do not overlap.
+      minHeight: toRem(44),
     },
     [WIDE]: {
       selectors: {

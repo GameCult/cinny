@@ -4,7 +4,7 @@ import * as css from './styles.css';
 
 export function AuthFooter() {
   return (
-    <Box className={css.AuthFooter} justifyContent="Center" gap="400" wrap="Wrap">
+    <Box className={`${css.AuthFooter} ${css.AuthFooterLinks}`} justifyContent="Center" wrap="Wrap">
       <Text as="a" size="T300" href="https://gamecult.org" target="_blank" rel="noreferrer">
         About
       </Text>

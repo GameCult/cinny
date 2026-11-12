@@ -4,7 +4,7 @@ import React from 'react';
 import { useStateEvent } from '../../hooks/useStateEvent';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { useSkyInk } from '../../hooks/useTheme';
-import { noticeInk } from '../scene/skyInk';
+import { noticeStyle } from '../scene/skyInk';
 import {
   ROOM_NOTICE_EVENT_TYPE,
   parseRoomNotice,
@@ -24,7 +24,8 @@ export function RoomTrainingLine({ room }: { room: Room }) {
       size="T200"
       style={{
         padding: `${config.space.S100} 0`,
-        color: (skyInk && noticeInk(skyInk)) ?? color.SurfaceVariant.OnContainer,
+        color: color.SurfaceVariant.OnContainer,
+        ...noticeStyle(skyInk),
       }}
     >
       {line}

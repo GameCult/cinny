@@ -54,6 +54,17 @@ export const AuthFooter = style({
   padding: config.space.S200,
 });
 
+// The footer's links: 16 px apart, and on a phone 22 px between rows, so each link's 11 px of hit area above and
+// below meets its neighbour's and does not cross it (see the tap-target rules at the foot of this file).
+export const AuthFooterLinks = style({
+  gap: config.space.S400,
+  '@media': { [`screen and (max-width: ${MOBILE_BREAKPOINT}px)`]: { rowGap: 22 } },
+});
+
+// Forget Password? sits 5 px under the password field and 16 px above Login: on a phone its hit area takes the 5 and
+// grows 7 px of real layout so the 44 reach neither.
+export const ForgotLink = style({});
+
 // While the background scene runs (html[data-scene], set by features/scene/BackgroundScene), the
 // signed-out ground is clear and the card is a pane shaped like a message bubble (BubbleContent:
 // radius R500, no border), filled with the sky's bubble colour. The scene is one fixed dusk for
@@ -134,6 +145,17 @@ globalStyle(`${scene} ${AuthFooter} a`, {
 // back out of the layout, so nothing moves and nothing is drawn. An inline link ignores the margin and its padding
 // never moves a line, which is the same result.
 const SCREEN_PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
+globalStyle(`${AuthCard} a.${ForgotLink}`, {
+  '@media': {
+    [SCREEN_PHONE]: {
+      display: 'inline-block',
+      paddingTop: 5,
+      paddingBottom: 23,
+      marginTop: -5,
+      marginBottom: -16,
+    },
+  },
+});
 globalStyle(`${AuthCard} a`, {
   '@media': { [SCREEN_PHONE]: { paddingBlock: 14, marginBlock: -14 } },
 });
