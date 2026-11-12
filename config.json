@@ -28,6 +28,11 @@
   "fileZoneShare": {
     "enabled": false
   },
+  "push": {
+    "vapidPublicKey": "",
+    "gatewayUrl": "",
+    "appId": ""
+  },
   "registration": {
     "enabled": false,
     "url": ""

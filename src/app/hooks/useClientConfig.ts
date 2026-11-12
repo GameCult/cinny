@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { DingsConfig } from '../features/dings/dings';
 import type { BackgroundSceneConfig } from '../features/scene/tier';
+import type { PushConfig } from '../features/push/config';
 
 export type HashRouterConfig = {
   enabled?: boolean;
@@ -40,6 +41,9 @@ export type ClientConfig = {
   // The sign-up entry on the sign-in page. Off unless `enabled` is true; `url` is the account
   // service's own registration page (a value, never a route this client invents).
   registration?: RegistrationConfig;
+
+  // Web Push to the installed app (src/app/features/push). Off unless all three keys are filled; ships empty.
+  push?: PushConfig;
 
   // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
   previewDemo?: boolean;

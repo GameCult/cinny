@@ -10,6 +10,9 @@ import { getNotificationState, usePermissionState } from '../../../hooks/usePerm
 import { useEmailNotifications } from '../../../hooks/useEmailNotifications';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
+import { PushNotification, pushSupported } from '../../push/PushNotification';
+import { activePushConfig } from '../../push/config';
+import { useClientConfig } from '../../../hooks/useClientConfig';
 
 function EmailNotification() {
   const mx = useMatrixClient();
@@ -85,6 +88,7 @@ function EmailNotification() {
 }
 
 export function SystemNotification() {
+  const pushCfg = activePushConfig(useClientConfig().push);
   const notifPermission = usePermissionState('notifications', getNotificationState());
   const [showNotifications, setShowNotifications] = useSetting(settingsAtom, 'showNotifications');
   const [isNotificationSounds, setIsNotificationSounds] = useSetting(
@@ -133,6 +137,16 @@ export function SystemNotification() {
           }
         />
       </SequenceCard>
+      {pushCfg && pushSupported() && (
+        <SequenceCard
+          className={SequenceCardStyle}
+          variant="SurfaceVariant"
+          direction="Column"
+          gap="400"
+        >
+          <PushNotification cfg={pushCfg} />
+        </SequenceCard>
+      )}
       <SequenceCard
         className={SequenceCardStyle}
         variant="SurfaceVariant"

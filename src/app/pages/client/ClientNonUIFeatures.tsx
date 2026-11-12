@@ -29,6 +29,7 @@ import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 import { mDirectAtom } from '../../state/mDirectList';
 import { motifFor } from '../../features/dings/dings';
 import { useDings } from '../../features/dings/useDings';
+import { usePushOpen } from '../../features/push/usePushOpen';
 
 function SystemEmojiFeature() {
   const [twitterEmoji] = useSetting(settingsAtom, 'twitterEmoji');
@@ -280,6 +281,7 @@ type ClientNonUIFeaturesProps = {
 };
 
 export function ClientNonUIFeatures({ children }: ClientNonUIFeaturesProps) {
+  usePushOpen();
   return (
     <>
       <SystemEmojiFeature />
