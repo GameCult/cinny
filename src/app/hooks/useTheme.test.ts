@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 // settings.ts reads localStorage when it loads, and this suite runs without a DOM.
@@ -27,5 +28,13 @@ describe('chosenTheme: what counts as a theme the person chose', () => {
 
   it('is the system scheme', () => {
     expect(chosenTheme(true, defaultThemeId, undefined)).toBe(true);
+  });
+
+  it('the theme menu sets the flag together with the id', () => {
+    const tsx = readFileSync(
+      `${process.cwd()}/src/app/features/settings/general/General.tsx`,
+      'utf8'
+    );
+    expect(tsx).toMatch(/setThemeId\(theme\.id\);\s*setThemeChosen\(true\);/);
   });
 });
