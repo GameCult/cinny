@@ -80,7 +80,7 @@ cmp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json
 so even equal content differs. Read the difference (`diff` the two) and settle which config
 ships. To keep the host's config byte-for-byte, as past installs did,
 `cp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json`; `sha256sum -c` then flags
-`config.json` only (read that one line, or use `--ignore-missing`).
+`config.json` only (read that one line; `--ignore-missing` does not hide a mismatch).
 
 Switch (a single symlink swap; `ln -sfn` unlinks then links, so there is a moment with no link):
 
@@ -91,7 +91,7 @@ ln -sfn releases/$R /srv/cinny/current
 ## 3. Verify
 
 - `readlink /srv/cinny/current` names `releases/$R`.
-- `curl -s https://chat.gamecult.org/config.json | sha256sum` equals the release's `config.json`.
+- `curl -s https://chat.gamecult.org/config.json | sha256sum` equals `sha256sum /srv/cinny/releases/$R/config.json`.
 - Load https://chat.gamecult.org/ and hard-refresh (the service worker, `sw.js`, can hold the
   previous assets). Sign-in card shows, the background scene draws, the browser console has no
   page errors, a poses/asset request returns 200 and not index.html.
