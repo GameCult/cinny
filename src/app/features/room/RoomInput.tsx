@@ -93,12 +93,7 @@ import { safeFile } from '../../utils/mimeTypes';
 import { fulfilledPromiseSettledResult } from '../../utils/common';
 import { useSetting } from '../../state/hooks/settings';
 import { settingsAtom } from '../../state/settings';
-import {
-  getAudioMsgContent,
-  getFileMsgContent,
-  getImageMsgContent,
-  getVideoMsgContent,
-} from './msgContent';
+import { getMsgContent } from './msgContent';
 import { FILE_HASH_KEY, hashForSend } from '../albums/fileReceipt';
 import { getMemberDisplayName, getMentionContent, trimReplyFromBody } from '../../utils/room';
 import { CommandAutocomplete } from './CommandAutocomplete';
@@ -281,16 +276,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
         const fileItem = selectedFiles.find((f) => f.file === upload.file);
         if (!fileItem) throw new Error('Broken upload');
 
-        let content: IContent;
-        if (fileItem.file.type.startsWith('image')) {
-          content = await getImageMsgContent(mx, fileItem, upload.mxc);
-        } else if (fileItem.file.type.startsWith('video')) {
-          content = await getVideoMsgContent(mx, fileItem, upload.mxc);
-        } else if (fileItem.file.type.startsWith('audio')) {
-          content = getAudioMsgContent(fileItem, upload.mxc);
-        } else {
-          content = getFileMsgContent(fileItem, upload.mxc);
-        }
+        const content = await getMsgContent(mx, fileItem, upload.mxc);
         // A Mind verifies what it fetched against this. An encrypted file already carries the
         // ciphertext hash in file.hashes; a plaintext hash would leak the file's identity.
         if (!fileItem.encInfo) {

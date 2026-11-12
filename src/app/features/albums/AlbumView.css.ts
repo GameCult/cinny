@@ -49,3 +49,19 @@ export const FilesWide = style({
 });
 
 export const Dim = style({ opacity: config.opacity.P300 });
+
+/** The share panel: only mounted once files are picked, so the idle zone shows one row. */
+export const SharePanel = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: config.space.S200,
+});
+
+export const ShareTitle = style({
+  all: 'unset',
+  boxSizing: 'border-box',
+  minHeight: 44,
+  width: '100%',
+  borderBottom: `1px solid ${color.Background.ContainerLine}`,
+  color: color.Background.OnContainer,
+});
