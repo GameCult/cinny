@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import zlib from 'zlib';
 import { compile, processVanillaFile } from '@vanilla-extract/integration';
+import { FOOTER_TINT, SKY_PLATE_FALLBACK } from '../../features/scene/skyPlate';
 import { AuthFooter } from './styles.css';
 
 // The CSS styles.css.ts emits for the sign-in footer, read back from vanilla-extract's own compile.
@@ -32,8 +33,24 @@ describe('the sign-in footer band, as emitted', () => {
     const [rule] = declarations(await emitted(), over);
     const fills = rule.filter((d) => d.startsWith('background-color:'));
     expect(fills).toHaveLength(2);
-    expect(fills[0]).toBe('background-color: var(--sky-bubble, #0d1a26)');
-    expect(fills[1]).toContain('color-mix(');
+    expect(fills[0]).toBe(`background-color: var(--sky-bubble, ${SKY_PLATE_FALLBACK.fill})`);
+  });
+
+  it('tints with FOOTER_TINT of the plate fill, the amount skyTheme.test.ts checks the ink against', async () => {
+    const [rule] = declarations(await emitted(), over);
+    const fills = rule.filter((d) => d.startsWith('background-color:'));
+    expect(fills[1]).toBe(
+      `background-color: color-mix(in srgb, var(--sky-bubble, ${SKY_PLATE_FALLBACK.fill}) ${
+        FOOTER_TINT * 100
+      }%, transparent)`
+    );
+  });
+
+  it("is inked with the plate's ink, on the footer and on its links", async () => {
+    const css = await emitted();
+    const ink = `color: var(--sky-bubble-text, ${SKY_PLATE_FALLBACK.text})`;
+    expect(declarations(css, over)[0].filter((d) => d.startsWith('color:'))).toEqual([ink]);
+    expect(declarations(css, `${over} a`)).toEqual([[ink]]);
   });
 
   it('blurs what is behind it by 12px, the radius of the chat bubbles', async () => {
