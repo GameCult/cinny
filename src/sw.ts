@@ -36,7 +36,13 @@ async function cleanupDeadClients() {
 }
 
 function setSession(clientId: string, accessToken: any, baseUrl: any) {
-  persisted.save(baseUrl, accessToken).catch(() => undefined);
+  persisted
+    .saveIfSubscribed(
+      baseUrl,
+      accessToken,
+      async () => !!(await self.registration.pushManager.getSubscription())
+    )
+    .catch(() => undefined);
   if (typeof accessToken === 'string' && typeof baseUrl === 'string') {
     sessions.set(clientId, { accessToken, baseUrl });
   } else {

@@ -27,7 +27,8 @@ export interface PushTarget {
 /** A push shows a notification, unless the app is open and focused (browsers allow that, and the page notifies itself). */
 export async function handlePush(raw: unknown, w: WorkerPort): Promise<void> {
   const ids = parsePush(raw);
-  if ((await w.windows()).some((c) => c.visibilityState === 'visible' && c.focused)) return;
+  const open = await w.windows().catch(() => []);
+  if (open.some((c) => c.visibilityState === 'visible' && c.focused)) return;
   const shown = await describePush(ids, await w.loadSession(), w.fetch);
   await w.show(shown.title, {
     body: shown.body,

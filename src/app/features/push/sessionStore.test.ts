@@ -29,6 +29,21 @@ describe('sessionStore', () => {
     await s.save('https://hs/', 5);
     expect(await s.load()).toBeUndefined();
   });
+  it('keeps the token only while a push subscription exists', async () => {
+    const port = memory();
+    const s = sessionStore(port);
+    await s.saveIfSubscribed('https://hs/', 'tok', async () => false);
+    expect(port.held).toBeUndefined();
+    await s.saveIfSubscribed('https://hs/', 'tok', async () => true);
+    expect(await s.load()).toEqual({ baseUrl: 'https://hs/', accessToken: 'tok' });
+    await s.saveIfSubscribed('https://hs/', 'tok', async () => false);
+    expect(port.held).toBeUndefined();
+    await s.saveIfSubscribed('https://hs/', 'tok', async () => true);
+    await s.saveIfSubscribed('https://hs/', 'tok', () =>
+      Promise.reject(new Error('no push manager'))
+    );
+    expect(port.held).toBeUndefined();
+  });
   it('ignores a record that is not a session', async () => {
     const port = memory();
     port.held = { baseUrl: 1 };

@@ -4,7 +4,8 @@ import { SettingTile } from '../../components/setting-tile';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { getNotificationState, usePermissionState } from '../../hooks/usePermission';
 import type { ActivePushConfig } from './config';
-import { disablePush, enablePush } from './pusher';
+import { pushSessionToSW } from '../../../sw-session';
+import { disablePush, enablePush, pushIsOn } from './pusher';
 
 export const pushSupported = (): boolean =>
   'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -21,10 +22,10 @@ export function PushNotification({ cfg }: { cfg: ActivePushConfig }) {
 
   useEffect(() => {
     readyManager()
-      .then((m) => m.getSubscription())
-      .then((s) => setOn(!!s))
+      .then((m) => pushIsOn(mx, m, cfg))
+      .then(setOn)
       .catch(() => undefined);
-  }, [cfg]);
+  }, [cfg, mx]);
 
   const toggle = useCallback(
     async (enable: boolean) => {
@@ -39,6 +40,8 @@ export function PushNotification({ cfg }: { cfg: ActivePushConfig }) {
         } else {
           await disablePush(mx, await readyManager(), cfg);
         }
+        // The worker keeps the token only while a subscription exists: tell it the new state.
+        pushSessionToSW(mx.baseUrl, mx.getAccessToken() ?? undefined);
         setOn(enable);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not change background notifications.');

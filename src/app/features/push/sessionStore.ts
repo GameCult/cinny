@@ -1,7 +1,8 @@
 // The one thing a push needs that a closed app cannot give: the access token, to fetch the event a push names.
 // Stored: `{ baseUrl, accessToken }`, one record, in this origin's IndexedDB `ratatoskr-sw` (not reachable by other
-// origins; the token is already in the page's own storage). Written when the page hands the worker its session,
-// deleted when the page hands it none (logout). Nothing else is stored, and nothing else reads it but the push handler.
+// origins; the token is already in the page's own storage). Written when the page hands the worker its session
+// while this browser holds a push subscription; deleted when the page hands it none (logout) or the subscription is
+// gone. A browser that never turned push on stores nothing. Nothing else reads it but the push handler.
 export interface SessionRecord {
   baseUrl: string;
   accessToken: string;
@@ -67,6 +68,15 @@ export function sessionStore(port: RecordPort) {
           ? { baseUrl, accessToken }
           : undefined
       );
+    },
+    /** The token is kept only while this browser holds a push subscription; without one the record is deleted. */
+    async saveIfSubscribed(
+      baseUrl: unknown,
+      accessToken: unknown,
+      subscribed: () => Promise<boolean>
+    ): Promise<void> {
+      const keep = await subscribed().catch(() => false);
+      await this.save(keep ? baseUrl : undefined, keep ? accessToken : undefined);
     },
     async load(): Promise<SessionRecord | undefined> {
       const v = (await port.read()) as Partial<SessionRecord> | undefined;

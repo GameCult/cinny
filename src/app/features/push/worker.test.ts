@@ -59,6 +59,11 @@ describe('push against a mock gateway and homeserver', () => {
     expect(shown[0].options.tag).toBeUndefined();
     expect(shown[0].options.data).toBeUndefined();
   });
+  it('shows even when the window list cannot be read', async () => {
+    const { w, shown } = port({ windows: () => Promise.reject(new Error('no clients')) });
+    await handlePush(matrixNotify('!r:x', '$e'), w);
+    expect(shown).toHaveLength(1);
+  });
   it('shows nothing while a window is visible and focused, and shows when the window is hidden', async () => {
     const win = (visibilityState: string, focused: boolean) => ({
       visibilityState,
