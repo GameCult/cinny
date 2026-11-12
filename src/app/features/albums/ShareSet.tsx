@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useSyncExternalStore } from 'react';
 import { Text } from 'folds';
 import { useQueryClient } from '@tanstack/react-query';
 import { Room } from 'matrix-js-sdk';
@@ -8,104 +8,55 @@ import { uploadContent } from '../../utils/matrix';
 import { safeFile } from '../../utils/mimeTypes';
 import { getMsgContent } from '../room/msgContent';
 import { FILE_HASH_KEY, hashForSend } from './fileReceipt';
-import { DEFAULT_TITLE, remainingAfter, resultNote, sendShareSet } from './shareSet';
+import { ShareController, ShareState, createShareController } from './shareController';
+import { DEFAULT_TITLE, sendShareSet } from './shareSet';
 import * as css from './AlbumView.css';
 
 /** Off unless `fileZoneShare.enabled` is true. An encrypted zone is never offered the share. */
+export const shareEnabled = (
+  config: { fileZoneShare?: { enabled?: boolean } },
+  encrypted: boolean
+) => !!config.fileZoneShare?.enabled && !encrypted;
+
 export const useShareEnabled = (room: Room): boolean =>
-  !!useClientConfig().fileZoneShare?.enabled && !room.hasEncryptionStateEvent();
+  shareEnabled(useClientConfig(), room.hasEncryptionStateEvent());
 
-/** Rooms with a share in flight. Module-level: leaving the page unmounts the panel, not the send. */
-const sending = new Set<string>();
-
-type Phase = { kind: 'idle' } | { kind: 'sending'; done: number } | { kind: 'done'; text: string };
+type ShareViewProps = {
+  state: ShareState<File>;
+  onPickClick: () => void;
+  onPicked: (files: File[]) => void;
+  onTitle: (title: string) => void;
+  onSend: () => void;
+  onCancel: () => void;
+  inputRef?: React.Ref<HTMLInputElement>;
+};
 
 /**
  * One row when idle. Picking files (any number, one picker) opens the panel: a title, the picked
- * names, Send. Sending makes one album of them (shareSet.ts). Nothing here is visible until used.
+ * names, Send. Nothing but the row is visible until files are picked.
  */
-export function ShareSet({ room }: { room: Room }) {
-  const mx = useMatrixClient();
-  const queryClient = useQueryClient();
-  const input = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const [title, setTitle] = useState('');
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
-
-  const reset = () => {
-    setFiles([]);
-    setTitle('');
-    if (input.current) input.current.value = '';
-  };
-
-  const send = async () => {
-    // One send at a time, and never into a room that has turned encrypted since the panel mounted.
-    if (sending.has(room.roomId)) return;
-    if (room.hasEncryptionStateEvent()) {
-      setPhase({ kind: 'done', text: 'Not shared: this room is encrypted.' });
-      return;
-    }
-    sending.add(room.roomId);
-    const items = files.map((file) => ({ name: file.name, mimeType: file.type, file }));
-    setPhase({ kind: 'sending', done: 0 });
-    let settled = 0;
-    try {
-      const res = await sendShareSet(
-        {
-          send: async (content) => (await mx.sendMessage(room.roomId, content as any)).event_id,
-          contentOf: async (f) => {
-            const file = safeFile(f.file);
-            const mxc = await new Promise<string>((resolve, reject) => {
-              uploadContent(mx, file, { onSuccess: resolve, onError: reject });
-            });
-            const content = await getMsgContent(
-              mx,
-              {
-                file,
-                originalFile: f.file,
-                metadata: { markedAsSpoiler: false },
-                encInfo: undefined,
-              },
-              mxc
-            );
-            const sha256 = await hashForSend(f.file);
-            if (sha256) content.info = { ...content.info, [FILE_HASH_KEY]: sha256 };
-            return content;
-          },
-          onFile: () => {
-            settled += 1;
-            setPhase({ kind: 'sending', done: settled });
-          },
-        },
-        title,
-        items
-      );
-      queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] });
-      const left = remainingAfter(items, res).map((i) => i.file);
-      setFiles(left);
-      if (left.length === 0) reset();
-      setPhase({ kind: 'done', text: resultNote(res) });
-    } catch (e: any) {
-      setPhase({ kind: 'done', text: `Could not share: ${e?.message ?? 'send failed'}` });
-    } finally {
-      sending.delete(room.roomId);
-    }
-  };
-
+export function ShareSetView({
+  state,
+  onPickClick,
+  onPicked,
+  onTitle,
+  onSend,
+  onCancel,
+  inputRef,
+}: ShareViewProps) {
+  const { files, title, phase, epoch } = state;
   return (
     <div className={css.SharePanel}>
       <input
-        ref={input}
+        key={epoch}
+        ref={inputRef}
         type="file"
         multiple
         hidden
-        onChange={(e) => {
-          setFiles(Array.from(e.target.files ?? []));
-          setPhase({ kind: 'idle' });
-        }}
+        onChange={(e) => onPicked(Array.from(e.target.files ?? []))}
       />
       {files.length === 0 && phase.kind !== 'sending' && (
-        <button type="button" className={css.Row} onClick={() => input.current?.click()}>
+        <button type="button" className={css.Row} onClick={onPickClick}>
           <Text size="B400">Share files ›</Text>
         </button>
       )}
@@ -122,7 +73,7 @@ export function ShareSet({ room }: { room: Room }) {
             placeholder={DEFAULT_TITLE}
             aria-label="Album title"
             disabled={phase.kind === 'sending'}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => onTitle(e.target.value)}
           />
           <Text size="T200" className={`${css.Dim} ${css.ShareNames}`}>
             {files.map((f) => f.name).join(' · ')}
@@ -133,12 +84,12 @@ export function ShareSet({ room }: { room: Room }) {
             </Text>
           ) : (
             <>
-              <button type="button" className={css.Row} onClick={send}>
+              <button type="button" className={css.Row} onClick={onSend}>
                 <Text size="B400">
                   Send {files.length} {files.length === 1 ? 'file' : 'files'}
                 </Text>
               </button>
-              <button type="button" className={css.Row} onClick={reset}>
+              <button type="button" className={css.Row} onClick={onCancel}>
                 <Text size="B400">Cancel</Text>
               </button>
             </>
@@ -146,5 +97,60 @@ export function ShareSet({ room }: { room: Room }) {
         </>
       )}
     </div>
+  );
+}
+
+export function ShareSet({ room }: { room: Room }) {
+  const mx = useMatrixClient();
+  const queryClient = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const controller: ShareController<File> = useMemo(
+    () =>
+      createShareController<File>({
+        roomId: room.roomId,
+        isEncrypted: () => room.hasEncryptionStateEvent(),
+        onSent: () => queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] }),
+        run: (files, title, onFile) =>
+          sendShareSet(
+            {
+              send: async (content) => (await mx.sendMessage(room.roomId, content as any)).event_id,
+              contentOf: async (f) => {
+                const file = safeFile(f.file);
+                const mxc = await new Promise<string>((resolve, reject) => {
+                  uploadContent(mx, file, { onSuccess: resolve, onError: reject });
+                });
+                const content = await getMsgContent(
+                  mx,
+                  {
+                    file,
+                    originalFile: f.file,
+                    metadata: { markedAsSpoiler: false },
+                    encInfo: undefined,
+                  },
+                  mxc
+                );
+                const sha256 = await hashForSend(f.file);
+                if (sha256) content.info = { ...content.info, [FILE_HASH_KEY]: sha256 };
+                return content;
+              },
+              onFile,
+            },
+            title,
+            files.map((file) => ({ name: file.name, mimeType: file.type, file }))
+          ),
+      }),
+    [mx, room, queryClient]
+  );
+  const state = useSyncExternalStore(controller.subscribe, controller.getState);
+  return (
+    <ShareSetView
+      state={state}
+      inputRef={input}
+      onPickClick={() => input.current?.click()}
+      onPicked={controller.pick}
+      onTitle={controller.setTitle}
+      onSend={controller.send}
+      onCancel={controller.cancel}
+    />
   );
 }
