@@ -362,7 +362,8 @@ function bakeMultiScatter(mieScale: number, trLut: Lut2): Lut2 {
       const sx = Math.sqrt(Math.max(0, 1 - cosSun * cosSun));
       const sz = cosSun;
       // Hillaire's PLANET_RADIUS_OFFSET: a ray that starts exactly on the ground is degenerate.
-      const height = PLANET_KM + RADIUS_OFFSET_KM + clamp(v, 0, 1) * (TOP_KM - PLANET_KM - RADIUS_OFFSET_KM);
+      const height =
+        PLANET_KM + RADIUS_OFFSET_KM + clamp(v, 0, 1) * (TOP_KM - PLANET_KM - RADIUS_OFFSET_KM);
       const sumMs = [0, 0, 0];
       const sumL = [0, 0, 0];
       for (let a = 0; a < dirs; a++) {
@@ -410,7 +411,11 @@ function bakeMultiScatter(mieScale: number, trLut: Lut2): Lut2 {
  * Sky-view LUT axes (Hillaire's non-linear mapping, upper hemisphere only: nothing below the horizon is drawn). y: view zenith angle
  * from 0 to the horizon's, squared toward it; x: the azimuth from the sun, the cosine mapped `-(2 c^2 - 1)`.
  */
-function skyViewParamsToUv(viewCos: number, cosFromSun: number, horizonZenith: number): [number, number] {
+function skyViewParamsToUv(
+  viewCos: number,
+  cosFromSun: number,
+  horizonZenith: number
+): [number, number] {
   const zen = Math.acos(clamp(viewCos, -1, 1));
   let coord = 1 - clamp(zen / horizonZenith, 0, 1);
   coord = Math.sqrt(coord);
@@ -494,7 +499,14 @@ export function bakeAtmosphere(opts: AtmosphereOptions): Atmosphere {
   const horizonZenith = PI - beta;
   const transmittance = bakeTransmittance(mieScale);
   const multiScatter = bakeMultiScatter(mieScale, transmittance);
-  const skyView = bakeSkyView(sunCos, observerKm, mieScale, transmittance, multiScatter, horizonZenith);
+  const skyView = bakeSkyView(
+    sunCos,
+    observerKm,
+    mieScale,
+    transmittance,
+    multiScatter,
+    horizonZenith
+  );
   const tmp = [0, 0, 0];
   const trv = [0, 0, 0];
   const atm: Atmosphere = {
@@ -514,7 +526,11 @@ export function bakeAtmosphere(opts: AtmosphereOptions): Atmosphere {
       out[2] = trv[2];
     },
     radiance(viewCos, cosFromSun, out) {
-      const [x, y] = skyViewParamsToUv(Math.max(viewCos, Math.cos(horizonZenith)), cosFromSun, horizonZenith);
+      const [x, y] = skyViewParamsToUv(
+        Math.max(viewCos, Math.cos(horizonZenith)),
+        cosFromSun,
+        horizonZenith
+      );
       sampleTexel(skyView, x * (skyView.w - 1), y * (skyView.h - 1), tmp);
       out[0] = tmp[0];
       out[1] = tmp[1];

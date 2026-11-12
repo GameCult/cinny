@@ -4,7 +4,8 @@ import { drawRainTile, RAIN_TILES, streakCount } from './rain';
 const recorder = () => {
   const calls: string[] = [];
   const ctx = new Proxy({} as Record<string, unknown>, {
-    get: (t, k: string) => (k in t ? t[k] : (...a: unknown[]) => calls.push(`${k}(${a.join(',')})`)),
+    get: (t, k: string) =>
+      k in t ? t[k] : (...a: unknown[]) => calls.push(`${k}(${a.join(',')})`),
     set: (t, k: string, v) => {
       t[k] = v;
       return true;
@@ -27,6 +28,8 @@ describe('rain', () => {
     drawRainTile(a.ctx, RAIN_TILES[1], 1, [200, 210, 220], 1);
     drawRainTile(b.ctx, RAIN_TILES[1], 1, [200, 210, 220], 1);
     expect(a.calls).toEqual(b.calls);
-    expect(a.calls.filter((c) => c.startsWith('stroke'))).toHaveLength(streakCount(RAIN_TILES[1], 1) * 9);
+    expect(a.calls.filter((c) => c.startsWith('stroke'))).toHaveLength(
+      streakCount(RAIN_TILES[1], 1) * 9
+    );
   });
 });

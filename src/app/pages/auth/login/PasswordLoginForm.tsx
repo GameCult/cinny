@@ -36,6 +36,7 @@ import {
 import { PasswordInput } from '../../../components/password-input';
 import { FieldError } from '../FiledError';
 import { loginErrorMessage } from '../authMessages';
+import { ForgotLink } from '../styles.css';
 import { getResetPasswordPath } from '../../pathUtils';
 import { stopPropagation } from '../../../utils/keyboard';
 
@@ -251,7 +252,9 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
           )}
           <Box grow="Yes" shrink="No" justifyContent="End">
             <Text as="span" size="T200" priority="400" align="Right">
-              <Link to={getResetPasswordPath(server)}>Forget Password?</Link>
+              <Link className={ForgotLink} to={getResetPasswordPath(server)}>
+                Forget Password?
+              </Link>
             </Text>
           </Box>
         </Box>

@@ -8,7 +8,7 @@ const N = bake.elevationDeg.length;
 
 /** Index pair and weight of an azimuth (degrees clockwise from north) on the baked ring. */
 function at(azimuth: number): [number, number, number] {
-  const f = ((((azimuth / bake.stepDeg) % N) + N) % N);
+  const f = (((azimuth / bake.stepDeg) % N) + N) % N;
   const i = Math.floor(f);
   return [i, (i + 1) % N, f - i];
 }

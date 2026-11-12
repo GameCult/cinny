@@ -34,7 +34,8 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** An ISO time that names its zone (`Z` or an offset); `Date.parse` would read a bare one in the client's local time. */
-const isZonedTime = (v: unknown): v is string => typeof v === 'string' && /(Z|[+-]\d\d:?\d\d)$/.test(v) && !Number.isNaN(Date.parse(v));
+const isZonedTime = (v: unknown): v is string =>
+  typeof v === 'string' && /(Z|[+-]\d\d:?\d\d)$/.test(v) && !Number.isNaN(Date.parse(v));
 
 /** A `WeatherFile` from parsed JSON, or null when it does not have the shape (times missing or unparseable). */
 export function parseWeatherFile(json: unknown): WeatherFile | null {
@@ -96,8 +97,10 @@ export function cloudEstimate(f: WeatherFile, sunEl: number): number | null {
 export function weatherFromFile(f: WeatherFile, sunEl: number): number {
   const rain = f.precip_mm_10min ?? 0;
   if (rain > 0) return clamp01(0.8 + 0.2 * Math.min(1, rain / 1.5));
-  const cloud = cloudEstimate(f, sunEl) ?? (f.humidity_pct === null ? 0 : clamp01((f.humidity_pct - 60) / 35));
-  const mist = f.humidity_pct === null || cloud < 0.5 ? 0 : clamp01((f.humidity_pct - 92) / 8) * 0.75;
+  const cloud =
+    cloudEstimate(f, sunEl) ?? (f.humidity_pct === null ? 0 : clamp01((f.humidity_pct - 60) / 35));
+  const mist =
+    f.humidity_pct === null || cloud < 0.5 ? 0 : clamp01((f.humidity_pct - 92) / 8) * 0.75;
   return Math.max(0.7 * cloud, mist);
 }
 
@@ -106,13 +109,24 @@ export function currentWeather(f: WeatherFile | null, now: Date = new Date()): n
   if (!f) return CLEAR_SKY;
   const fetched = now.getTime() - Date.parse(f.fetched_at);
   const observed = now.getTime() - Date.parse(f.observed_at);
-  if (!(fetched <= STALE_MS && fetched >= -SKEW_MS && observed <= OBSERVATION_STALE_MS && observed >= -SKEW_MS)) return CLEAR_SKY;
+  if (
+    !(
+      fetched <= STALE_MS &&
+      fetched >= -SKEW_MS &&
+      observed <= OBSERVATION_STALE_MS &&
+      observed >= -SKEW_MS
+    )
+  )
+    return CLEAR_SKY;
   // GLOW and SO are means of the ten minutes ending at observed_at: the sun of their midpoint is the one to set them against.
   return weatherFromFile(f, viennaSun(new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
 }
 
 /** Fetch and parse `weather.json`; null on any failure. */
-export async function fetchWeatherFile(url: string, fetcher: typeof fetch = fetch): Promise<WeatherFile | null> {
+export async function fetchWeatherFile(
+  url: string,
+  fetcher: typeof fetch = fetch
+): Promise<WeatherFile | null> {
   try {
     const res = await fetcher(url, { cache: 'no-store' });
     return res.ok ? parseWeatherFile(await res.json()) : null;

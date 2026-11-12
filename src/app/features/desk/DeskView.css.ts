@@ -30,13 +30,29 @@ export const Title = style({
 export const Fold = style({
   all: 'unset',
   cursor: 'pointer',
-  display: 'block',
   width: '100%',
   minHeight: 44,
   boxSizing: 'border-box',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: config.space.S200,
+  // A folded row says it can be opened: a chevron at the end, turned down while the row is open.
+  selectors: {
+    '&::after': {
+      content: '"›"',
+      flexShrink: 0,
+      fontSize: '1.5em',
+      lineHeight: 1,
+      transition: 'transform 120ms',
+    },
+    '&[aria-expanded=true]::after': { transform: 'rotate(90deg)' },
+  },
 });
 
-export const Quiet = style({ opacity: config.opacity.P300, margin: `${config.space.S100} 0` });
+// Quiet lines (age, who it waits on, helper text) were measured at 4.5 over the day sky and 3.9-4.0 at dusk and night
+// with the theme's 0.75 (taps2/desk-REPORT.md); 0.9 clears 4.5 in all three.
+export const Quiet = style({ opacity: 0.9, margin: `${config.space.S100} 0` });
 export const Body = style({ whiteSpace: 'pre-wrap', margin: `${config.space.S200} 0` });
 export const Options = style({ margin: 0, padding: 0, listStyle: 'none' });
 export const Option = style({ padding: `${config.space.S100} 0` });
@@ -50,8 +66,9 @@ export const Note = style({
   font: 'inherit',
   color: 'inherit',
   background: 'none',
-  border: `1px solid ${color.Background.ContainerLine}`,
-  opacity: config.opacity.Disabled,
+  // The note is disabled (slice 1). Its border is a UI boundary (3:1 wanted; the faint line under the 0.38 disabled
+  // opacity measured 2.0), so it is drawn dashed in the full ink and not faded.
+  border: '1px dashed currentColor',
 });
 
 /** Sticky beside the rows on wide screens; a small fixed corner image on phones. */
@@ -96,4 +113,10 @@ export const BoothLine = style({
       whiteSpace: 'nowrap',
     },
   },
+});
+
+/** The recorded rulings sit on the dark ridge in every sky; they carry their own ground (scrimStyle). */
+export const Recorded = style({
+  marginTop: config.space.S400,
+  padding: `${config.space.S200} ${config.space.S300}`,
 });

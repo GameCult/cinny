@@ -31,7 +31,8 @@ describe('the sun over Vienna', () => {
   it('has a short day in December and a long one in June: published 8 h 4 min and 16 h 0 min with refraction, which adds about 6 minutes each end the ephemeris leaves out', () => {
     const daylight = (day: string) => {
       let n = 0;
-      for (let m = 0; m < 24 * 60; m += 1) if (viennaSun(new Date(Date.parse(day) + m * 60_000)).elevation > 0) n += 1;
+      for (let m = 0; m < 24 * 60; m += 1)
+        if (viennaSun(new Date(Date.parse(day) + m * 60_000)).elevation > 0) n += 1;
       return n;
     };
     expect(Math.abs(daylight('2026-12-21T00:00:00Z') - (8 * 60 + 4))).toBeLessThan(15);

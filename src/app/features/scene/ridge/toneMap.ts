@@ -20,7 +20,8 @@ const OUT: readonly Rgb[] = [
   [-0.10208, 1.10813, -0.00605],
   [-0.00327, -0.07276, 1.07602],
 ];
-const fit = (v: number): number => (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.432951) + 0.238081);
+const fit = (v: number): number =>
+  (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.432951) + 0.238081);
 const encode = (l: number): number => {
   const c = Math.min(1, Math.max(0, l));
   return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
@@ -32,7 +33,8 @@ export function acesLinear(r: number, g: number, b: number, exposure: number, ou
   const y = g * exposure;
   const z = b * exposure;
   const p = [0, 1, 2].map((i) => fit(Math.max(0, IN[i][0] * x + IN[i][1] * y + IN[i][2] * z)));
-  for (let i = 0; i < 3; i += 1) out[i] = Math.min(1, Math.max(0, OUT[i][0] * p[0] + OUT[i][1] * p[1] + OUT[i][2] * p[2]));
+  for (let i = 0; i < 3; i += 1)
+    out[i] = Math.min(1, Math.max(0, OUT[i][0] * p[0] + OUT[i][1] * p[1] + OUT[i][2] * p[2]));
 }
 
 /** The 8-bit sRGB of linear radiance, exposed and tone-mapped. */
@@ -44,7 +46,8 @@ export function toneMap8(r: number, g: number, b: number, exposure: number, out:
 }
 
 /** WCAG relative luminance of linear display RGB. */
-export const displayLuma = (c: ArrayLike<number>): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+export const displayLuma = (c: ArrayLike<number>): number =>
+  0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
 /** What a sky state needs of its backdrop's display luminance, from the ink it wears (skyBand.ts, skyInk.ts). */
 export interface Budget {
@@ -90,7 +93,13 @@ const decode = (v: number): number => {
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 };
 /** Display luminance (WCAG relative, from the encoded bytes) of a radiance through a display. */
-export function displayLumaOf(r: number, g: number, b: number, d: Display, tmp: number[] = [0, 0, 0]): number {
+export function displayLumaOf(
+  r: number,
+  g: number,
+  b: number,
+  d: Display,
+  tmp: number[] = [0, 0, 0]
+): number {
   display8(r, g, b, d, tmp);
   return displayLuma([decode(tmp[0]), decode(tmp[1]), decode(tmp[2])]);
 }
@@ -113,7 +122,9 @@ export interface Fit {
 export function fitDisplay(state: FixedSkyState, hdr: Float32Array, meanLuma: number): Fit {
   const b = BUDGET[state];
   const keyExposure =
-    b.key === undefined ? b.min : Math.min(b.max, Math.max(b.min, (b.key * 1.6) / Math.max(meanLuma, 1e-9)));
+    b.key === undefined
+      ? b.min
+      : Math.min(b.max, Math.max(b.min, (b.key * 1.6) / Math.max(meanLuma, 1e-9)));
   const n = hdr.length / 3;
   const stride = Math.max(1, Math.floor(n / 4000));
   const tmp = [0, 0, 0];
@@ -187,7 +198,10 @@ export function holdBudget(state: FixedSkyState, hdr: Float32Array, d: Display):
     r = range(cur);
   }
   for (let k = 0; k < 8 && r.lo < b.floor; k += 1) {
-    cur = { exposure: cur.exposure, lift: cur.lift + ((b.floor - r.lo) / (1 - r.lo)) * 1.05 + 1e-4 };
+    cur = {
+      exposure: cur.exposure,
+      lift: cur.lift + ((b.floor - r.lo) / (1 - r.lo)) * 1.05 + 1e-4,
+    };
     r = range(cur);
   }
   return cur;

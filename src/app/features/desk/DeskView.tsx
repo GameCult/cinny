@@ -4,6 +4,8 @@ import { PoseAvatar } from '../../components/message/pose/PoseAvatar';
 import { MINDS } from '../../components/message/pose/poses';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
 import { AnswerRow, Desk, buildDesk, DeskRow } from './buildDesk';
+import { useSkyInk } from '../../hooks/useTheme';
+import { scrimStyle } from '../scene/skyInk';
 import { ForkList } from './forkContract';
 import { deskMood } from './deskMood';
 import { raisedAge } from './age';
@@ -144,6 +146,7 @@ type DeskViewProps = {
 /** One Mind's desk, read-only: a stream of rows, the recorded rulings, and the booth Persona. */
 export function DeskView({ mind, label, list, unverified, now = Date.now() }: DeskViewProps) {
   const desk = buildDesk(list, unverified);
+  const skyInk = useSkyInk();
   // Slice 1 has no session, so nothing on the desk is the viewer's answer yet.
   const mood = deskMood(desk.counts.open, 0);
   return (
@@ -166,7 +169,7 @@ export function DeskView({ mind, label, list, unverified, now = Date.now() }: De
         )}
       </div>
       {desk.recorded.length > 0 && (
-        <>
+        <div className={css.Recorded} style={scrimStyle(skyInk)}>
           <h3 className={css.Title}>Recorded as rulings</h3>
           <ul className={css.Options}>
             {desk.recorded.map((r) => (
@@ -175,7 +178,7 @@ export function DeskView({ mind, label, list, unverified, now = Date.now() }: De
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
     </section>
   );

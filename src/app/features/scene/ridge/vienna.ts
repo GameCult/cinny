@@ -33,7 +33,8 @@ export const STATE_ELEVATION: Record<FixedSkyState, readonly [number, number]> =
   night: [-90, -DAY_FROM],
 };
 
-const startOfUtcDay = (t: Date): number => Math.floor(t.getTime() / (24 * 60 * MIN)) * 24 * 60 * MIN;
+const startOfUtcDay = (t: Date): number =>
+  Math.floor(t.getTime() / (24 * 60 * MIN)) * 24 * 60 * MIN;
 
 /** The moment of the day (UTC day of `t`, every 5 minutes) the sun is highest over Vienna: solar noon to the step. */
 export function solarNoon(t: Date): Date {

@@ -88,7 +88,13 @@ describe('ridgeSkyFor', () => {
   });
 
   it('draws the sky auto resolves to, never nothing', () => {
-    const key = (s: ReturnType<typeof ridgeSkyFor>) => [s.top, s.mid, s.horizon, s.band, s.physical?.sun];
+    const key = (s: ReturnType<typeof ridgeSkyFor>) => [
+      s.top,
+      s.mid,
+      s.horizon,
+      s.band,
+      s.physical?.sun,
+    ];
     setSkyClock(() => atStandardTime(12, 0));
     expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('day', 0.3)));
     setSkyClock(() => atStandardTime(0, 0));

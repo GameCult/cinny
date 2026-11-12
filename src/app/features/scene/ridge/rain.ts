@@ -27,10 +27,18 @@ export const RAIN_TILES: readonly RainTile[] = [
 export const RAIN_SLANT = 0.18;
 
 /** Streaks to draw at a rain amount 0..1 (none at 0). */
-export const streakCount = (t: RainTile, rain: number): number => (rain <= 0 ? 0 : Math.max(4, Math.round(t.streaks * rain)));
+export const streakCount = (t: RainTile, rain: number): number =>
+  rain <= 0 ? 0 : Math.max(4, Math.round(t.streaks * rain));
 
 /** Draw one tile. The streaks wrap across the tile's edges so the tile repeats without a seam. */
-export function drawRainTile(ctx: CanvasRenderingContext2D, t: RainTile, rain: number, colour: Srgb, scale: number, seed = 0): void {
+export function drawRainTile(
+  ctx: CanvasRenderingContext2D,
+  t: RainTile,
+  rain: number,
+  colour: Srgb,
+  scale: number,
+  seed = 0
+): void {
   const n = streakCount(t, rain);
   ctx.clearRect(0, 0, t.size, t.size);
   ctx.lineCap = 'round';

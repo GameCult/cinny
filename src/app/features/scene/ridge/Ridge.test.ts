@@ -818,8 +818,12 @@ describe('endless drift: chunks baked on demand and recycled', () => {
 });
 
 describe('rain in the scene', () => {
-  const rainy = (w: number): SkyColours => ({ ...DAY, physical: makePhysicalSky('day', new Date('2026-06-21T10:40:00Z'), w) });
-  const rainEls = (parent: any) => parent.children.filter((c: any) => c.tag === 'div' && c !== rigOf(parent));
+  const rainy = (w: number): SkyColours => ({
+    ...DAY,
+    physical: makePhysicalSky('day', new Date('2026-06-21T10:40:00Z'), w),
+  });
+  const rainEls = (parent: any) =>
+    parent.children.filter((c: any) => c.tag === 'div' && c !== rigOf(parent));
 
   it('lays one falling tile per rain layer over the ridges when it rains, each slid by its own height on the compositor', () => {
     const { parent, canvas } = host();
