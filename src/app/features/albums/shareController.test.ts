@@ -33,8 +33,6 @@ const make = (over: Partial<ShareDeps<Picked>> = {}, roomId = '!zone:x') => {
   return { c, h, sentTo };
 };
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
-
 describe('picking', () => {
   it('starts idle with nothing picked, and a pick holds the files in order', () => {
     const { c } = make();
@@ -148,7 +146,7 @@ describe('progress and results', () => {
   it('full success clears the pick, tells the room list, and remounts the input', async () => {
     const { c, h, sentTo } = make();
     c.pick([file('a')]);
-    const epoch = c.getState().epoch;
+    const { epoch } = c.getState();
     const p = c.send();
     h.release(ok(1));
     await p;
@@ -197,7 +195,6 @@ describe('an encrypted room', () => {
     const { c, h } = make({ isEncrypted: () => true });
     c.pick([file('a')]);
     await c.send();
-    await tick();
     expect(ENCRYPTED_NOTE).toBe('Not shared: this room is encrypted.');
     expect(c.getState().phase).toEqual({ kind: 'done', text: ENCRYPTED_NOTE });
     expect(c.getState().files).toHaveLength(1);
