@@ -7,11 +7,11 @@ import type { FixedSkyState } from './skyBand';
 import {
   LIGHTEST_PATCH,
   NIGHT_INK_MAX_L,
-  NOTICE_INK,
-  NOTICE_SCRIM,
+  SCRIM_INK,
+  SCRIM_GROUND,
   inkForState,
   labelInk,
-  noticeStyle,
+  scrimStyle,
   sceneInk,
   userColorInk,
 } from './skyInk';
@@ -183,24 +183,24 @@ describe('labelInk', () => {
   });
 });
 
-describe('noticeStyle', () => {
+describe('scrimStyle', () => {
   // The scrim over the lightest possible ground (white) is the worst case the ink can meet.
-  const [r, g, b, a] = NOTICE_SCRIM.match(/[\d.]+/g)!.map(Number);
+  const [r, g, b, a] = (SCRIM_GROUND.match(/[\d.]+/g) ?? []).map(Number);
   const worst = chroma.rgb(
     ...([r, g, b].map((c) => c * a + 255 * (1 - a)) as [number, number, number])
   );
   const ratio = (x: number, y: number) => (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 
   it('clears AA for its ink over its scrim even on a white ground', () => {
-    expect(ratio(luminance(NOTICE_INK), luminance(worst.hex()))).toBeGreaterThanOrEqual(AA);
+    expect(ratio(luminance(SCRIM_INK), luminance(worst.hex()))).toBeGreaterThanOrEqual(AA);
   });
 
   it('is the same in every sky state and viewport while a scene runs, and absent without one', () => {
     const styles = (['day', 'dusk', 'night'] as FixedSkyState[]).flatMap((state) =>
-      [true, false].map((phone) => noticeStyle({ state, phone }))
+      [true, false].map((phone) => scrimStyle({ state, phone }))
     );
     styles.forEach((x) => expect(x).toEqual(styles[0]));
-    expect(styles[0]).toMatchObject({ color: NOTICE_INK, backgroundColor: NOTICE_SCRIM });
-    expect(noticeStyle(undefined)).toBeUndefined();
+    expect(styles[0]).toMatchObject({ color: SCRIM_INK, backgroundColor: SCRIM_GROUND });
+    expect(scrimStyle(undefined)).toBeUndefined();
   });
 });

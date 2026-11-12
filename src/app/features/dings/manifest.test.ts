@@ -109,7 +109,10 @@ describe('v4 manifest against the parser', () => {
 
   it("every voice file is Aqua's v4 render (sha256 prefix)", () => {
     const hash = (file: string) =>
-      createHash('sha256').update(readFileSync(join(DINGS, file))).digest('hex').slice(0, 12);
+      createHash('sha256')
+        .update(readFileSync(join(DINGS, file)))
+        .digest('hex')
+        .slice(0, 12);
     expect(Object.keys(V4_SHA).length).toBe(VOICES.length * MOTIFS.length);
     Object.entries(V4_SHA).forEach(([k, want]) => expect(hash(`senders/${k}.ogg`)).toBe(want));
   });

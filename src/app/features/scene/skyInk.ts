@@ -103,11 +103,14 @@ export const labelInk = ({ state, phone }: SkyInk): string | undefined =>
  * the scene is behind it. The scrim is composited over the lightest ground there is (white); the ink over that
  * worst case clears AA (skyInk.test.ts).
  */
-export const NOTICE_INK = baked.midnight.tokens.SurfaceVariant.OnContainer;
-export const NOTICE_SCRIM = 'rgba(10, 14, 24, 0.82)';
+export const SCRIM_INK = baked.midnight.tokens.SurfaceVariant.OnContainer;
+export const SCRIM_GROUND = 'rgba(10, 14, 24, 0.82)';
 
-/** The style of the notice line while a scene runs behind it: its own ground and ink, or undefined without one. */
-export const noticeStyle = (ink: SkyInk | undefined) =>
+/**
+ * The style of a line of text that must be read whatever the scene draws behind it (the training notice, the desk's
+ * recorded rulings): its own ground and ink while a scene runs, or undefined without one.
+ */
+export const scrimStyle = (ink: SkyInk | undefined) =>
   ink
-    ? { color: NOTICE_INK, backgroundColor: NOTICE_SCRIM, borderRadius: 4, paddingInline: 6 }
+    ? { color: SCRIM_INK, backgroundColor: SCRIM_GROUND, borderRadius: 4, paddingInline: 6 }
     : undefined;

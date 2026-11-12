@@ -15,7 +15,12 @@ import FocusTrap from 'focus-trap-react';
 import { stopPropagation } from '../../utils/keyboard';
 import { useSkyState } from '../../hooks/useSkyState';
 import { SKY_STATES, setSkyState, type SkyState } from './skyState';
-import { HORIZON_CREDIT, WEATHER_CREDIT, WEATHER_CREDIT_URL, WEATHER_DATASET } from './ridge/credits';
+import {
+  HORIZON_CREDIT,
+  WEATHER_CREDIT,
+  WEATHER_CREDIT_URL,
+  WEATHER_DATASET,
+} from './ridge/credits';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import {
   getSceneStyleOverride,
@@ -118,7 +123,11 @@ export function SkyStateControl() {
                 </>
               )}
               {backgroundScene && sceneStyle === 'ridge' && (
-                <Box direction="Column" gap="100" style={{ padding: `${config.space.S200}`, maxWidth: '20rem' }}>
+                <Box
+                  direction="Column"
+                  gap="100"
+                  style={{ padding: `${config.space.S200}`, maxWidth: '20rem' }}
+                >
                   <Text size="L400" priority="300">
                     Data
                   </Text>

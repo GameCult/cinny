@@ -37,5 +37,7 @@ export function fragmentSource(stage: Stage, defines = ''): string {
   const erosion = solid && WORLD.phacelleGradBound > 0 ? phacelle : '';
   const world = solid ? sdf : '';
   const math = trimGlsl(cultmath, [erosion, common, world, stages[stage]]);
-  return `${HEADER}${defines}${worldDefines()}\n${math}\n${erosion}\n${common}\n${world}\n${stages[stage]}`;
+  return `${HEADER}${defines}${worldDefines()}\n${math}\n${erosion}\n${common}\n${world}\n${
+    stages[stage]
+  }`;
 }

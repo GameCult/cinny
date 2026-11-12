@@ -4,7 +4,15 @@
 import type { FixedSkyState } from '../skyBand';
 import { bakeAtmosphere } from './earthAtmosphere';
 import type { Atmosphere } from './earthAtmosphere';
-import { domeSize, HORIZON_AT, renderDome, SUN_RADIUS, sunOnScreen, viewFor, VFOV_DEG } from './skyDome';
+import {
+  domeSize,
+  HORIZON_AT,
+  renderDome,
+  SUN_RADIUS,
+  sunOnScreen,
+  viewFor,
+  VFOV_DEG,
+} from './skyDome';
 import type { Dome, DomeView } from './skyDome';
 import type { Srgb } from './skyColour';
 import { display8, fitDisplay, holdBudget, MARGIN } from './toneMap';
@@ -45,7 +53,11 @@ export function rowMean(dome: Dome, display: Display, row: number): Srgb {
   return [Math.round(acc[0] / dome.w), Math.round(acc[1] / dome.w), Math.round(acc[2] / dome.w)];
 }
 
-export function makePhysicalSky(state: FixedSkyState, now: Date, weatherValue: number): PhysicalSky {
+export function makePhysicalSky(
+  state: FixedSkyState,
+  now: Date,
+  weatherValue: number
+): PhysicalSky {
   const t0 = clock();
   const sun = sunForState(state, now);
   const weather = weatherOf(weatherValue);
@@ -117,8 +129,16 @@ function sunDisc(p: PhysicalSky, view: DomeView): SkyPixels['sunDisc'] {
   const top = Math.max(...trans, 1e-9);
   const rgb = trans.map((t) => Math.round(255 * (t / top) ** 0.6));
   // The disc sits on the sky, so it keeps the display floor the dark link was fitted to: mix toward white until it does.
-  const lin = (c: number): number => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
-  const luma = (c: number[]): number => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
-  for (let m = 0; luma(rgb) < DISC_FLOOR && m < 40; m += 1) for (let i = 0; i < 3; i += 1) rgb[i] = Math.round(rgb[i] + (255 - rgb[i]) * 0.1);
-  return { ...at, rgb: rgb as unknown as Srgb, radius: (SUN_RADIUS * 180) / Math.PI / VFOV_DEG, alpha };
+  const lin = (c: number): number =>
+    c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4;
+  const luma = (c: number[]): number =>
+    0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  for (let m = 0; luma(rgb) < DISC_FLOOR && m < 40; m += 1)
+    for (let i = 0; i < 3; i += 1) rgb[i] = Math.round(rgb[i] + (255 - rgb[i]) * 0.1);
+  return {
+    ...at,
+    rgb: rgb as unknown as Srgb,
+    radius: (SUN_RADIUS * 180) / Math.PI / VFOV_DEG,
+    alpha,
+  };
 }

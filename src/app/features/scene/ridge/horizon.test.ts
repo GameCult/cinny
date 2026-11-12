@@ -21,7 +21,10 @@ describe('the baked horizon', () => {
     expect(horizonDistanceKm(305)).toBeGreaterThan(1);
   });
   it('interpolates between samples and returns unit normals', () => {
-    expect(horizonElevation(100.25)).toBeCloseTo((bake.elevationDeg[200] + bake.elevationDeg[201]) / 2, 6);
+    expect(horizonElevation(100.25)).toBeCloseTo(
+      (bake.elevationDeg[200] + bake.elevationDeg[201]) / 2,
+      6
+    );
     expect(Math.hypot(...horizonNormal(250))).toBeCloseTo(1, 6);
   });
 });

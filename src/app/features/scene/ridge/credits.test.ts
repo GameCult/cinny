@@ -4,7 +4,7 @@ import { HORIZON_ATTRIBUTION } from './horizon';
 import { WEATHER_ATTRIBUTION } from './weatherFeed';
 
 describe('the credits the Sky menu shows', () => {
-  it('are the sources\' own', () => {
+  it("are the sources' own", () => {
     expect(HORIZON_CREDIT).toBe(HORIZON_ATTRIBUTION);
     expect(WEATHER_CREDIT).toBe(WEATHER_ATTRIBUTION);
   });

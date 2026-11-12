@@ -1,13 +1,18 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScreenSize, ScreenSizeProvider } from '../../hooks/useScreenSize';
+import { SkyInkContextProvider } from '../../hooks/useTheme';
+import { SCRIM_GROUND, SCRIM_INK } from '../scene/skyInk';
 import { DeskEntry } from './DeskEntry';
 import { DeskView, SIGN_IN_NOTE } from './DeskView';
 import { ForkList } from './forkContract';
 import { STATES } from './fixtures';
 import { setDeskSource } from './source';
+
+// useTheme reads the stored settings when it loads.
+vi.hoisted(() => vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined }));
 
 const view = (
   state: keyof typeof STATES | 'unpublished',
@@ -65,6 +70,19 @@ describe('DeskView', () => {
     expect(html).toContain('Recorded as rulings');
     expect(html).toContain('Question done (ruling:done-1)');
     expect(html).not.toContain('Question shut');
+  });
+  it('gives the recorded rulings their own ground and ink while a scene runs, none without one', () => {
+    const withScene = renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <SkyInkContextProvider value={{ state: 'dusk', phone: false }}>
+          <DeskView mind="void" label="Void" list={STATES.settled} unverified={new Set()} />
+        </SkyInkContextProvider>
+      </ScreenSizeProvider>
+    );
+    // renderToStaticMarkup writes the inline style as the browser would read it back
+    expect(withScene).toContain(SCRIM_GROUND.replace(/, /g, ', '));
+    expect(withScene).toContain(`color:${SCRIM_INK}`);
+    expect(view('settled', ScreenSize.Desktop)).not.toContain('background-color');
   });
   it('shows each outcome quietly, marks the counted answer, and renders a note only when sent', () => {
     const html = view('answered', ScreenSize.Desktop);
@@ -145,7 +163,15 @@ describe("a question's age", () => {
     expect(html('2026-11-11T11:40:00Z')).toContain('raised just now');
   });
   it('shows no age when the card carries none, or an instant that does not parse or is ahead of the clock', () => {
-    ['null', 'yesterday', '2027-01-01T00:00:00Z', '2026-11-06', 'Nov 6 2026', '0', '2026-02-30T00:00:00Z'].forEach((v) => {
+    [
+      'null',
+      'yesterday',
+      '2027-01-01T00:00:00Z',
+      '2026-11-06',
+      'Nov 6 2026',
+      '0',
+      '2026-02-30T00:00:00Z',
+    ].forEach((v) => {
       expect(html(v === 'null' ? null : v)).not.toContain('raised ');
     });
   });

@@ -6,7 +6,15 @@ import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import { bakeSlice, BakeParams, layerPaint } from './ridgeBake';
-import { LAYERS, LayerSpec, edgeBlur, HORIZON_TRACK_SHIFT, layerSize, scatterAlpha, transmittance } from './ridgeWorld';
+import {
+  LAYERS,
+  LayerSpec,
+  edgeBlur,
+  HORIZON_TRACK_SHIFT,
+  layerSize,
+  scatterAlpha,
+  transmittance,
+} from './ridgeWorld';
 import { hfovDeg } from './horizon';
 import { viewFor, VFOV_DEG } from './skyDome';
 import { drawRainTile, RAIN_TILES } from './rain';
@@ -471,7 +479,13 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
    * The rain over everything: per tile, a div of the tile's texture (drawn once) taller than the viewport by one tile, slid down one
    * tile height per loop on the compositor. 'still' draws none (a settled still has no animation to carry it).
    */
-  const startRain = (rain: number, colour: Srgb, w: number, h: number, scale: number): NonNullable<Built['rain']> => {
+  const startRain = (
+    rain: number,
+    colour: Srgb,
+    w: number,
+    h: number,
+    scale: number
+  ): NonNullable<Built['rain']> => {
     const els: HTMLElement[] = [];
     const anims: (Animation | undefined)[] = [];
     RAIN_TILES.forEach((t, k) => {
@@ -498,11 +512,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       parent.appendChild(el);
       els.push(el);
       anims.push(
-        el.animate?.([{ transform: 'translate3d(0,0,0)' }, { transform: `translate3d(0,${px}px,0)` }], {
-          duration: t.seconds * 1000,
-          iterations: Infinity,
-          easing: 'linear',
-        })
+        el.animate?.(
+          [{ transform: 'translate3d(0,0,0)' }, { transform: `translate3d(0,${px}px,0)` }],
+          {
+            duration: t.seconds * 1000,
+            iterations: Infinity,
+            easing: 'linear',
+          }
+        )
       );
     });
     return { els, anims };
@@ -606,7 +623,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     parent.appendChild(rig);
     layers.forEach((l) => startDrift(l, rotate));
     built.sway = startSway(rig, w, h);
-    if (tier !== 'still' && sky.physical && sky.physical.weather.rain > 0) built.rain = startRain(sky.physical.weather.rain, sky.horizon, w, h, scale);
+    if (tier !== 'still' && sky.physical && sky.physical.weather.rain > 0)
+      built.rain = startRain(sky.physical.weather.rain, sky.horizon, w, h, scale);
     pump();
     syncPlayState();
     return true;
@@ -640,7 +658,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   function syncPlayState() {
-    const anims = built ? [built.sway, ...built.layers.map((l) => l.anim), ...(built.rain?.anims ?? [])] : [];
+    const anims = built
+      ? [built.sway, ...built.layers.map((l) => l.anim), ...(built.rain?.anims ?? [])]
+      : [];
     anims.forEach((a) => (moving() ? a?.play() : a?.pause()));
     if (!built?.twinkle) return;
     if (moving()) {

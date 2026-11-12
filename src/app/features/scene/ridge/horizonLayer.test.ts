@@ -25,7 +25,9 @@ describe('the horizon layer', () => {
   });
 
   it('stays in 0..1 and covers a real range of shape, not a line', () => {
-    const v = Array.from({ length: 200 }, (_, i) => layerProfile(far, -0.06 + (i / 200) * 1.2, { azimuthDeg: 305, hfovDeg: view.hfovDeg }));
+    const v = Array.from({ length: 200 }, (_, i) =>
+      layerProfile(far, -0.06 + (i / 200) * 1.2, { azimuthDeg: 305, hfovDeg: view.hfovDeg })
+    );
     expect(Math.min(...v)).toBeGreaterThanOrEqual(0);
     expect(Math.max(...v)).toBeLessThanOrEqual(1);
     expect(Math.max(...v) - Math.min(...v)).toBeGreaterThan(0.2);
@@ -43,7 +45,7 @@ describe('the horizon layer', () => {
 });
 
 describe('weather in the layers', () => {
-  it('mist multiplies the layers\' own, and clear air leaves it alone', () => {
+  it("mist multiplies the layers' own, and clear air leaves it alone", () => {
     const base = skyColours();
     const day = new Date('2026-06-21T10:40:00Z');
     const clear = layerPaint(LAYERS[1], { ...base, physical: makePhysicalSky('day', day, 0) });

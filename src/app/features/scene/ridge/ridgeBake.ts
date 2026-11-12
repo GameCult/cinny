@@ -3,7 +3,15 @@
 // slope of the heightfield's crest line against the sun; the face under it takes a light-to-haze
 // gradient, erosion streaks and a lit rim on the crest. The depth treatment (colour, haze, contrast
 // by distance) is ridgeWorld's `layerColour`, `hazeColour` and `transmittance`, used here and not redone.
-import { gullyAt, HorizonView, LayerSpec, layerProfile, hazeColour, layerColour, transmittance } from './ridgeWorld';
+import {
+  gullyAt,
+  HorizonView,
+  LayerSpec,
+  layerProfile,
+  hazeColour,
+  layerColour,
+  transmittance,
+} from './ridgeWorld';
 import type { SkyBand } from '../skyBand';
 import { LUMA, SKY_BAND } from '../skyBand';
 import type { SkyColours, Srgb } from './skyColour';
@@ -137,7 +145,10 @@ function crestRows(p: BakeParams, c0: number, c1: number): Float64Array {
   const amp = p.spec.relief * p.viewH;
   const lift = p.spec.base * p.viewH;
   for (let c = c0 - 1; c <= c1; c += 1) {
-    const top = Math.min(p.bandH, lift + amp * layerProfile(p.spec, (p.px0 + c) / p.period, p.horizonView));
+    const top = Math.min(
+      p.bandH,
+      lift + amp * layerProfile(p.spec, (p.px0 + c) / p.period, p.horizonView)
+    );
     out[c - c0 + 1] = p.bandH - top;
   }
   return out;

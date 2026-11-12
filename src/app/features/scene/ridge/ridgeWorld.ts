@@ -47,7 +47,6 @@ export interface HorizonView {
 /** The static horizon layer's track sits this many viewport widths left of the screen, so the camera's sway never shows its edge. */
 export const HORIZON_TRACK_SHIFT = 0.06;
 
-
 /** Four layers: one function, four parameter rows. */
 export const LAYERS: readonly LayerSpec[] = [
   {
@@ -225,7 +224,13 @@ export function layerSize(cssW: number, cssH: number, scale: number) {
 }
 
 /** Ridge-top y (canvas pixels, from the top of the layer's band) at world-x `t` (viewport widths). */
-export function ridgeY(spec: LayerSpec, t: number, bandH: number, viewH: number, view?: HorizonView): number {
+export function ridgeY(
+  spec: LayerSpec,
+  t: number,
+  bandH: number,
+  viewH: number,
+  view?: HorizonView
+): number {
   const topFromBottom = spec.base * viewH + spec.relief * viewH * layerProfile(spec, t, view);
   return bandH - Math.min(bandH, topFromBottom);
 }

@@ -43,7 +43,9 @@ export function weatherOf(value: number): Weather {
 }
 
 /** The page URL's `?weather=<0..1>`, when it is a number. */
-export function urlWeather(search: string = typeof location === 'undefined' ? '' : location.search): number | undefined {
+export function urlWeather(
+  search: string = typeof location === 'undefined' ? '' : location.search
+): number | undefined {
   const v = new URLSearchParams(search).get('weather');
   if (v === null || v.trim() === '') return undefined;
   const n = Number(v);

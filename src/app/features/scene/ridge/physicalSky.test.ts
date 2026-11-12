@@ -10,7 +10,8 @@ const lin = (v: number): number => {
   const c = v / 255;
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 };
-const luma = (d: Uint8ClampedArray, i: number): number => 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]);
+const luma = (d: Uint8ClampedArray, i: number): number =>
+  0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]);
 
 const DAYS = ['2026-03-20', '2026-06-21', '2026-09-23', '2026-12-21'];
 const WEATHER = [0, 0.3, 0.55, 0.75, 1];
@@ -21,28 +22,31 @@ const VIEWPORTS: [number, number][] = [
   [390, 844],
 ];
 
-describe.each(['day', 'dusk', 'night'] as FixedSkyState[])('the %s sky stays inside its backdrop bounds', (state) => {
-  it('over weather, season and viewport shape', () => {
-    const b = skyBackdrop(state);
-    let lo = 2;
-    let hi = -1;
-    for (const day of DAYS) {
-      for (const w of WEATHER) {
-        const sky = makePhysicalSky(state, new Date(`${day}T10:40:00Z`), w);
-        for (const [vw, vh] of VIEWPORTS) {
-          const px = paintSky(sky, vw, vh);
-          for (let i = 0; i < px.w * px.h * 4; i += 4) {
-            const l = luma(px.data, i);
-            lo = Math.min(lo, l);
-            hi = Math.max(hi, l);
+describe.each(['day', 'dusk', 'night'] as FixedSkyState[])(
+  'the %s sky stays inside its backdrop bounds',
+  (state) => {
+    it('over weather, season and viewport shape', () => {
+      const b = skyBackdrop(state);
+      let lo = 2;
+      let hi = -1;
+      for (const day of DAYS) {
+        for (const w of WEATHER) {
+          const sky = makePhysicalSky(state, new Date(`${day}T10:40:00Z`), w);
+          for (const [vw, vh] of VIEWPORTS) {
+            const px = paintSky(sky, vw, vh);
+            for (let i = 0; i < px.w * px.h * 4; i += 4) {
+              const l = luma(px.data, i);
+              lo = Math.min(lo, l);
+              hi = Math.max(hi, l);
+            }
           }
         }
       }
-    }
-    expect(lo).toBeGreaterThanOrEqual(b.darkest);
-    expect(hi).toBeLessThanOrEqual(b.lightest);
-  });
-});
+      expect(lo).toBeGreaterThanOrEqual(b.darkest);
+      expect(hi).toBeLessThanOrEqual(b.lightest);
+    });
+  }
+);
 
 describe('weather in the sky', () => {
   it('overcast is cloud: less blue and less contrast than clear air at the same sun', () => {
@@ -70,14 +74,21 @@ describe('weather in the sky', () => {
 
 describe('the sun disc', () => {
   it('keeps the display floor the dark link was fitted to, at every hour it is drawn', () => {
-    const lin = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+    const lin = (c: number) =>
+      c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4;
     let drawn = 0;
     for (const state of ['day', 'dusk'] as FixedSkyState[]) {
       for (let m = 0; m < 24 * 60; m += 10) {
-        const d = paintSky(makePhysicalSky(state, new Date(Date.UTC(2026, 10, 11, 0, m)), 0), 1280, 720).sunDisc;
+        const d = paintSky(
+          makePhysicalSky(state, new Date(Date.UTC(2026, 10, 11, 0, m)), 0),
+          1280,
+          720
+        ).sunDisc;
         if (!d) continue;
         drawn += 1;
-        expect(0.2126 * lin(d.rgb[0]) + 0.7152 * lin(d.rgb[1]) + 0.0722 * lin(d.rgb[2])).toBeGreaterThanOrEqual(0.4744);
+        expect(
+          0.2126 * lin(d.rgb[0]) + 0.7152 * lin(d.rgb[1]) + 0.0722 * lin(d.rgb[2])
+        ).toBeGreaterThanOrEqual(0.4744);
       }
     }
     expect(drawn).toBeGreaterThan(0);

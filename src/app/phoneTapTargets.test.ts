@@ -9,11 +9,13 @@ const emitted = async (file: string) => {
   const filePath = `${process.cwd()}/src/app/${file}`;
   const { source } = await compile({ filePath, cwd: process.cwd(), identOption: 'debug' });
   const code = await processVanillaFile({ source, filePath, identOption: 'debug' });
-  const bytes = Buffer.from(
-    (code.match(/source=#?([A-Za-z0-9+/=]+)/) as RegExpMatchArray)[1],
-    'base64'
-  );
-  return (bytes[0] === 0x1f && bytes[1] === 0x8b ? zlib.gunzipSync(bytes) : bytes).toString();
+  // A file with recipes inlines one source per rule group; read them all.
+  return [...code.matchAll(/source=#?([A-Za-z0-9+/=]+)/g)]
+    .map((m) => {
+      const bytes = Buffer.from(m[1], 'base64');
+      return (bytes[0] === 0x1f && bytes[1] === 0x8b ? zlib.gunzipSync(bytes) : bytes).toString();
+    })
+    .join('\n');
 };
 
 type Decls = Record<string, number>;
