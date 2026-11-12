@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import zlib from 'zlib';
 import { compile, processVanillaFile } from '@vanilla-extract/integration';
@@ -34,5 +35,14 @@ describe('bubble rows shrink to their column', () => {
   it('BubbleContent keeps its 800px cap inside the column width', async () => {
     const css = await emitted();
     expect(declarations(css, 'BubbleContent').join('\n')).toMatch(/max-width: min\(100%, 50rem\)/);
+  });
+
+  it('Bubble.tsx puts BubbleColumn on the column and BubbleContentRow on the row', () => {
+    const tsx = readFileSync(
+      `${process.cwd()}/src/app/components/message/layout/Bubble.tsx`,
+      'utf8'
+    );
+    expect(tsx).toMatch(/classNames\(css\.BubbleColumn,/);
+    expect(tsx).toMatch(/<Box className=\{css\.BubbleContentRow\}>/);
   });
 });
