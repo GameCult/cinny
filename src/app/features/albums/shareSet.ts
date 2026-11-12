@@ -72,7 +72,7 @@ export const sendShareSet = async <F extends ShareFile>(
  * makes a second album (adding to an existing one is not built), and a share where nothing went
  * leaves its root as a lone message the album list does not show (it lists threads with replies).
  */
-export const remainingAfter = <F extends ShareFile>(files: F[], result: ShareResult): F[] =>
+export const remainingAfter = <T>(files: T[], result: ShareResult): T[] =>
   files.filter((_, i) => result.failedAt.includes(i));
 
 export const resultNote = (result: ShareResult): string => {
