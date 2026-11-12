@@ -64,7 +64,7 @@ describe('draft', () => {
       setItem: () => {
         throw new Error('quota');
       },
-      removeItem: () => {},
+      removeItem: () => undefined,
     };
     expect(() => saveDraft('@a:x', '!r:x', para('x'), store)).not.toThrow();
   });
@@ -120,7 +120,7 @@ describe('outbox', () => {
       setItem: () => {
         throw new Error('quota');
       },
-      removeItem: () => {},
+      removeItem: () => undefined,
     };
     enqueueOutbox('@q:x', entry, 5, broken);
     failOutbox('@q:x', 't1', 'offline', broken);

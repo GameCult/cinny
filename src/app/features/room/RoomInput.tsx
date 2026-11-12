@@ -12,8 +12,6 @@ import { isKeyHotkey } from 'is-hotkey';
 import { EventType, IContent, MsgType, RelationType, Room } from 'matrix-js-sdk';
 import { ReactEditor } from 'slate-react';
 import { Transforms, Editor } from 'slate';
-import { RoomOutbox, sendTracked } from './RoomOutbox';
-import { clearDraft, loadDraft, saveDraft } from '../../state/room/composerStore';
 import {
   Box,
   Dialog,
@@ -30,6 +28,8 @@ import {
   config,
   toRem,
 } from 'folds';
+import { RoomOutbox, sendTracked } from './RoomOutbox';
+import { clearDraft, loadDraft, saveDraft } from '../../state/room/composerStore';
 
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import {
