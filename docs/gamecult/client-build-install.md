@@ -95,6 +95,8 @@ Hard-refresh to clear `sw.js`. Do not delete the failed release; leave it for di
 
 ## Open
 
-- `backgroundScene.style`: the repo and the served config both say `ridge` since #106 (Meta,
-  2026-11-11). Confirm against the live file at install time with the `cmp` above; the earlier
-  `terrain` mismatch is closed only when live is switched.
+- The served config (checked 2026-11-12) is not the repo's: it says `backgroundScene.style`
+  `terrain` where the repo says `ridge` (#106, Meta 2026-11-11), and lacks the repo's `dings`,
+  `fileZoneShare` and `registration` blocks (all off in the repo). The new keys default off or
+  inert when absent, so only the style is a decision. The `cmp` in step 2 shows the drift at
+  install time; Meta says which style ships.
