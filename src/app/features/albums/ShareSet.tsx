@@ -15,6 +15,9 @@ import * as css from './AlbumView.css';
 export const useShareEnabled = (room: Room): boolean =>
   !!useClientConfig().fileZoneShare?.enabled && !room.hasEncryptionStateEvent();
 
+/** Rooms with a share in flight. Module-level: leaving the page unmounts the panel, not the send. */
+const sending = new Set<string>();
+
 type Phase = { kind: 'idle' } | { kind: 'sending'; done: number } | { kind: 'done'; text: string };
 
 /**
@@ -25,7 +28,6 @@ export function ShareSet({ room }: { room: Room }) {
   const mx = useMatrixClient();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
-  const busy = useRef(false);
   const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -38,8 +40,12 @@ export function ShareSet({ room }: { room: Room }) {
 
   const send = async () => {
     // One send at a time, and never into a room that has turned encrypted since the panel mounted.
-    if (busy.current || room.hasEncryptionStateEvent()) return;
-    busy.current = true;
+    if (sending.has(room.roomId)) return;
+    if (room.hasEncryptionStateEvent()) {
+      setPhase({ kind: 'done', text: 'Not shared: this room is encrypted.' });
+      return;
+    }
+    sending.add(room.roomId);
     const items = files.map((file) => ({ name: file.name, mimeType: file.type, file }));
     setPhase({ kind: 'sending', done: 0 });
     let settled = 0;
@@ -82,7 +88,7 @@ export function ShareSet({ room }: { room: Room }) {
     } catch (e: any) {
       setPhase({ kind: 'done', text: `Could not share: ${e?.message ?? 'send failed'}` });
     } finally {
-      busy.current = false;
+      sending.delete(room.roomId);
     }
   };
 

@@ -56,7 +56,7 @@ describe('sendShareSet', () => {
   it('reads back as one album of the files in pick order', async () => {
     const r = room();
     const res = await sendShareSet(r.port, 'Take 4', clips);
-    expect(res).toEqual({ albumId: '$e1', sent: 3, failed: [] });
+    expect(res).toEqual({ albumId: '$e1', sent: 3, failed: [], failedAt: [] });
     const album = r.album();
     expect(album.title).toBe('Take 4');
     expect(album.files.map((f) => [f.name, f.kind])).toEqual([
@@ -117,6 +117,26 @@ describe('the share flag', () => {
 });
 
 describe('after a send', () => {
+  it('keeps the failed one of two same-named files, not both', async () => {
+    const twins: ShareFile[] = [
+      { name: 'a.ogg', mimeType: 'audio/ogg' },
+      { name: 'a.ogg', mimeType: 'audio/ogg' },
+    ];
+    let n = 0;
+    const r = room();
+    const port: SharePort<ShareFile> = {
+      ...r.port,
+      contentOf: async (f) => {
+        n += 1;
+        if (n === 2) throw new Error('second upload failed');
+        return r.port.contentOf(f);
+      },
+    };
+    const res = await sendShareSet(port, 't', twins);
+    expect(res.failedAt).toEqual([1]);
+    expect(remainingAfter(twins, res)).toEqual([twins[1]]);
+  });
+
   it('keeps only the failed files picked, so a retry is one tap', async () => {
     const r = room(['b.ogg']);
     const res = await sendShareSet(r.port, 't', clips);

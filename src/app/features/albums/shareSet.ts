@@ -20,6 +20,8 @@ export type ShareResult = {
   albumId: string;
   sent: number;
   failed: string[];
+  /** Positions in the files array of those that failed; names can repeat, positions cannot. */
+  failedAt: number[];
 };
 
 /** The reply relation Matrix clients expect for a thread message: root, with the last event as fallback reply. */
@@ -46,7 +48,7 @@ export const sendShareSet = async <F extends ShareFile>(
   files: F[]
 ): Promise<ShareResult> => {
   const albumId = await port.send({ msgtype: 'm.text', body: titleOrDefault(title) });
-  const result: ShareResult = { albumId, sent: 0, failed: [] };
+  const result: ShareResult = { albumId, sent: 0, failed: [], failedAt: [] };
   let lastId = albumId;
   for (let i = 0; i < files.length; i += 1) {
     try {
@@ -58,6 +60,7 @@ export const sendShareSet = async <F extends ShareFile>(
       port.onFile?.(i, 'sent');
     } catch {
       result.failed.push(files[i].name);
+      result.failedAt.push(i);
       port.onFile?.(i, 'failed');
     }
   }
@@ -70,7 +73,7 @@ export const sendShareSet = async <F extends ShareFile>(
  * leaves its root as a lone message the album list does not show (it lists threads with replies).
  */
 export const remainingAfter = <F extends ShareFile>(files: F[], result: ShareResult): F[] =>
-  files.filter((f) => result.failed.includes(f.name));
+  files.filter((_, i) => result.failedAt.includes(i));
 
 export const resultNote = (result: ShareResult): string => {
   if (result.failed.length === 0)
