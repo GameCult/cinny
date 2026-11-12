@@ -47,6 +47,7 @@ import {
 import { isKeyHotkey } from 'is-hotkey';
 import { Opts as LinkifyOpts } from 'linkifyjs';
 import { useTranslation } from 'react-i18next';
+import { isUnconfirmedLocalEcho } from './localEcho';
 import { eventWithShortcode, factoryEventSentBy, getMxIdLocalPart } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useVirtualPaginator, ItemRange } from '../../hooks/useVirtualPaginator';
@@ -389,6 +390,19 @@ const useLiveEventArrive = (room: Room, onArrive: (mEvent: MatrixEvent) => void)
   }, [room, onArrive]);
 };
 
+/** A local echo changes status (or becomes its remote echo) without a Timeline event: redraw. */
+const useLocalEchoRefresh = (room: Room, onUpdate: () => void) => {
+  useEffect(() => {
+    const handle: RoomEventHandlerMap[RoomEvent.LocalEchoUpdated] = (_evt, r) => {
+      if (r.roomId === room.roomId) onUpdate();
+    };
+    room.on(RoomEvent.LocalEchoUpdated, handle);
+    return () => {
+      room.removeListener(RoomEvent.LocalEchoUpdated, handle);
+    };
+  }, [room, onUpdate]);
+};
+
 const useLiveTimelineRefresh = (room: Room, onRefresh: () => void) => {
   useEffect(() => {
     const handleTimelineRefresh: RoomEventHandlerMap[RoomEvent.TimelineRefresh] = (r) => {
@@ -646,6 +660,11 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
       },
       [mx, room, unreadInfo, hideActivity]
     )
+  );
+
+  useLocalEchoRefresh(
+    room,
+    useCallback(() => setTimeline((ct) => ({ ...ct })), [])
   );
 
   const handleOpenEvent = useCallback(
@@ -1646,6 +1665,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
     if (mEvent.isRedacted() && !showHiddenEvents) {
       return null;
     }
+    if (isUnconfirmedLocalEcho(mEvent)) return null;
 
     if (!newDivider && readUptoEventIdRef.current) {
       newDivider = prevEvent?.getId() === readUptoEventIdRef.current;
