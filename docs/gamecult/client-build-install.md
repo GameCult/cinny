@@ -16,35 +16,46 @@ procedure. Nothing here is run by the build step against the live host.
 
 ## 1. Build (steward)
 
-The repo's `config.json` is the served config. It must equal what `https://chat.gamecult.org/config.json`
-serves (Ratatoskr #103); `vite build` copies it into `dist/` (`vite.config.js`, static copy of
-`config.json`). Do not hand-edit `dist/config.json`.
+Two builds exist, and they treat `config.json` differently.
+
+**By hand (the repo's config).** `vite build` copies the repo's `config.json` into `dist/`
+(`vite.config.js`, static copy of `config.json`). Ratatoskr #103 made the repo file the intended
+served config, and #106 set `backgroundScene.style` to `ridge`; the served file has not caught up
+(see Open). Do not hand-edit `dist/config.json`.
 
 ```sh
 git clone https://eureka.gamecult.org/forge/GameCult/Ratatoskr.git && cd Ratatoskr
 git checkout <full-40-hex-sha>           # build a named commit, not a branch tip
-npm ci                                   # .npmrc sets legacy-peer-deps and save-exact
-node scripts/sync-poses.mjs              # pose catalogue and art from /opt/commons/cast-art/poses
+npm ci --ignore-scripts                  # .npmrc sets legacy-peer-deps; skips husky's prepare hook
+node scripts/sync-poses.mjs              # pose art is not committed; this also rewrites the tracked
+                                         # src/app/components/message/pose/catalogue.json
 NODE_OPTIONS=--max_old_space_size=6144 npm run build    # writes dist/
 ```
 
-`sync-poses` is needed because the pose art is not committed; skip it and the build ships with no
-poses. Do not use `npm run build:preview` for production: it rewrites `dist/config.json` for
-preview (hash router, chosen tier and style).
+Skip `sync-poses` and the build ships with no poses. Do not use `npm run build:preview` for
+production: it rewrites `dist/config.json` for preview (hash router, chosen tier and style).
 
-The handoff build for the host is scripted outside the repo:
-`/opt/commons/handoff/ratatoskr-main-build/build-prod-dist.sh <full-sha>` (see its `README.md`).
-It writes `/opt/commons/handoff/ratatoskr-main-<full-sha>/{dist,SHA256SUMS,BUILD-INFO,build.log}`,
-locks the files read-only, and refuses to overwrite. The folder, with the three pins
-(`SHA256SUMS` sha256, `BUILD-INFO` sha256, lockfile sha256) and the node and npm versions, is what
-the install request names.
+**The handoff build (what the host installs).**
+`/opt/commons/handoff/ratatoskr-main-build/build-prod-dist.sh <full-sha>` (see its `README.md`)
+writes `/opt/commons/handoff/ratatoskr-main-<full-sha>/{dist,SHA256SUMS,BUILD-INFO,build.log}`,
+locks the files read-only and refuses to overwrite. It does **not** ship the repo's `config.json`:
+it discards it and writes its own pinned `config.production.json` into `dist/config.json`, and
+BUILD-INFO says so (`config_json_source`). That pin (sha256 `a26d846b…`, pinned 2026-11-09) has no
+`backgroundScene` block, so it no longer equals the served file, and the script's live-config
+check stops the build; earlier handoffs ran it with `SKIP_LIVE_CHECK=1` or a modified copy whose
+pin was the repo's config (see `config_json_pinned_path` in
+`ratatoskr-main-df245e0b76fd83d7ee14fe725b0df9994f36755f/BUILD-INFO`). Repin deliberately
+(README, "The pinned production config") or say in the handoff which config the dist carries.
+The folder, with the three pins (`SHA256SUMS` sha256, `BUILD-INFO` sha256, lockfile sha256) and
+the node and npm versions, is what the install request names.
 
 Before handing off:
 
 ```sh
 cd <folder>/dist && sha256sum -c ../SHA256SUMS                 # 0 failures
 grep -rl 'demo.invalid\|demo-preview-token' <folder>/dist       # must print nothing
-diff <(curl -s https://chat.gamecult.org/config.json) <folder>/dist/config.json   # report any difference
+# from Yggdrasil the public name may not resolve; --resolve points it at the local server
+diff <(curl -fsS --resolve chat.gamecult.org:443:127.0.0.1 https://chat.gamecult.org/config.json) <folder>/dist/config.json
 ```
 
 A config difference is a finding to report, not something to paper over: either live drifted or
@@ -52,23 +63,27 @@ the repo is wrong, and a ruling (Meta, for `backgroundScene.style`) says which s
 
 ## 2. Install (host owner, root, by hand)
 
-Unpack beside the live release; do not touch the live directory.
+Note the rollback target first: `readlink /srv/cinny/current`.
+
+Unpack beside the live release; do not touch the live directory. The target must not exist, or
+`cp -r` nests `dist` inside it.
 
 ```sh
 R=ratatoskr-<8hex>
 H=/opt/commons/handoff/ratatoskr-main-<full-sha>
+test ! -e /srv/cinny/releases/$R
 cp -r $H/dist /srv/cinny/releases/$R
-cmp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json    # expect no output
+cmp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json
 (cd /srv/cinny/releases/$R && sha256sum -c $H/SHA256SUMS)
 ```
 
-If `cmp` reports a difference, stop and settle which config ships. If the decision is to keep
-the host's config byte-for-byte, `cp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json`
-and expect `sha256sum -c` to flag `config.json` only (use `--ignore-missing` and read the one line).
+`cmp` is a drift check, not a pass check. Live has no trailing newline; the repo's file has one,
+so even equal content differs. Read the difference (`diff` the two) and settle which config
+ships. To keep the host's config byte-for-byte, as past installs did,
+`cp /srv/cinny/current/config.json /srv/cinny/releases/$R/config.json`; `sha256sum -c` then flags
+`config.json` only (read that one line, or use `--ignore-missing`).
 
-Note the current target first, for the rollback: `readlink /srv/cinny/current`.
-
-Switch (atomic):
+Switch (a single symlink swap; `ln -sfn` unlinks then links, so there is a moment with no link):
 
 ```sh
 ln -sfn releases/$R /srv/cinny/current
@@ -96,7 +111,7 @@ Hard-refresh to clear `sw.js`. Do not delete the failed release; leave it for di
 ## Open
 
 - The served config (checked 2026-11-12) is not the repo's: it says `backgroundScene.style`
-  `terrain` where the repo says `ridge` (#106, Meta 2026-11-11), and lacks the repo's `dings`,
-  `fileZoneShare` and `registration` blocks (all off in the repo). The new keys default off or
-  inert when absent, so only the style is a decision. The `cmp` in step 2 shows the drift at
-  install time; Meta says which style ships.
+  `terrain` where the repo says `ridge` (#106, Meta 2026-11-11), lacks the repo's `dings`,
+  `fileZoneShare` and `registration` blocks (all off in the repo), and has no trailing newline.
+  The new keys default off or inert when absent, so only the style is a decision. Meta says which
+  style ships. The handoff script's pin is stale against live (section 1).
