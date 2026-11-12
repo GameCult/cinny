@@ -34,7 +34,11 @@ export const outboxView = (
     };
   }
   if (now - entry.ts >= SLOW_SEND_MS) {
-    return { label: 'Still sending: slow connection', failed: false, canResend: true };
+    return {
+      label: 'Still sending: slow connection (Resend may duplicate it if it lands later)',
+      failed: false,
+      canResend: true,
+    };
   }
   return { label: 'Sending…', failed: false, canResend: false };
 };

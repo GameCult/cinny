@@ -13,7 +13,12 @@ export const PAGE_START = Date.now();
 
 const attempt = async (mx: MatrixClient, userId: string, entry: OutboxEntry): Promise<void> => {
   try {
-    await mx.sendEvent(entry.roomId, (entry.type ?? 'm.room.message') as never, entry.content as never, entry.txnId);
+    await mx.sendEvent(
+      entry.roomId,
+      (entry.type ?? 'm.room.message') as never,
+      entry.content as never,
+      entry.txnId
+    );
     removeOutbox(userId, entry.txnId);
   } catch (e) {
     // sendEvent can also throw synchronously (e.g. a txn id the SDK already holds)
@@ -50,13 +55,15 @@ export const resendTracked = (mx: MatrixClient, entry: OutboxEntry): Promise<voi
   return attempt(mx, userId, { ...entry, txnId, status: 'pending', ts: Date.now() });
 };
 
-
 /**
  * After a reload, send again every entry the reload interrupted. They have no SDK echo, so each
  * keeps its txn id and the server deduplicates one that did land. Failed entries are left for
  * the user: they failed with an answer, these are only unknown.
  */
-export const resendInterrupted = (mx: MatrixClient, since: number = PAGE_START): Promise<void[]> => {
+export const resendInterrupted = (
+  mx: MatrixClient,
+  since: number = PAGE_START
+): Promise<void[]> => {
   const userId = mx.getUserId() ?? '';
   return Promise.all(
     loadOutbox(userId)

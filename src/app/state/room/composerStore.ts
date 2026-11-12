@@ -21,7 +21,11 @@ export type OutboxEntry = {
   status: OutboxStatus;
   error?: string;
   ts: number;
+  /** The page that last sent it: only that page's watchdog may judge it stalled. */
+  tab?: string;
 };
+
+export const PAGE_ID = Math.random().toString(36).slice(2);
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -92,7 +96,8 @@ export const saveDraft = (
     removeKey(store, draftKey(userId, roomId));
     return;
   }
-  if (!writeJson(store, draftKey(userId, roomId), draft)) removeKey(store, draftKey(userId, roomId));
+  if (!writeJson(store, draftKey(userId, roomId), draft))
+    removeKey(store, draftKey(userId, roomId));
 };
 
 export const clearDraft = (
@@ -139,7 +144,7 @@ export const enqueueOutbox = (
   store: Store | undefined = defaultStore()
 ): void => {
   const rest = loadOutbox(userId, store).filter((e) => e.txnId !== entry.txnId);
-  saveOutbox(userId, [...rest, { ...entry, status: 'pending', ts: now }], store);
+  saveOutbox(userId, [...rest, { ...entry, status: 'pending', ts: now, tab: PAGE_ID }], store);
 };
 
 export const failOutbox = (
@@ -172,7 +177,7 @@ export const retryOutbox = (
     userId,
     loadOutbox(userId, store).map((e) =>
       e.txnId === txnId
-        ? { ...e, txnId: newTxnId, status: 'pending', error: undefined, ts: now }
+        ? { ...e, txnId: newTxnId, status: 'pending', error: undefined, ts: now, tab: PAGE_ID }
         : e
     ),
     store

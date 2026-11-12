@@ -3,9 +3,12 @@ import { RECOVER_RELOAD_MIN_GAP_MS, reloadToRecoverSync } from './initMatrix';
 
 const memory = () => {
   const m = new Map<string, string>();
-  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => {
+  return {
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: (k: string, v: string) => {
       m.set(k, v);
-    } };
+    },
+  };
 };
 
 describe('reloadToRecoverSync', () => {
@@ -13,8 +16,24 @@ describe('reloadToRecoverSync', () => {
     const store = memory();
     const reload = vi.fn();
     expect(reloadToRecoverSync(1_000_000, store, reload)).toBe(true);
-    expect(reloadToRecoverSync(1_000_000 + RECOVER_RELOAD_MIN_GAP_MS - 1, store, reload)).toBe(false);
+    expect(reloadToRecoverSync(1_000_000 + RECOVER_RELOAD_MIN_GAP_MS - 1, store, reload)).toBe(
+      false
+    );
     expect(reloadToRecoverSync(1_000_000 + RECOVER_RELOAD_MIN_GAP_MS, store, reload)).toBe(true);
     expect(reload).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('reloadToRecoverSync with unusable storage', () => {
+  it('refuses instead of throwing when sessionStorage throws', () => {
+    const reload = vi.fn();
+    const broken = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => undefined,
+    };
+    expect(reloadToRecoverSync(1, broken, reload)).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
   });
 });

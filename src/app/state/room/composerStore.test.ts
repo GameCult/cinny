@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Descendant } from 'slate';
 import {
+  PAGE_ID,
   clearDraft,
   enqueueOutbox,
   failOutbox,
@@ -77,7 +78,7 @@ describe('outbox', () => {
     const store = memoryStore();
     enqueueOutbox('@a:x', entry, 5, store);
     const after = loadOutbox('@a:x', store);
-    expect(after).toEqual([{ ...entry, status: 'pending', ts: 5 }]);
+    expect(after).toEqual([{ ...entry, status: 'pending', ts: 5, tab: PAGE_ID }]);
     removeOutbox('@a:x', 't1', store);
     expect(loadOutbox('@a:x', store)).toEqual([]);
     expect(store.size()).toBe(0);

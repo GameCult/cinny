@@ -12,7 +12,7 @@ import { clearNavToActivePathStore } from '../app/state/navToActivePath';
 import { pushSessionToSW } from '../sw-session';
 import { startResumeSync } from './resumeSync';
 import { startWatchdog } from './watchdog';
-import { loadOutbox } from '../app/state/room/composerStore';
+import { PAGE_ID, loadOutbox } from '../app/state/room/composerStore';
 import { resendInterrupted } from '../app/state/room/outboxSend';
 
 type Session = {
@@ -59,31 +59,38 @@ const startSync = (mx: MatrixClient) =>
 const RECOVER_RELOAD_KEY = 'ratatoskr.recoverReloadAt';
 export const RECOVER_RELOAD_MIN_GAP_MS = 60_000;
 
-/** Reload to bring a dead sync back, at most once a minute, so a server that is down cannot loop us. */
+/** Reload to bring a dead connection back, at most once a minute, so a server that is down cannot loop us. */
 export const reloadToRecoverSync = (
   now: number = Date.now(),
   store: Pick<Storage, 'getItem' | 'setItem'> = sessionStorage,
   reload: () => void = () => window.location.reload()
 ): boolean => {
-  const last = Number(store.getItem(RECOVER_RELOAD_KEY) ?? 0);
-  if (now - last < RECOVER_RELOAD_MIN_GAP_MS) return false;
-  store.setItem(RECOVER_RELOAD_KEY, String(now));
+  try {
+    const last = Number(store.getItem(RECOVER_RELOAD_KEY) ?? 0);
+    if (now - last < RECOVER_RELOAD_MIN_GAP_MS) return false;
+    store.setItem(RECOVER_RELOAD_KEY, String(now));
+  } catch {
+    return false;
+  }
   reload();
   return true;
 };
 
+const started = new WeakSet<MatrixClient>();
+
 export const startClient = async (mx: MatrixClient) => {
   await startSync(mx);
-  const recover = () => reloadToRecoverSync();
-  startResumeSync(mx, { recover });
+  if (started.has(mx)) return;
+  started.add(mx);
+  startResumeSync(mx);
   startWatchdog({
-    getSyncState: () => mx.getSyncState(),
     pendingAges: () =>
       loadOutbox(mx.getUserId() ?? '')
-        .filter((e) => e.status === 'pending')
+        .filter((e) => e.status === 'pending' && e.tab === PAGE_ID)
         .map((e) => Date.now() - e.ts),
     isVisible: () => document.visibilityState === 'visible',
-    recover,
+    isOnline: () => navigator.onLine,
+    recover: () => reloadToRecoverSync(),
   });
   // What a reload interrupted is sent again once sync is up.
   const onSync = (state: SyncState) => {
@@ -93,7 +100,6 @@ export const startClient = async (mx: MatrixClient) => {
   };
   mx.on(ClientEvent.Sync, onSync);
 };
-
 export const clearCacheAndReload = async (mx: MatrixClient) => {
   mx.stopClient();
   clearNavToActivePathStore(mx.getSafeUserId());

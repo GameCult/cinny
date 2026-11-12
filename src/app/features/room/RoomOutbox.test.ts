@@ -8,7 +8,7 @@ describe('outboxView', () => {
       canResend: false,
     });
     expect(outboxView({ status: 'pending', ts: 100 }, 100 + SLOW_SEND_MS, 0)).toMatchObject({
-      label: 'Still sending: slow connection',
+      label: expect.stringMatching(/^Still sending/),
       canResend: true,
     });
     expect(outboxView({ status: 'failed', ts: 100, error: 'x' }, 100, 0)).toMatchObject({
@@ -21,4 +21,3 @@ describe('outboxView', () => {
     expect(outboxView({ status: 'pending', ts: 5 }, 6, 10).label).toMatch(/Interrupted/);
   });
 });
-
