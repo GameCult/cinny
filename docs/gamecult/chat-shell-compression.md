@@ -1,14 +1,15 @@
 # chat.gamecult.org: shell compression and caching
 
 Follow-up `ratatoskr:follow_up:chat-shell-compression`. Measured 2026-11-12 against the live
-host, build `f8115609` (the `index-CAataSJe.js` bundle). The host config is
+host, which serves release `ratatoskr-nemesis-9b9b495d` (the `index-CAataSJe.js` bundle; the offline table
+below also uses the `f8115609` handoff build, `index-D0yL0Dgy.js`, and says which row is which). The host config is
 `nginx/chat.gamecult.org.conf` in `gamecult-ops`, owned by Eureka; nothing here is applied
 to the host.
 
 ## What the host serves now
 
 The 2026-10-31 probe (no Content-Encoding, no Cache-Control on `/assets/`) is stale: the
-site file already carries `gzip on` for js, css, json, svg and wasm and an immutable
+`nginx.conf` has `gzip on`, the site file sets level 5, `gzip_vary` and `gzip_types` for js, css, json, svg and wasm, and carries an immutable
 `Cache-Control` on `/assets/` and `/preview/assets/`. Probed with `curl -H 'Accept-Encoding: X'`.
 
 | Resource | raw | gzip (served now) | brotli (served now) |
@@ -31,28 +32,31 @@ So the original ask is done. What is left is brotli, which nginx 1.26.3 here can
 Level-5 gzip is what the host does per request. Offline measurement on the same files
 (node `zlib`, 2026-11-12):
 
-| File | raw | gzip 5 (live) | gzip 9 | brotli 11 | brotli vs live |
+| File | raw | gzip 5 (node) | gzip 9 | brotli 11 | brotli vs live |
 |---|---|---|---|---|---|
-| main chunk `index-D0yL0Dgy.js` | 3,868,313 | 1,015,680 | 1,001,446 | 773,992 | -24% |
+| live main chunk `index-CAataSJe.js` | 3,732,771 | 957,199 | 945,424 | 725,167 | -24% |
+| handoff main chunk `index-D0yL0Dgy.js` | 3,868,313 | 1,015,680 | 1,001,446 | 773,992 | -24% |
 | crypto wasm | 5,573,870 | 1,868,282 | 1,851,108 | 1,343,595 | -28% |
 | `ReactPrism-Dm2uRF4v.js` | 577,517 | 209,339 | 208,376 | 163,525 | -22% |
 
 A cold load of the two big files falls from about 2.8 MB to about 2.1 MB on the wire; the
-saving is ~0.7 MB once per hashed build per device, since assets are immutable. Every
-device with the service worker cache never pays it twice. gzip 9 alone buys 1-2%, so
+saving is ~0.7 MB once per hashed build per device while the HTTP cache keeps the file (immutable; the
+service worker does no precaching, so eviction or a new device pays again). gzip 9 alone buys 1-2%, so
 `gzip_static` without brotli is not worth a build step. Brotli is the whole prize, and it
 needs one root step.
 
 Cost: brotli q11 takes about 12 s for the wasm and 8 s for the main chunk on one core, so
-the whole dist is roughly a minute at build time and zero CPU per request. Do not use q11
+the whole dist is about two minutes at build time (measured, 84 files) and zero CPU per request. Do not use q11
 on the fly; that is why the plan is precompressed twins.
 
 ## Root list for Eureka (host)
 
-1. `apt install libnginx-mod-http-brotli-filter libnginx-mod-http-brotli-static`
-   (Debian package names; check they match nginx 1.26.3's ABI before reload; if the
-   archive has no matching build, stop and tell Void, the fallback is no change).
-2. In the `chat.gamecult.org` `server` block, beside the existing gzip lines:
+1. `apt install libnginx-mod-http-brotli-filter libnginx-mod-http-brotli-static` (trixie/main, 1.0.0~rc-6,
+   depend on `nginx-abi-1.26.3-1`, which the installed nginx provides; apt may offer an nginx patch upgrade
+   alongside, say so before accepting). Do not enable the config yet.
+2. Install a build with twins (`PRECOMPRESS=1`, below) the usual way
+   (`docs/gamecult/client-build-install.md`). Twins for files that are not there change nothing.
+3. In the `chat.gamecult.org` `server` block, beside the existing gzip lines:
 
 ```nginx
     brotli_static on;          # serve <file>.br when the client sends br
@@ -62,13 +66,11 @@ on the fly; that is why the plan is precompressed twins.
     brotli_types text/css application/javascript text/javascript application/json application/manifest+json image/svg+xml application/wasm;
 ```
 
-   The `location ^~ /assets/` and `/preview/` blocks inherit these; they only add headers.
+   The `location ^~ /assets/` block and `/preview/`, `/element/` and `/mockups/` inherit these; they only add headers.
    No other change: the `Cache-Control` and `Vary` lines stay as they are, and
    `gzip_vary on` already makes the on-the-fly and static paths vary correctly.
-3. `nginx -t && systemctl reload nginx`.
-4. Install a build with twins (below) the usual way
-   (`docs/gamecult/client-build-install.md`). Twins for files that are not there change
-   nothing: nginx falls back to the plain file.
+4. `nginx -t && systemctl reload nginx`. Twins first, config second: with `brotli on` and no twins every
+   client gets on-the-fly q5 brotli of the 3.7 and 5.6 MB files, which costs CPU per request.
 
 Rollback: remove the five lines and reload. The `.br`/`.gz` files can stay on disk, unused.
 
@@ -78,7 +80,7 @@ Rollback: remove the five lines and reload. The `.br`/`.gz` files can stay on di
 `PRECOMPRESS=1`, which runs `precompress.cjs <dist>` before the manifest is written. It
 writes `<file>.br` (q11) and `<file>.gz` (level 9, no mtime, deterministic for one node) next
 to each js, css, wasm, json, svg, html file over 1 KiB, only when smaller than the original.
-Default is off, so builds installed before the host change do not ship ~12 MB of twins that
+Default is off, so builds installed before the host change do not ship ~27 MB of twins that
 nothing serves. The twins appear in `SHA256SUMS`; the determinism compare still applies.
 Tested on `ReactPrism-Dm2uRF4v.js` (gzip roundtrip identical to the original); a full
 `PRECOMPRESS=1` build has not been run because it waits on step 1.
@@ -102,4 +104,5 @@ the file is the raw size; `Vary: Accept-Encoding` and the immutable `Cache-Contr
 still present on all three; `index.html`, `sw.js` and `config.json` still `no-cache`.
 The service worker's registration and an existing session must still work (open chat on
 the operator's phone, hard reload once, check the network panel's "transferred" column).
-Check `/preview/assets/` the same way.
+Check `/preview/assets/` the same way, but `/preview/` is served from `/srv/cinny/preview`, which this build
+script does not produce: it gets on-the-fly brotli, not twins, until a preview build carries them.
