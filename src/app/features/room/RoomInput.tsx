@@ -12,6 +12,8 @@ import { isKeyHotkey } from 'is-hotkey';
 import { EventType, IContent, MsgType, RelationType, Room } from 'matrix-js-sdk';
 import { ReactEditor } from 'slate-react';
 import { Transforms, Editor } from 'slate';
+import { RoomOutbox, sendTracked } from './RoomOutbox';
+import { clearDraft, loadDraft, saveDraft } from '../../state/room/composerStore';
 import {
   Box,
   Dialog,
@@ -221,22 +223,66 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
       useCallback((width) => setHideStickerBtn(width < 500), [])
     );
 
+    const userId = mx.getUserId() ?? '';
+    const draftSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+
+    // The atom is only a cache: after a reload it is empty and the stored draft is the truth.
+    useEffect(() => {
+      if (msgDraft.length === 0) {
+        const stored = loadDraft(userId, roomId);
+        if (stored.length > 0) setMsgDraft(stored);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, roomId]);
+
     useEffect(() => {
       Transforms.insertFragment(editor, msgDraft);
     }, [editor, msgDraft]);
 
+    const persistDraft = useCallback(() => {
+      clearTimeout(draftSaveTimer.current);
+      draftSaveTimer.current = undefined;
+      saveDraft(userId, roomId, editor.children);
+    }, [userId, roomId, editor]);
+
+    // Write on input (debounced), and flush when the page is hidden or unloading, which is
+    // all a mobile reload gives us.
+    const handleEditorChange = useCallback(() => {
+      clearTimeout(draftSaveTimer.current);
+      draftSaveTimer.current = setTimeout(persistDraft, 400);
+    }, [persistDraft]);
+
+    useEffect(() => {
+      const flush = () => {
+        if (draftSaveTimer.current !== undefined) persistDraft();
+      };
+      const onVisibility = () => {
+        if (document.visibilityState === 'hidden') flush();
+      };
+      window.addEventListener('pagehide', flush);
+      document.addEventListener('visibilitychange', onVisibility);
+      return () => {
+        window.removeEventListener('pagehide', flush);
+        document.removeEventListener('visibilitychange', onVisibility);
+      };
+    }, [persistDraft]);
+
     useEffect(
       () => () => {
+        clearTimeout(draftSaveTimer.current);
+        draftSaveTimer.current = undefined;
         if (!isEmptyEditor(editor)) {
           const parsedDraft = JSON.parse(JSON.stringify(editor.children));
           setMsgDraft(parsedDraft);
+          saveDraft(userId, roomId, parsedDraft);
         } else {
           setMsgDraft([]);
+          clearDraft(userId, roomId);
         }
         resetEditor(editor);
         resetEditorHistory(editor);
       },
-      [roomId, editor, setMsgDraft]
+      [roomId, editor, setMsgDraft, userId]
     );
 
     const handleFileMetadata = useCallback(
@@ -366,12 +412,25 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
           content['m.relates_to'].is_falling_back = false;
         }
       }
-      mx.sendMessage(roomId, content as any);
+      sendTracked(mx, roomId, content);
+      clearTimeout(draftSaveTimer.current);
+      draftSaveTimer.current = undefined;
+      clearDraft(userId, roomId);
       resetEditor(editor);
       resetEditorHistory(editor);
       setReplyDraft(undefined);
       sendTypingStatus(false);
-    }, [mx, roomId, editor, replyDraft, sendTypingStatus, setReplyDraft, isMarkdown, commands]);
+    }, [
+      mx,
+      roomId,
+      userId,
+      editor,
+      replyDraft,
+      sendTypingStatus,
+      setReplyDraft,
+      isMarkdown,
+      commands,
+    ]);
 
     const handleKeyDown: KeyboardEventHandler = useCallback(
       (evt) => {
@@ -537,44 +596,48 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onPaste={handlePaste}
+          onChange={handleEditorChange}
           top={
-            replyDraft && (
-              <div>
-                <Box
-                  alignItems="Center"
-                  gap="300"
-                  style={{ padding: `${config.space.S200} ${config.space.S300} 0` }}
-                >
-                  <IconButton
-                    onClick={() => setReplyDraft(undefined)}
-                    variant="SurfaceVariant"
-                    size="300"
-                    radii="300"
+            <>
+              <RoomOutbox mx={mx} roomId={roomId} />
+              {replyDraft && (
+                <div>
+                  <Box
+                    alignItems="Center"
+                    gap="300"
+                    style={{ padding: `${config.space.S200} ${config.space.S300} 0` }}
                   >
-                    <Icon src={Icons.Cross} size="50" />
-                  </IconButton>
-                  <Box direction="Row" gap="200" alignItems="Center">
-                    {replyDraft.relation?.rel_type === RelationType.Thread && <ThreadIndicator />}
-                    <ReplyLayout
-                      userColor={replyUsernameColor}
-                      username={
-                        <Text size="T300" truncate>
-                          <b>
-                            {getMemberDisplayName(room, replyDraft.userId) ??
-                              getMxIdLocalPart(replyDraft.userId) ??
-                              replyDraft.userId}
-                          </b>
-                        </Text>
-                      }
+                    <IconButton
+                      onClick={() => setReplyDraft(undefined)}
+                      variant="SurfaceVariant"
+                      size="300"
+                      radii="300"
                     >
-                      <Text size="T300" truncate>
-                        {trimReplyFromBody(replyDraft.body)}
-                      </Text>
-                    </ReplyLayout>
+                      <Icon src={Icons.Cross} size="50" />
+                    </IconButton>
+                    <Box direction="Row" gap="200" alignItems="Center">
+                      {replyDraft.relation?.rel_type === RelationType.Thread && <ThreadIndicator />}
+                      <ReplyLayout
+                        userColor={replyUsernameColor}
+                        username={
+                          <Text size="T300" truncate>
+                            <b>
+                              {getMemberDisplayName(room, replyDraft.userId) ??
+                                getMxIdLocalPart(replyDraft.userId) ??
+                                replyDraft.userId}
+                            </b>
+                          </Text>
+                        }
+                      >
+                        <Text size="T300" truncate>
+                          {trimReplyFromBody(replyDraft.body)}
+                        </Text>
+                      </ReplyLayout>
+                    </Box>
                   </Box>
-                </Box>
-              </div>
-            )
+                </div>
+              )}
+            </>
           }
           before={
             <IconButton
