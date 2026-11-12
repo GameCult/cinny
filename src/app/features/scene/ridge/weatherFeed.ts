@@ -1,17 +1,21 @@
 // The weather over the viewpoint as one `weather.ts` number, read from a static `weather.json` next to the page (config.json's
-// neighbour). The browser never calls a weather service: a refresher outside the client (scripts/refresh-weather.mjs is its
-// reference, Eureka hosts the timer) writes the file from GeoSphere Austria's TAWES 10-minute observations (station 11035, Wien Hohe
+// neighbour). The browser never calls a weather service: Eureka's refresher (gamecult-ops, docs/weather-feed.md; the only writer)
+// writes the file from GeoSphere Austria's TAWES 10-minute observations (station 11035, Wien Hohe
 // Warte). Rain is the gauge. CLOUD IS AN ESTIMATE: TAWES has no cloud cover. By day it is the measured global radiation (GLOW) against
 // what a clear sky gives at the sun's position now (`clearSkyGhi`, Haurwitz), cross-checked by the sunshine duration (`SO`, seconds of
 // 600 the direct beam was strong enough to burn the card); with the sun low or down it is a ramp of the humidity. A file that is
-// missing, unreadable, malformed or older than STALE_MS is no observation, and no observation is a clear sky.
+// missing, unreadable, malformed or stale (below) is no observation, and no observation is a clear sky.
+import { WEATHER_CREDIT } from './credits';
 import { viennaSun } from './vienna';
 
+/** Reader rule of docs/weather-feed.md: the file is stale 30 minutes after it was fetched or 40 after the observation it holds (the station reports every 10). */
 export const STALE_MS = 30 * 60_000;
+export const OBSERVATION_STALE_MS = 40 * 60_000;
+export const STATION = 11035;
 const SKEW_MS = 5 * 60_000;
 export const CLEAR_SKY = 0;
 /** The credit GeoSphere's legal page asks for. */
-export const WEATHER_ATTRIBUTION = 'Datenquelle: GeoSphere Austria - https://data.hub.geosphere.at';
+export const WEATHER_ATTRIBUTION = WEATHER_CREDIT;
 
 /** The file's shape; every measurement is null when the station did not report it. Times are ISO 8601. */
 export interface WeatherFile {
@@ -37,10 +41,11 @@ export function parseWeatherFile(json: unknown): WeatherFile | null {
   const j = json as Record<string, unknown> | null;
   if (!j || typeof j !== 'object') return null;
   if (!isZonedTime(j.observed_at) || !isZonedTime(j.fetched_at)) return null;
+  if (j.station !== STATION) return null;
   return {
     fetched_at: j.fetched_at,
     observed_at: j.observed_at,
-    station: num(j.station) ?? 0,
+    station: STATION,
     precip_mm_10min: num(j.precip_mm_10min),
     humidity_pct: num(j.humidity_pct),
     glow_wm2: num(j.glow_wm2),
@@ -96,11 +101,12 @@ export function weatherFromFile(f: WeatherFile, sunEl: number): number {
   return Math.max(0.7 * cloud, mist);
 }
 
-/** The weather number now: the file's, or a clear sky when there is none or it is stale (observed more than STALE_MS before `now`). */
+/** The weather number now: the file's, or a clear sky when there is none or it is stale (see STALE_MS) or from the future. */
 export function currentWeather(f: WeatherFile | null, now: Date = new Date()): number {
   if (!f) return CLEAR_SKY;
-  const age = now.getTime() - Date.parse(f.observed_at);
-  if (!(age <= STALE_MS && age >= -SKEW_MS)) return CLEAR_SKY; // stale, or from further ahead of the clock than clocks differ
+  const fetched = now.getTime() - Date.parse(f.fetched_at);
+  const observed = now.getTime() - Date.parse(f.observed_at);
+  if (!(fetched <= STALE_MS && fetched >= -SKEW_MS && observed <= OBSERVATION_STALE_MS && observed >= -SKEW_MS)) return CLEAR_SKY;
   // GLOW and SO are means of the ten minutes ending at observed_at: the sun of their midpoint is the one to set them against.
   return weatherFromFile(f, viennaSun(new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
 }
@@ -108,7 +114,7 @@ export function currentWeather(f: WeatherFile | null, now: Date = new Date()): n
 /** Fetch and parse `weather.json`; null on any failure. */
 export async function fetchWeatherFile(url: string, fetcher: typeof fetch = fetch): Promise<WeatherFile | null> {
   try {
-    const res = await fetcher(url, { cache: 'no-cache' });
+    const res = await fetcher(url, { cache: 'no-store' });
     return res.ok ? parseWeatherFile(await res.json()) : null;
   } catch {
     return null;

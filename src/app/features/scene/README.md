@@ -87,10 +87,9 @@ own `source` block with the dataset, tiles, licence and the attribution the lice
 layer draws the shape of the ring stretched to a fixed relief, not its scale.
 
 The weather is one number (`ridge/weather.ts`), from the page URL's `?weather=`, else `weather.json` beside `config.json`, else clear.
-The browser never calls a weather service. `weather.json` is written by a refresher outside the client (`scripts/refresh-weather.mjs` is the
-reference; run no more often than every 5 minutes) from GeoSphere Austria's TAWES station 11035 (Wien Hohe Warte), credit
+The browser never calls a weather service. `weather.json` is written by Eureka's refresher (gamecult-ops `docs/weather-feed.md`, a 5-minute timer; the only writer) from GeoSphere Austria's TAWES station 11035 (Wien Hohe Warte), credit
 "Datenquelle: GeoSphere Austria - https://data.hub.geosphere.at". Shape: `{fetched_at, observed_at, station, precip_mm_10min, humidity_pct,
-glow_wm2, sunshine_s_10min, attribution}`, null for a missing measurement. A file whose `observed_at` is more than 30 minutes old is a clear
+glow_wm2, sunshine_s_10min, attribution}`, null for a missing measurement. A file fetched more than 30 minutes ago, or holding an observation more than 40 minutes old, or from another station, is a clear
 sky. Rain is the gauge; cloud is an estimate from the global radiation against Haurwitz's clear-sky value, cross-checked by the sunshine
 duration, with the humidity as the fallback when the sun is low (`ridge/weatherFeed.ts`). The weather draws a cloud deck in the sky
 (`ridge/clouds.ts`), thickens the layers' valley mist, and lays tiled rain streaks over everything (`ridge/rain.ts`, compositor-driven, none in a still).

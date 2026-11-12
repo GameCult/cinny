@@ -5,6 +5,7 @@ import {
   currentWeather,
   fetchWeatherFile,
   parseWeatherFile,
+  OBSERVATION_STALE_MS,
   STALE_MS,
   WEATHER_ATTRIBUTION,
   weatherFromFile,
@@ -90,18 +91,23 @@ describe('the weather now', () => {
   it('uses the file while it is fresh', () => {
     expect(currentWeather(file({ glow_wm2: 0, humidity_pct: 95 }), NOW)).toBeCloseTo(0.7, 2);
   });
-  it('falls back to a clear sky when the observation is older than 30 minutes', () => {
-    const f = file({ humidity_pct: 100, observed_at: '2026-11-11T10:19:00Z' });
-    expect(NOW.getTime() - Date.parse(f.observed_at)).toBeGreaterThan(STALE_MS);
+  it('falls back to a clear sky when the file was fetched more than 30 minutes ago', () => {
+    const f = file({ humidity_pct: 100, fetched_at: '2026-11-11T10:19:00Z' });
+    expect(NOW.getTime() - Date.parse(f.fetched_at)).toBeGreaterThan(STALE_MS);
     expect(currentWeather(f, NOW)).toBe(CLEAR_SKY);
-    expect(currentWeather(file({ precip_mm_10min: 2, observed_at: '2026-11-11T09:00:00Z' }), NOW)).toBe(CLEAR_SKY);
   });
   it('the 30 minute mark itself is still fresh', () => {
-    expect(currentWeather(file({ glow_wm2: 0, humidity_pct: 100, observed_at: '2026-11-11T10:20:00Z' }), NOW)).toBe(0.75);
+    expect(currentWeather(file({ glow_wm2: 0, humidity_pct: 100, fetched_at: '2026-11-11T10:20:00Z' }), NOW)).toBe(0.75);
   });
-  it('falls back to a clear sky with no file, and with an observation from the future', () => {
+  it('falls back to a clear sky when the observation is more than 40 minutes old, though the file is fresh', () => {
+    const f = file({ precip_mm_10min: 2, observed_at: '2026-11-11T10:09:00Z' });
+    expect(NOW.getTime() - Date.parse(f.observed_at)).toBeGreaterThan(OBSERVATION_STALE_MS);
+    expect(currentWeather(f, NOW)).toBe(CLEAR_SKY);
+    expect(currentWeather(file({ precip_mm_10min: 2, observed_at: '2026-11-11T10:11:00Z' }), NOW)).toBeGreaterThan(0.8);
+  });
+  it('falls back to a clear sky with no file, and with a fetch time from the future', () => {
     expect(currentWeather(null, NOW)).toBe(CLEAR_SKY);
-    expect(currentWeather(file({ precip_mm_10min: 2, observed_at: '2026-11-12T10:40:00Z' }), NOW)).toBe(CLEAR_SKY);
+    expect(currentWeather(file({ precip_mm_10min: 2, fetched_at: '2026-11-12T10:40:00Z' }), NOW)).toBe(CLEAR_SKY);
   });
 });
 
@@ -118,6 +124,18 @@ describe('bad instrument values', () => {
 });
 
 describe('reading weather.json', () => {
+  it('reads Eureka\'s file as the host writes it: Z times, a whole-station gap as nulls, 0.0 at night', () => {
+    const night = JSON.parse(
+      '{"fetched_at":"2026-11-11T22:48:22Z","observed_at":"2026-11-11T22:40:00Z","station":11035,"precip_mm_10min":0.1,"humidity_pct":100.0,"sunshine_s_10min":0.0,"glow_wm2":0.0,"attribution":"Datenquelle: GeoSphere Austria - https://data.hub.geosphere.at"}'
+    );
+    expect(parseWeatherFile(night)).toMatchObject({ precip_mm_10min: 0.1, humidity_pct: 100, glow_wm2: 0, sunshine_s_10min: 0 });
+    const gap = parseWeatherFile({ ...night, precip_mm_10min: null, humidity_pct: null, sunshine_s_10min: null, glow_wm2: null });
+    expect(gap).toMatchObject({ precip_mm_10min: null, humidity_pct: null, sunshine_s_10min: null, glow_wm2: null });
+    expect(currentWeather(gap, new Date('2026-11-11T22:50:00Z'))).toBe(CLEAR_SKY);
+  });
+  it('is not another station\'s file', () => {
+    expect(parseWeatherFile({ ...file(), station: 11036 })).toBeNull();
+  });
   it('parses the agreed shape, keeping nulls and the sunshine it never reads', () => {
     const raw = { ...file(), precip_mm_10min: null, glow_wm2: 12, sunshine_s_10min: 0 };
     expect(parseWeatherFile(raw)).toEqual(raw);
