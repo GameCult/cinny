@@ -15,11 +15,17 @@ export type OutboxStatus = 'pending' | 'failed';
 export type OutboxEntry = {
   txnId: string;
   roomId: string;
+  /** Event type; absent means m.room.message. */
+  type?: string;
   content: Record<string, unknown>;
   status: OutboxStatus;
   error?: string;
   ts: number;
+  /** The page that last sent it: only that page's watchdog may judge it stalled. */
+  tab?: string;
 };
+
+export const PAGE_ID = Math.random().toString(36).slice(2);
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -90,7 +96,8 @@ export const saveDraft = (
     removeKey(store, draftKey(userId, roomId));
     return;
   }
-  if (!writeJson(store, draftKey(userId, roomId), draft)) removeKey(store, draftKey(userId, roomId));
+  if (!writeJson(store, draftKey(userId, roomId), draft))
+    removeKey(store, draftKey(userId, roomId));
 };
 
 export const clearDraft = (
@@ -137,7 +144,7 @@ export const enqueueOutbox = (
   store: Store | undefined = defaultStore()
 ): void => {
   const rest = loadOutbox(userId, store).filter((e) => e.txnId !== entry.txnId);
-  saveOutbox(userId, [...rest, { ...entry, status: 'pending', ts: now }], store);
+  saveOutbox(userId, [...rest, { ...entry, status: 'pending', ts: now, tab: PAGE_ID }], store);
 };
 
 export const failOutbox = (
@@ -155,16 +162,23 @@ export const failOutbox = (
   );
 };
 
-/** Retry in flight: failed goes back to pending so it is not shown as dead while it is sent. */
+/**
+ * A resend begins: the entry is pending again from `now`, under `newTxnId` when the SDK still
+ * holds the failed attempt's echo under the old one (it refuses to add a second echo for a txn id).
+ */
 export const retryOutbox = (
   userId: string,
   txnId: string,
+  now: number = Date.now(),
+  newTxnId: string = txnId,
   store: Store | undefined = defaultStore()
 ): void => {
   saveOutbox(
     userId,
     loadOutbox(userId, store).map((e) =>
-      e.txnId === txnId ? { ...e, status: 'pending', error: undefined } : e
+      e.txnId === txnId
+        ? { ...e, txnId: newTxnId, status: 'pending', error: undefined, ts: now, tab: PAGE_ID }
+        : e
     ),
     store
   );

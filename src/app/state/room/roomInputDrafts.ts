@@ -20,9 +20,7 @@ export type TUploadItem = {
 
 export type TUploadListAtom = ReturnType<typeof createListAtom<TUploadItem>>;
 
-export const roomIdToUploadItemsAtomFamily = atomFamily<string, TUploadListAtom>(
-  createListAtom
-);
+export const roomIdToUploadItemsAtomFamily = atomFamily<string, TUploadListAtom>(createListAtom);
 
 export const roomUploadAtomFamily = createUploadAtomFamily();
 

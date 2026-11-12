@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Descendant } from 'slate';
 import {
+  PAGE_ID,
   clearDraft,
   enqueueOutbox,
   failOutbox,
@@ -77,7 +78,7 @@ describe('outbox', () => {
     const store = memoryStore();
     enqueueOutbox('@a:x', entry, 5, store);
     const after = loadOutbox('@a:x', store);
-    expect(after).toEqual([{ ...entry, status: 'pending', ts: 5 }]);
+    expect(after).toEqual([{ ...entry, status: 'pending', ts: 5, tab: PAGE_ID }]);
     removeOutbox('@a:x', 't1', store);
     expect(loadOutbox('@a:x', store)).toEqual([]);
     expect(store.size()).toBe(0);
@@ -88,9 +89,17 @@ describe('outbox', () => {
     enqueueOutbox('@a:x', entry, 5, store);
     failOutbox('@a:x', 't1', 'offline', store);
     expect(loadOutbox('@a:x', store)[0]).toMatchObject({ status: 'failed', error: 'offline' });
-    retryOutbox('@a:x', 't1', store);
+    retryOutbox('@a:x', 't1', 9, 't1', store);
     expect(loadOutbox('@a:x', store)[0]).toMatchObject({ status: 'pending', txnId: 't1' });
     expect(loadOutbox('@a:x', store)[0].error).toBeUndefined();
+  });
+
+  it('a resend can rekey the entry and restarts its clock', () => {
+    const store = memoryStore();
+    enqueueOutbox('@a:x', entry, 5, store);
+    failOutbox('@a:x', 't1', 'offline', store);
+    retryOutbox('@a:x', 't1', 50, 't2', store);
+    expect(loadOutbox('@a:x', store)).toMatchObject([{ txnId: 't2', status: 'pending', ts: 50 }]);
   });
 
   it('re-enqueueing the same txn id does not duplicate it; other accounts are separate', () => {
