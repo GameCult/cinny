@@ -15,6 +15,8 @@ export type OutboxStatus = 'pending' | 'failed';
 export type OutboxEntry = {
   txnId: string;
   roomId: string;
+  /** Event type; absent means m.room.message. */
+  type?: string;
   content: Record<string, unknown>;
   status: OutboxStatus;
   error?: string;
@@ -155,16 +157,23 @@ export const failOutbox = (
   );
 };
 
-/** Retry in flight: failed goes back to pending so it is not shown as dead while it is sent. */
+/**
+ * A resend begins: the entry is pending again from `now`, under `newTxnId` when the SDK still
+ * holds the failed attempt's echo under the old one (it refuses to add a second echo for a txn id).
+ */
 export const retryOutbox = (
   userId: string,
   txnId: string,
+  now: number = Date.now(),
+  newTxnId: string = txnId,
   store: Store | undefined = defaultStore()
 ): void => {
   saveOutbox(
     userId,
     loadOutbox(userId, store).map((e) =>
-      e.txnId === txnId ? { ...e, status: 'pending', error: undefined } : e
+      e.txnId === txnId
+        ? { ...e, txnId: newTxnId, status: 'pending', error: undefined, ts: now }
+        : e
     ),
     store
   );

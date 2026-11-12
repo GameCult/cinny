@@ -28,7 +28,8 @@ import {
   config,
   toRem,
 } from 'folds';
-import { RoomOutbox, sendTracked } from './RoomOutbox';
+import { RoomOutbox } from './RoomOutbox';
+import { sendTracked } from '../../state/room/outboxSend';
 import { clearDraft, loadDraft, saveDraft } from '../../state/room/composerStore';
 
 import { useMatrixClient } from '../../hooks/useMatrixClient';
@@ -333,7 +334,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
       });
       handleCancelUpload(uploads);
       const contents = fulfilledPromiseSettledResult(await Promise.allSettled(contentsPromises));
-      contents.forEach((content) => mx.sendMessage(roomId, content as any));
+      contents.forEach((content) => sendTracked(mx, roomId, content as Record<string, unknown>));
     };
 
     const submit = useCallback(() => {
@@ -492,11 +493,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
         await getImageUrlBlob(stickerUrl)
       );
 
-      mx.sendEvent(roomId, EventType.Sticker, {
-        body: label,
-        url: mxc,
-        info,
-      });
+      sendTracked(mx, roomId, { body: label, url: mxc, info }, EventType.Sticker);
     };
 
     return (

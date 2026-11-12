@@ -664,7 +664,14 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
 
   useLocalEchoRefresh(
     room,
-    useCallback(() => setTimeline((ct) => ({ ...ct })), [])
+    useCallback(() => {
+      // the echo was hidden while unconfirmed, so its arrival scrolled to nothing: scroll now
+      if (atBottomRef.current) {
+        scrollToBottomRef.current.count += 1;
+        scrollToBottomRef.current.smooth = true;
+      }
+      setTimeline((ct) => ({ ...ct }));
+    }, [])
   );
 
   const handleOpenEvent = useCallback(

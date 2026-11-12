@@ -12,11 +12,10 @@ const setup = (state: string | null = 'SYNCING') => {
     state,
     getSyncState: () => mx.state,
     retryImmediately: vi.fn(() => true),
-    stopClient: vi.fn(),
   };
-  const restart = vi.fn(async () => {});
+  const recover = vi.fn();
   const stop = startResumeSync(mx, {
-    restart,
+    recover,
     doc: doc as never,
     win: win as never,
   });
@@ -28,7 +27,7 @@ const setup = (state: string | null = 'SYNCING') => {
     doc.visibilityState = 'visible';
     doc.dispatchEvent(new Event('visibilitychange'));
   };
-  return { doc, win, mx, restart, stop, hide, show };
+  return { doc, win, mx, recover, stop, hide, show };
 };
 
 const settle = () => vi.advanceTimersByTimeAsync(RESUME_DEBOUNCE_MS);
@@ -88,34 +87,18 @@ describe('startResumeSync', () => {
       const t = setup(state);
       t.win.dispatchEvent(new Event('online'));
       await vi.advanceTimersByTimeAsync(RESUME_DEBOUNCE_MS + HEALTH_CHECK_MS);
-      expect(t.restart).not.toHaveBeenCalled();
+      expect(t.recover).not.toHaveBeenCalled();
       t.stop();
     }
   });
 
-  it('does one stop/start when sync is still unhealthy, never overlapping', async () => {
+  it('calls recover once when sync is still unhealthy, and never stops the client itself', async () => {
     const t = setup('RECONNECTING');
-    let release!: () => void;
-    t.restart.mockImplementation(
-      () =>
-        new Promise<void>((r) => {
-          release = r;
-        })
-    );
     t.win.dispatchEvent(new Event('online'));
     await vi.advanceTimersByTimeAsync(RESUME_DEBOUNCE_MS + HEALTH_CHECK_MS);
-    expect(t.mx.stopClient).toHaveBeenCalledTimes(1);
-    expect(t.restart).toHaveBeenCalledTimes(1);
-    // a trigger while the restart is in flight does nothing
-    t.win.dispatchEvent(new Event('online'));
-    await vi.advanceTimersByTimeAsync(RESUME_DEBOUNCE_MS + HEALTH_CHECK_MS);
-    expect(t.mx.retryImmediately).toHaveBeenCalledTimes(1);
-    expect(t.restart).toHaveBeenCalledTimes(1);
-    release();
-    await vi.advanceTimersByTimeAsync(0);
-    t.win.dispatchEvent(new Event('online'));
-    await settle();
-    expect(t.mx.retryImmediately).toHaveBeenCalledTimes(2);
+    expect(t.recover).toHaveBeenCalledTimes(1);
+    expect(t.recover).toHaveBeenCalledWith(t.mx);
+    expect(Object.keys(t.mx)).not.toContain('stopClient');
   });
 
   it('removes listeners and cancels pending work on dispose', async () => {
@@ -124,7 +107,7 @@ describe('startResumeSync', () => {
     await settle();
     t.stop();
     await vi.advanceTimersByTimeAsync(HEALTH_CHECK_MS);
-    expect(t.restart).not.toHaveBeenCalled();
+    expect(t.recover).not.toHaveBeenCalled();
     t.win.dispatchEvent(new Event('online'));
     await settle();
     expect(t.mx.retryImmediately).toHaveBeenCalledTimes(1);

@@ -3,32 +3,40 @@ import { MatrixClient } from 'matrix-js-sdk';
 import { Box, Chip, Text, color, config } from 'folds';
 import {
   OutboxEntry,
-  enqueueOutbox,
-  failOutbox,
   loadOutbox,
   removeOutbox,
-  retryOutbox,
   subscribeOutbox,
 } from '../../state/room/composerStore';
+import { PAGE_START, resendTracked } from '../../state/room/outboxSend';
 
-const attempt = (mx: MatrixClient, userId: string, entry: OutboxEntry): Promise<void> =>
-  mx
-    .sendMessage(entry.roomId, entry.content as never, entry.txnId)
-    .then(() => removeOutbox(userId, entry.txnId))
-    .catch((e: unknown) =>
-      failOutbox(userId, entry.txnId, e instanceof Error ? e.message : String(e))
-    );
+/** A send still unconfirmed after this long is offered Resend: the request may be hung. */
+export const SLOW_SEND_MS = 30_000;
 
-/** Send a message, keeping it in the durable outbox until the server confirms it. */
-export const sendTracked = (
-  mx: MatrixClient,
-  roomId: string,
-  content: Record<string, unknown>
-): Promise<void> => {
-  const userId = mx.getUserId() ?? '';
-  const entry = { roomId, content, txnId: mx.makeTxnId() };
-  enqueueOutbox(userId, entry);
-  return attempt(mx, userId, { ...entry, status: 'pending', ts: Date.now() });
+export type OutboxView = { label: string; failed: boolean; canResend: boolean };
+
+export const outboxView = (
+  entry: Pick<OutboxEntry, 'status' | 'ts' | 'error'>,
+  now: number,
+  since: number = PAGE_START
+): OutboxView => {
+  if (entry.status === 'failed') {
+    return {
+      label: `Not sent${entry.error ? `: ${entry.error}` : ''}`,
+      failed: true,
+      canResend: true,
+    };
+  }
+  if (entry.ts < since) {
+    return {
+      label: 'Interrupted by a reload: may not have been sent',
+      failed: false,
+      canResend: true,
+    };
+  }
+  if (now - entry.ts >= SLOW_SEND_MS) {
+    return { label: 'Still sending: slow connection', failed: false, canResend: true };
+  }
+  return { label: 'Sending…', failed: false, canResend: false };
 };
 
 export const useRoomOutbox = (userId: string, roomId: string): OutboxEntry[] => {
@@ -42,19 +50,28 @@ export const useRoomOutbox = (userId: string, roomId: string): OutboxEntry[] => 
   return entries;
 };
 
-/** Entries still 'pending' that predate this page load lost their promise in a reload: outcome unknown. */
-const pageStart = Date.now();
+/** Re-render every few seconds while anything is waiting, so a slow send turns resendable. */
+const useNow = (active: boolean): number => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+};
 
 type RoomOutboxProps = { mx: MatrixClient; roomId: string };
 
 /**
- * Messages this client sent that the server has not confirmed: still sending, or failed.
- * They also appear here after a reload, since the outbox is durable. Resending reuses the
- * original txn id, so a send that did land the first time is not duplicated.
+ * Messages this client sent that the server has not confirmed: sending, slow, interrupted by a
+ * reload, or failed, each with Resend where one makes sense and Discard.
  */
 export function RoomOutbox({ mx, roomId }: RoomOutboxProps) {
   const userId = mx.getUserId() ?? '';
   const entries = useRoomOutbox(userId, roomId);
+  const now = useNow(entries.length > 0);
   if (entries.length === 0) return null;
 
   return (
@@ -64,40 +81,32 @@ export function RoomOutbox({ mx, roomId }: RoomOutboxProps) {
       style={{ padding: `${config.space.S200} ${config.space.S300} 0` }}
     >
       {entries.map((entry) => {
-        const failed = entry.status === 'failed';
-        const interrupted = !failed && entry.ts < pageStart;
-        const canResend = failed || interrupted;
+        const view = outboxView(entry, now);
         return (
           <Box key={entry.txnId} alignItems="Center" gap="200" data-outbox-status={entry.status}>
             <Box grow="Yes" direction="Column">
               <Text
                 size="T200"
-                style={{ color: failed ? color.Critical.Main : color.Surface.OnContainer }}
+                style={{ color: view.failed ? color.Critical.Main : color.Surface.OnContainer }}
               >
-                {(() => {
-                  if (failed) return `Not sent${entry.error ? `: ${entry.error}` : ''}`;
-                  return interrupted ? 'Interrupted by a reload: may not have been sent' : 'Sending…';
-                })()}
+                {view.label}
               </Text>
               <Text size="T300" truncate>
                 {String(entry.content.body ?? '')}
               </Text>
             </Box>
-            {canResend && (
+            {view.canResend && (
               <>
-            <Chip
-              variant="Surface"
-              radii="Pill"
-              onClick={() => {
-                retryOutbox(userId, entry.txnId);
-                attempt(mx, userId, entry);
-              }}
-            >
-              <Text size="B300">Resend</Text>
-            </Chip>
-            <Chip variant="Surface" radii="Pill" onClick={() => removeOutbox(userId, entry.txnId)}>
-              <Text size="B300">Discard</Text>
-            </Chip>
+                <Chip variant="Surface" radii="Pill" onClick={() => resendTracked(mx, entry)}>
+                  <Text size="B300">Resend</Text>
+                </Chip>
+                <Chip
+                  variant="Surface"
+                  radii="Pill"
+                  onClick={() => removeOutbox(userId, entry.txnId)}
+                >
+                  <Text size="B300">Discard</Text>
+                </Chip>
               </>
             )}
           </Box>
