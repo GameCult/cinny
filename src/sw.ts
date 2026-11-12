@@ -1,7 +1,13 @@
 /// <reference lib="WebWorker" />
 
+import { handleClick, handlePush, PushTarget, WorkerPort } from './app/features/push/worker';
+import { idbPort, sessionStore } from './app/features/push/sessionStore';
+
 export type {};
 declare const self: ServiceWorkerGlobalScope;
+
+// What a push can do with no tab open: the session is kept in IndexedDB (sessionStore.ts), not only in `sessions` below.
+const persisted = sessionStore(idbPort(self.indexedDB));
 
 type SessionInfo = {
   accessToken: string;
@@ -30,6 +36,7 @@ async function cleanupDeadClients() {
 }
 
 function setSession(clientId: string, accessToken: any, baseUrl: any) {
+  persisted.save(baseUrl, accessToken).catch(() => undefined);
   if (typeof accessToken === 'string' && typeof baseUrl === 'string') {
     sessions.set(clientId, { accessToken, baseUrl });
   } else {
@@ -155,4 +162,30 @@ self.addEventListener('fetch', (event: FetchEvent) => {
       return fetch(event.request);
     })
   );
+});
+
+const workerPort: WorkerPort = {
+  windows: async () => [
+    ...(await self.clients.matchAll({ type: 'window', includeUncontrolled: true })),
+  ],
+  openWindow: (url) => self.clients.openWindow(url),
+  show: (title, options) => self.registration.showNotification(title, options),
+  loadSession: () => persisted.load().catch(() => undefined),
+  fetch: (url, init) => fetch(url, init),
+  scope: self.registration.scope,
+};
+
+self.addEventListener('push', (event: PushEvent) => {
+  let raw: unknown;
+  try {
+    raw = event.data?.json();
+  } catch {
+    raw = undefined;
+  }
+  event.waitUntil(handlePush(raw, workerPort));
+});
+
+self.addEventListener('notificationclick', (event: NotificationEvent) => {
+  event.notification.close();
+  event.waitUntil(handleClick(event.notification.data as PushTarget | undefined, workerPort));
 });
