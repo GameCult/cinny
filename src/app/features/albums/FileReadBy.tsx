@@ -13,7 +13,7 @@ type FileReadByProps = {
   /** Receipts already read elsewhere (an album's thread replies): merged with the timeline's, a Mind once. */
   also?: FileReader[];
 };
-/** "read by <Mind>" under a file: the Minds whose verified receipts are in the room's timeline. Nothing when none. */
+/** "fetched for <Mind>" under a file: the Minds whose verified receipts are in the room's timeline. Nothing when none. */
 export function FileReadBy({ room, fileId, content, also = [] }: FileReadByProps) {
   const seen = useFileReaders(room, fileId, content);
   const readers = [...new Map([...also, ...seen].map((r) => [r.sender, r])).values()].sort(
