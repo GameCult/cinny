@@ -35,20 +35,31 @@ const draftKey = (userId: string, roomId: string) => `ratatoskr.draft.${userId}.
 const outboxKey = (userId: string) => `ratatoskr.outbox.${userId}`;
 
 const readJson = <T>(store: Store | undefined, key: string): T | undefined => {
-  const raw = store?.getItem(key);
-  if (raw === null || raw === undefined) return undefined;
   try {
+    const raw = store?.getItem(key);
+    if (raw === null || raw === undefined) return undefined;
     return JSON.parse(raw) as T;
   } catch {
     return undefined;
   }
 };
 
-const writeJson = (store: Store | undefined, key: string, value: unknown): void => {
+const writeJson = (store: Store | undefined, key: string, value: unknown): boolean => {
   try {
-    store?.setItem(key, JSON.stringify(value));
+    if (!store) return false;
+    store.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
     // quota or private mode: the in-memory atom still holds the draft for this session
+    return false;
+  }
+};
+
+const removeKey = (store: Store | undefined, key: string): void => {
+  try {
+    store?.removeItem(key);
+  } catch {
+    // nothing durable to remove
   }
 };
 
@@ -76,10 +87,10 @@ export const saveDraft = (
   store: Store | undefined = defaultStore()
 ): void => {
   if (isEmptyDraft(draft)) {
-    store?.removeItem(draftKey(userId, roomId));
+    removeKey(store, draftKey(userId, roomId));
     return;
   }
-  writeJson(store, draftKey(userId, roomId), draft);
+  if (!writeJson(store, draftKey(userId, roomId), draft)) removeKey(store, draftKey(userId, roomId));
 };
 
 export const clearDraft = (
@@ -87,13 +98,18 @@ export const clearDraft = (
   roomId: string,
   store: Store | undefined = defaultStore()
 ): void => {
-  store?.removeItem(draftKey(userId, roomId));
+  removeKey(store, draftKey(userId, roomId));
 };
+
+/** Outbox contents whose last write to storage failed: memory is then the only copy, so it wins. */
+const unpersisted = new Map<string, OutboxEntry[]>();
 
 export const loadOutbox = (
   userId: string,
   store: Store | undefined = defaultStore()
 ): OutboxEntry[] => {
+  const held = unpersisted.get(userId);
+  if (held) return held;
   const entries = readJson<OutboxEntry[]>(store, outboxKey(userId));
   return Array.isArray(entries) ? entries : [];
 };
@@ -105,8 +121,12 @@ export const subscribeOutbox = (listener: () => void): (() => void) => {
 };
 
 const saveOutbox = (userId: string, entries: OutboxEntry[], store: Store | undefined) => {
-  if (entries.length === 0) store?.removeItem(outboxKey(userId));
-  else writeJson(store, outboxKey(userId), entries);
+  const ok =
+    entries.length === 0
+      ? (removeKey(store, outboxKey(userId)), true)
+      : writeJson(store, outboxKey(userId), entries);
+  if (ok) unpersisted.delete(userId);
+  else unpersisted.set(userId, entries);
   outboxListeners.forEach((l) => l());
 };
 

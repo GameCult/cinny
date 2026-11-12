@@ -113,4 +113,19 @@ describe('outbox', () => {
     enqueueOutbox('@a:x', entry, 5, store);
     expect(n).toBe(2);
   });
+
+  it('when storage refuses the write, memory keeps the entry so a failed send still shows', () => {
+    const broken = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('quota');
+      },
+      removeItem: () => {},
+    };
+    enqueueOutbox('@q:x', entry, 5, broken);
+    failOutbox('@q:x', 't1', 'offline', broken);
+    expect(loadOutbox('@q:x', broken)).toMatchObject([{ txnId: 't1', status: 'failed' }]);
+    removeOutbox('@q:x', 't1', broken);
+    expect(loadOutbox('@q:x', broken)).toEqual([]);
+  });
 });

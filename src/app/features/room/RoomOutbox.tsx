@@ -42,6 +42,9 @@ export const useRoomOutbox = (userId: string, roomId: string): OutboxEntry[] => 
   return entries;
 };
 
+/** Entries still 'pending' that predate this page load lost their promise in a reload: outcome unknown. */
+const pageStart = Date.now();
+
 type RoomOutboxProps = { mx: MatrixClient; roomId: string };
 
 /**
@@ -62,6 +65,8 @@ export function RoomOutbox({ mx, roomId }: RoomOutboxProps) {
     >
       {entries.map((entry) => {
         const failed = entry.status === 'failed';
+        const interrupted = !failed && entry.ts < pageStart;
+        const canResend = failed || interrupted;
         return (
           <Box key={entry.txnId} alignItems="Center" gap="200" data-outbox-status={entry.status}>
             <Box grow="Yes" direction="Column">
@@ -69,12 +74,17 @@ export function RoomOutbox({ mx, roomId }: RoomOutboxProps) {
                 size="T200"
                 style={{ color: failed ? color.Critical.Main : color.Surface.OnContainer }}
               >
-                {failed ? `Not sent${entry.error ? `: ${entry.error}` : ''}` : 'Sending…'}
+                {(() => {
+                  if (failed) return `Not sent${entry.error ? `: ${entry.error}` : ''}`;
+                  return interrupted ? 'Interrupted by a reload: may not have been sent' : 'Sending…';
+                })()}
               </Text>
               <Text size="T300" truncate>
                 {String(entry.content.body ?? '')}
               </Text>
             </Box>
+            {canResend && (
+              <>
             <Chip
               variant="Surface"
               radii="Pill"
@@ -88,6 +98,8 @@ export function RoomOutbox({ mx, roomId }: RoomOutboxProps) {
             <Chip variant="Surface" radii="Pill" onClick={() => removeOutbox(userId, entry.txnId)}>
               <Text size="B300">Discard</Text>
             </Chip>
+              </>
+            )}
           </Box>
         );
       })}

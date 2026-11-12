@@ -20,7 +20,9 @@ const fakeClient = (send: (...a: unknown[]) => Promise<unknown>) =>
 
 describe('sendTracked', () => {
   beforeEach(stubLocalStorage);
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   const content = { msgtype: 'm.text', body: 'typed before reload' };
 
