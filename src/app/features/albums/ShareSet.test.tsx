@@ -14,7 +14,7 @@ const text = (html: string) =>
 const noop = () => undefined;
 const file = (name: string) => ({ name, type: 'audio/ogg' } as File);
 
-const view = (over: Partial<ShareState<File>> = {}) =>
+const view = (over: Partial<ShareState<File>> = {}, adding = false) =>
   renderToStaticMarkup(
     <ShareSetView
       state={{ files: [], title: '', phase: { kind: 'idle' }, epoch: 0, ...over }}
@@ -23,6 +23,7 @@ const view = (over: Partial<ShareState<File>> = {}) =>
       onTitle={noop}
       onSend={noop}
       onCancel={noop}
+      adding={adding}
     />
   );
 
@@ -73,6 +74,18 @@ describe('the share panel, drawn', () => {
     expect(text(view({ phase: { kind: 'done', text: 'Shared 2 files.' } }))).toBe(
       'Share files › Shared 2 files.'
     );
+  });
+});
+
+describe('adding to an existing album', () => {
+  it('the idle row says Add files', () => {
+    expect(text(view({}, true))).toBe('Add files ›');
+  });
+
+  it('picked: no title field, the names, Send and Cancel', () => {
+    const html = view({ files: [file('a.ogg')] }, true);
+    expect(html).not.toContain('aria-label="Album title"');
+    expect(text(html)).toBe('a.ogg Send 1 file Cancel');
   });
 });
 

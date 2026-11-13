@@ -22,6 +22,23 @@ export type ShareResult = {
   failed: string[];
   /** Positions in the files array of those that failed; names can repeat, positions cannot. */
   failedAt: number[];
+  /** Why each failed file failed, parallel to `failed`, when the homeserver's refusal is one we name. */
+  reasons?: (string | undefined)[];
+};
+
+/** An album that already exists: new files join its thread after `lastId`, with no new root. */
+export type ExistingAlbum = { albumId: string; lastId: string };
+
+const REFUSALS: Record<string, string> = {
+  M_TOO_LARGE: 'too large for this server',
+  M_FORBIDDEN: 'not allowed to upload here',
+  M_LIMIT_EXCEEDED: 'uploading too fast, try again shortly',
+};
+
+/** The sentence for a homeserver refusal we know, from the error's Matrix errcode. */
+export const refusalOf = (e: unknown): string | undefined => {
+  const code = (e as { errcode?: unknown } | null)?.errcode;
+  return typeof code === 'string' && Object.hasOwn(REFUSALS, code) ? REFUSALS[code] : undefined;
 };
 
 /** The reply relation Matrix clients expect for a thread message: root, with the last event as fallback reply. */
@@ -44,12 +61,15 @@ export const titleOrDefault = (title: string): string => title.trim() || DEFAULT
  */
 export const sendShareSet = async <F extends ShareFile>(
   port: SharePort<F>,
-  title: string,
+  into: string | ExistingAlbum,
   files: F[]
 ): Promise<ShareResult> => {
-  const albumId = await port.send({ msgtype: 'm.text', body: titleOrDefault(title) });
-  const result: ShareResult = { albumId, sent: 0, failed: [], failedAt: [] };
-  let lastId = albumId;
+  const albumId =
+    typeof into === 'string'
+      ? await port.send({ msgtype: 'm.text', body: titleOrDefault(into) })
+      : into.albumId;
+  const result: ShareResult = { albumId, sent: 0, failed: [], failedAt: [], reasons: [] };
+  let lastId = typeof into === 'string' ? albumId : into.lastId;
   for (let i = 0; i < files.length; i += 1) {
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -58,8 +78,9 @@ export const sendShareSet = async <F extends ShareFile>(
       lastId = await port.send({ ...content, 'm.relates_to': threadRelation(albumId, lastId) });
       result.sent += 1;
       port.onFile?.(i, 'sent');
-    } catch {
+    } catch (e) {
       result.failed.push(files[i].name);
+      result.reasons?.push(refusalOf(e));
       result.failedAt.push(i);
       port.onFile?.(i, 'failed');
     }
@@ -69,15 +90,20 @@ export const sendShareSet = async <F extends ShareFile>(
 
 /**
  * What stays picked after a send: only the files that did not go, so a retry is one tap. A retry
- * makes a second album (adding to an existing one is not built), and a share where nothing went
+ * of a new album makes a second album, and a share where nothing went
  * leaves its root as a lone message the album list does not show (it lists threads with replies).
  */
 export const remainingAfter = <T>(files: T[], result: ShareResult): T[] =>
   files.filter((_, i) => result.failedAt.includes(i));
 
+const failedList = (result: ShareResult): string =>
+  result.failed
+    .map((name, i) => (result.reasons?.[i] ? `${name} (${result.reasons[i]})` : name))
+    .join(', ');
+
 export const resultNote = (result: ShareResult): string => {
   if (result.failed.length === 0)
     return `Shared ${result.sent} ${result.sent === 1 ? 'file' : 'files'}.`;
-  if (result.sent === 0) return `Nothing was shared. Not sent: ${result.failed.join(', ')}`;
-  return `Shared ${result.sent}. Not sent: ${result.failed.join(', ')}`;
+  if (result.sent === 0) return `Nothing was shared. Not sent: ${failedList(result)}`;
+  return `Shared ${result.sent}. Not sent: ${failedList(result)}`;
 };

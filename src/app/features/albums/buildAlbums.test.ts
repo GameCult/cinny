@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AlbumInput, ZoneEvent, buildAlbums } from './buildAlbums';
+import { AlbumInput, ZoneEvent, buildAlbums, lastEventId } from './buildAlbums';
 
 const root = (id: string, ts: number, over: Partial<ZoneEvent> = {}): ZoneEvent => ({
   event_id: id,
@@ -236,6 +236,17 @@ describe('versions: cover and sender', () => {
     const a = one(root('$r', 1), [img('$v1', 10, 'm.image'), img('$v2', 20, 'm.file', '$v1')]);
     expect(a.files.map((f) => f.id)).toEqual(['$v2']);
     expect(a.cover).toBeUndefined();
+  });
+});
+
+describe('lastEventId', () => {
+  it('is the newest event of the thread, a folded version included; the root when empty', () => {
+    const v = (id: string, ts: number, replaces?: string) =>
+      reply(id, ts, 'm.file', id, replaces ? { 'org.gamecult.publish': { replaces } } : {});
+    expect(lastEventId(one(root('$r', 1), [v('$a', 10), v('$b', 20, '$a'), v('$c', 15)]))).toBe(
+      '$b'
+    );
+    expect(lastEventId(one(root('$r', 1), []))).toBe('$r');
   });
 });
 
