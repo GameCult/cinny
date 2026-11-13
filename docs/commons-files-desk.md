@@ -118,7 +118,7 @@ Under A the paused service is not built, and most of its list disappears:
 
 ## Cuts under A
 
-Status 2026-11-13: cut 1 merged to dev as bb615570 (PR #147); cuts 2-5 follow. Cut 1's shape was: a pure `albumFolders` view (folders from `/`-separated album titles, leaf name, counts), folder navigation and breadcrumb in `AlbumView` through a presentational list component tested by static render, `ShareSet` sending into the current folder by prefixing the album title, and a quiet `Commons` row (alias `#commons:gamecult.org` or the carried `media.commons` id, through `lookupMediaRoom`, hidden while unset or looking, behind a dark `filesDesk.enabled` flag, and filtered out of the tiers so it is not listed twice). Muting is provisioning's (Q-E3), not the client's.
+Status 2026-11-13 (dev a078346e): built: folders by album title path with navigation and breadcrumb (#147), pagination (#148), version folding (#149), add-to-album with named refusals (#150), Stop for a send in flight, replaces loops shown, freshest last event on add (#151). **Not built: the Commons entry row** (item 1 below, found by `#commons:gamecult.org` or the carried `media.commons` id through `lookupMediaRoom`, behind a dark `filesDesk.enabled` flag; neither the row nor the flag exists in the code). It waits on Eureka's Commons room.
 
 1. **Commons entry**: a Commons row in the navigator (like `MediaRow`, found by alias or carried id), opening the room's album view. Flagged, no new data layer.
 2. **Pagination** of albums and files in `useAlbums` (done, PR #148).
