@@ -141,8 +141,20 @@ describe('phone icon-button hit areas', () => {
         .map((l) => l.trim().split(':')[0])
         .filter(Boolean)
     );
-    expect(afterDecls).not.toContain('pointer-events');
-    expect(afterDecls).not.toContain('z-index');
+    expect([...afterDecls].sort()).toEqual([
+      'content',
+      'height',
+      'left',
+      'position',
+      'top',
+      'transform',
+      'width',
+    ]);
+    // nothing on a phone moves a button off its own anchor: only relative (the button) and absolute (the box)
+    expect([...css.matchAll(/position: (\w+);/g)].map((m) => m[1]).sort()).toEqual([
+      'absolute',
+      'relative',
+    ]);
     expect(stripPhone(css).trim()).toBe('');
   });
 
@@ -152,7 +164,9 @@ describe('phone icon-button hit areas', () => {
       rulesFor(css, selector, PHONE).map((d) => d['margin-inline']);
     // 32 px composer buttons, 40 px header buttons, 26 px message-option buttons (which also open vertically,
     // the menu around them clips a hit area drawn outside its box)
-    expect(margins(/PhoneHit_spread__/)).toEqual(expect.arrayContaining([10, 9, 6, 2]));
+    // each class owns its own margin: (44 - drawn size) / 2
+    const own = (size: number) => margins(new RegExp(`PhoneHit_PhoneHitSpread${size}__`));
+    expect([own(24), own(26), own(32), own(40)]).toEqual([[10], [9], [6], [2]]);
     expect(rulesFor(css, /PhoneHit_PhoneHitRoom26__/, PHONE)).toEqual([{ 'margin-block': 9 }]);
   });
 
@@ -229,7 +243,7 @@ describe('icon buttons in the room view', () => {
       [...new Set(want)].forEach((name) =>
         expect(src).toMatch(
           new RegExp(
-            `import \\{[^}]*\\b${name}\\b(?!\\s+as\\b)[^}]*\\} from '(\\.\\./)+styles/PhoneHit\\.css'`
+            `import \\{(?:[^}]*,)?\\s*${name}\\s*(?:,[^}]*)?\\} from '(\\.\\./)+styles/PhoneHit\\.css'`
           )
         )
       );
