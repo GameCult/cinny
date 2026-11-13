@@ -2,11 +2,15 @@
 
 Status: **decided: Option A, Matrix as the single authority** (Meta, #swarm 2026-11-13 14:44Z: "Let's try matrix shaped"). Design only; no Files desk code is merged and nothing is deployed. Option B (the host service) is parked, not deleted: Eureka's branch `eureka-self/commons-host` at `a391960d` has no PR and a Soul verdict of NOT READY with fixes owed, and is woken only if Meta later wants a real file store. PR #143 (B's cut 1 in this repo) is closed unmerged. Items marked **UNKNOWN** are not verified; **Q-E** are questions for Eureka, **Q-M** for Meta.
 
-### Eureka's answers so far (`/opt/commons/handoff/commons-matrix-notes-20261113.md`, read 2026-11-13; not yet posted on PR #142)
+### Eureka's answers (`/opt/commons/handoff/commons-matrix-notes-20261113.md`, read 2026-11-13; final answers folded in 2026-11-13)
 
 - **Upload cap (Q-E1, read).** Synapse 1.164.1; the repo template `homeserver.yaml` has `max_upload_size: 50M` and the nginx vhost `client_max_body_size 50m`; the live runtime file is root-only and was not read. No per-room or per-user per-file cap exists; `media_upload_limits` is a per-user time-window quota. `GET /_matrix/client/v1/media/config` returns `m.upload.size` to an authenticated client, which is what the client reads. Raising the cap takes the config line, a Synapse restart and nginx at least as large.
 - **Posting (Q-E1, read).** A Self holds no Matrix credentials, so the publisher needs its own bot account and token (a MAS compatibility token via `mas-cli`). It uploads with `POST /_matrix/media/v3/upload` and sends `m.room.message` with `msgtype` `m.file` or `m.image`. The Persona mouth sends `m.text` only today, so file events are new for it too.
-- **Not yet read:** the final-marker convention (Eureka proposes a sibling `<name>.final` or a `published/` hardlink the publisher watches, with `org.gamecult.publish.replaces` carrying the prior event id and sha256), Commons room provisioning (alias, power levels, unencrypted, membership by the estate Space, publisher bot at power level 50), and whether Synapse media honours `Range` (to be checked in `synapse/media/media_repository.py` and against a live mxc).
+- **Room (Q-E3, answered).** The Commons room is `#commons:gamecult.org` (create type `org.gamecult.file_zone`, unencrypted, membership by the estate Space, publisher bot at power level 50). Provisioning and push muting are Eureka's.
+- **Cap (Q-E1, answered).** 50 MiB per file. The client reads it live from `m.upload.size`, not from this document.
+- **Poster (Q-E1, answered).** The publisher posts as the owning Mind: each file appears under the Mind whose tree it came from, not under a generic bot.
+- **Final marker (Q-E2, answered).** A handoff document is final when a sibling `NAME.final` holds its sha256; the publisher watches for that, posts once, and carries `org.gamecult.publish.replaces` (prior event id and sha256) on a later final version.
+- **Range (Q-E4, unverified).** Whether Synapse media honours `Range` has not been checked against a live mxc. Playback therefore stays on the blob download until it is.
 - **Edited-doc stale copies:** a redacted file's media persists unless purged; the publisher dedupes by sha256.
 
 Source: Meta, #swarm 2026-11-13 14:28Z and 14:40Z; ruling `ratatoskr:ruling:persona-file-sharing-zone` (a browsable, previewing collection per Persona; the Self writes to her outbox, her Persona decides what is shared, the Self never holds Matrix credentials).
@@ -36,7 +40,7 @@ Option A is an extension of this, not a second system.
 | Audience                   | room membership and power levels                                                                       | the host derives a role from Matrix identity and enforces it again                |
 | Audit of writes            | the event `sender`, kept by the homeserver                                                             | the host's own log                                                                |
 | Overwriting someone's file | impossible: events are immutable and only the sender's own edit counts; a redaction is a steward's act | host rule, host code                                                              |
-| Upload size cap            | the homeserver's `m.upload.size`, global, **UNKNOWN** value (Q-E)                                      | the host's own, chosen freely                                                     |
+| Upload size cap            | the homeserver's `m.upload.size`, global, 50 MiB (Eureka)                                    | the host's own, chosen freely                                                     |
 | Type allowlist             | not enforceable by the homeserver; client-side courtesy, steward redaction                             | enforced by the host (sniffed)                                                    |
 | What is browsable          | what was posted (published or uploaded)                                                                | what is on disk under the allowlist, live                                         |
 | Mind-written handoff docs  | a publisher posts them once, when final (below)                                                        | the host serves the tree                                                          |
@@ -62,7 +66,7 @@ What it buys: one identity, one audience, one audit trail, immutable files, exis
 
 ## Option A in detail
 
-**Rooms.** Commons is a room with create type `org.gamecult.file_zone`, alias `#commons-files:<server>` (name is **Q-M**), join rule `restricted` to the estate Space so members join without an invite and Minds are invited, history `shared`, unencrypted (the zones are, and `info.sha256` is written only there). Power levels: `events_default` 0 so members post; `redact` and `state_default` at steward level. The room is muted for push by provisioning: file posts are thread replies, which can raise unread counts and notifications (**UNKNOWN** under this server's push rules), so the room must not shout. Per-Persona zones are the rooms Eureka already provisions; nothing new.
+**Rooms.** Commons is a room with create type `org.gamecult.file_zone`, alias `#commons:gamecult.org`, join rule `restricted` to the estate Space so members join without an invite and Minds are invited, history `shared`, unencrypted (the zones are, and `info.sha256` is written only there). Power levels: `events_default` 0 so members post; `redact` and `state_default` at steward level. The room is muted for push by provisioning: file posts are thread replies, which can raise unread counts and notifications (**UNKNOWN** under this server's push rules), so the room must not shout. Per-Persona zones are the rooms Eureka already provisions; nothing new.
 
 **Folders.** Four ways to have folders on Matrix, in order of preference:
 
@@ -73,9 +77,9 @@ What it buys: one identity, one audience, one audit trail, immutable files, exis
 
 **Albums in each Mind's room** are the same mechanism: a Mind's Media room holds that Mind's albums, the Commons holds the shared ones. The Files desk is the same view over either room; a zone differs only by room, not by code.
 
-**The publisher.** A small service on Yggdrasil with its own Matrix account (a bot or a Mind-class account; whether either may post file events from there is Eureka's check, **Q-E1**). The Self never holds this account; the publisher holds it. It owns the allowlist.
+**The publisher.** A small service on Yggdrasil with its own Matrix account (a bot account that posts as the owning Mind, per Eureka's answer above). The Self never holds this account; the publisher holds it. It owns the allowlist.
 
-- **When it posts.** Handoff documents are edited in place, so mirroring every save would spam the room with drafts. The rule (Eureka's lean, adopted): **post once, when the document is marked final**; a later final version posts again with a `replaces` relation to the earlier event. How "final" is marked (a front-matter line, a sibling marker, a directory convention) is the publisher's concern and a **Q-E2**; the client must not know.
+- **When it posts.** Handoff documents are edited in place, so mirroring every save would spam the room with drafts. The rule (Eureka's lean, adopted): **post once, when the document is marked final**; a later final version posts again with a `replaces` relation to the earlier event. "Final" is a sibling `NAME.final` holding the document's sha256 (answered Q-E2); the client must not know.
 - **Allowlist.** Lives on the publisher: a list of source roots and patterns, read by the publisher only. `handoff-private` is not on it and the publisher never lists, reads or posts from it. The client holds no path to anything on disk.
 - **The event.** A file event in the thread of the folder's album, built the way `getMsgContent` builds them (`msgtype`, `body`, `filename`, `url` from the media repo, `info.mimetype|size|sha256`), plus one extra key `org.gamecult.publish`: `{ source, sha256, replaces? }` where `source` is a path relative to the allowlisted root, never absolute, and `replaces` is the event id of the version it supersedes.
 - **`replaces`, not `m.replace`.** `m.replace` is the stock edit relation, but Ratatoskr's `buildAlbums` deliberately never treats an edit as a file, several clients do not render an edited file, and an edit hides the earlier version. A custom key keeps both events as files; the view shows the latest of a chain and a "N earlier versions" row under it, and other Matrix clients see two ordinary file posts. A chain is read from the events themselves (each carries its `replaces`), not from a table.
@@ -114,7 +118,7 @@ Under A the paused service is not built, and most of its list disappears:
 
 ## Cuts under A
 
-Status 2026-11-13: none built. Cut 1 below is next, on branch `void/files-desk-view` (worktree `wt/files-view`, no commits yet); its shape: a pure `albumFolders` view (folders from `/`-separated album titles, leaf name, counts), folder navigation and breadcrumb in `AlbumView` through a presentational list component tested by static render, `ShareSet` sending into the current folder by prefixing the album title, and a quiet `Commons` row (alias `#commons-files:<server>` or the carried `media.commons` id, through `lookupMediaRoom`, hidden while unset or looking, behind a dark `filesDesk.enabled` flag, and filtered out of the tiers so it is not listed twice). Muting is provisioning's (Q-E3), not the client's.
+Status 2026-11-13: cut 1 merged to dev as bb615570 (PR #147); cuts 2-5 follow. Cut 1's shape was: a pure `albumFolders` view (folders from `/`-separated album titles, leaf name, counts), folder navigation and breadcrumb in `AlbumView` through a presentational list component tested by static render, `ShareSet` sending into the current folder by prefixing the album title, and a quiet `Commons` row (alias `#commons:gamecult.org` or the carried `media.commons` id, through `lookupMediaRoom`, hidden while unset or looking, behind a dark `filesDesk.enabled` flag, and filtered out of the tiers so it is not listed twice). Muting is provisioning's (Q-E3), not the client's.
 
 1. **Commons entry**: a Commons row in the navigator (like `MediaRow`, found by alias or carried id), opening the room's album view. Flagged, no new data layer.
 2. **Pagination** of albums and files in `useAlbums` (a prerequisite for a Commons of any size).
@@ -130,12 +134,7 @@ The Mind-side fetch (the mouth's); encrypted rooms; deletion and rename by this 
 
 ## Open questions
 
-**Eureka (#minds 14:40Z, answers to land on PR #142):**
-
-- **Q-E1.** What is the homeserver upload cap (`max_upload_size`), and may a bot or Mind-class account post file events from Yggdrasil (the publisher's account)?
-- **Q-E2.** How a handoff doc is marked final (front matter, sibling marker, or directory), and which roots the allowlist names.
-- **Q-E3.** Commons room provisioning: alias, restricted join to the estate Space, power levels, push rules.
-- **Q-E4.** Does Synapse media honour `Range` for authenticated media (decides whether large audio and video need anything beyond the blob route)?
+**Eureka:** answered; see "Eureka's answers" at the top. Still open on Eureka's side: Range support (Q-E4) and the live runtime `max_upload_size`.
 
 **Meta:**
 
