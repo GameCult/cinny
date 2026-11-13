@@ -7,6 +7,7 @@ import {
   SyncState,
 } from 'matrix-js-sdk';
 
+import { wipeLocalData } from './wipeLocalData';
 import { cryptoCallbacks } from './secretStorageKeys';
 import { clearNavToActivePathStore } from '../app/state/navToActivePath';
 import { pushSessionToSW } from '../sw-session';
@@ -119,21 +120,11 @@ export const logoutClient = async (mx: MatrixClient) => {
   } catch {
     // ignore if failed to logout
   }
-  await mx.clearStores();
-  window.localStorage.clear();
+  await wipeLocalData(mx);
   window.location.reload();
 };
 
 export const clearLoginData = async () => {
-  const dbs = await window.indexedDB.databases();
-
-  dbs.forEach((idbInfo) => {
-    const { name } = idbInfo;
-    if (name) {
-      window.indexedDB.deleteDatabase(name);
-    }
-  });
-
-  window.localStorage.clear();
+  await wipeLocalData();
   window.location.reload();
 };
