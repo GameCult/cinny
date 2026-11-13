@@ -8,6 +8,7 @@ import {
   expectSizeTie,
   iconButtons,
   phoneHitOf,
+  uncoveredIconButtons,
 } from './phoneHitTestKit';
 
 describe('phone hit test kit', () => {
@@ -149,6 +150,127 @@ describe('phone hit test kit', () => {
       const wrongModule =
         "import { PhoneHit } from './other';\n<IconButton className={PhoneHit} />";
       expect(() => check(wrongModule, ['PhoneHit'])).toThrow();
+    });
+  });
+
+  describe('uncoveredIconButtons: the coverage guard is not blind to a spelling of IconButton', () => {
+    const imp = "import { PhoneHit } from '../styles/PhoneHit.css';\n";
+    const none = { bare: [], unhandled: [] };
+
+    it('sees an IconButton imported under an alias, as a tag', () => {
+      const bare = "import { IconButton as IB } from 'folds';\nconst A = () => <IB />;";
+      expect(uncoveredIconButtons(bare)).toEqual({ bare: [0], unhandled: [] });
+      const ok = `${imp}import { IconButton as IB } from 'folds';\nconst A = () => <IB className={PhoneHit} />;`;
+      expect(uncoveredIconButtons(ok)).toEqual(none);
+    });
+
+    it('sees a namespace member tag', () => {
+      const bare = "import * as F from 'folds';\nconst A = () => <F.IconButton />;";
+      expect(uncoveredIconButtons(bare)).toEqual({ bare: [0], unhandled: [] });
+      const ok = `${imp}import * as F from 'folds';\nconst A = () => <F.IconButton className={PhoneHit}></F.IconButton>;`;
+      expect(uncoveredIconButtons(ok)).toEqual(none);
+    });
+
+    it('fails loudly on an IconButton passed or bound as a value, and on a re-export', () => {
+      const asProp =
+        "import { IconButton } from 'folds';\nconst A = () => <Box as={IconButton} />;";
+      expect(uncoveredIconButtons(asProp).unhandled).toEqual(['2:26']);
+      const aliasValue =
+        "import { IconButton as IB } from 'folds';\nconst A = () => <Box as={IB} />;";
+      expect(uncoveredIconButtons(aliasValue).unhandled).toEqual(['2:26']);
+      const rebound = "import { IconButton } from 'folds';\nconst B = IconButton;";
+      expect(uncoveredIconButtons(rebound).unhandled).toEqual(['2:11']);
+      const destructured = "import * as F from 'folds';\nconst { IconButton: IB } = F;";
+      expect(uncoveredIconButtons(destructured).unhandled).toEqual(['2:9']);
+      const member = "import * as F from 'folds';\nconst B = F.IconButton;";
+      expect(uncoveredIconButtons(member).unhandled).toEqual(['2:13']);
+      const indexed = "import * as F from 'folds';\nconst B = F['IconButton'];";
+      expect(uncoveredIconButtons(indexed).unhandled).toEqual(['2:13']);
+      expect(uncoveredIconButtons("export { IconButton } from 'folds';").unhandled).toHaveLength(1);
+    });
+
+    it('reads a non-.tsx file by its extension', () => {
+      const ts =
+        "import { IconButton } from 'folds';\nexport const x = <T,>(v: T) => <IconButton />;";
+      expect(uncoveredIconButtons(ts, 'x.tsx').bare).toEqual([0]);
+      const js = "import { IconButton } from 'folds';\nexport const B = IconButton;";
+      expect(uncoveredIconButtons(js, 'x.ts').unhandled).toEqual(['2:18']);
+      expect(uncoveredIconButtons(js, 'x.js').unhandled).toEqual(['2:18']);
+      const jsx = "import { IconButton } from 'folds';\nexport const A = () => <IconButton />;";
+      expect(uncoveredIconButtons(jsx, 'x.jsx').bare).toEqual([0]);
+    });
+
+    it('does not count IconButtonX, a comment or a string as an IconButton', () => {
+      const src =
+        "import { IconButtonGroup } from 'folds';\n// IconButton\nconst a = 'IconButton';\nconst A = () => <IconButtonGroup />;";
+      expect(uncoveredIconButtons(src)).toEqual(none);
+    });
+
+    it('does not count a PhoneHit that an inner scope rebinds', () => {
+      const tag = '<IconButton className={PhoneHit} />';
+      const cases = [
+        `const A = (PhoneHit) => ${tag};`,
+        `const A = ({ PhoneHit }) => ${tag};`,
+        `const A = ([a, PhoneHit]) => ${tag};`,
+        `function A() { const PhoneHit = 'x'; return ${tag}; }`,
+        `function A() { return ${tag}; var PhoneHit; }`,
+        `function A() { if (a) { var PhoneHit = 'x'; } return ${tag}; }`,
+        `function A() { { let { PhoneHit } = o; return ${tag}; } }`,
+        `function A() { function PhoneHit() {} return ${tag}; }`,
+        `function A() { for (const PhoneHit of xs) { return ${tag}; } }`,
+        `function A() { try { f(); } catch (PhoneHit) { return ${tag}; } }`,
+        `const A = function PhoneHit() { return ${tag}; };`,
+        `function A() { switch (x) { case 1: const PhoneHit = 'x'; return ${tag}; } }`,
+      ];
+      cases.forEach((c) => expect(uncoveredIconButtons(`${imp}${c}`).bare, c).toEqual([0]));
+      // the same shapes without the rebinding count, and a rebinding that is not in scope does not hide it
+      expect(uncoveredIconButtons(`${imp}const A = () => ${tag};`).bare).toEqual([]);
+      expect(
+        uncoveredIconButtons(`${imp}const f = (PhoneHit) => 1;\nconst A = () => ${tag};`).bare
+      ).toEqual([]);
+      expect(uncoveredIconButtons(`${imp}function A() { return ${tag}; }`).bare).toEqual([]);
+    });
+
+    it('does not count an import type of PhoneHit', () => {
+      const tag = 'const A = () => <IconButton className={PhoneHit} />;';
+      const typeOnly = `import type { PhoneHit } from '../styles/PhoneHit.css';\n${tag}`;
+      expect(uncoveredIconButtons(typeOnly).bare).toEqual([0]);
+      const typeSpecifier = `import { type PhoneHit } from '../styles/PhoneHit.css';\n${tag}`;
+      expect(uncoveredIconButtons(typeSpecifier).bare).toEqual([0]);
+      expect(uncoveredIconButtons(`${imp}${tag}`).bare).toEqual([]);
+    });
+  });
+
+  describe('drawnPx reads the parsed tag, not its text', () => {
+    it('ignores a size in a string, comment or other prop name', () => {
+      expect(drawnPx('<IconButton title=" size=\'500\'">', '<Icon />')).toEqual({ px: 40 });
+      expect(drawnPx('<IconButton data-size="600" iconSize="500">', '<Icon />')).toEqual({
+        px: 40,
+      });
+      expect(
+        drawnPx('<IconButton size="300">', '{/* <Icon size="500" /> */}<Icon size="50" />')
+      ).toEqual({
+        px: 24,
+      });
+      expect(drawnPx('<IconButton size="300">', '{"<Icon size=\'500\' />"}')).toHaveProperty(
+        'undetermined'
+      );
+    });
+
+    it('reads a size from a braced string, and the last size wins', () => {
+      expect(drawnPx("<IconButton size={'300'}>", '<Icon size={"50"} />')).toEqual({ px: 24 });
+      expect(drawnPx('<IconButton size="300" size="500">', '<Icon size="50" />')).toEqual({
+        px: 40,
+      });
+    });
+
+    it('reads an Icon spread after a size, and a size past a braced prop with a > inside', () => {
+      expect(drawnPx('<IconButton onClick={() => a > b} size="300">', '<Icon />')).toEqual({
+        px: 32,
+      });
+      expect(drawnPx('<IconButton size="300">', '<Icon size="50" {...p} />')).toHaveProperty(
+        'undetermined'
+      );
     });
   });
 });
