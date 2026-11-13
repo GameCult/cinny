@@ -263,11 +263,20 @@ describe('stopping a send', () => {
     const r = room();
     const ac = new AbortController();
     ac.abort();
+    let uploads = 0;
     const res = await sendShareSet(
-      { ...r.port, signal: ac.signal },
+      {
+        ...r.port,
+        signal: ac.signal,
+        contentOf: async (f) => {
+          uploads += 1;
+          return r.port.contentOf(f);
+        },
+      },
       { albumId: '$a', lastId: '$l', lastTs: 1 },
       clips
     );
+    expect(uploads).toBe(0);
     expect(res.sent).toBe(0);
     expect(res.failedAt).toEqual([0, 1, 2]);
     expect(r.events).toEqual([]);

@@ -1,7 +1,7 @@
 import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { Text } from 'folds';
 import { useQueryClient } from '@tanstack/react-query';
-import { Room } from 'matrix-js-sdk';
+import { EventStatus, Room } from 'matrix-js-sdk';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { uploadContent } from '../../utils/matrix';
@@ -118,7 +118,7 @@ const threadEvents = (room: Room): ThreadEvent[] =>
   room
     .getLiveTimeline()
     .getEvents()
-    .filter((e) => !e.status && !!e.getId())
+    .filter((e) => (!e.status || e.status === EventStatus.SENT) && !!e.getId())
     .map((e) => ({ id: e.getId() as string, ts: e.getTs(), threadRoot: e.threadRootId }));
 
 type ShareSetProps = {

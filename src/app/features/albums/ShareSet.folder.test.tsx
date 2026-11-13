@@ -104,9 +104,11 @@ describe('ShareSet: the folder reaches the album title', () => {
     timeline.push(
       ev('$other', 99, '$else'),
       ev('$local', 98, '$alb', 'sending'),
-      ev('$new', 50, '$alb')
+      ev('$new', 50, '$alb'),
+      ev('$sentNotEchoed', 60, '$alb', 'sent'),
+      ev('$failed', 70, '$alb', 'not_sent')
     );
     mount(['a'], { albumId: '$alb', lastId: '$last', lastTs: 5 });
-    expect(await send('x')).toBe('into:$alb@$new');
+    expect(await send('x')).toBe('into:$alb@$sentNotEchoed');
   });
 });
