@@ -10,6 +10,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 import fs from 'fs';
 import path from 'path';
 import buildConfig from './build.config';
+import { buildShaPlugin } from './scripts/buildSha';
 
 const copyFiles = {
   targets: [
@@ -104,6 +105,7 @@ export default defineConfig({
     }),
     viteStaticCopy(copyFiles),
     vanillaExtractPlugin(),
+    buildShaPlugin(),
     wasm(),
     react(),
     VitePWA({
