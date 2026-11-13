@@ -126,6 +126,8 @@ describe('phone icon-button hit areas', () => {
     const phone = [...css.matchAll(/@media ([^{]+) \{\n([\s\S]*?\n)\}(?:\n|$)/g)];
     expect(phone.map((m) => m[1])).toEqual([PHONE]);
     expect(css).toMatch(/::after \{[^}]*width: max\(100%, 44px\);[^}]*height: max\(100%, 44px\);/);
+    // no content, no box: the pseudo-element is not rendered at all
+    expect(css).toMatch(/::after \{[^}]*content: "";/);
     expect(css).toMatch(/::after \{[^}]*position: absolute;/);
     // centred on the button: top and left at half, pulled back by half its own size
     expect(css).toMatch(/::after \{[^}]*top: 50%;/);
@@ -190,13 +192,33 @@ describe('icon buttons in the room view', () => {
     ],
     'features/room/RoomInput.tsx': Array(6).fill('PhoneHitSpread32'),
     'features/room/RoomViewHeader.tsx': Array(6).fill('PhoneHitSpread40'),
+    // The chat path's other buttons. Two neighbours in a row: Spread32. One on its own: the plain PhoneHit.
+    'features/room/message/MessageEditor.tsx': ['PhoneHitSpread32', 'PhoneHitSpread32'], // toolbar, emoji
+    'features/room-nav/RoomNavItem.tsx': ['PhoneHitSpread32', 'PhoneHitSpread32'], // chat toggle, options
+    'features/room/MembersDrawer.tsx': ['PhoneHit', 'PhoneHit'], // close, scroll to top
+    'features/room/reaction-viewer/ReactionViewer.tsx': ['PhoneHit'],
+    'features/room/room-pin-menu/RoomPinMenu.tsx': ['PhoneHit', 'PhoneHit'], // unpin, close
+    'features/room/RoomViewTyping.tsx': ['PhoneHit'],
+    'features/room/CallChatView.tsx': ['PhoneHit'],
+    'features/room/jump-to-time/JumpToTime.tsx': ['PhoneHit'],
+    // Buttons that were fixed with #125 and had no test.
+    'components/password-input/PasswordInput.tsx': ['PhoneHit'],
+    'features/desk/Desk.tsx': ['PhoneHit'],
+    'features/scene/SkyStateControl.tsx': ['PhoneHit'],
+    'pages/auth/login/PasswordLoginForm.tsx': ['PhoneHit'],
   };
 
   it.each(Object.entries(expected))(
     '%s: each IconButton carries its own PhoneHit class',
     (file, want) => {
-      const tags = iconButtonTags(readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8'));
-      expect(tags.map((t) => t.match(/\bPhoneHit\w+/)?.[0] ?? null)).toEqual(want);
+      const src = readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8');
+      expect(iconButtonTags(src).map((t) => t.match(/\bPhoneHit\w*/)?.[0] ?? null)).toEqual(want);
+      // the name is the one PhoneHit.css.ts exports, not a local of the same name
+      [...new Set(want)].forEach((name) =>
+        expect(src).toMatch(
+          new RegExp(`import \\{[^}]*\\b${name}\\b[^}]*\\} from '(\\.\\./)+styles/PhoneHit\\.css'`)
+        )
+      );
     }
   );
 });

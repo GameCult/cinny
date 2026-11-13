@@ -59,6 +59,7 @@ import { useSpaceOptionally } from '../../hooks/useSpace';
 import { ContainerColor } from '../../styles/ContainerColor.css';
 import { useFlattenPowerTagMembers, useGetMemberPowerTag } from '../../hooks/useMemberPowerTag';
 import { useRoomCreators } from '../../hooks/useRoomCreators';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type MemberDrawerHeaderProps = {
   room: Room;
@@ -87,6 +88,7 @@ function MemberDrawerHeader({ room }: MemberDrawerHeaderProps) {
           >
             {(triggerRef) => (
               <IconButton
+                className={PhoneHit}
                 ref={triggerRef}
                 variant="Background"
                 onClick={() => setPeopleDrawer(false)}
@@ -359,6 +361,7 @@ export function MembersDrawer({ room, members }: MembersDrawerProps) {
 
             <ScrollTopContainer scrollRef={scrollRef} anchorRef={scrollTopAnchorRef}>
               <IconButton
+                className={PhoneHit}
                 onClick={() => virtualizer.scrollToOffset(0)}
                 variant="Surface"
                 radii="Pill"

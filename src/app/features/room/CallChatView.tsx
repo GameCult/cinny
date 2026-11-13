@@ -6,6 +6,7 @@ import { Page, PageHeader } from '../../components/page';
 import { callChatAtom } from '../../state/callEmbed';
 import { RoomView } from './RoomView';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export function CallChatView() {
   const { eventId } = useParams();
@@ -41,7 +42,12 @@ export function CallChatView() {
               }
             >
               {(triggerRef) => (
-                <IconButton ref={triggerRef} variant="Surface" onClick={handleClose}>
+                <IconButton
+                  className={PhoneHit}
+                  ref={triggerRef}
+                  variant="Surface"
+                  onClick={handleClose}
+                >
                   <Icon src={Icons.Cross} />
                 </IconButton>
               )}

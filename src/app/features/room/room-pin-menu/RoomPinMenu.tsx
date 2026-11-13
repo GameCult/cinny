@@ -86,6 +86,7 @@ import {
   useGetMemberPowerTag,
 } from '../../../hooks/useMemberPowerTag';
 import { useRoomCreatorsTag } from '../../../hooks/useRoomCreatorsTag';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type PinnedMessageProps = {
   room: Room;
@@ -146,6 +147,7 @@ function PinnedMessage({
       </Chip>
       {canPinEvent && (
         <IconButton
+          className={PhoneHit}
           data-event-id={eventId}
           variant="Secondary"
           size="300"
@@ -457,7 +459,7 @@ export const RoomPinMenu = forwardRef<HTMLDivElement, RoomPinMenuProps>(
               <Text size="H5">Pinned Messages</Text>
             </Box>
             <Box shrink="No">
-              <IconButton size="300" onClick={requestClose} radii="300">
+              <IconButton className={PhoneHit} size="300" onClick={requestClose} radii="300">
                 <Icon src={Icons.Cross} size="400" />
               </IconButton>
             </Box>
