@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Icon, IconButton, Icons, Scroll, Text } from 'folds';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 import { Page, PageContent, PageContentCenter, PageHeader } from '../../components/page';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
 import { getHomePath } from '../../pages/pathUtils';
@@ -33,7 +34,11 @@ export function Desk() {
         <Box grow="Yes" alignItems="Center" gap="200">
           <Box grow="Yes" basis="No">
             {phone && (
-              <IconButton aria-label="Back to rooms" onClick={() => navigate(getHomePath())}>
+              <IconButton
+                className={PhoneHit}
+                aria-label="Back to rooms"
+                onClick={() => navigate(getHomePath())}
+              >
                 <Icon src={Icons.ArrowLeft} />
               </IconButton>
             )}
