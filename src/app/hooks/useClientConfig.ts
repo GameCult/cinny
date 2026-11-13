@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { DingsConfig } from '../features/dings/dings';
 import type { BackgroundSceneConfig } from '../features/scene/tier';
+import type { PushConfig } from '../features/push/config';
 
 export type HashRouterConfig = {
   enabled?: boolean;
@@ -34,9 +35,15 @@ export type ClientConfig = {
   // Rooms (ids or aliases) shown as the album view; a room whose create type is org.gamecult.file_zone needs no entry.
   fileZoneRooms?: string[];
 
+  // Sharing a set of files into a file-zone room as one album. Off unless `enabled` is true.
+  fileZoneShare?: { enabled?: boolean };
+
   // The sign-up entry on the sign-in page. Off unless `enabled` is true; `url` is the account
   // service's own registration page (a value, never a route this client invents).
   registration?: RegistrationConfig;
+
+  // Web Push to the installed app (src/app/features/push). Off unless all three keys are filled; ships empty.
+  push?: PushConfig;
 
   // Dev preview only: the build answers a pretend homeserver in-page (src/preview-demo).
   previewDemo?: boolean;
@@ -53,7 +60,7 @@ export function useClientConfig(): ClientConfig {
 }
 
 export const clientDefaultServer = (clientConfig: ClientConfig): string =>
-  clientConfig.homeserverList?.[clientConfig.defaultHomeserver ?? 0] ?? 'gamecult.org';
+  clientConfig.homeserverList?.[clientConfig.defaultHomeserver ?? 0] ?? 'chat.gamecult.org';
 
 export const clientAllowedServer = (clientConfig: ClientConfig, server: string): boolean => {
   const { homeserverList, allowCustomHomeservers } = clientConfig;

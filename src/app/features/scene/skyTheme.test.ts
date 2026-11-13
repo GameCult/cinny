@@ -53,12 +53,18 @@ describe('skyThemeId', () => {
   });
 
   describe('sceneThemeId, the theme the page wears', () => {
-    it('a fixed state always picks its theme, whatever the scene or the person chose', () => {
-      [true, false].forEach((scene) =>
-        [true, false].forEach((chose) => {
-          expect(sceneThemeId('day', 'night', scene, chose)).toBe('noonday-sky');
-          expect(sceneThemeId('night', 'day', scene, chose)).toBe('midnight-sky');
-        })
+    it('a fixed state picks its theme, whatever the scene, while the person chose no theme', () => {
+      [true, false].forEach((scene) => {
+        expect(sceneThemeId('day', 'night', scene, false)).toBe('noonday-sky');
+        expect(sceneThemeId('night', 'day', scene, false)).toBe('midnight-sky');
+      });
+    });
+
+    it('a theme the person chose wins over every sky state, fixed or auto', () => {
+      (['auto', 'day', 'dusk', 'night'] as const).forEach((state) =>
+        [true, false].forEach((scene) =>
+          expect(sceneThemeId(state, 'night', scene, true)).toBeUndefined()
+        )
       );
     });
 

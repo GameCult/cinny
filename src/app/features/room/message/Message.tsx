@@ -61,7 +61,8 @@ import {
 import { MessageLayout, MessageSpacing, settingsAtom } from '../../../state/settings';
 import { useSetting } from '../../../state/hooks/settings';
 import { PoseAvatar } from '../../../components/message/pose/PoseAvatar';
-import { POSE_KEY, MINDS, mindOfSender, resolvePose } from '../../../components/message/pose/poses';
+import { MINDS, mindOfSender } from '../../../components/message/pose/poses';
+import { messagePose } from '../../../components/message/pose/sentiment';
 import { useEntranceDelay } from '../../../components/message/pose/entrance';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { useRecentEmoji } from '../../../hooks/useRecentEmoji';
@@ -85,6 +86,7 @@ import colorMXID from '../../../../util/colorMXID';
 import { useSkyInk } from '../../../hooks/useTheme';
 import { userColorInk } from '../../scene/skyInk';
 import { getPowerTagIconSrc } from '../../../hooks/useMemberPowerTag';
+import { PhoneHitRoom26, PhoneHitSpread32 } from '../../../styles/PhoneHit.css';
 
 export type ReactionHandler = (keyOrMxc: string, shortcode: string) => void;
 
@@ -110,7 +112,7 @@ export const MessageQuickReactions = as<'div', MessageQuickReactionsProps>(
           {recentEmojis.map((emoji) => (
             <IconButton
               key={emoji.unicode}
-              className={css.MessageQuickReaction}
+              className={classNames(css.MessageQuickReaction, PhoneHitSpread32)}
               size="300"
               variant="SurfaceVariant"
               radii="Pill"
@@ -458,7 +460,12 @@ export const MessageDeleteItem = as<
                 <Box grow="Yes">
                   <Text size="H4">Delete Message</Text>
                 </Box>
-                <IconButton size="300" onClick={handleClose} radii="300">
+                <IconButton
+                  className={PhoneHitSpread32}
+                  size="300"
+                  onClick={handleClose}
+                  radii="300"
+                >
                   <Icon src={Icons.Cross} />
                 </IconButton>
               </Header>
@@ -588,7 +595,12 @@ export const MessageReportItem = as<
                 <Box grow="Yes">
                   <Text size="H4">Report Message</Text>
                 </Box>
-                <IconButton size="300" onClick={handleClose} radii="300">
+                <IconButton
+                  className={PhoneHitSpread32}
+                  size="300"
+                  onClick={handleClose}
+                  radii="300"
+                >
                   <Icon src={Icons.Cross} />
                 </IconButton>
               </Header>
@@ -835,7 +847,7 @@ export const Message = as<'div', MessageProps>(
     const poseJSX = !collapse && mind && (
       <PoseAvatar
         mind={mind}
-        pose={resolvePose(mind, mEvent.getContent()[POSE_KEY])}
+        pose={messagePose(mind, mEvent.getContent())}
         userId={senderId}
         alt={poseAlt}
         enter={enterDelay !== undefined}
@@ -949,6 +961,7 @@ export const Message = as<'div', MessageProps>(
                     }
                   >
                     <IconButton
+                      className={PhoneHitRoom26}
                       onClick={handleOpenEmojiBoard}
                       variant="SurfaceVariant"
                       size="300"
@@ -960,6 +973,7 @@ export const Message = as<'div', MessageProps>(
                   </PopOut>
                 )}
                 <IconButton
+                  className={PhoneHitRoom26}
                   onClick={onReplyClick}
                   data-event-id={mEvent.getId()}
                   variant="SurfaceVariant"
@@ -970,6 +984,7 @@ export const Message = as<'div', MessageProps>(
                 </IconButton>
                 {!isThreadedMessage && (
                   <IconButton
+                    className={PhoneHitRoom26}
                     onClick={(ev) => onReplyClick(ev, true)}
                     data-event-id={mEvent.getId()}
                     variant="SurfaceVariant"
@@ -981,6 +996,7 @@ export const Message = as<'div', MessageProps>(
                 )}
                 {canEditEvent(mx, mEvent) && onEditId && (
                   <IconButton
+                    className={PhoneHitRoom26}
                     onClick={() => onEditId(mEvent.getId())}
                     variant="SurfaceVariant"
                     size="300"
@@ -1146,6 +1162,7 @@ export const Message = as<'div', MessageProps>(
                   }
                 >
                   <IconButton
+                    className={PhoneHitRoom26}
                     variant="SurfaceVariant"
                     size="300"
                     radii="300"
@@ -1319,6 +1336,7 @@ export const Event = as<'div', EventProps>(
                   }
                 >
                   <IconButton
+                    className={PhoneHitRoom26}
                     variant="SurfaceVariant"
                     size="300"
                     radii="300"

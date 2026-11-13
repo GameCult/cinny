@@ -157,10 +157,8 @@ export function grainAt(
   distance: number
 ): number {
   const w = triWeights(n);
-  const over = (
-    k: ReadonlyArray<readonly [number, number]>,
-    f: typeof waves
-  ) => w[0] * f(k, z, y) + w[1] * f(k, x, z) + w[2] * f(k, x, y);
+  const over = (k: ReadonlyArray<readonly [number, number]>, f: typeof waves) =>
+    w[0] * f(k, z, y) + w[1] * f(k, x, z) + w[2] * f(k, x, y);
   const coarse = over(COARSE, waves);
   const fine = over(FINE, wavesWarped) * (1 - smooth(ALBEDO.fineNear, ALBEDO.fineFar, distance));
   const layers = Math.sin(y * 0.9 + wobbleAt(x, y, z, n) * 3);

@@ -13,6 +13,8 @@ describe('scene .css.ts files, compiled as the production build compiles them', 
   it.each(FILES)('%s compiles with exports vanilla-extract accepts', async (file) => {
     const filePath = `${process.cwd()}/${file}`;
     const { source } = await compile({ filePath, cwd: process.cwd(), identOption: 'debug' });
-    await expect(processVanillaFile({ source, filePath, identOption: 'debug' })).resolves.toBeTypeOf('string');
+    await expect(
+      processVanillaFile({ source, filePath, identOption: 'debug' })
+    ).resolves.toBeTypeOf('string');
   });
 });

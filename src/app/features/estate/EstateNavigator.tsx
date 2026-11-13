@@ -1,16 +1,25 @@
-import React, { MouseEventHandler, ReactNode, useCallback, useMemo, useRef } from 'react';
+import React, {
+  ComponentProps,
+  MouseEventHandler,
+  ReactNode,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color, config } from 'folds';
+import { Avatar, Box, Chip, Icon, IconButton, Icons, Spinner, Text, color } from 'folds';
 import { PageNav, PageNavContent, PageNavHeader } from '../../components/page';
 import {
   NavButton,
   NavCategory,
   NavCategoryHeader,
+  NavGutter,
   NavItem,
   NavItemContent,
+  NavLevel,
 } from '../../components/nav';
-import { NavAction, NavLabel } from '../../components/nav/styles.css';
+import { NAV_ROOM_ICON_REST_OPACITY, NavAction, NavLabel } from '../../components/nav/styles.css';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { JoinAddressPrompt } from '../../components/join-address-prompt';
 import { RoomNavCategoryButton, RoomNavItem } from '../room-nav';
@@ -27,6 +36,9 @@ import { _RoomSearchParams } from '../../pages/paths';
 import { searchModalAtom } from '../../state/searchModal';
 import { getCanonicalAliasOrRoomId } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
+import { MINDS } from '../../components/message/pose/poses';
+import { MediaLink, MediaNote, useMindMedia } from './MediaRow';
+import { MediaRow as MediaRowState } from './mediaRoom';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
@@ -45,6 +57,8 @@ import * as css from './EstateNavigator.css';
 import { DeskEntry } from '../desk';
 import { SkyStateControl } from '../scene/SkyStateControl';
 
+type IconSrc = ComponentProps<typeof Icon>['src'];
+
 /** How long a tap waits for the client store to hold the room it just joined. */
 const JOIN_ARRIVAL_TIMEOUT_MS = 20000;
 
@@ -58,7 +72,7 @@ const estateRoomPath = (mx: ReturnType<typeof useMatrixClient>, room: EstateRoom
   return getHomeRoomPath(alias);
 };
 
-function JoinRow({ room }: { room: EstateRoom }) {
+function JoinRow({ room, icon = Icons.Hash }: { room: EstateRoom; icon?: IconSrc }) {
   const mx = useMatrixClient();
   const navigate = useNavigate();
   const [state, join] = useAsyncCallback(
@@ -77,12 +91,14 @@ function JoinRow({ room }: { room: EstateRoom }) {
 
   return (
     <NavItem variant="Background" radii="400">
-      <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px', minHeight: 38 }}>
+      <Box grow="Yes" alignItems="Center" gap="200" style={{ padding: '0 8px 0 0', minHeight: 38 }}>
         <NavItemContent>
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
-            <Avatar size="200" radii="400">
-              <Icon src={Icons.Hash} size="100" style={{ opacity: config.opacity.P300 }} />
-            </Avatar>
+            <NavGutter>
+              <Avatar size="200" radii="400">
+                <Icon src={icon} size="100" style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }} />
+              </Avatar>
+            </NavGutter>
             <Text className={NavLabel} as="span" size="Inherit" truncate>
               {room.name}
             </Text>
@@ -102,7 +118,7 @@ function JoinRow({ room }: { room: EstateRoom }) {
           variant={room.state === 'invited' ? 'Primary' : 'Secondary'}
           fill="Soft"
           radii="Pill"
-          before={busy ? <Spinner size="100" /> : <Icon src={Icons.Plus} size="50" />}
+          before={busy ? <Spinner size="100" /> : undefined}
           onClick={join}
           disabled={busy}
           aria-label={`Join ${room.name}`}
@@ -136,11 +152,9 @@ type CollapsibleProps = {
   categoryId: string;
   label: string;
   rooms: EstateRoom[];
-  /** Sits in the header beside the label, so a collapsed section still shows it. */
-  trailing?: ReactNode;
   children: ReactNode;
 };
-function Collapsible({ categoryId, label, rooms, trailing, children }: CollapsibleProps) {
+function Collapsible({ categoryId, label, rooms, children }: CollapsibleProps) {
   const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const selectedRoomId = useSelectedRoom();
   const roomToUnread = useAtomValue(roomToUnreadAtom);
@@ -164,22 +178,33 @@ function Collapsible({ categoryId, label, rooms, trailing, children }: Collapsib
         <RoomNavCategoryButton closed={closed} onClick={handleClick}>
           {label}
         </RoomNavCategoryButton>
-        {trailing}
       </NavCategoryHeader>
-      {!closed && children}
+      {!closed && <NavLevel>{children}</NavLevel>}
     </NavCategory>
   );
 }
 
+/** The Media row every Mind in the roster has: its file-zone room, or an honest note that there is none yet. */
+function MindMedia({ media }: { media: MediaRowState }) {
+  const mx = useMatrixClient();
+  if (media.kind === 'checking') return <MediaNote note="looking" />;
+  if (media.kind === 'unset') return <MediaNote note="not set up" />;
+  if (media.kind === 'error') return <MediaNote note="unavailable" title={media.message} />;
+  if (media.room.state === 'joined') return <MediaLink to={estateRoomPath(mx, media.room)} />;
+  return <JoinRow room={media.room} icon={Icons.Photo} />;
+}
+
 function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
+  const media = useMindMedia(group.mind, group.rooms);
+  const hasMedia = MINDS.includes(group.mind);
+  // The media room is the Media row; it is not listed a second time among the Mind's rooms.
+  const rooms =
+    media.kind === 'room' ? group.rooms.filter((r) => r.roomId !== media.room.roomId) : group.rooms;
   return (
-    <Collapsible
-      categoryId={`${tierId}|${group.mind}`}
-      label={group.label}
-      rooms={group.rooms}
-      trailing={<DeskEntry mind={group.mind} />}
-    >
-      {group.rooms.map((r) => (
+    <Collapsible categoryId={`${tierId}|${group.mind}`} label={group.label} rooms={group.rooms}>
+      <DeskEntry mind={group.mind} />
+      {hasMedia && <MindMedia media={media} />}
+      {rooms.map((r) => (
         <EstateRow key={r.roomId} room={r} />
       ))}
     </Collapsible>
@@ -188,11 +213,14 @@ function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup })
 
 /**
  * Groups of rooms the user has not joined, behind one quiet entry. Closed until opened, on every screen; the opening is
- * remembered per device like any other section.
+ * remembered per device and screen class like any other section.
  */
 function Browse({ tierId, groups }: { tierId: string; groups: EstateGroup[] }) {
+  const mobile = useScreenSizeContext() === ScreenSize.Mobile;
   const [toggled, setToggled] = useAtom(useClosedNavCategoriesAtom());
-  const key = makeNavCategoryId('estate', 'browse', tierId);
+  // The store holds sections flipped from their default (it keeps Cinny's name, and its localStorage key). Browse's
+  // default is closed, so a key here means open; like Collapsible it is kept per screen class.
+  const key = makeNavCategoryId('estate', mobile ? 'phone' : 'wide', 'browse', tierId);
   const open = toggled.has(key);
   const count = groups.reduce((n, g) => n + g.rooms.length, 0);
 
@@ -206,7 +234,13 @@ function Browse({ tierId, groups }: { tierId: string; groups: EstateGroup[] }) {
           {`Browse ${count} more ${count === 1 ? 'room' : 'rooms'}`}
         </RoomNavCategoryButton>
       </NavCategoryHeader>
-      {open && groups.map((g) => <GroupSection key={g.mind} tierId={tierId} group={g} />)}
+      {open && (
+        <NavLevel>
+          {groups.map((g) => (
+            <GroupSection key={g.mind} tierId={tierId} group={g} />
+          ))}
+        </NavLevel>
+      )}
     </NavCategory>
   );
 }
@@ -235,9 +269,15 @@ function EntryPoints() {
         <NavButton onClick={() => navigate(getHomeCreatePath())}>
           <NavItemContent>
             <Box as="span" grow="Yes" alignItems="Center" gap="200">
-              <Avatar size="200" radii="400">
-                <Icon src={Icons.Plus} size="100" />
-              </Avatar>
+              <NavGutter>
+                <Avatar size="200" radii="400">
+                  <Icon
+                    src={Icons.Plus}
+                    size="100"
+                    style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }}
+                  />
+                </Avatar>
+              </NavGutter>
               <Text as="span" size="Inherit" truncate>
                 Create Room
               </Text>
@@ -252,9 +292,15 @@ function EntryPoints() {
               <NavButton onClick={() => setOpen(true)}>
                 <NavItemContent>
                   <Box as="span" grow="Yes" alignItems="Center" gap="200">
-                    <Avatar size="200" radii="400">
-                      <Icon src={Icons.Link} size="100" />
-                    </Avatar>
+                    <NavGutter>
+                      <Avatar size="200" radii="400">
+                        <Icon
+                          src={Icons.Link}
+                          size="100"
+                          style={{ opacity: NAV_ROOM_ICON_REST_OPACITY }}
+                        />
+                      </Avatar>
+                    </NavGutter>
                     <Text as="span" size="Inherit" truncate>
                       Join with Address
                     </Text>

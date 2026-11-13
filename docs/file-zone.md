@@ -71,21 +71,21 @@ Reuse the composer's pipeline, pointed at an album instead of the main timeline:
 
 - `createUploadAtom` / `useBindUploadAtom` (`src/app/state/upload.ts`), `UploadCard`, `upload-board` for progress.
 - On success, the msgContent builder produces the event; the zone adds the thread relation to the album root before sending (the composer already does this for thread replies, `RoomInput.tsx`).
-- "New album" = send the root text event, then upload into its thread. Multi-file drop = N events, sent in order. 
+- "New album" = send the root text event, then upload into its thread. Multi-file drop = N events, sent in order.
 - Size limit from `MediaConfigLoader` (server `m.upload.size`). **UNKNOWN:** whether the 32 MB `shelf` kit's clips (42 x ~0.75 MB) should be uploaded individually or batched; individually is the only option without a server change.
 
 ## Existing code to reuse (verified present in the repo)
 
-| need | where |
-|---|---|
-| audio player (play/seek/volume, encrypted download) | `src/app/components/message/content/AudioContent.tsx` (210 lines) |
-| video, image, generic file | `.../content/VideoContent.tsx`, `ImageContent.tsx`, `FileContent.tsx` |
-| full-screen image viewer | `src/app/components/image-viewer/ImageViewer.tsx` |
-| media dispatch by msgtype | `src/app/components/RenderMessageContent.tsx`, `message/MsgTypeRenderers.tsx` |
-| upload + progress | `state/upload.ts`, `components/upload-card`, `upload-board` |
-| event content builders | `features/room/msgContent.ts` |
-| thread plumbing | `features/room/message/Message.tsx`, `RoomTimeline.tsx`, `RoomInput.tsx` (thread relation on send) |
-| room-scoped file/pin precedent | `features/room/room-pin-menu/RoomPinMenu.tsx` |
+| need                                                | where                                                                                              |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| audio player (play/seek/volume, encrypted download) | `src/app/components/message/content/AudioContent.tsx` (210 lines)                                  |
+| video, image, generic file                          | `.../content/VideoContent.tsx`, `ImageContent.tsx`, `FileContent.tsx`                              |
+| full-screen image viewer                            | `src/app/components/image-viewer/ImageViewer.tsx`                                                  |
+| media dispatch by msgtype                           | `src/app/components/RenderMessageContent.tsx`, `message/MsgTypeRenderers.tsx`                      |
+| upload + progress                                   | `state/upload.ts`, `components/upload-card`, `upload-board`                                        |
+| event content builders                              | `features/room/msgContent.ts`                                                                      |
+| thread plumbing                                     | `features/room/message/Message.tsx`, `RoomTimeline.tsx`, `RoomInput.tsx` (thread relation on send) |
+| room-scoped file/pin precedent                      | `features/room/room-pin-menu/RoomPinMenu.tsx`                                                      |
 
 Nothing named "gallery" exists as a feature; `AudioContent` takes its controls as render props (`renderMediaControl`), so it can be rehosted in a row without a fork. **UNKNOWN:** whether `AudioContent` can be rendered outside a timeline event context (it needs only `url`, `info`, `mimeType`, `encInfo`, from the event content, so probably yes).
 
@@ -104,3 +104,20 @@ Slices 1+2 serve the first use case. Each is its own PR. Because marks are ordin
 - How the client identifies the zone room (config id recommended).
 - Whether exports are per listener (proposed) or a merged all-listeners file.
 - Where `device` comes from, now that reactions cannot carry it (export dialog, proposed).
+
+## Share a set (built, behind `fileZoneShare.enabled`)
+
+The ruling `ratatoskr:ruling:persona-file-sharing-zone` asks that a set of files arrive together, not one attachment at a time. The zone already holds one thread per album, so a set is an album: **one root text message plus one `m.thread` reply per file**, the exact shape `buildAlbums` reads. Nothing new on the wire and no homeserver change; a Mind's mouth that posts into the zone room and a person using the client produce the same events.
+
+Matrix options checked: (a) a thread, chosen: stock, rendered by every client, already the zone's album; (b) `m.gallery` (MSC4274) puts several items in one event, but it is unstable, most clients and this one do not render it, and each item still needs its own upload; (c) a shared custom relation: no client groups by it. A thread costs one extra event per set (the root) and nothing else.
+
+Client, `src/app/features/albums`:
+
+- `shareSet.ts`: `sendShareSet(port, title, files)`. Sends the root, then each file in pick order, each reply falling back to the previous event (`threadRelation`). A file whose upload fails is named in the result and the rest still go; a root that fails to send throws before any upload. The root alone is not an album in the list (`/threads` returns only roots that have a reply), so a share where every upload failed leaves a lone text message in the timeline. After a send the panel keeps only the failed files picked; a retry makes a second album. Ports are injected, so the order and failure rules are tested without a homeserver (`shareSet.test.ts` reads the sent events back through `buildAlbums`).
+- `shareController.ts`: the panel's state machine (picked files, phase, the one-send-per-room guard, the encrypted refusal, failed files kept by position), apart from React so tests drive it without a DOM; `shareController.test.ts` and `ShareSet.test.tsx` (static render of each state, the flag) pin it. No DOM test environment exists in this repo, so a real tap on a real input is covered by the phone check, not by tests.
+- `ShareSet.tsx`: phone layout. Idle, it is one text row, "Share files". Picking files (any number from the native picker; a second pick replaces the first) mounts a title field, the picked names on one dim line, and Send / Cancel as full-width rows; progress is "Sending 2 of 5". It is shown only on the album list (kept mounted but hidden while an album is open, so a running send keeps its state), one send at a time per room (tracked outside the component; leaving the page does not stop a send, it only loses its progress and result), and never in an encrypted zone (re-checked when Send is tapped) (the plaintext `info.sha256` the Mind verifies against is written in unencrypted rooms only).
+- Content per file comes from `getMsgContent` in `features/room/msgContent.ts`, now also used by the composer, so a shared file and an attached file carry the same `info` including `sha256`.
+
+Flag: `fileZoneShare.enabled` in `config.json`, default `false`. With it off nothing mounts.
+
+Not built: a Mind's own path into the zone (outbox, Persona decision, mouth post) belongs to gamecult-ops / Huginn / the mouth, not this client; sharing into an existing album ("add files"); upload cancel; pagination beyond 100 albums/files.

@@ -2,6 +2,7 @@ import { Badge, Box, Icon, IconButton, Icons, Spinner, Text, as, toRem } from 'f
 import React, { ReactNode, useCallback } from 'react';
 import { EncryptedAttachmentInfo } from 'browser-encrypt-attachment';
 import FileSaver from 'file-saver';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 import { mimeTypeToExt } from '../../utils/mimeTypes';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
@@ -48,6 +49,7 @@ export function FileDownloadButton({ filename, url, mimeType, encInfo }: FileDow
       variant={hasError ? 'Critical' : 'SurfaceVariant'}
       size="300"
       radii="300"
+      className={PhoneHit}
     >
       {downloading ? (
         <Spinner size="100" variant={hasError ? 'Critical' : 'Secondary'} />

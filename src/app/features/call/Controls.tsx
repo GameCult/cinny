@@ -4,6 +4,7 @@ import { useAtom } from 'jotai';
 import * as css from './styles.css';
 import { callChatAtom } from '../../state/callEmbed';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
+import { PhoneHitSpread40 } from '../../styles/PhoneHit.css';
 
 export function ControlDivider() {
   return (
@@ -18,7 +19,7 @@ type MicrophoneButtonProps = {
 export function MicrophoneButton({ enabled, onToggle }: MicrophoneButtonProps) {
   const [micState, toggleMic] = useAsyncCallback(onToggle);
   const loading = micState.status === AsyncStatus.Loading;
-  
+
   return (
     <TooltipProvider
       position="Top"
@@ -31,6 +32,7 @@ export function MicrophoneButton({ enabled, onToggle }: MicrophoneButtonProps) {
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread40}
           ref={anchorRef}
           variant={enabled ? 'Surface' : 'Warning'}
           fill="Soft"
@@ -64,6 +66,7 @@ export function SoundButton({ enabled, onToggle }: SoundButtonProps) {
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread40}
           ref={anchorRef}
           variant={enabled ? 'Surface' : 'Warning'}
           fill="Soft"
@@ -103,6 +106,7 @@ export function VideoButton({ enabled, onToggle }: VideoButtonProps) {
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread40}
           ref={anchorRef}
           variant={enabled ? 'Success' : 'Surface'}
           fill="Soft"
@@ -140,6 +144,7 @@ export function ScreenShareButton({ enabled, onToggle }: ScreenShareButtonProps)
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread40}
           ref={anchorRef}
           variant={enabled ? 'Success' : 'Surface'}
           fill="Soft"
@@ -170,6 +175,7 @@ export function ChatButton() {
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread40}
           ref={anchorRef}
           variant={chat ? 'Success' : 'Surface'}
           fill="Soft"

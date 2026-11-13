@@ -1,5 +1,6 @@
 // Regenerates preview-demo/poses from the cast-art poses: PNG thumbnails sized for the
-// portrait's displayed width x a phone's device pixel ratio (not for the 124px desktop box).
+// portrait's displayed width x device pixel ratio: the bubble portrait is 190 CSS px on desktop and
+// min(38vw, 160px) on a phone (layout.css.ts), the desk booth 168 / 88 px (DeskView.css.ts).
 // Dependency-free: decodes 8-bit RGBA PNGs, area-averages in premultiplied alpha, writes a
 // 256-colour palette PNG with a tRNS alpha table. Usage: node scripts/make-pose-thumbs.mjs [src]
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync, deflateSync, crc32 } from 'node:zlib';
 
-const WIDTH = 480; // phone portrait: min(50vw, 210px) x DPR 2.5; art is never upscaled
+const WIDTH = 480; // about the 190px desktop portrait x DPR 2.5; art is never upscaled
 const src = process.argv[2] ?? '/opt/commons/cast-art/poses';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'preview-demo/poses');

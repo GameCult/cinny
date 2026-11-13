@@ -2,9 +2,15 @@ import { style } from '@vanilla-extract/css';
 import { config } from 'folds';
 import { surfaceInk } from '../scene/sceneShell.css';
 import { skyLabelInk } from '../scene/skyLabelInk';
+import { NAV_ICON_REST_OPACITY } from '../../components/nav/styles.css';
 
 export const CategoryButton = style({
   flexGrow: 1,
+  gap: config.space.S200,
+  selectors: {
+    // Same left inset as a row's NavItemContent, so the chevron's gutter sits over the rows' gutters.
+    '&&': { paddingLeft: config.space.S200 },
+  },
   '@media': {
     // A section heading on a phone is plain text: no pill behind it.
     'screen and (max-width: 750px)': {
@@ -25,5 +31,5 @@ export const CategoryButton = style({
   },
 });
 export const CategoryButtonIcon = style({
-  opacity: config.opacity.P400,
+  opacity: NAV_ICON_REST_OPACITY,
 });

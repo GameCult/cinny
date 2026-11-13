@@ -50,6 +50,7 @@ import { useMessageLayoutItems } from '../../../hooks/useMessageLayout';
 import { useMessageSpacingItems } from '../../../hooks/useMessageSpacing';
 import { useDateFormatItems } from '../../../hooks/useDateFormat';
 import { SequenceCardStyle } from '../styles.css';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type ThemeSelectorProps = {
   themeNames: Record<string, string>;
@@ -81,6 +82,7 @@ function SelectTheme({ disabled }: { disabled?: boolean }) {
   const themes = useThemes();
   const themeNames = useThemeNames();
   const [themeId, setThemeId] = useSetting(settingsAtom, 'themeId');
+  const [, setThemeChosen] = useSetting(settingsAtom, 'themeChosen');
   const [menuCords, setMenuCords] = useState<RectCords>();
   const selectedTheme = themes.find((theme) => theme.id === themeId) ?? LightTheme;
 
@@ -90,6 +92,7 @@ function SelectTheme({ disabled }: { disabled?: boolean }) {
 
   const handleThemeSelect = (theme: Theme) => {
     setThemeId(theme.id);
+    setThemeChosen(true);
     setMenuCords(undefined);
   };
 
@@ -495,6 +498,7 @@ function DateHint({ hasChanges, handleReset }: DateHintProps) {
     >
       {hasChanges ? (
         <IconButton
+          className={PhoneHit}
           tabIndex={-1}
           onClick={handleReset}
           type="reset"
@@ -506,6 +510,7 @@ function DateHint({ hasChanges, handleReset }: DateHintProps) {
         </IconButton>
       ) : (
         <IconButton
+          className={PhoneHit}
           tabIndex={-1}
           onClick={handleOpenMenu}
           type="button"
@@ -1013,7 +1018,7 @@ export function General({ requestClose }: GeneralProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

@@ -10,6 +10,7 @@ import { getMxIdLocalPart } from '../../utils/matrix';
 import * as css from './RoomViewTyping.css';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useRoomTypingMember } from '../../hooks/useRoomTypingMembers';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export type RoomViewTypingProps = {
   room: Room;
@@ -111,7 +112,13 @@ export const RoomViewTyping = as<'div', RoomViewTypingProps>(
               </>
             )}
           </Text>
-          <IconButton title="Drop Typing Status" size="300" radii="Pill" onClick={handleDropAll}>
+          <IconButton
+            className={PhoneHit}
+            title="Drop Typing Status"
+            size="300"
+            radii="Pill"
+            onClick={handleDropAll}
+          >
             <Icon size="50" src={Icons.Cross} />
           </IconButton>
         </Box>

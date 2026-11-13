@@ -1,12 +1,13 @@
 {
   "name": "Ratatoskr",
   "short_name": "Ratatoskr",
+  "id": "/",
   "description": "GameCult's Matrix client",
   "dir": "auto",
   "lang": "en-US",
   "display": "standalone",
-  "orientation": "portrait",
   "start_url": "./",
+  "scope": "./",
   "background_color": "#07111a",
   "theme_color": "#07111a",
   "icons": [
@@ -54,6 +55,12 @@
       "src": "./public/android/android-chrome-512x512.png",
       "sizes": "512x512",
       "type": "image/png"
+    },
+    {
+      "src": "./public/android/android-chrome-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

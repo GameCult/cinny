@@ -9,12 +9,13 @@ import {
   TERRAIN_REACH_DEG,
   ridgeDrawn,
   ridgeSkyFor,
+  ridgeSkyKey,
   terrainDrawn,
   terrainSkyFor,
 } from './skyForState';
 import { displayedLuminance, luma, shapeToBand, SKY_BAND } from './skyBand';
 import type { FixedSkyState } from './skyBand';
-import { setSkyClock, skyBackdrop } from './skyState';
+import { DAY_FROM, setSkyClock, skyBackdrop } from './skyState';
 import { view } from './terrain/terrainWorld';
 import { skyThemeId } from './skyTheme';
 
@@ -77,41 +78,56 @@ describe('the bands the text ink needs', () => {
 });
 
 describe('ridgeSkyFor', () => {
-  it('draws the gradient of the sky auto resolves to, never nothing', () => {
+  it('carries the state band, which the layers are shaped into, and the physical sky of that state', () => {
+    for (const state of STATES) {
+      const sky = ridgeSkyFor(state, 0.3);
+      expect(sky.band).toEqual(SKY_BAND[state]);
+      expect(sky.physical?.state).toBe(state);
+      expect(sky.physical?.stops).toEqual({ top: sky.top, mid: sky.mid, horizon: sky.horizon });
+    }
+  });
+
+  it('draws the sky auto resolves to, never nothing', () => {
+    const key = (s: ReturnType<typeof ridgeSkyFor>) => [
+      s.top,
+      s.mid,
+      s.horizon,
+      s.band,
+      s.physical?.sun,
+    ];
     setSkyClock(() => atStandardTime(12, 0));
-    expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('day'));
+    expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('day', 0.3)));
     setSkyClock(() => atStandardTime(0, 0));
-    expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('night'));
+    expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('night', 0.3)));
     setSkyClock(() => atStandardTime(18, 10));
-    expect(ridgeSkyFor('auto')).toEqual(ridgeSkyFor('dusk'));
+    expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('dusk', 0.3)));
   });
 
-  it('draws a lavender, rose and orange twilight for dusk', () => {
-    const d = ridgeSkyFor('dusk');
-    expect(d.ground).toEqual(skyColours().ground);
-    const [t, m, h] = [d.top, d.mid, d.horizon];
-    expect(t[2]).toBeGreaterThan(t[1]); // lavender: blue over green
-    expect(t[0]).toBeGreaterThan(t[1]);
-    expect(m[0]).toBeGreaterThan(m[2]); // rose: red over blue
-    expect(m[2]).toBeGreaterThan(m[1]);
-    expect(h[0]).toBeGreaterThan(h[1]); // orange: red over green over blue
-    expect(h[1]).toBeGreaterThan(h[2]);
+  it("is lit from the real sun over Vienna: a forced state's sun is inside the state, the clear noon sky is blue", () => {
+    const day = ridgeSkyFor('day', 0);
+    expect(day.physical?.sun.elevation).toBeGreaterThanOrEqual(DAY_FROM);
+    expect(day.top[2]).toBeGreaterThan(day.top[0]);
+    const dusk = ridgeSkyFor('dusk', 0);
+    expect(Math.abs(dusk.physical?.sun.elevation ?? 99)).toBeLessThanOrEqual(DAY_FROM);
+    expect(ridgeSkyFor('night', 0).physical?.sun.elevation).toBeLessThanOrEqual(-DAY_FROM);
+    expect(day.ground).toEqual(skyColours().ground);
   });
 
-  it('draws the baked gradients for day and night', () => {
-    const day = ridgeSkyFor('day');
-    const night = ridgeSkyFor('night');
-    expect(hex(day.top)).toBe(baked.noonday.gradient[0]);
-    expect(hex(day.horizon)).toBe(baked.noonday.gradient[6]);
-    expect(hex(night.top)).toBe(baked.midnight.gradient[0]);
-    expect(hex(night.horizon)).toBe(baked.midnight.gradient[6]);
+  it('keys a rebuild by state and weather, not by the moving sun', () => {
+    setSkyClock(() => atStandardTime(12, 0));
+    expect(ridgeSkyKey('auto', 0.3)).toBe(ridgeSkyKey('day', 0.3));
+    expect(ridgeSkyKey('day', 0.3)).not.toBe(ridgeSkyKey('day', 0.8));
+    expect(ridgeSkyKey('day', 0.3)).not.toBe(ridgeSkyKey('night', 0.3));
   });
 
-  it.each(STATES)('%s: every stop and blend lies in the band its text ink needs', (state) => {
+  it.each(STATES)('%s: the display is fitted to the budget its text ink needs', (state) => {
     const { floor, ceiling } = needs(state);
     const r = ridgeDrawn(state);
     expect(r.darkest).toBeGreaterThanOrEqual(floor);
     expect(r.lightest).toBeLessThanOrEqual(ceiling);
+    const fit = ridgeSkyFor(state, 0.3).physical?.fit;
+    expect(fit?.lo).toBeGreaterThanOrEqual(r.darkest - 1e-9);
+    expect(fit?.hi).toBeLessThanOrEqual(r.lightest + 1e-9);
   });
 });
 

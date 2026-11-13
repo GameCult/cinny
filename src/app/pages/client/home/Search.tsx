@@ -5,6 +5,7 @@ import { MessageSearch } from '../../../features/message-search';
 import { useHomeRooms } from './useHomeRooms';
 import { ScreenSize, useScreenSizeContext } from '../../../hooks/useScreenSize';
 import { BackRouteHandler } from '../../../components/BackRouteHandler';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function HomeSearch() {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -19,7 +20,7 @@ export function HomeSearch() {
             {screenSize === ScreenSize.Mobile && (
               <BackRouteHandler>
                 {(onBack) => (
-                  <IconButton onClick={onBack}>
+                  <IconButton className={PhoneHit} onClick={onBack}>
                     <Icon src={Icons.ArrowLeft} />
                   </IconButton>
                 )}

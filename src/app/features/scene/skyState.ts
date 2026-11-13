@@ -80,6 +80,9 @@ function sync(): void {
   timer = setTimeout(tick, TICK_MS);
 }
 
+/** The moment the sky is drawn for: the real time, or the test clock. */
+export const skyNow = (): Date => clock();
+
 /** Replace the clock (tests); no argument restores the real one. */
 export function setSkyClock(now?: () => Date): void {
   clock = now ?? (() => new Date());
@@ -123,16 +126,17 @@ export interface SkyBackdrop {
 }
 
 // The union of every sky a scene draws for the state: the ridge sky and the terrain sky, each from
-// the function its scene uses (`ridgeDrawn`, `terrainDrawn` in skyForState.ts). Held as constants so
+// the function its scene uses (`ridgeDrawn`, `terrainDrawn` in skyForState.ts). The ridge sky is the physical sky over Vienna, its
+// display fitted to the state's budget (ridge/toneMap.ts `BUDGET`): the budget is its extreme, whatever the sun's elevation. Held as constants so
 // this module, which the main chunk loads, does not pull in the terrain sky and the baked scattering
 // tables with it; skyForState.test.ts fails when they drift from the computed union. The ridge sky counts
 // over its whole range, the terrain sky over what its frozen camera reaches (TERRAIN_REACH_DEG, skyForState.ts).
 // Night's lightest also covers a sky the page URL steers (shaped to the band ceiling, skyBand.ts).
 // Bounds what the 8-bit screen shows too (one step each way for rounding and dither), rounded outward to six places.
 const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
-  day: { darkest: 0.461063, lightest: 0.901108 },
-  dusk: { darkest: 0.460352, lightest: 0.968744 },
-  night: { darkest: 0.05987, lightest: 0.081642 },
+  day: { darkest: 0.461063, lightest: 1 },
+  dusk: { darkest: 0.460352, lightest: 1 },
+  night: { darkest: 0, lightest: 0.081642 },
 };
 
 export const skyBackdrop = (state: SkyState): SkyBackdrop => BACKDROPS[resolveSkyState(state)];

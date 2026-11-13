@@ -7,10 +7,11 @@ import type { FixedSkyState } from './skyBand';
 import {
   LIGHTEST_PATCH,
   NIGHT_INK_MAX_L,
-  NOTICE_GROUND,
+  SCRIM_INK,
+  SCRIM_GROUND,
   inkForState,
   labelInk,
-  noticeInk,
+  scrimStyle,
   sceneInk,
   userColorInk,
 } from './skyInk';
@@ -146,8 +147,12 @@ describe('sceneInk: an explicit theme wins over the auto ink', () => {
     });
     // auto, but the person chose a theme: it wins, the theme's own ink stands.
     expect(sceneInk(sceneThemeId('auto', 'dusk', true, true), true, 'dusk', true)).toBeUndefined();
-    // a fixed sky state is itself a choice and wins over the theme (skyTheme.ts), so its ink applies.
-    expect(sceneInk(sceneThemeId('night', 'night', true, true), true, 'night', false)).toEqual({
+    // a fixed sky state does not override the person's theme either: the theme's own ink stands.
+    expect(
+      sceneInk(sceneThemeId('night', 'night', true, true), true, 'night', false)
+    ).toBeUndefined();
+    // a fixed sky state with no theme of the person's own: the sky theme's ink applies.
+    expect(sceneInk(sceneThemeId('night', 'night', true, false), true, 'night', false)).toEqual({
       state: 'night',
       phone: false,
     });
@@ -178,27 +183,24 @@ describe('labelInk', () => {
   });
 });
 
-describe('noticeInk', () => {
-  const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+describe('scrimStyle', () => {
+  // The scrim over the lightest possible ground (white) is the worst case the ink can meet.
+  const [r, g, b, a] = (SCRIM_GROUND.match(/[\d.]+/g) ?? []).map(Number);
+  const worst = chroma.rgb(
+    ...([r, g, b].map((c) => c * a + 255 * (1 - a)) as [number, number, number])
+  );
+  const ratio = (x: number, y: number) => (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 
-  it('is light enough to clear AA on the dark ridge wherever the theme ink does not', () => {
-    (['day', 'dusk'] as FixedSkyState[]).forEach((state) => {
-      const ink = noticeInk({ state, phone: true }) as string;
-      expect(ratio(luminance(ink), NOTICE_GROUND)).toBeGreaterThanOrEqual(AA);
-      // the dark theme ink it replaces does not
-      expect(
-        ratio(luminance(baked.noonday.tokens.SurfaceVariant.OnContainer), NOTICE_GROUND)
-      ).toBeLessThan(AA);
-    });
+  it('clears AA for its ink over its scrim even on a white ground', () => {
+    expect(ratio(luminance(SCRIM_INK), luminance(worst.hex()))).toBeGreaterThanOrEqual(AA);
   });
 
-  it('leaves night (already light) and every desktop state to the theme', () => {
-    expect(noticeInk({ state: 'night', phone: true })).toBeUndefined();
-    (['day', 'dusk', 'night'] as FixedSkyState[]).forEach((state) =>
-      expect(noticeInk({ state, phone: false })).toBeUndefined()
+  it('is the same in every sky state and viewport while a scene runs, and absent without one', () => {
+    const styles = (['day', 'dusk', 'night'] as FixedSkyState[]).flatMap((state) =>
+      [true, false].map((phone) => scrimStyle({ state, phone }))
     );
-    expect(
-      ratio(luminance(baked.midnight.tokens.SurfaceVariant.OnContainer), NOTICE_GROUND)
-    ).toBeGreaterThanOrEqual(AA);
+    styles.forEach((x) => expect(x).toEqual(styles[0]));
+    expect(styles[0]).toMatchObject({ color: SCRIM_INK, backgroundColor: SCRIM_GROUND });
+    expect(scrimStyle(undefined)).toBeUndefined();
   });
 });

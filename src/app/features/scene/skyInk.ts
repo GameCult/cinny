@@ -95,18 +95,22 @@ export const labelInk = ({ state, phone }: SkyInk): string | undefined =>
   state === 'dusk' && phone ? '#29221a' : undefined;
 
 /**
- * WCAG relative luminance of the lightest pixel under the notice line above the composer on a phone: the dark
- * foreground ridge, the same in every state (measured 2026-11-10 from the Starfire phone shots at 390x844,
- * ratatoskr-dev-preview/phone-room-{day,dusk,night}.png, text region x 15-355 CSS px: median 0.0052, 90th percentile
- * 0.0089, rounded up to 0.01). The labelInk patches above are the lightest terrain behind the timeline; here the
- * ground is dark, so the ink must be light.
+ * The training-notice line above the composer sits on whatever the scene draws there: the dark ridge on a phone in
+ * the Starfire shots, but a mid-tone ridge at other widths and the near-black foreground ridge on a desktop, so no
+ * ink chosen for one ground holds on the others (measured 2026-11-10 on the pretend-server line, ratatoskr-dev-preview/
+ * taps2-REPORT.md: phone day 3.08, dusk 3.97 with light ink; desktop day 1.01, dusk 1.22 with the theme's dark ink).
+ * So the line carries its own ground: light ink on a dark scrim, in every sky state, on every viewport, whatever
+ * the scene is behind it. The scrim is composited over the lightest ground there is (white); the ink over that
+ * worst case clears AA (skyInk.test.ts).
  */
-export const NOTICE_GROUND = 0.01;
+export const SCRIM_INK = baked.midnight.tokens.SurfaceVariant.OnContainer;
+export const SCRIM_GROUND = 'rgba(10, 14, 24, 0.82)';
 
 /**
- * The ink of the training-notice line above the composer where the theme's own does not clear AA there. On a phone the
- * line sits on the dark ridge in every state, but Noonday (day, dusk) wears dark ink, 1.2:1 at dusk by the numbers
- * above; Midnight's (night) is already light and stays (undefined). Desktop is unmeasured and stays.
+ * The style of a line of text that must be read whatever the scene draws behind it (the training notice, the desk's
+ * recorded rulings): its own ground and ink while a scene runs, or undefined without one.
  */
-export const noticeInk = ({ state, phone }: SkyInk): string | undefined =>
-  phone && state !== 'night' ? baked.midnight.tokens.SurfaceVariant.OnContainer : undefined;
+export const scrimStyle = (ink: SkyInk | undefined) =>
+  ink
+    ? { color: SCRIM_INK, backgroundColor: SCRIM_GROUND, borderRadius: 4, paddingInline: 6 }
+    : undefined;

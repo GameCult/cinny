@@ -47,6 +47,7 @@ import {
 import { isKeyHotkey } from 'is-hotkey';
 import { Opts as LinkifyOpts } from 'linkifyjs';
 import { useTranslation } from 'react-i18next';
+import { isUnconfirmedLocalEcho } from './localEcho';
 import { eventWithShortcode, factoryEventSentBy, getMxIdLocalPart } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useVirtualPaginator, ItemRange } from '../../hooks/useVirtualPaginator';
@@ -106,6 +107,7 @@ import { GetContentCallback, MessageEvent, StateEvent } from '../../../types/mat
 import { useKeyDown } from '../../hooks/useKeyDown';
 import { useDocumentFocusChange } from '../../hooks/useDocumentFocusChange';
 import { RenderMessageContent } from '../../components/RenderMessageContent';
+import { FileReadBy, isFileMessage } from '../albums/FileReadBy';
 import { Image } from '../../components/media';
 import { ImageViewer } from '../../components/image-viewer';
 import { roomToParentsAtom } from '../../state/room/roomToParents';
@@ -388,6 +390,19 @@ const useLiveEventArrive = (room: Room, onArrive: (mEvent: MatrixEvent) => void)
   }, [room, onArrive]);
 };
 
+/** A local echo changes status (or becomes its remote echo) without a Timeline event: redraw. */
+const useLocalEchoRefresh = (room: Room, onUpdate: () => void) => {
+  useEffect(() => {
+    const handle: RoomEventHandlerMap[RoomEvent.LocalEchoUpdated] = (_evt, r) => {
+      if (r.roomId === room.roomId) onUpdate();
+    };
+    room.on(RoomEvent.LocalEchoUpdated, handle);
+    return () => {
+      room.removeListener(RoomEvent.LocalEchoUpdated, handle);
+    };
+  }, [room, onUpdate]);
+};
+
 const useLiveTimelineRefresh = (room: Room, onRefresh: () => void) => {
   useEffect(() => {
     const handleTimelineRefresh: RoomEventHandlerMap[RoomEvent.TimelineRefresh] = (r) => {
@@ -645,6 +660,18 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
       },
       [mx, room, unreadInfo, hideActivity]
     )
+  );
+
+  useLocalEchoRefresh(
+    room,
+    useCallback(() => {
+      // the echo was hidden while unconfirmed, so its arrival scrolled to nothing: scroll now
+      if (atBottomRef.current) {
+        scrollToBottomRef.current.count += 1;
+        scrollToBottomRef.current.smooth = true;
+      }
+      setTimeline((ct) => ({ ...ct }));
+    }, [])
   );
 
   const handleOpenEvent = useCallback(
@@ -1110,6 +1137,9 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
                 linkifyOpts={linkifyOpts}
                 outlineAttachment={messageLayout === MessageLayout.Bubble}
               />
+            )}
+            {!mEvent.isRedacted() && isFileMessage(mEvent) && (
+              <FileReadBy room={room} fileId={mEventId} content={mEvent.getContent()} />
             )}
           </Message>
         );
@@ -1642,6 +1672,7 @@ export function RoomTimeline({ room, eventId, roomInputRef, editor }: RoomTimeli
     if (mEvent.isRedacted() && !showHiddenEvents) {
       return null;
     }
+    if (isUnconfirmedLocalEcho(mEvent)) return null;
 
     if (!newDivider && readUptoEventIdRef.current) {
       newDivider = prevEvent?.getId() === readUptoEventIdRef.current;

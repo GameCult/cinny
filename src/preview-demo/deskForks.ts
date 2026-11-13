@@ -25,7 +25,9 @@ const card = (label: string, order: number, over: Partial<ForkCard>): ForkCard =
   leans: null,
   flag: null,
   raised_in: null,
+  raised_at: null,
   deciders: ['demo-decider'],
+  decider_count: 1,
   status: 'open',
   ruling: null,
   ruled_from: [],
@@ -74,6 +76,7 @@ const entry = (
     fork_id: c.fork_id,
     options_hash: c.options_hash,
     counted_answer_id: counted,
+    answerer_count: new Set(answers.map((a) => a.answerer)).size,
     answers,
   },
 });
@@ -90,6 +93,7 @@ const list = (mind: string, forks: ForkEntry[], stamp: string): ForkList => ({
 
 const nibu = (): ForkList => {
   const sky = card('sky-label', 4, {
+    raised_at: new Date(Date.now() - 5 * DAY).toISOString().replace(/\.\d+Z$/, 'Z'),
     title: 'Where should the sky label sit on a phone?',
     context:
       'The label can ride the horizon or sit in the header. The horizon is prettier; the header never moves.',

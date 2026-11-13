@@ -1,6 +1,7 @@
 // Every number of the ridge scene, and the pure functions that turn them into silhouettes. No DOM.
 // A ridge is a function of world-x (t, in viewport widths): ridged multifractal noise, domain-warped,
 // one function for every layer with the parameters below. Nothing in it repeats.
+import { horizonShape } from './horizon';
 import { valueNoise } from './noise';
 import type { Srgb, SkyColours } from './skyColour';
 
@@ -29,23 +30,39 @@ export interface LayerSpec {
   gullyPx: number;
   /** 0..1 how far the foot of the face dissolves into the valley mist. */
   mist: number;
+  /**
+   * The layer is the real horizon of the viewpoint (`horizon.ts`), not noise: world-x is compass azimuth across the viewport
+   * (`HorizonView`) and it does not drift, so it stays under the sun it is lit by. Its `relief` is the ring's own range.
+   */
+  horizon?: boolean;
 }
+
+/** Where the camera looks and how wide it sees, to read world-x as an azimuth: the sky's own view (`skyDome.ts viewFor`). */
+export interface HorizonView {
+  /** Compass azimuth of the viewport's centre, degrees clockwise from north. */
+  azimuthDeg: number;
+  hfovDeg: number;
+}
+
+/** The static horizon layer's track sits this many viewport widths left of the screen, so the camera's sway never shows its edge. */
+export const HORIZON_TRACK_SHIFT = 0.06;
 
 /** Four layers: one function, four parameter rows. */
 export const LAYERS: readonly LayerSpec[] = [
   {
     index: 0,
     baseCells: 2.2,
-    relief: 0.24,
+    relief: 0.16,
     crag: 0.85,
-    base: 0.34,
+    base: 0.3,
     depth: 0.12,
-    seconds: 420,
+    seconds: Infinity,
     octaves: 5,
     warp: 0.6,
     gully: 0.3,
     gullyPx: 16,
     mist: 0.35,
+    horizon: true,
   },
   {
     index: 1,
@@ -128,6 +145,15 @@ export function profile(spec: LayerSpec, t: number): number {
   return Math.min(1, 0.85 * (sum / norm) * PEAK_NORM + 0.15 * swell);
 }
 
+/**
+ * Silhouette height in [0, 1] of a layer at world-x `t` (viewport widths). The horizon layer reads the baked horizon at the azimuth `t`
+ * is under `view`; every other layer, or a horizon layer with no view, is the noise `profile`.
+ */
+export function layerProfile(spec: LayerSpec, t: number, view?: HorizonView): number {
+  if (!spec.horizon || !view) return profile(spec, t);
+  return horizonShape(view.azimuthDeg + (t - HORIZON_TRACK_SHIFT - 0.5) * view.hfovDeg);
+}
+
 /** Erosion streak strength in [0, 1] at world-x `wxCss` (CSS px): a folded noise at gully width. */
 export function gullyAt(spec: LayerSpec, wxCss: number): number {
   const g = 1 - Math.abs(2 * valueNoise(wxCss / spec.gullyPx, spec.index * 131 + 5) - 1);
@@ -198,7 +224,13 @@ export function layerSize(cssW: number, cssH: number, scale: number) {
 }
 
 /** Ridge-top y (canvas pixels, from the top of the layer's band) at world-x `t` (viewport widths). */
-export function ridgeY(spec: LayerSpec, t: number, bandH: number, viewH: number): number {
-  const topFromBottom = spec.base * viewH + spec.relief * viewH * profile(spec, t);
+export function ridgeY(
+  spec: LayerSpec,
+  t: number,
+  bandH: number,
+  viewH: number,
+  view?: HorizonView
+): number {
+  const topFromBottom = spec.base * viewH + spec.relief * viewH * layerProfile(spec, t, view);
   return bandH - Math.min(bandH, topFromBottom);
 }

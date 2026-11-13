@@ -13,6 +13,31 @@ const SCRIM_HOVER = '14%';
 const SCRIM_SELECTED = '22%';
 const SCRIM_PRESSED = '48%';
 
+// The navigator's one column grid. Every row, section header and join row begins with a gutter of
+// the same width, with its chevron, room icon or avatar centred in it, so every label starts at
+// the same x for its depth; each nesting level (NavLevel) indents by one constant step.
+const GUTTER = toRem(32);
+const LEVEL_STEP = toRem(16);
+
+export const NavGutter = style({
+  width: GUTTER,
+  minWidth: GUTTER,
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+});
+
+export const NavLevel = style({
+  paddingLeft: LEVEL_STEP,
+});
+
+// Chevrons and room icons are matched in measured ink (a room glyph is about 1.7x a chevron's; unread rooms stay far above), so a foldout is not outweighed by its rooms.
+export const NAV_ICON_REST_OPACITY = 0.9;
+// A room's glyph is bigger and denser than the chevron, so it rests lighter to read as the same weight.
+export const NAV_ROOM_ICON_REST_OPACITY = 0.26;
+export const NAV_ICON_UNREAD_OPACITY = 0.6;
+
 export const NavCategory = style([
   DefaultReset,
   {
@@ -22,7 +47,16 @@ export const NavCategory = style([
 
 export const NavCategoryHeader = style({
   gap: config.space.S100,
+  selectors: {
+    // The header's own side padding would shift its gutter off the rows': the section button
+    // carries the same left inset as NavItemContent instead.
+    '&&': { paddingLeft: 0 },
+  },
   '@media': {
+    // A phone's section header is as tall as its 44 px button, so it does not overlap the next row.
+    'screen and (max-width: 750px)': {
+      selectors: { '&&': { minHeight: toRem(44), height: toRem(44) } },
+    },
     // Category labels sit on the scene like the rows do, and need a wash to be read (wide screens;
     // a phone's list is plain text).
     'screen and (min-width: 751px)': {
@@ -87,6 +121,8 @@ const NavItemBase = style({
     [PHONE]: {
       backgroundColor: 'transparent',
       borderRadius: 0,
+      // The row is as tall as the 44 px tap target inside it (EstateNavigator.css.ts), so neighbours do not overlap.
+      minHeight: toRem(44),
     },
     [WIDE]: {
       selectors: {
@@ -236,22 +272,18 @@ globalStyle(`:root[data-scene] ${NavItemBase} svg, :root[data-scene] ${NavItemBa
   },
 });
 
-// The Join action on a phone is a plain underlined word, not a pill.
+// The Join action is a plain underlined word on every screen, not a pill.
 export const NavAction = style({
-  '@media': {
-    [PHONE]: {
-      selectors: {
-        '&&': {
-          backgroundColor: 'transparent',
-          boxShadow: 'none',
-          border: 'none',
-          borderRadius: 0,
-          minWidth: 0,
-          textDecoration: 'underline',
-          textUnderlineOffset: toRem(4),
-          flexShrink: 0,
-        },
-      },
+  selectors: {
+    '&&': {
+      backgroundColor: 'transparent',
+      boxShadow: 'none',
+      border: 'none',
+      borderRadius: 0,
+      minWidth: 0,
+      textDecoration: 'underline',
+      textUnderlineOffset: toRem(4),
+      flexShrink: 0,
     },
   },
 });

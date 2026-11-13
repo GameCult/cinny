@@ -24,8 +24,8 @@ export const skyThemeId = (state: SkyState): SkyThemeId | undefined =>
   state === 'auto' ? undefined : BY_STATE[state];
 
 /**
- * The theme the page wears: a fixed sky state always picks its theme; 'auto' follows the resolved sky (`resolved`, the
- * clock's state) only while a scene is on and the person has not chosen a theme of their own, and otherwise picks none.
+ * The theme the page wears: a theme the person chose always wins, and picks none here. Otherwise a fixed sky state
+ * picks its theme, and 'auto' follows the resolved sky (`resolved`, the clock's state) only while a scene is on.
  * Signed-out pages choose no theme, so they pass `userChoseTheme: false`.
  */
 export const sceneThemeId = (
@@ -34,6 +34,7 @@ export const sceneThemeId = (
   sceneOn: boolean,
   userChoseTheme: boolean
 ): SkyThemeId | undefined => {
+  if (userChoseTheme) return undefined;
   if (state !== 'auto') return BY_STATE[state];
-  return sceneOn && !userChoseTheme ? BY_STATE[resolved] : undefined;
+  return sceneOn ? BY_STATE[resolved] : undefined;
 };

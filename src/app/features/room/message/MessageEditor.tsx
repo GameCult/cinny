@@ -54,6 +54,7 @@ import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { getEditedEvent, getMentionContent, trimReplyFromFormattedBody } from '../../../utils/room';
 import { mobileOrTablet } from '../../../utils/user-agent';
 import { useComposingCheck } from '../../../hooks/useComposingCheck';
+import { PhoneHitSpread32 } from '../../../styles/PhoneHit.css';
 
 type MessageEditorProps = {
   roomId: string;
@@ -289,6 +290,7 @@ export const MessageEditor = as<'div', MessageEditorProps>(
                 </Box>
                 <Box gap="Inherit">
                   <IconButton
+                    className={PhoneHitSpread32}
                     variant="SurfaceVariant"
                     size="300"
                     radii="300"
@@ -322,6 +324,7 @@ export const MessageEditor = as<'div', MessageEditorProps>(
                         }
                       >
                         <IconButton
+                          className={PhoneHitSpread32}
                           aria-pressed={anchor !== undefined}
                           onClick={
                             ((evt) =>

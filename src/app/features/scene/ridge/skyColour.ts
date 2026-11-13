@@ -4,6 +4,9 @@
 // shaped into the dusk band of ../skyBand.ts (`ridgeSkyFor`, skyForState.ts), whose floor the link of Noonday Sky needs. Replace the body, keep the signature: the scene calls it once, at startup,
 // and bakes the result.
 
+import type { SkyBand } from '../skyBand';
+import type { PhysicalSky } from './physicalSky';
+
 export type Srgb = readonly [number, number, number];
 
 export interface SkyColours {
@@ -17,6 +20,10 @@ export interface SkyColours {
   ground: Srgb;
   /** Where the sun sits across one drift period, 0..1; the layers pick up a faint warm in-scatter there. Omit for none. */
   sunAzimuth?: number;
+  /** The state's luminance band (skyBand.ts): the layers are shaped into it as the sky is, so the theme ink clears 4.5:1 on a ridge as on bare sky. Omit for none. */
+  band?: SkyBand;
+  /** The physical sky this palette was read from; when present the host canvas is painted from it, not from the three stops. */
+  physical?: PhysicalSky;
 }
 
 export function skyColours(_now: Date = new Date()): SkyColours {

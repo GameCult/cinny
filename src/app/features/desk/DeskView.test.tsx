@@ -1,12 +1,18 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScreenSize, ScreenSizeProvider } from '../../hooks/useScreenSize';
+import { SkyInkContextProvider } from '../../hooks/useTheme';
+import { SCRIM_GROUND, SCRIM_INK } from '../scene/skyInk';
 import { DeskEntry } from './DeskEntry';
 import { DeskView, SIGN_IN_NOTE } from './DeskView';
+import { ForkList } from './forkContract';
 import { STATES } from './fixtures';
 import { setDeskSource } from './source';
+
+// useTheme reads the stored settings when it loads.
+vi.hoisted(() => vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined }));
 
 const view = (
   state: keyof typeof STATES | 'unpublished',
@@ -65,6 +71,19 @@ describe('DeskView', () => {
     expect(html).toContain('Question done (ruling:done-1)');
     expect(html).not.toContain('Question shut');
   });
+  it('gives the recorded rulings their own ground and ink while a scene runs, none without one', () => {
+    const withScene = renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <SkyInkContextProvider value={{ state: 'dusk', phone: false }}>
+          <DeskView mind="void" label="Void" list={STATES.settled} unverified={new Set()} />
+        </SkyInkContextProvider>
+      </ScreenSizeProvider>
+    );
+    // renderToStaticMarkup writes the inline style as the browser would read it back
+    expect(withScene).toContain(SCRIM_GROUND.replace(/, /g, ', '));
+    expect(withScene).toContain(`color:${SCRIM_INK}`);
+    expect(view('settled', ScreenSize.Desktop)).not.toContain('background-color');
+  });
   it('shows each outcome quietly, marks the counted answer, and renders a note only when sent', () => {
     const html = view('answered', ScreenSize.Desktop);
     expect(html).toContain(
@@ -121,6 +140,96 @@ describe('DeskView', () => {
   });
 });
 
+describe("a question's age", () => {
+  const NOW = Date.parse('2026-11-11T12:00:00Z');
+  const listRaised = (raisedAt: string | null): ForkList => {
+    const entry = STATES.noAnswers.forks[0];
+    return {
+      ...STATES.noAnswers,
+      forks: [{ ...entry, card: { ...entry.card, raised_at: raisedAt } }],
+    };
+  };
+  const html = (raisedAt: string | null) =>
+    renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={listRaised(raisedAt)} now={NOW} />
+      </ScreenSizeProvider>
+    );
+  it('reads days since the card was first admitted', () => {
+    expect(html('2026-11-06T12:00:00Z')).toContain('raised 5d ago');
+  });
+  it('reads hours inside a day, and just now inside an hour', () => {
+    expect(html('2026-11-11T07:30:00Z')).toContain('raised 4h ago');
+    expect(html('2026-11-11T11:40:00Z')).toContain('raised just now');
+  });
+  it('shows no age when the card carries none, or an instant that does not parse or is ahead of the clock', () => {
+    [
+      'null',
+      'yesterday',
+      '2027-01-01T00:00:00Z',
+      '2026-11-06',
+      'Nov 6 2026',
+      '0',
+      '2026-02-30T00:00:00Z',
+    ].forEach((v) => {
+      expect(html(v === 'null' ? null : v)).not.toContain('raised ');
+    });
+  });
+});
+
+describe('counts when the ids are withheld', () => {
+  const withheld = (): ForkList => {
+    const entry = STATES.noAnswers.forks[0];
+    return {
+      ...STATES.noAnswers,
+      forks: [
+        {
+          ...entry,
+          card: { ...entry.card, deciders: [], decider_count: 3 },
+          record: { ...entry.record, answerer_count: 2 },
+        },
+      ],
+    };
+  };
+  it('shows how many deciders and answerers there are, naming none', () => {
+    const html = renderToStaticMarkup(
+      <ScreenSizeProvider value={ScreenSize.Desktop}>
+        <DeskView mind="void" label="Void" list={withheld()} />
+      </ScreenSizeProvider>
+    );
+    expect(html).toContain('3 deciders · 2 answerers');
+  });
+  it('shows no count line for a served count outside the contract', () => {
+    const bad = (card: object, record: object): string => {
+      const entry = STATES.noAnswers.forks[0];
+      const list = {
+        ...STATES.noAnswers,
+        forks: [{ card: { ...entry.card, ...card }, record: { ...entry.record, ...record } }],
+      } as ForkList;
+      return renderToStaticMarkup(
+        <ScreenSizeProvider value={ScreenSize.Desktop}>
+          <DeskView mind="void" label="Void" list={list} />
+        </ScreenSizeProvider>
+      );
+    };
+    [
+      [{ decider_count: 0 }, {}],
+      [{ decider_count: 65 }, {}],
+      [{ decider_count: undefined }, {}],
+      [{}, { answerer_count: -1 }],
+      [{}, { answerer_count: 1.5 }],
+    ].forEach(([c, r]) => {
+      const out = bad(c, r);
+      expect(out).not.toContain('undefined');
+      expect(out).not.toMatch(/deciders? ·/);
+    });
+  });
+  it('says the singular for one', () => {
+    const html = view('noAnswers', ScreenSize.Desktop);
+    expect(html).toContain('1 decider · 0 answerers');
+  });
+});
+
 describe('DeskEntry', () => {
   afterEach(() => setDeskSource(() => undefined));
   const entry = (mind: string) =>
@@ -139,12 +248,14 @@ describe('DeskEntry', () => {
     setDeskSource(() => ({ ...STATES.empty, open_count: 5 }));
     expect(entry('void')).toContain('Desk · 5 open');
   });
-  it('is absent at zero open, when nothing is published, and when only settled forks exist', () => {
-    setDeskSource(() => STATES.empty);
-    expect(entry('void')).toBe('');
-    setDeskSource(() => undefined);
-    expect(entry('void')).toBe('');
-    setDeskSource(() => ({ ...STATES.settled, open_count: 0 }));
-    expect(entry('void')).toBe('');
+  it('is pinned even at zero open, when nothing is published, and when only settled forks exist', () => {
+    const bare = (html: string) => html.replace(/<[^>]*>/g, '');
+    const states = [STATES.empty, undefined, { ...STATES.settled, open_count: 0 }];
+    states.forEach((state) => {
+      setDeskSource(() => state);
+      const html = entry('void');
+      expect(bare(html)).toBe('Desk');
+      expect(html).toContain('href="/desk/void"');
+    });
   });
 });

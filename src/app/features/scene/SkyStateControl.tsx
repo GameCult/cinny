@@ -15,6 +15,12 @@ import FocusTrap from 'focus-trap-react';
 import { stopPropagation } from '../../utils/keyboard';
 import { useSkyState } from '../../hooks/useSkyState';
 import { SKY_STATES, setSkyState, type SkyState } from './skyState';
+import {
+  HORIZON_CREDIT,
+  WEATHER_CREDIT,
+  WEATHER_CREDIT_URL,
+  WEATHER_DATASET,
+} from './ridge/credits';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import {
   getSceneStyleOverride,
@@ -22,6 +28,7 @@ import {
   setSceneStyle,
   type ServedSceneStyle,
 } from './sceneStyle';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 const STYLE_LABEL: Record<ServedSceneStyle, string> = { terrain: 'Terrain', ridge: 'Ridges' };
 
@@ -116,12 +123,34 @@ export function SkyStateControl() {
                   ))}
                 </>
               )}
+              {backgroundScene && sceneStyle === 'ridge' && (
+                <Box
+                  direction="Column"
+                  gap="100"
+                  style={{ padding: `${config.space.S200}`, maxWidth: '20rem' }}
+                >
+                  <Text size="L400" priority="300">
+                    Data
+                  </Text>
+                  <Text size="T200" priority="300">
+                    Datenquelle: GeoSphere Austria -{' '}
+                    <a href={WEATHER_CREDIT_URL} target="_blank" rel="noreferrer noopener">
+                      {WEATHER_CREDIT_URL}
+                    </a>
+                    . {WEATHER_DATASET}.
+                  </Text>
+                  <Text size="T200" priority="300">
+                    {HORIZON_CREDIT}
+                  </Text>
+                </Box>
+              )}
             </Box>
           </Menu>
         </FocusTrap>
       }
     >
       <IconButton
+        className={PhoneHit}
         variant="Background"
         aria-label={`Sky: ${LABEL[state]}`}
         title={`Sky: ${LABEL[state]}`}

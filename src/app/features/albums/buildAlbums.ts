@@ -1,6 +1,8 @@
 // Pure: turns the thread roots of a file-zone room and each root's thread replies, in the JSON
 // Synapse returns from GET /rooms/{roomId}/threads and GET /rooms/{roomId}/relations/{root}/m.thread,
 // into albums. See docs/file-zone.md for the rulings this encodes.
+import { readersOf } from './fileReceipt';
+import type { FileReader } from './fileReceipt';
 
 /** The slice of a Matrix event this module reads. Every field may be missing. */
 export type ZoneEvent = {
@@ -23,6 +25,8 @@ export type AlbumFile = {
   ts: number;
   /** The event content, as RenderMessageContent reads it. */
   content: Record<string, unknown>;
+  /** Receipts in this album that name this file, one per sender (the latest), oldest first. */
+  readBy: FileReader[];
 };
 
 export type Album = {
@@ -70,6 +74,7 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     name: asString(e.content.filename) || asString(e.content.body),
     ts: tsOf(e.origin_server_ts),
     content: e.content,
+    readBy: [],
   };
 };
 
@@ -84,18 +89,20 @@ const titleOf = (root: ZoneEvent & { content: Record<string, unknown> }): string
   return asString(edited) || asString(root.content.body) || UNTITLED;
 };
 
-const toAlbum = (input: AlbumInput): Album | undefined => {
+const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
   const { root, replies } = input ?? {};
   if (!live(root)) return undefined;
   const seen = new Set<string>();
-  const files = (Array.isArray(replies) ? replies : [])
+  const list = Array.isArray(replies) ? replies : [];
+  const files = list
     .map(toFile)
     .filter((f): f is AlbumFile => {
       if (!f || seen.has(f.id)) return false;
       seen.add(f.id);
       return true;
     })
-    .sort((a, b) => a.ts - b.ts);
+    .sort((a, b) => a.ts - b.ts)
+    .map((f) => ({ ...f, readBy: readersOf(list, f.id, f.content, server) }));
   return {
     id: root.event_id,
     title: titleOf(root),
@@ -108,10 +115,11 @@ const toAlbum = (input: AlbumInput): Album | undefined => {
 };
 
 /** Newest album first; files oldest first. Loose room messages never reach this function. */
-export const buildAlbums = (inputs: AlbumInput[]): Album[] => {
+/** `server` is the homeserver's own domain: only its Minds' receipts count. */
+export const buildAlbums = (inputs: AlbumInput[], server = ''): Album[] => {
   const seen = new Set<string>();
   return inputs
-    .map(toAlbum)
+    .map((i) => toAlbum(i, server))
     .filter((a): a is Album => {
       if (!a || seen.has(a.id)) return false;
       seen.add(a.id);

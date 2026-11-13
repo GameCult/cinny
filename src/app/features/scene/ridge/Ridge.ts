@@ -3,9 +3,21 @@ import type { Scene, SceneOptions } from '../Scene';
 import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
+import { paintSky as paintPhysicalSky } from './physicalSky';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import { bakeSlice, BakeParams, layerPaint } from './ridgeBake';
-import { LAYERS, LayerSpec, edgeBlur, layerSize, scatterAlpha, transmittance } from './ridgeWorld';
+import {
+  LAYERS,
+  LayerSpec,
+  edgeBlur,
+  HORIZON_TRACK_SHIFT,
+  layerSize,
+  scatterAlpha,
+  transmittance,
+} from './ridgeWorld';
+import { hfovDeg } from './horizon';
+import { viewFor, VFOV_DEG } from './skyDome';
+import { drawRainTile, RAIN_TILES } from './rain';
 
 /** One chunk's bake: `ms` is the summed task time, `maxTaskMs` the longest single task; `first` marks the bake of the first view. */
 export interface BakeRecord {
@@ -34,9 +46,55 @@ function context2d(c: HTMLCanvasElement): CanvasRenderingContext2D | null {
   return c.getContext('2d');
 }
 
-function paintSky(canvas: HTMLCanvasElement, sky: SkyColours): boolean {
+/** The sun: a bright core of its true angular size (at least 2.5 px) and a short soft falloff, in the colour the air leaves it. */
+function drawSun(
+  ctx: CanvasRenderingContext2D,
+  d: NonNullable<ReturnType<typeof paintPhysicalSky>['sunDisc']>,
+  w: number,
+  h: number
+): void {
+  const r = Math.max(2.5, d.radius * h);
+  const x = d.x * w;
+  const y = d.y * h;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5);
+  const [cr, cg, cb] = d.rgb;
+  g.addColorStop(0, `rgba(${cr},${cg},${cb},${d.alpha})`);
+  g.addColorStop(1 / 3.5, `rgba(${cr},${cg},${cb},${d.alpha})`);
+  g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r * 3.5, y - r * 3.5, r * 7, r * 7);
+}
+
+/**
+ * The host canvas's sky: the physical sky (`physicalSky.ts`) as a small grid of display pixels, scaled up smoothly (it is a soft
+ * field); without one, the three-stop gradient.
+ */
+function paintSky(
+  canvas: HTMLCanvasElement,
+  sky: SkyColours,
+  cssW: number,
+  cssH: number,
+  makeCanvas: () => HTMLCanvasElement
+): boolean {
   const ctx = context2d(canvas);
   if (!ctx) return false;
+  if (sky.physical) {
+    const px = paintPhysicalSky(sky.physical, cssW, cssH);
+    const small = makeCanvas();
+    small.width = px.w;
+    small.height = px.h;
+    const sctx = context2d(small);
+    if (sctx) {
+      const img = sctx.createImageData(px.w, px.h);
+      img.data.set(px.data);
+      sctx.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
+      if (px.sunDisc) drawSun(ctx, px.sunDisc, canvas.width, canvas.height);
+      return true;
+    }
+  }
   const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
   g.addColorStop(0, css(sky.top));
   g.addColorStop(0.5, css(sky.mid));
@@ -111,6 +169,13 @@ function chunkJob(
   const params: BakeParams = {
     spec,
     sky,
+    horizonView:
+      spec.horizon && sky.physical
+        ? {
+            azimuthDeg: viewFor(sky.physical.sun, size.period / viewH).azimuthDeg,
+            hfovDeg: hfovDeg(size.period / viewH, VFOV_DEG),
+          }
+        : undefined,
     period: size.period,
     scale,
     viewH,
@@ -237,6 +302,8 @@ interface Built {
   makeCanvas: () => HTMLCanvasElement;
   /** The twinkling stars' own canvas, between the sky and the ridges; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
+  /** The rain's tiles and their falling, present only when the weather rains (`rain.ts`). */
+  rain?: { els: HTMLElement[]; anims: (Animation | undefined)[] };
 }
 
 /** Yaw and pitch: the camera's slow sway, a loop of this many seconds over the whole rig. */
@@ -291,6 +358,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     built?.layers.forEach((l) => l.anim?.cancel());
     built?.rig.remove();
     built?.twinkle?.remove();
+    built?.rain?.anims.forEach((a) => a?.cancel());
+    built?.rain?.els.forEach((e) => e.remove());
     cancelAnimationFrame(twRaf);
     twRaf = 0;
     built = undefined;
@@ -355,7 +424,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
 
   /** One chunk of drift as one animation, holding its end until `rotate` hands the track the next chunk. */
   const startDrift = (l: LayerState, onEnd: (l: LayerState) => void) => {
-    if (!built) return;
+    if (!built || !Number.isFinite(l.spec.seconds)) return; // the horizon layer does not drift
     const { size, scale } = built;
     l.anim = l.track.animate?.(
       [
@@ -406,6 +475,56 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     );
   };
 
+  /**
+   * The rain over everything: per tile, a div of the tile's texture (drawn once) taller than the viewport by one tile, slid down one
+   * tile height per loop on the compositor. 'still' draws none (a settled still has no animation to carry it).
+   */
+  const startRain = (
+    rain: number,
+    colour: Srgb,
+    w: number,
+    h: number,
+    scale: number
+  ): NonNullable<Built['rain']> => {
+    const els: HTMLElement[] = [];
+    const anims: (Animation | undefined)[] = [];
+    RAIN_TILES.forEach((t, k) => {
+      const tile = document.createElement('canvas');
+      tile.width = t.size;
+      tile.height = t.size;
+      const tctx = context2d(tile);
+      if (!tctx) return;
+      drawRainTile(tctx, t, rain, colour, scale, k * 41);
+      const px = t.size / scale;
+      const el = document.createElement('div');
+      el.setAttribute('aria-hidden', 'true');
+      Object.assign(el.style, {
+        position: 'absolute',
+        left: '0',
+        top: `${-px}px`,
+        width: '100%',
+        height: `${h + px}px`,
+        backgroundImage: `url(${tile.toDataURL()})`,
+        backgroundSize: `${px}px ${px}px`,
+        pointerEvents: 'none',
+        willChange: 'transform',
+      });
+      parent.appendChild(el);
+      els.push(el);
+      anims.push(
+        el.animate?.(
+          [{ transform: 'translate3d(0,0,0)' }, { transform: `translate3d(0,${px}px,0)` }],
+          {
+            duration: t.seconds * 1000,
+            iterations: Infinity,
+            easing: 'linear',
+          }
+        )
+      );
+    });
+    return { els, anims };
+  };
+
   /** Bake the sky, then the layers. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardownLayers();
@@ -415,7 +534,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const size = layerSize(w, h, scale);
     canvas.width = size.period;
     canvas.height = Math.round(h * scale);
-    if (!paintSky(canvas, sky)) return false;
+    if (!paintSky(canvas, sky, w, h, () => document.createElement('canvas'))) return false;
     // Every star is baked into the sky; the twinkling ones get their own canvas, which a per-frame
     // pass clears and paints over. 'still' has no overlay.
     const stars = makeStars(sky, w, h);
@@ -454,7 +573,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       const track = document.createElement('div');
       Object.assign(track.style, {
         position: 'absolute',
-        left: '0',
+        left: spec.horizon ? `${(-HORIZON_TRACK_SHIFT * size.period) / scale}px` : '0',
         bottom: '0',
         width: `${size.period / scale}px`,
         height: `${size.height / scale}px`,
@@ -504,6 +623,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     parent.appendChild(rig);
     layers.forEach((l) => startDrift(l, rotate));
     built.sway = startSway(rig, w, h);
+    if (tier !== 'still' && sky.physical && sky.physical.weather.rain > 0)
+      built.rain = startRain(sky.physical.weather.rain, sky.horizon, w, h, scale);
     pump();
     syncPlayState();
     return true;
@@ -537,7 +658,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   function syncPlayState() {
-    const anims = built ? [built.sway, ...built.layers.map((l) => l.anim)] : [];
+    const anims = built
+      ? [built.sway, ...built.layers.map((l) => l.anim), ...(built.rain?.anims ?? [])]
+      : [];
     anims.forEach((a) => (moving() ? a?.play() : a?.pause()));
     if (!built?.twinkle) return;
     if (moving()) {

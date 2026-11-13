@@ -4,12 +4,17 @@ import { PoseAvatar } from '../../components/message/pose/PoseAvatar';
 import { MINDS } from '../../components/message/pose/poses';
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
 import { AnswerRow, Desk, buildDesk, DeskRow } from './buildDesk';
+import { useSkyInk } from '../../hooks/useTheme';
+import { scrimStyle } from '../scene/skyInk';
 import { ForkList } from './forkContract';
 import { deskMood } from './deskMood';
+import { raisedAge } from './age';
 import * as css from './DeskView.css';
 
 /** Slice 1 has no session: every viewer is signed out, and the note says why it cannot be used. */
 export const SIGN_IN_NOTE = 'Answering opens with sign-in. Until then you can read the questions.';
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const date = (iso: string) => iso.slice(0, 10);
 
@@ -45,7 +50,7 @@ function Answers({ answers }: { answers: AnswerRow[] }) {
   );
 }
 
-function Row({ row }: { row: DeskRow }) {
+function Row({ row, now }: { row: DeskRow; now: number }) {
   const phone = useScreenSizeContext() === ScreenSize.Mobile;
   // Phones list titles; a tap opens one. Wide screens show every row open.
   const [open, setOpen] = useState(!phone);
@@ -77,6 +82,14 @@ function Row({ row }: { row: DeskRow }) {
       </h3>
       {open && (
         <>
+          {raisedAge(row.raisedAt, now) && (
+            <p className={css.Quiet}>{raisedAge(row.raisedAt, now)}</p>
+          )}
+          {row.deciderCount !== undefined && row.answererCount !== undefined && (
+            <p className={css.Quiet}>
+              {`${plural(row.deciderCount, 'decider')} · ${plural(row.answererCount, 'answerer')}`}
+            </p>
+          )}
           <p className={css.Body}>{row.context}</p>
           <ul className={css.Options}>
             {row.options.map((o) => (
@@ -126,11 +139,14 @@ type DeskViewProps = {
   list?: ForkList;
   /** Fork ids whose options_hash failed the recompute (optionsHash.ts). */
   unverified?: ReadonlySet<string>;
+  /** The clock the ages are read against; the page's own, a test's fixed one. */
+  now?: number;
 };
 
 /** One Mind's desk, read-only: a stream of rows, the recorded rulings, and the booth Persona. */
-export function DeskView({ mind, label, list, unverified }: DeskViewProps) {
+export function DeskView({ mind, label, list, unverified, now = Date.now() }: DeskViewProps) {
   const desk = buildDesk(list, unverified);
+  const skyInk = useSkyInk();
   // Slice 1 has no session, so nothing on the desk is the viewer's answer yet.
   const mood = deskMood(desk.counts.open, 0);
   return (
@@ -139,7 +155,7 @@ export function DeskView({ mind, label, list, unverified }: DeskViewProps) {
       <div className={css.Layout}>
         <ol className={css.Rows}>
           {desk.open.map((row) => (
-            <Row key={row.forkId} row={row} />
+            <Row key={row.forkId} row={row} now={now} />
           ))}
         </ol>
         {/* Only Minds with art in the catalogue get a booth; none gets another Mind's face. */}
@@ -153,7 +169,7 @@ export function DeskView({ mind, label, list, unverified }: DeskViewProps) {
         )}
       </div>
       {desk.recorded.length > 0 && (
-        <>
+        <div className={css.Recorded} style={scrimStyle(skyInk)}>
           <h3 className={css.Title}>Recorded as rulings</h3>
           <ul className={css.Options}>
             {desk.recorded.map((r) => (
@@ -162,7 +178,7 @@ export function DeskView({ mind, label, list, unverified }: DeskViewProps) {
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
     </section>
   );

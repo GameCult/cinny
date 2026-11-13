@@ -12,7 +12,9 @@ describe('creature scale', () => {
 
   it('draws nothing for a neutral creature, whatever sizeBucket it was sent', () => {
     expect(creatureScale({ neutral: true })).toBeNull();
-    buckets.forEach((sizeBucket) => expect(creatureScale({ sizeBucket, neutral: true })).toBeNull());
+    buckets.forEach((sizeBucket) =>
+      expect(creatureScale({ sizeBucket, neutral: true })).toBeNull()
+    );
   });
 
   it('does not crash or default to medium when a non-neutral creature has no sizeBucket', () => {

@@ -22,7 +22,9 @@ export function UnreadBadge({ highlight, count }: UnreadBadgeProps) {
     <Badge
       variant={highlight ? 'Success' : 'Secondary'}
       size={count > 0 ? '400' : '200'}
-      fill="Solid"
+      // A mention and the bare unread dot are solid (a soft dot measured 1.6:1 against the ground); a plain unread
+      // count is a soft tint, so a row's count is never its loudest part.
+      fill={highlight || count === 0 ? 'Solid' : 'Soft'}
       radii="Pill"
       outlined={false}
     >

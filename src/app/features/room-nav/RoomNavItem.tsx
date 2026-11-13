@@ -20,8 +20,12 @@ import {
 import { useFocusWithin, useHover } from 'react-aria';
 import FocusTrap from 'focus-trap-react';
 import { useAtom, useAtomValue } from 'jotai';
-import { NavItem, NavItemContent, NavItemOptions, NavLink } from '../../components/nav';
-import { NavLabel } from '../../components/nav/styles.css';
+import { NavGutter, NavItem, NavItemContent, NavItemOptions, NavLink } from '../../components/nav';
+import {
+  NAV_ROOM_ICON_REST_OPACITY,
+  NAV_ICON_UNREAD_OPACITY,
+  NavLabel,
+} from '../../components/nav/styles.css';
 import { UnreadBadge, UnreadBadgeCenter } from '../../components/unread-badge';
 import { RoomAvatar, RoomIcon } from '../../components/room-avatar';
 import { getDirectRoomAvatarUrl, getRoomAvatarUrl, getStateEvent } from '../../utils/room';
@@ -62,6 +66,7 @@ import { useAutoDiscoveryInfo } from '../../hooks/useAutoDiscoveryInfo';
 import { livekitSupport } from '../../hooks/useLivekitSupport';
 import { StateEvent } from '../../../types/matrix/room';
 import { webRTCSupported } from '../../utils/rtc';
+import { PhoneHitSpread24 } from '../../styles/PhoneHit.css';
 
 type RoomNavItemMenuProps = {
   room: Room;
@@ -225,6 +230,7 @@ function CallChatToggle() {
 
   return (
     <IconButton
+      className={PhoneHitSpread24}
       onClick={() => setChat(!chat)}
       aria-pressed={chat}
       aria-label="Toggle Chat"
@@ -330,34 +336,36 @@ export function RoomNavItem({
       <NavLink to={linkPath} onClick={room.isCallRoom() ? handleStartCall : undefined}>
         <NavItemContent>
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
-            <Avatar size="200" radii="400">
-              {showAvatar ? (
-                <RoomAvatar
-                  roomId={room.roomId}
-                  src={
-                    direct
-                      ? getDirectRoomAvatarUrl(mx, room, 96, useAuthentication)
-                      : getRoomAvatarUrl(mx, room, 96, useAuthentication)
-                  }
-                  alt={roomName}
-                  renderFallback={() => (
-                    <Text as="span" size="H6">
-                      {nameInitials(roomName)}
-                    </Text>
-                  )}
-                />
-              ) : (
-                <RoomIcon
-                  style={{
-                    opacity: unread ? config.opacity.P500 : config.opacity.P300,
-                  }}
-                  filled={selected}
-                  size="100"
-                  joinRule={room.getJoinRule()}
-                  roomType={room.getType()}
-                />
-              )}
-            </Avatar>
+            <NavGutter>
+              <Avatar size="200" radii="400">
+                {showAvatar ? (
+                  <RoomAvatar
+                    roomId={room.roomId}
+                    src={
+                      direct
+                        ? getDirectRoomAvatarUrl(mx, room, 96, useAuthentication)
+                        : getRoomAvatarUrl(mx, room, 96, useAuthentication)
+                    }
+                    alt={roomName}
+                    renderFallback={() => (
+                      <Text as="span" size="H6">
+                        {nameInitials(roomName)}
+                      </Text>
+                    )}
+                  />
+                ) : (
+                  <RoomIcon
+                    style={{
+                      opacity: unread ? NAV_ICON_UNREAD_OPACITY : NAV_ROOM_ICON_REST_OPACITY,
+                    }}
+                    filled={selected}
+                    size="100"
+                    joinRule={room.getJoinRule()}
+                    roomType={room.getType()}
+                  />
+                )}
+              </Avatar>
+            </NavGutter>
             <Box as="span" grow="Yes">
               <Text
                 className={NavLabel}
@@ -430,6 +438,7 @@ export function RoomNavItem({
             }
           >
             <IconButton
+              className={PhoneHitSpread24}
               onClick={handleOpenMenu}
               aria-pressed={!!menuAnchor}
               aria-controls={`menu-${room.roomId}`}

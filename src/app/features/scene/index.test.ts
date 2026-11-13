@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
-import { baked } from '../../../sky/baked';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
 import { setSkyClock, setSkyState } from './skyState';
@@ -48,7 +47,7 @@ describe('startBackgroundScene follows the sky state', () => {
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     expect(createRidgeScene).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(baked.midnight.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night').top));
     scene?.dispose();
   });
 
@@ -67,7 +66,7 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('night');
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(baked.midnight.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night').top));
     scene?.dispose();
   });
 
@@ -79,7 +78,7 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('day');
     await flush();
     expect(first.dispose).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(baked.noonday.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day').top));
     scene?.dispose();
     expect(second.dispose).toHaveBeenCalledOnce();
   });
@@ -92,7 +91,7 @@ describe('startBackgroundScene follows the sky state', () => {
     const scene = await started;
     await flush();
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(baked.noonday.gradient[0]);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day').top));
     expect(a.dispose).toHaveBeenCalledOnce();
     scene?.dispose();
     expect(b.dispose).toHaveBeenCalledOnce();
@@ -238,5 +237,20 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('day');
     await flush();
     expect(createScene).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the ground and reports a ray-march scene that throws while being created', async () => {
+    const boom = new Error('shader link failed');
+    createScene.mockImplementation(() => {
+      throw boom;
+    });
+    const onCompileFail = vi.fn();
+    const scene = await startBackgroundScene({ ...config, style: 'raymarch' }, caps, {
+      canvas,
+      onCompileFail,
+    });
+    expect(scene).toBeNull();
+    expect(onCompileFail).toHaveBeenCalledOnce();
+    expect(onCompileFail).toHaveBeenCalledWith(boom);
   });
 });

@@ -25,6 +25,7 @@ import {
   SoundButton,
   VideoButton,
 } from './Controls';
+import { PhoneHitSpread40 } from '../../styles/PhoneHit.css';
 import { CallEmbed, useCallControlState } from '../../plugins/call';
 import { useResizeObserver } from '../../hooks/useResizeObserver';
 import { stopPropagation } from '../../utils/keyboard';
@@ -71,7 +72,10 @@ export function CallControls({ callEmbed }: CallControlsProps) {
     setCords(undefined);
   };
 
-  const handleMicrophoneToggle = useCallback(() => callEmbed.control.toggleMicrophone(), [callEmbed]);
+  const handleMicrophoneToggle = useCallback(
+    () => callEmbed.control.toggleMicrophone(),
+    [callEmbed]
+  );
   const handleVideoToggle = useCallback(() => callEmbed.control.toggleVideo(), [callEmbed]);
 
   const [hangupState, hangup] = useAsyncCallback(
@@ -97,10 +101,7 @@ export function CallControls({ callEmbed }: CallControlsProps) {
       >
         <Box alignItems="Center" gap="Inherit" grow="Yes" direction={compact ? 'Column' : 'Row'}>
           <Box shrink="No" alignItems="Inherit" justifyContent="Inherit" gap="200">
-            <MicrophoneButton
-              enabled={microphone}
-              onToggle={handleMicrophoneToggle}
-            />
+            <MicrophoneButton enabled={microphone} onToggle={handleMicrophoneToggle} />
             <SoundButton enabled={sound} onToggle={() => callEmbed.control.toggleSound()} />
           </Box>
           {!compact && <ControlDivider />}
@@ -169,6 +170,7 @@ export function CallControls({ callEmbed }: CallControlsProps) {
               }
             >
               <IconButton
+                className={PhoneHitSpread40}
                 variant="Surface"
                 fill="Soft"
                 radii="400"
