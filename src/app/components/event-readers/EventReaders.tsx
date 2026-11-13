@@ -24,6 +24,7 @@ import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
 import { useOpenUserRoomProfile } from '../../state/hooks/userRoomProfile';
 import { useSpaceOptionally } from '../../hooks/useSpace';
 import { getMouseEventCords } from '../../utils/dom';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export type EventReadersProps = {
   room: Room;
@@ -52,7 +53,7 @@ export const EventReaders = as<'div', EventReadersProps>(
           <Box grow="Yes">
             <Text size="H3">Seen by</Text>
           </Box>
-          <IconButton size="300" onClick={requestClose}>
+          <IconButton className={PhoneHit} size="300" onClick={requestClose}>
             <Icon src={Icons.Cross} />
           </IconButton>
         </Header>

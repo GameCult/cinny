@@ -22,6 +22,7 @@ import Linkify from 'linkify-react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { ChildNode } from 'domhandler';
 import * as css from '../styles/CustomHtml.css';
+import { PhoneHitSpread24 } from '../styles/PhoneHit.css';
 import {
   getMxIdLocalPart,
   getCanonicalAliasRoomId,
@@ -282,6 +283,7 @@ export function CodeBlock({
               variant="SurfaceVariant"
               outlined
               radii="300"
+              className={PhoneHitSpread24}
               onClick={toggleExpand}
               aria-label={expanded ? 'Collapse' : 'Expand'}
             >

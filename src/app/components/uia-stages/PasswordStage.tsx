@@ -4,6 +4,7 @@ import { AuthType } from 'matrix-js-sdk';
 import { StageComponentProps } from './types';
 import { ErrorCode } from '../../cs-errorcode';
 import { PasswordInput } from '../password-input';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export function PasswordStage({
   stageData,
@@ -45,7 +46,7 @@ export function PasswordStage({
         <Box grow="Yes">
           <Text size="H4">Account Password</Text>
         </Box>
-        <IconButton size="300" onClick={onCancel} radii="300">
+        <IconButton className={PhoneHit} size="300" onClick={onCancel} radii="300">
           <Icon src={Icons.Cross} />
         </IconButton>
       </Header>

@@ -4,6 +4,7 @@ import classNames from 'classnames';
 import Linkify from 'linkify-react';
 import * as css from './style.css';
 import { LINKIFY_OPTS, scaleSystemEmoji } from '../../plugins/react-custom-html-parser';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export const RoomTopicViewer = as<
   'div',
@@ -26,7 +27,7 @@ export const RoomTopicViewer = as<
           {name}
         </Text>
       </Box>
-      <IconButton size="300" onClick={requestClose} radii="300">
+      <IconButton className={PhoneHit} size="300" onClick={requestClose} radii="300">
         <Icon src={Icons.Cross} />
       </IconButton>
     </Header>

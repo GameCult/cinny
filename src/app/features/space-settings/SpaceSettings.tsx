@@ -17,6 +17,7 @@ import { Members } from '../common-settings/members';
 import { DeveloperTools } from '../common-settings/developer-tools';
 import { General } from './general';
 import { Permissions } from './permissions';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type SpaceSettingsMenuItem = {
   page: SpaceSettingsPage;
@@ -117,7 +118,7 @@ export function SpaceSettings({ initialPage, requestClose }: SpaceSettingsProps)
               </Box>
               <Box shrink="No">
                 {screenSize === ScreenSize.Mobile && (
-                  <IconButton onClick={requestClose} variant="Background">
+                  <IconButton className={PhoneHit} onClick={requestClose} variant="Background">
                     <Icon src={Icons.Cross} />
                   </IconButton>
                 )}

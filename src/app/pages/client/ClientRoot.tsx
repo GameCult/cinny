@@ -36,6 +36,7 @@ import { SyncStatus } from './SyncStatus';
 import { AuthMetadataProvider } from '../../hooks/useAuthMetadata';
 import { getFallbackSession } from '../../state/sessions';
 import { AutoDiscovery } from './AutoDiscovery';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 function ClientRootLoading() {
   return (
@@ -61,6 +62,7 @@ function ClientRootOptions({ mx }: { mx?: MatrixClient }) {
 
   return (
     <IconButton
+      className={PhoneHit}
       style={{
         position: 'absolute',
         top: config.space.S100,

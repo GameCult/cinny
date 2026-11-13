@@ -27,6 +27,7 @@ import { AsyncStatus } from '../../hooks/useAsyncCallback';
 import { useZoom } from '../../hooks/useZoom';
 import { createPage, usePdfDocumentLoader, usePdfJSLoader } from '../../plugins/pdfjs-dist';
 import { stopPropagation } from '../../utils/keyboard';
+import { PhoneHit, PhoneHitSpread24 } from '../../styles/PhoneHit.css';
 
 export type PdfViewerProps = {
   name: string;
@@ -108,7 +109,7 @@ export const PdfViewer = as<'div', PdfViewerProps>(
       <Box className={classNames(css.PdfViewer, className)} direction="Column" {...props} ref={ref}>
         <Header className={css.PdfViewerHeader} size="400">
           <Box grow="Yes" alignItems="Center" gap="200">
-            <IconButton size="300" radii="300" onClick={requestClose}>
+            <IconButton className={PhoneHit} size="300" radii="300" onClick={requestClose}>
               <Icon size="50" src={Icons.ArrowLeft} />
             </IconButton>
             <Text size="T300" truncate>
@@ -117,6 +118,7 @@ export const PdfViewer = as<'div', PdfViewerProps>(
           </Box>
           <Box shrink="No" alignItems="Center" gap="200">
             <IconButton
+              className={PhoneHitSpread24}
               variant={zoom < 1 ? 'Success' : 'SurfaceVariant'}
               outlined={zoom < 1}
               size="300"
@@ -130,6 +132,7 @@ export const PdfViewer = as<'div', PdfViewerProps>(
               <Text size="B300">{Math.round(zoom * 100)}%</Text>
             </Chip>
             <IconButton
+              className={PhoneHitSpread24}
               variant={zoom > 1 ? 'Success' : 'SurfaceVariant'}
               outlined={zoom > 1}
               size="300"
