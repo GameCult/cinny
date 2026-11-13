@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Icon, IconButton, Icons, Scroll, Text } from 'folds';
 import { PhoneHit } from '../../styles/PhoneHit.css';
@@ -6,7 +6,7 @@ import { Page, PageContent, PageContentCenter, PageHeader } from '../../componen
 import { ScreenSize, useScreenSizeContext } from '../../hooks/useScreenSize';
 import { getHomePath } from '../../pages/pathUtils';
 import { DeskView } from './DeskView';
-import { unverifiedForks } from './optionsHash';
+import { useUnverified } from './useUnverified';
 import { deskFor } from './source';
 
 const labelOf = (mind: string) => mind.charAt(0).toUpperCase() + mind.slice(1);
@@ -19,14 +19,7 @@ export function Desk() {
   const label = labelOf(mind);
   const list = useMemo(() => deskFor(mind), [mind]);
   // Until the recompute finishes nothing is flagged; a card that fails is withdrawn when it lands.
-  const [unverified, setUnverified] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => {
-    let live = true;
-    unverifiedForks(list?.forks ?? []).then((bad) => live && setUnverified(bad));
-    return () => {
-      live = false;
-    };
-  }, [list]);
+  const unverified = useUnverified(list);
 
   return (
     <Page>
