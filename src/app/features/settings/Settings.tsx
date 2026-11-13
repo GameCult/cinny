@@ -33,6 +33,7 @@ import { About } from './about';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { stopPropagation } from '../../utils/keyboard';
 import { LogoutDialog } from '../../components/LogoutDialog';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export enum SettingsPages {
   GeneralPage,
@@ -141,7 +142,7 @@ export function Settings({ initialPage, requestClose }: SettingsProps) {
               </Box>
               <Box shrink="No">
                 {screenSize === ScreenSize.Mobile && (
-                  <IconButton onClick={requestClose} variant="Background">
+                  <IconButton className={PhoneHit} onClick={requestClose} variant="Background">
                     <Icon src={Icons.Cross} />
                   </IconButton>
                 )}
