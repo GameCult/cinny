@@ -45,6 +45,7 @@ import { getMxIdServer } from '../../../utils/matrix';
 import { stopPropagation } from '../../../utils/keyboard';
 import { ScreenSize, useScreenSizeContext } from '../../../hooks/useScreenSize';
 import { BackRouteHandler } from '../../../components/BackRouteHandler';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const useServerSearchParams = (searchParams: URLSearchParams): ExploreServerPathSearchParams =>
   useMemo(
@@ -499,7 +500,7 @@ export function PublicRooms() {
               {screenSize === ScreenSize.Mobile && (
                 <BackRouteHandler>
                   {(onBack) => (
-                    <IconButton onClick={onBack}>
+                    <IconButton className={PhoneHit} onClick={onBack}>
                       <Icon src={Icons.ArrowLeft} />
                     </IconButton>
                   )}

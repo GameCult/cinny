@@ -18,6 +18,7 @@ import * as css from './style.css';
 import { useRoomNavigate } from '../../../hooks/useRoomNavigate';
 import { ScreenSize, useScreenSizeContext } from '../../../hooks/useScreenSize';
 import { BackRouteHandler } from '../../../components/BackRouteHandler';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function FeaturedRooms() {
   const { featuredCommunities } = useClientConfig();
@@ -33,7 +34,7 @@ export function FeaturedRooms() {
           <Box shrink="No">
             <BackRouteHandler>
               {(onBack) => (
-                <IconButton onClick={onBack}>
+                <IconButton className={PhoneHit} onClick={onBack}>
                   <Icon src={Icons.ArrowLeft} />
                 </IconButton>
               )}

@@ -38,6 +38,7 @@ import { useOpenSpaceSettings } from '../../state/hooks/spaceSettings';
 import { useRoomCreators } from '../../hooks/useRoomCreators';
 import { useRoomPermissions } from '../../hooks/useRoomPermissions';
 import { InviteUserPrompt } from '../../components/invite-user-prompt';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type LobbyMenuProps = {
   powerLevels: IPowerLevels;
@@ -165,7 +166,7 @@ export function LobbyHeader({ showProfile, powerLevels }: LobbyHeaderProps) {
             <Box shrink="No">
               <BackRouteHandler>
                 {(onBack) => (
-                  <IconButton fill="None" onClick={onBack}>
+                  <IconButton className={PhoneHit} fill="None" onClick={onBack}>
                     <Icon src={Icons.ArrowLeft} />
                   </IconButton>
                 )}
@@ -240,6 +241,7 @@ export function LobbyHeader({ showProfile, powerLevels }: LobbyHeaderProps) {
           >
             {(triggerRef) => (
               <IconButton
+                className={PhoneHit}
                 fill="None"
                 onClick={handleOpenMenu}
                 ref={triggerRef}

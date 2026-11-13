@@ -11,6 +11,7 @@ import { roomToParentsAtom } from '../../../state/room/roomToParents';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { ScreenSize, useScreenSizeContext } from '../../../hooks/useScreenSize';
 import { BackRouteHandler } from '../../../components/BackRouteHandler';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function SpaceSearch() {
   const mx = useMatrixClient();
@@ -34,7 +35,7 @@ export function SpaceSearch() {
             {screenSize === ScreenSize.Mobile && (
               <BackRouteHandler>
                 {(onBack) => (
-                  <IconButton onClick={onBack}>
+                  <IconButton className={PhoneHit} onClick={onBack}>
                     <Icon src={Icons.ArrowLeft} />
                   </IconButton>
                 )}

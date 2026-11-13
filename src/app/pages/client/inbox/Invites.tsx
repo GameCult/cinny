@@ -63,6 +63,7 @@ import { useIgnoredUsers } from '../../../hooks/useIgnoredUsers';
 import { useReportRoomSupported } from '../../../hooks/useReportRoomSupported';
 import { useSetting } from '../../../state/hooks/settings';
 import { settingsAtom } from '../../../state/settings';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const COMPACT_CARD_WIDTH = 548;
 
@@ -745,7 +746,7 @@ export function Invites() {
             {screenSize === ScreenSize.Mobile && (
               <BackRouteHandler>
                 {(onBack) => (
-                  <IconButton onClick={onBack}>
+                  <IconButton className={PhoneHit} onClick={onBack}>
                     <Icon src={Icons.ArrowLeft} />
                   </IconButton>
                 )}

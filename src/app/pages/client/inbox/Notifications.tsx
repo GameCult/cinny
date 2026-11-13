@@ -97,6 +97,7 @@ import {
 } from '../../../hooks/useMemberPowerTag';
 import { useRoomCreatorsTag } from '../../../hooks/useRoomCreatorsTag';
 import { useRoomCreators } from '../../../hooks/useRoomCreators';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type RoomNotificationsGroup = {
   roomId: string;
@@ -642,7 +643,7 @@ export function Notifications() {
             {screenSize === ScreenSize.Mobile && (
               <BackRouteHandler>
                 {(onBack) => (
-                  <IconButton onClick={onBack}>
+                  <IconButton className={PhoneHit} onClick={onBack}>
                     <Icon src={Icons.ArrowLeft} />
                   </IconButton>
                 )}
@@ -694,6 +695,7 @@ export function Notifications() {
                   onVisibilityChange={handleScrollTopVisibility}
                 >
                   <IconButton
+                    className={PhoneHit}
                     onClick={() => virtualizer.scrollToOffset(0)}
                     variant="SurfaceVariant"
                     radii="Pill"
