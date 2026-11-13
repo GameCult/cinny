@@ -8,6 +8,7 @@ import { KeywordMessagesNotifications } from './KeywordMessages';
 import { SequenceCard } from '../../../components/sequence-card';
 import { SequenceCardStyle } from '../styles.css';
 import { SettingTile } from '../../../components/setting-tile';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type NotificationsProps = {
   requestClose: () => void;
@@ -23,7 +24,7 @@ export function Notifications({ requestClose }: NotificationsProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

@@ -13,6 +13,7 @@ import {
 } from '../../../components/AccountDataEditor';
 import { copyToClipboard } from '../../../utils/dom';
 import { AccountData } from './AccountData';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type DeveloperToolsProps = {
   requestClose: () => void;
@@ -51,7 +52,7 @@ export function DeveloperTools({ requestClose }: DeveloperToolsProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>
