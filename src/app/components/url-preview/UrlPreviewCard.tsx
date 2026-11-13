@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { IPreviewUrlResponse } from 'matrix-js-sdk';
 import { Box, Icon, IconButton, Icons, Scroll, Spinner, Text, as, color, config } from 'folds';
@@ -10,6 +11,7 @@ import {
   useIntersectionObserver,
 } from '../../hooks/useIntersectionObserver';
 import * as css from './UrlPreviewCard.css';
+import { PhoneHitInPlace } from '../../styles/PhoneHit.css';
 import { tryDecodeURIComponent } from '../../utils/dom';
 import { mxcUrlToHttp } from '../../utils/matrix';
 import { useMediaAuthentication } from '../../hooks/useMediaAuthentication';
@@ -181,7 +183,10 @@ export const UrlPreviewHolder = as<'div'>(({ children, ...props }, ref) => {
             <>
               <div className={css.UrlPreviewHolderGradient({ position: 'Left' })} />
               <IconButton
-                className={css.UrlPreviewHolderBtn({ position: 'Left' })}
+                className={classNames(
+                  css.UrlPreviewHolderBtn({ position: 'Left' }),
+                  PhoneHitInPlace
+                )}
                 variant="Secondary"
                 radii="Pill"
                 size="300"
@@ -199,7 +204,10 @@ export const UrlPreviewHolder = as<'div'>(({ children, ...props }, ref) => {
               <>
                 <div className={css.UrlPreviewHolderGradient({ position: 'Right' })} />
                 <IconButton
-                  className={css.UrlPreviewHolderBtn({ position: 'Right' })}
+                  className={classNames(
+                    css.UrlPreviewHolderBtn({ position: 'Right' }),
+                    PhoneHitInPlace
+                  )}
                   variant="Primary"
                   radii="Pill"
                   size="300"

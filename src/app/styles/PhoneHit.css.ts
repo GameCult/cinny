@@ -29,6 +29,10 @@ export const PhoneHit = style({
   selectors: { '&::after': hitArea },
 });
 
+/** For a button that is already positioned (absolute or fixed) by its own class: PhoneHit's `position: relative`
+ * would fight that class by stylesheet order, and the positioned button already contains its ::after. */
+export const PhoneHitInPlace = style({ selectors: { '&::after': hitArea } });
+
 const spreads = new Map<number, string>();
 
 /** An icon button in a row, `visual` px wide: the row opens up so its 44 px hit area meets its neighbours'. */
