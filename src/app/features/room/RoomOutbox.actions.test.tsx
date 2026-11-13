@@ -81,6 +81,12 @@ describe('RoomOutbox actions', () => {
 
   it('Resend sends that message again and does not discard it first', async () => {
     const { mx, tree } = mount();
+    // the server has not answered yet: the resend is in flight
+    mx.sendEvent.mockReturnValue(
+      new Promise<never>(() => {
+        // never settles
+      })
+    );
     clickOf(tree, 'Resend')();
     await Promise.resolve();
     expect(mx.sendEvent).toHaveBeenCalledTimes(1);
@@ -90,5 +96,7 @@ describe('RoomOutbox actions', () => {
       { body: 'did not go' },
       'bad'
     );
+    // still in the outbox, pending again under the same id, until the server confirms it
+    expect(loadOutbox('@a:x').find((e) => e.txnId === 'bad')).toMatchObject({ status: 'pending' });
   });
 });
