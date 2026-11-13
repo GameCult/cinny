@@ -90,10 +90,10 @@ const phoneHitOf = (tag: string) => tag.match(/className=\{[^}]*?\b(PhoneHit\w*)
 /** The class each IconButton must carry, in source order: the variant is chosen by the button's drawn size and
  * whether a clipping container or neighbours surround it, so a swapped variant is a wrong hit area. Also checks
  * the name is the one PhoneHit.css.ts exports, not a local of the same name. */
-export const expectPhoneHitClasses = (file: string, want: string[]) => {
+export const expectPhoneHitClasses = (file: string, want: (string | null)[]) => {
   const src = readSource(file);
   expect(iconButtonTags(src).map(phoneHitOf)).toEqual(want);
-  [...new Set(want)].forEach((name) =>
+  [...new Set(want.filter((w): w is string => w !== null))].forEach((name) =>
     expect(src).toMatch(
       new RegExp(
         `import \\{(?:[^}]*,)?\\s*${name}\\s*(?:,[^}]*)?\\} from '(\\.\\./)+styles/PhoneHit\\.css'`

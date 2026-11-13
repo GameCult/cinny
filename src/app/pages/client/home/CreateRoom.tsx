@@ -12,6 +12,7 @@ import { ScreenSize, useScreenSizeContext } from '../../../hooks/useScreenSize';
 import { BackRouteHandler } from '../../../components/BackRouteHandler';
 import { CreateRoomForm } from '../../../features/create-room';
 import { useRoomNavigate } from '../../../hooks/useRoomNavigate';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function HomeCreateRoom() {
   const screenSize = useScreenSizeContext();
@@ -25,7 +26,7 @@ export function HomeCreateRoom() {
           <Box grow="Yes" alignItems="Center" gap="200">
             <BackRouteHandler>
               {(onBack) => (
-                <IconButton onClick={onBack}>
+                <IconButton className={PhoneHit} onClick={onBack}>
                   <Icon src={Icons.ArrowLeft} />
                 </IconButton>
               )}

@@ -17,6 +17,7 @@ import {
 } from '../../../components/page';
 import { BackRouteHandler } from '../../../components/BackRouteHandler';
 import { CreateChat } from '../../../features/create-chat';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function DirectCreate() {
   const mx = useMatrixClient();
@@ -44,7 +45,7 @@ export function DirectCreate() {
           <Box grow="Yes" alignItems="Center" gap="200">
             <BackRouteHandler>
               {(onBack) => (
-                <IconButton onClick={onBack}>
+                <IconButton className={PhoneHit} onClick={onBack}>
                   <Icon src={Icons.ArrowLeft} />
                 </IconButton>
               )}
