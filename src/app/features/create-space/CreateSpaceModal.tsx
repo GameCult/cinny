@@ -23,6 +23,7 @@ import {
 } from '../../state/hooks/createSpaceModal';
 import { CreateSpaceModalState } from '../../state/createSpaceModal';
 import { stopPropagation } from '../../utils/keyboard';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type CreateSpaceModalProps = {
   state: CreateSpaceModalState;
@@ -61,7 +62,7 @@ function CreateSpaceModal({ state }: CreateSpaceModalProps) {
                     <Text size="H4">New Space</Text>
                   </Box>
                   <Box shrink="No">
-                    <IconButton size="300" radii="300" onClick={closeDialog}>
+                    <IconButton className={PhoneHit} size="300" radii="300" onClick={closeDialog}>
                       <Icon src={Icons.Cross} />
                     </IconButton>
                   </Box>
