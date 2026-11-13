@@ -2,6 +2,8 @@ import { Box, Text } from 'folds';
 import React, { useEffect } from 'react';
 import { useClientConfig } from '../../../hooks/useClientConfig';
 import { registrationEntry } from '../registrationEntry';
+import { useMasAccountUrl } from '../masAccount';
+import { MasAccountNotice } from '../MasAccountNotice';
 import { Register } from './Register';
 
 // With the Register switch on, a stranger gets one way to register: the account service's own
@@ -9,9 +11,21 @@ import { Register } from './Register';
 // the switch off, the in-client form is the way.
 export function RegisterRoute() {
   const entry = registrationEntry(useClientConfig());
+  const masUrl = useMasAccountUrl();
   useEffect(() => {
-    if (entry) window.location.replace(entry.url);
-  }, [entry]);
+    if (entry && !masUrl) window.location.replace(entry.url);
+  }, [entry, masUrl]);
+  // Under MAS the in-client sign-up (UIA) cannot work; the account page is the only way.
+  if (masUrl) {
+    return (
+      <Box direction="Column" gap="300">
+        <Text size="H2" priority="400">
+          Register
+        </Text>
+        <MasAccountNotice url={masUrl} />
+      </Box>
+    );
+  }
   if (!entry) return <Register />;
   return (
     <Box direction="Column" gap="300">

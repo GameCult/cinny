@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { getLoginPath } from '../../pathUtils';
 import { useAuthServer } from '../../../hooks/useAuthServer';
 import { PasswordResetForm } from './PasswordResetForm';
+import { useMasAccountUrl } from '../masAccount';
+import { MasAccountNotice } from '../MasAccountNotice';
 import { ResetPasswordPathSearchParams } from '../../paths';
 
 const useResetPasswordSearchParams = (
@@ -18,6 +20,7 @@ const useResetPasswordSearchParams = (
 
 export function ResetPassword() {
   const server = useAuthServer();
+  const masUrl = useMasAccountUrl();
   const [searchParams] = useSearchParams();
   const resetPasswordSearchParams = useResetPasswordSearchParams(searchParams);
 
@@ -26,7 +29,11 @@ export function ResetPassword() {
       <Text size="H2" priority="400">
         Reset Password
       </Text>
-      <PasswordResetForm defaultEmail={resetPasswordSearchParams.email} />
+      {masUrl ? (
+        <MasAccountNotice url={masUrl} />
+      ) : (
+        <PasswordResetForm defaultEmail={resetPasswordSearchParams.email} />
+      )}
       <span data-spacing-node />
 
       <Text align="Center">

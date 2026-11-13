@@ -19,6 +19,7 @@ import React, { MouseEventHandler, ReactNode, useCallback, useEffect, useState }
 import {
   clearCacheAndReload,
   clearLoginData,
+  wipeLocalData,
   initClient,
   logoutClient,
   startClient,
@@ -35,6 +36,8 @@ import { stopPropagation } from '../../utils/keyboard';
 import { SyncStatus } from './SyncStatus';
 import { AuthMetadataProvider } from '../../hooks/useAuthMetadata';
 import { getFallbackSession } from '../../state/sessions';
+import { beginSoftLogout, classifyLogout } from '../../state/softLogout';
+import { pushSessionToSW } from '../../../sw-session';
 import { AutoDiscovery } from './AutoDiscovery';
 import { PhoneHit } from '../../styles/PhoneHit.css';
 
@@ -127,10 +130,15 @@ function ClientRootOptions({ mx }: { mx?: MatrixClient }) {
 
 const useLogoutListener = (mx?: MatrixClient) => {
   useEffect(() => {
-    const handleLogout: HttpApiEventHandlerMap[HttpApiEvent.SessionLoggedOut] = async () => {
+    const handleLogout: HttpApiEventHandlerMap[HttpApiEvent.SessionLoggedOut] = async (err) => {
       mx?.stopClient();
-      await mx?.clearStores();
-      window.localStorage.clear();
+      // Soft: the token is dead, the device is not. Keep the stores and ask for a sign-in.
+      if (classifyLogout(err) === 'soft' && beginSoftLogout()) {
+        pushSessionToSW();
+        window.location.reload();
+        return;
+      }
+      await wipeLocalData(mx);
       window.location.reload();
     };
 

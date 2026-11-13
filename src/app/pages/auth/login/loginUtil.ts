@@ -11,6 +11,8 @@ import {
 } from '../../afterLoginRedirectPath';
 import { getHomePath } from '../../pathUtils';
 import { setFallbackSession } from '../../../state/sessions';
+import { clearSoftLogout, decideLoginOutcome, getSoftLogout } from '../../../state/softLogout';
+import { wipeLocalData } from '../../../../client/initMatrix';
 
 export enum GetBaseUrlError {
   NotAllow = 'NotAllow',
@@ -112,12 +114,18 @@ export const useLoginComplete = (data?: CustomLoginResponse) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (data) {
-      const { response: loginRes, baseUrl: loginBaseUrl } = data;
-      setFallbackSession(loginRes.access_token, loginRes.device_id, loginRes.user_id, loginBaseUrl);
+    if (!data) return;
+    const { response: loginRes, baseUrl: loginBaseUrl } = data;
+    const finish = async () => {
       const afterLoginRedirectUrl = getAfterLoginRedirectPath();
+      // A soft logout left stores behind; they stay only for the same user on the same device.
+      const outcome = decideLoginOutcome(getSoftLogout(), loginRes);
+      if (outcome === 'wipe') await wipeLocalData();
+      clearSoftLogout();
+      setFallbackSession(loginRes.access_token, loginRes.device_id, loginRes.user_id, loginBaseUrl);
       deleteAfterLoginRedirectPath();
       navigate(afterLoginRedirectUrl ?? getHomePath(), { replace: true });
-    }
+    };
+    finish();
   }, [data, navigate]);
 };
