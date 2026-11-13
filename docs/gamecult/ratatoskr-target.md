@@ -97,9 +97,11 @@ Probes run by Imagination on 2026-10-31, session `self-2026-10-29-eureka`.
    events from the Minds' stewardship documents; each project room's alias is
    `#<repo lowercased>` (runbook 146-150). This is the only place the client
    can learn a not-yet-joined room's steward today: hierarchy `canonical_alias`
-   joined to the root `org.gamecult.stewardships`. Follow-up
-   `ratatoskr:follow_up:stewardships-carry-room-ids` asks the projection to
-   name room ids so the client stops leaning on the alias convention.
+   joined to the root `org.gamecult.stewardships`. The
+   projection now also names room ids under `@rooms.projects` and
+   `@rooms.file_zones` (gamecult-ops #111); the client reads `file_zones` for
+   the Media row (`mediaRoom.ts`) and still joins projects by alias, since
+   nothing yet consumes `@rooms.projects`.
 5. **Sync and storage** (`src/client/initMatrix.ts`). The client uses
    matrix-js-sdk 41.7.0 with `IndexedDBStore` (`web-sync-store`, 15-19) and the
    Rust crypto store, and `startClient({ lazyLoadMembers: true })` (43-47): v2

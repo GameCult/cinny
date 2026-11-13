@@ -2,20 +2,29 @@
  * A Mind's media room: the file-zone room Eureka provisions under the alias #<mind>-files:<server>.
  * The navigator shows a Media row for every Mind; this module decides what that row says and where it points.
  * A room id carried by the root Space's org.gamecult.stewardships state wins over the alias; the alias is the
- * convention until the provisioning projection carries ids (ratatoskr:follow_up:stewardships-carry-room-ids).
+ * fallback for a Mind whose zone the provisioning run has not recorded yet.
  */
 import { EstateRoom } from './buildEstate';
 
 export const STEWARDSHIPS_KEY = 'org.gamecult.stewardships';
 
+/** Where provisioning records room ids in the stewardships state (gamecult-ops synapse-accounts-hand-managed.py ROOMS_KEY). "@" is no legal Matrix localpart, so no Mind can own the key. */
+export const ROOMS_KEY = '@rooms';
+
 export const mediaAlias = (mind: string, server: string): string => `#${mind}-files:${server}`;
 
 /**
- * The room id the stewardships state names for a Mind's media room, if it does. The state's mind-to-repos
- * lists are not read here; the id lives under `media[<mind>]` (provisional shape, awaiting the follow-up above).
+ * The room id the stewardships state names for a Mind's media room, under `@rooms.file_zones[<mind>]`.
+ * The state's mind-to-repos lists are not read here.
  */
 export const mediaRoomIdFromStewardships = (content: unknown, mind: string): string | undefined => {
-  const id = (content as { media?: Record<string, unknown> } | null | undefined)?.media?.[mind];
+  const rooms = (
+    content as
+      | Record<string, { file_zones?: Record<string, unknown> } | undefined>
+      | null
+      | undefined
+  )?.[ROOMS_KEY];
+  const id = rooms?.file_zones?.[mind];
   return typeof id === 'string' && id.startsWith('!') ? id : undefined;
 };
 
