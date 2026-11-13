@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import vectors from './optionsHashVectors.json';
 import { entry } from './fixtures';
 import { ForkCard } from './forkContract';
-import { canonicalShown, optionsHash, shownOf, unverifiedForks } from './optionsHash';
+import {
+  canonicalShown,
+  optionsHash,
+  shownOf,
+  unverifiedForks,
+  unverifiedOrAll,
+} from './optionsHash';
 
 describe('options_hash against the CultLib vectors', () => {
   it('has all fifteen vectors', () => {
@@ -46,5 +52,20 @@ describe('unverifiedForks', () => {
     const e = await sealed();
     const card = { ...e.card, fork_id: 'x:question:y', order: 7, leans: 'A', flag: 'f' };
     expect(await unverifiedForks([{ ...e, card }])).toEqual(new Set());
+  });
+});
+
+describe('unverifiedOrAll', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('answers as unverifiedForks does when the check runs', async () => {
+    const e = entry('plain');
+    expect(await unverifiedOrAll([e])).toEqual(await unverifiedForks([e]));
+  });
+  it('withdraws every card when the check cannot run', async () => {
+    vi.stubGlobal('crypto', { subtle: undefined });
+    const a = entry('a');
+    const b = entry('b');
+    expect(await unverifiedOrAll([a, b])).toEqual(new Set([a.card.fork_id, b.card.fork_id]));
+    expect(await unverifiedOrAll([])).toEqual(new Set());
   });
 });
