@@ -1,6 +1,6 @@
 // Pure: folders are albums whose title is a `/`-separated path (docs/commons-files-desk.md, "Folders").
 // No wire change: the album is still one thread root; the folder tree is only how the list is grouped.
-import { Album } from './buildAlbums';
+import { Album, UNTITLED } from './buildAlbums';
 
 /** A path as segments. Empty segments and surrounding space drop out; `.` and `..` are ordinary names, never navigation. */
 export const splitPath = (title: string): string[] =>
@@ -36,7 +36,7 @@ export const listFolder = (albums: readonly Album[], at: string[]): FolderListin
     const segs = splitPath(album.title);
     if (segs.length === 0) {
       // An untitled or all-slash title lives at the root under the title as written.
-      if (at.length === 0) direct.push({ album, leaf: album.title });
+      if (at.length === 0) direct.push({ album, leaf: album.title.trim() || UNTITLED });
       return;
     }
     if (!startsWith(segs, at)) return;

@@ -131,7 +131,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     );
   } else if (encrypted)
     body = <Text>This zone is encrypted, so its albums cannot be listed here.</Text>;
-  else if (albums.length === 0) body = <Text>No albums yet.</Text>;
+  else if (albums.length === 0 && path.length === 0) body = <Text>No albums yet.</Text>;
   else {
     const here = listFolder(albums, path);
     body = (

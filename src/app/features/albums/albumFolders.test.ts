@@ -69,6 +69,10 @@ describe('listFolder', () => {
     const odd = [album('$u', '///')];
     expect(names(listFolder(odd, []))).toEqual({ folders: [], albums: ['$u=///'] });
     expect(names(listFolder(odd, ['x']))).toEqual({ folders: [], albums: [] });
+    expect(names(listFolder([album('$w', '  ')], []))).toEqual({
+      folders: [],
+      albums: ['$w=Untitled album'],
+    });
   });
 
   it('server-supplied names like "constructor" are folders, not prototype hits', () => {
