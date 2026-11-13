@@ -48,7 +48,7 @@ not resolve: pass `LIVE_CURL_ARGS="--resolve chat.gamecult.org:443:127.0.0.1"`.
 The folder, with the three pins (`SHA256SUMS` sha256, `BUILD-INFO` sha256, lockfile sha256) and
 the node and npm versions, is what the install request names.
 Every build stamps its commit into `index.html` (`scripts/buildSha.js`): `<meta name="build-sha" content="<40-hex>">`,
-with `-dirty` appended when the tree had uncommitted changes and `unknown` when there was no git. The handoff
+with `-dirty` appended when the tree had uncommitted changes and `unknown` when there was no git. Where git governs the tree it decides: an explicit `BUILD_SHA` naming a different commit than HEAD stamps `<sha>-mismatch`, a git failure stamps `unknown`. A full-sha `BUILD_SHA` stands only for a tree git does not govern (a source archive) or cannot read (unusable git, for example a dubious-ownership refusal). The handoff
 build refuses a dist whose stamp differs from the sha it was asked for, and prints the stamp in its block.
 To read it from anywhere: `curl -s https://chat.gamecult.org/ | grep -o 'build-sha" content="[^"]*'`.
 
