@@ -229,6 +229,16 @@ describe('versions', () => {
   });
 });
 
+describe('versions: cover and sender', () => {
+  it('the cover comes from the shown version, not a folded image', () => {
+    const img = (id: string, ts: number, type: string, replaces?: string) =>
+      reply(id, ts, type, id, replaces ? { 'org.gamecult.publish': { replaces } } : {});
+    const a = one(root('$r', 1), [img('$v1', 10, 'm.image'), img('$v2', 20, 'm.file', '$v1')]);
+    expect(a.files.map((f) => f.id)).toEqual(['$v2']);
+    expect(a.cover).toBeUndefined();
+  });
+});
+
 describe('Mind receipts', () => {
   const HASH = 'a'.repeat(64);
   const file = (id: string, sha?: string) =>

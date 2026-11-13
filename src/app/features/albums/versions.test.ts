@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { PUBLISH_KEY, foldVersions, replacesOf } from './versions';
 
-type F = { id: string; content: Record<string, unknown>; earlier: F[] };
-const f = (id: string, replaces?: string): F => ({
+type F = { id: string; sender: string; content: Record<string, unknown>; earlier: F[] };
+const f = (id: string, replaces?: string, sender = '@m:x'): F => ({
   id,
+  sender,
   content: replaces ? { [PUBLISH_KEY]: { replaces } } : {},
   earlier: [],
 });
@@ -57,6 +58,19 @@ describe('foldVersions', () => {
   it('a malformed loop shows no head and does not hang', () => {
     const out = foldVersions([f('$a', '$b'), f('$b', '$a'), f('$s', '$s')]);
     expect(out.map((x) => x.id)).toEqual(['$s']);
+  });
+
+  it('a loop reached from a head is walked once and ends', () => {
+    const out = foldVersions([f('$a', '$b'), f('$b', '$a'), f('$h', '$a')]);
+    expect(shape(out)).toEqual([['$h', ['$a', '$b']]]);
+  });
+
+  it('a replacement by another sender folds nothing', () => {
+    const out = foldVersions([f('$victim', undefined, '@m:x'), f('$evil', '$victim', '@e:x')]);
+    expect(shape(out)).toEqual([
+      ['$victim', []],
+      ['$evil', []],
+    ]);
   });
 
   it('an empty list is empty', () => {

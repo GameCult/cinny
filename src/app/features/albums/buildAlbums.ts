@@ -23,6 +23,7 @@ export type AlbumFile = {
   id: string;
   kind: FileKind;
   name: string;
+  sender: string;
   ts: number;
   /** The event content, as RenderMessageContent reads it. */
   content: Record<string, unknown>;
@@ -75,6 +76,7 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     id: e.event_id,
     kind,
     name: asString(e.content.filename) || asString(e.content.body),
+    sender: e.sender ?? '',
     ts: tsOf(e.origin_server_ts),
     content: e.content,
     readBy: [],

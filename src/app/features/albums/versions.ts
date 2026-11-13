@@ -17,16 +17,20 @@ type Versioned<F> = F & { earlier: F[] };
 /**
  * Files not replaced by another file in the list, oldest first as given, each carrying the files it
  * supersedes (nearest first) in `earlier`. A replacement whose target is missing from the list (a
- * redacted event, another thread) replaces nothing and stands as a head. A file two others claim to
+ * redacted event, another thread) replaces nothing and stands as a head. A replacement by another sender is ignored. A file two others claim to
  * replace sits under both. The walk refuses to revisit a file, so a malformed chain cannot loop (an event id hashes its content, so a real one cannot cycle).
  */
-export const foldVersions = <F extends { id: string; content: Record<string, unknown> }>(
+export const foldVersions = <
+  F extends { id: string; sender: string; content: Record<string, unknown> }
+>(
   files: Versioned<F>[]
 ): Versioned<F>[] => {
   const byId = new Map(files.map((f) => [f.id, f]));
   const target = (f: F): F | undefined => {
     const id = replacesOf(f.content);
-    return id && id !== f.id ? byId.get(id) : undefined;
+    const t = id && id !== f.id ? byId.get(id) : undefined;
+    // Only the sender of a file can supersede it, so no one else in the thread can fold it away.
+    return t && t.sender === f.sender ? t : undefined;
   };
   const replaced = new Set<string>();
   files.forEach((f) => {
