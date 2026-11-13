@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AlbumInput, ZoneEvent, buildAlbums, lastEventId } from './buildAlbums';
+import { AlbumInput, ZoneEvent, buildAlbums, lastEvent } from './buildAlbums';
 
 const root = (id: string, ts: number, over: Partial<ZoneEvent> = {}): ZoneEvent => ({
   event_id: id,
@@ -239,14 +239,15 @@ describe('versions: cover and sender', () => {
   });
 });
 
-describe('lastEventId', () => {
+describe('lastEvent', () => {
   it('is the newest event of the thread, a folded version included; the root when empty', () => {
     const v = (id: string, ts: number, replaces?: string) =>
       reply(id, ts, 'm.file', id, replaces ? { 'org.gamecult.publish': { replaces } } : {});
-    expect(lastEventId(one(root('$r', 1), [v('$a', 10), v('$b', 20, '$a'), v('$c', 15)]))).toBe(
-      '$b'
-    );
-    expect(lastEventId(one(root('$r', 1), []))).toBe('$r');
+    expect(lastEvent(one(root('$r', 1), [v('$a', 10), v('$b', 20, '$a'), v('$c', 15)]))).toEqual({
+      id: '$b',
+      ts: 20,
+    });
+    expect(lastEvent(one(root('$r', 1), []))).toEqual({ id: '$r', ts: 1 });
   });
 });
 

@@ -13,6 +13,8 @@ export type SharePort<F extends ShareFile> = {
   contentOf: (file: F) => Promise<Record<string, unknown>>;
   /** Called after each file settles, for progress. */
   onFile?: (index: number, result: 'sent' | 'failed') => void;
+  /** Aborted to stop the send: the running upload is the port's to cancel, the rest are not started. */
+  signal?: AbortSignal;
 };
 
 export type ShareResult = {
@@ -26,8 +28,22 @@ export type ShareResult = {
   reasons?: (string | undefined)[];
 };
 
-/** An album that already exists: new files join its thread after `lastId`, with no new root. */
-export type ExistingAlbum = { albumId: string; lastId: string };
+/** An album that already exists: new files join its thread after `lastId` (sent at `lastTs`), with no new root. */
+export type ExistingAlbum = { albumId: string; lastId: string; lastTs: number };
+
+/** An event as the room's live timeline holds it: its id, time, and the thread root it belongs to. */
+export type ThreadEvent = { id: string; ts: number; threadRoot?: string };
+
+/**
+ * `album` with `lastId` moved to the newest event the room's timeline holds in that thread, when it
+ * is newer than the one the album list knew. The list refreshes every 30 s; the timeline does not.
+ */
+export const freshest = (album: ExistingAlbum, events: ThreadEvent[]): ExistingAlbum =>
+  events
+    .filter((e) => e.threadRoot === album.albumId)
+    .reduce((a, e) => (e.ts > a.lastTs ? { ...a, lastId: e.id, lastTs: e.ts } : a), album);
+
+export const CANCELLED = 'stopped';
 
 const REFUSALS: Record<string, string> = {
   M_TOO_LARGE: 'too large for this server',
@@ -70,15 +86,35 @@ export const sendShareSet = async <F extends ShareFile>(
       : into.albumId;
   const result: ShareResult = { albumId, sent: 0, failed: [], failedAt: [], reasons: [] };
   let lastId = typeof into === 'string' ? albumId : into.lastId;
+  // A stopped send leaves its file, and every file after it, unsent and picked, so one tap resumes.
+  const stopFrom = (from: number) => {
+    for (let j = from; j < files.length; j += 1) {
+      result.failed.push(files[j].name);
+      result.reasons?.push(CANCELLED);
+      result.failedAt.push(j);
+    }
+  };
   for (let i = 0; i < files.length; i += 1) {
+    if (port.signal?.aborted) {
+      stopFrom(i);
+      break;
+    }
     try {
       // eslint-disable-next-line no-await-in-loop
       const content = await port.contentOf(files[i]);
+      if (port.signal?.aborted) {
+        stopFrom(i);
+        break;
+      }
       // eslint-disable-next-line no-await-in-loop
       lastId = await port.send({ ...content, 'm.relates_to': threadRelation(albumId, lastId) });
       result.sent += 1;
       port.onFile?.(i, 'sent');
     } catch (e) {
+      if (port.signal?.aborted) {
+        stopFrom(i);
+        break;
+      }
       result.failed.push(files[i].name);
       result.reasons?.push(refusalOf(e));
       result.failedAt.push(i);

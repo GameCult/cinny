@@ -136,8 +136,10 @@ export const buildAlbums = (inputs: AlbumInput[], server = ''): Album[] => {
 };
 
 /** The newest event in an album's thread (shown or folded), else its root: where a new file threads after. */
-export const lastEventId = (album: Album): string =>
+export const lastEvent = (album: Album): { id: string; ts: number } =>
   album.files
     .flatMap((f) => [f, ...f.earlier])
-    .reduce<AlbumFile | undefined>((a, f) => (!a || f.ts >= a.ts ? f : a), undefined)?.id ??
-  album.id;
+    .reduce<{ id: string; ts: number }>((a, f) => (f.ts >= a.ts ? { id: f.id, ts: f.ts } : a), {
+      id: album.id,
+      ts: album.ts,
+    });

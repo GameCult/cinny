@@ -55,9 +55,13 @@ describe('foldVersions', () => {
     ]);
   });
 
-  it('a malformed loop shows no head and does not hang', () => {
+  it('files in a loop with no head outside it are all shown, none hidden', () => {
     const out = foldVersions([f('$a', '$b'), f('$b', '$a'), f('$s', '$s')]);
-    expect(out.map((x) => x.id)).toEqual(['$s']);
+    expect(shape(out)).toEqual([
+      ['$a', []],
+      ['$b', []],
+      ['$s', []],
+    ]);
   });
 
   it('a loop reached from a head is walked once and ends', () => {

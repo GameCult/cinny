@@ -14,7 +14,7 @@ import { markAsRead } from '../../utils/notifications';
 import { getBlobSafeMimeType } from '../../utils/mimeTypes';
 import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
-import { Album, AlbumFile, lastEventId } from './buildAlbums';
+import { Album, AlbumFile, lastEvent } from './buildAlbums';
 import { folderOf, listFolder, pathLabel } from './albumFolders';
 import { FileReadBy } from './FileReadBy';
 import { ShareSet, useShareEnabled } from './ShareSet';
@@ -146,7 +146,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
           <ShareSet
             key={open.id}
             room={room}
-            into={{ albumId: open.id, lastId: lastEventId(open) }}
+            into={{ albumId: open.id, lastId: lastEvent(open).id, lastTs: lastEvent(open).ts }}
           />
         )}
         <div className={images ? `${css.Files} ${css.FilesWide}` : css.Files}>
