@@ -1,46 +1,13 @@
-import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
-import zlib from 'zlib';
-import { compile, processVanillaFile } from '@vanilla-extract/integration';
 import { MOBILE_BREAKPOINT } from './hooks/useScreenSize';
-
-// The CSS a .css.ts file emits, read back from vanilla-extract's own compile (as pages/auth/footerBand.test.ts does;
-// vanilla-extract gzips the inlined source only when it is large, so both forms are read).
-const emitted = async (file: string) => {
-  const filePath = `${process.cwd()}/src/app/${file}`;
-  const { source } = await compile({ filePath, cwd: process.cwd(), identOption: 'debug' });
-  const code = await processVanillaFile({ source, filePath, identOption: 'debug' });
-  // A file with recipes inlines one source per rule group; read them all.
-  return [...code.matchAll(/source=#?([A-Za-z0-9+/=]+)/g)]
-    .map((m) => {
-      const bytes = Buffer.from(m[1], 'base64');
-      return (bytes[0] === 0x1f && bytes[1] === 0x8b ? zlib.gunzipSync(bytes) : bytes).toString();
-    })
-    .join('\n');
-};
-
-type Decls = Record<string, number>;
-const parse = (body: string): Decls =>
-  Object.fromEntries(
-    body
-      .split('\n')
-      .map((l) => l.trim().replace(/;$/, ''))
-      .filter((l) => /^[a-z-]+: -?\d+px$/.test(l))
-      .map((l) => [l.split(':')[0], Number(l.split(': ')[1].replace('px', ''))])
-  );
-
-/** Pixel declarations of the rules whose selector matches, inside or outside a media query. */
-const rulesFor = (css: string, selector: RegExp, media: string | undefined): Decls[] => {
-  const scope = media
-    ? [...css.matchAll(/@media ([^{]+) \{\n([\s\S]*?\n)\}(?:\n|$)/g)]
-        .filter((m) => m[1] === media)
-        .map((m) => m[2])
-        .join('\n')
-    : css.replace(/@media [^{]+ \{\n[\s\S]*?\n\}(?:\n|$)/g, '');
-  return [...scope.matchAll(/^\s*([^{}\n]+) \{\n([^}]*)\}/gm)]
-    .filter((m) => selector.test(m[1]))
-    .map((m) => parse(m[2]));
-};
+import {
+  classLists,
+  emitted,
+  expectPhoneHitClasses,
+  expectSizeTie,
+  rulesFor,
+  type SizeAllow,
+} from './phoneHitTestKit';
 
 const PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
 const TAP = 44;
@@ -166,8 +133,25 @@ describe('phone icon-button hit areas', () => {
     // the menu around them clips a hit area drawn outside its box)
     // each class owns its own margin: (44 - drawn size) / 2
     const own = (size: number) => margins(new RegExp(`PhoneHit_PhoneHitSpread${size}__`));
-    expect([own(24), own(26), own(32), own(40)]).toEqual([[10], [9], [6], [2]]);
-    expect(rulesFor(css, /PhoneHit_PhoneHitRoom26__/, PHONE)).toEqual([{ 'margin-block': 9 }]);
+    expect([24, 26, 28, 32, 36, 40].map(own)).toEqual([[10], [9], [8], [6], [4], [2]]);
+    // the Room variants open the block axis by the same amount, on top of their Spread class
+    const room = (size: number) =>
+      rulesFor(css, new RegExp(`PhoneHit_PhoneHitRoom${size}__`), PHONE);
+    expect([room(26), room(36)]).toEqual([[{ 'margin-block': 9 }], [{ 'margin-block': 4 }]]);
+  });
+
+  it('compose a Room variant from the Spread class of the same size, which composes PhoneHit', async () => {
+    const lists = await classLists('styles/PhoneHit.css.ts');
+    const named = (list: string[], name: string) => list.filter((c) => c.includes(`_${name}__`));
+    [26, 36].forEach((size) => {
+      const room = lists[`PhoneHitRoom${size}`];
+      expect(
+        named(room, `PhoneHitSpread${size}`),
+        `Room${size} composes Spread${size}`
+      ).toHaveLength(1);
+      expect(named(room, 'PhoneHit'), `Room${size} composes PhoneHit`).toHaveLength(1);
+    });
+    expect(lists.PhoneHitRoom36.some((c) => c.includes('_PhoneHitSpread26__'))).toBe(false);
   });
 
   it("make a message's reaction chip 44 px to tap by opening 9 px above and below it", async () => {
@@ -189,22 +173,6 @@ describe('phone icon-button hit areas', () => {
 });
 
 describe('icon buttons in the room view', () => {
-  // The opening tag of every <IconButton in a source file, read to its closing > outside any {} expression.
-  const iconButtonTags = (src: string) => {
-    const tags: string[] = [];
-    for (let i = src.indexOf('<IconButton'); i !== -1; i = src.indexOf('<IconButton', i + 1)) {
-      let depth = 0;
-      let j = i;
-      for (; j < src.length; j += 1) {
-        if (src[j] === '{') depth += 1;
-        else if (src[j] === '}') depth -= 1;
-        else if (src[j] === '>' && depth === 0) break;
-      }
-      tags.push(src.slice(i, j + 1));
-    }
-    return tags;
-  };
-
   // The class each IconButton must carry, in source order: the variant is chosen by the button's drawn size
   // and whether a clipping container or neighbours surround it, so a swapped variant is a wrong hit area.
   const expected: Record<string, string[]> = {
@@ -214,7 +182,7 @@ describe('icon buttons in the room view', () => {
       'PhoneHitSpread32', // report dialog close
       ...Array(6).fill('PhoneHitRoom26'), // message options bar, inside a clipping menu
     ],
-    'features/room/RoomInput.tsx': Array(6).fill('PhoneHitSpread32'),
+    'features/room/RoomInput.tsx': ['PhoneHitSpread24', ...Array(5).fill('PhoneHitSpread32')], // reply cancel is a 16 px icon, the rest 24 px
     'features/room/RoomViewHeader.tsx': Array(6).fill('PhoneHitSpread40'),
     // The chat path's other buttons. Two neighbours in a row: Spread32. One on its own: the plain PhoneHit.
     'features/room/message/MessageEditor.tsx': ['PhoneHitSpread32', 'PhoneHitSpread32'], // toolbar, emoji
@@ -232,21 +200,20 @@ describe('icon buttons in the room view', () => {
     'pages/auth/login/PasswordLoginForm.tsx': ['PhoneHit'],
   };
 
+  // IconButtons whose drawn size the source does not say (file -> index in source order -> why). Everything else
+  // is derived from the size props, so a Spread32 on a 24 px button fails.
+  const sizeAllow: SizeAllow = {
+    'features/room/message/Message.tsx': {
+      0: 'quick-reaction button wraps an emoji <Text>, no Icon; 32 px by its CSS class',
+    },
+  };
+
   it.each(Object.entries(expected))(
     '%s: each IconButton carries its own PhoneHit class',
-    (file, want) => {
-      const src = readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8');
-      expect(
-        iconButtonTags(src).map((t) => t.match(/className=\{[^}]*?\b(PhoneHit\w*)\b/)?.[1] ?? null)
-      ).toEqual(want);
-      // the name is the one PhoneHit.css.ts exports, not a local of the same name
-      [...new Set(want)].forEach((name) =>
-        expect(src).toMatch(
-          new RegExp(
-            `import \\{(?:[^}]*,)?\\s*${name}\\s*(?:,[^}]*)?\\} from '(\\.\\./)+styles/PhoneHit\\.css'`
-          )
-        )
-      );
-    }
+    (file, want) => expectPhoneHitClasses(file, want)
+  );
+
+  it.each(Object.keys(expected))('%s: each sized variant equals the px its button draws', (file) =>
+    expectSizeTie(file, sizeAllow)
   );
 });

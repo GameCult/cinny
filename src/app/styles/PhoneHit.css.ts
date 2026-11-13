@@ -29,21 +29,36 @@ export const PhoneHit = style({
   selectors: { '&::after': hitArea },
 });
 
+const spreads = new Map<number, string>();
+
 /** An icon button in a row, `visual` px wide: the row opens up so its 44 px hit area meets its neighbours'. */
-const spread = (visual: number) =>
-  style(
+const spread = (visual: number) => {
+  const cls = style(
     [PhoneHit, { '@media': { [PHONE]: { marginInline: (PHONE_TAP - visual) / 2 } } }],
     `PhoneHitSpread${visual}`
   );
+  spreads.set(visual, cls);
+  return cls;
+};
 
 export const PhoneHitSpread24 = spread(24);
 export const PhoneHitSpread26 = spread(26);
+export const PhoneHitSpread28 = spread(28);
 export const PhoneHitSpread32 = spread(32);
+export const PhoneHitSpread36 = spread(36);
 export const PhoneHitSpread40 = spread(40);
 
 /** For a button in a clipping container (a Menu's overflow hidden eats a hit area drawn outside the box): the row
- * opens up on both axes, so the 44 px sits inside the container. */
-export const PhoneHitRoom26 = style([
-  PhoneHitSpread26,
-  { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - 26) / 2 } } },
-]);
+ * opens up on both axes, so the 44 px sits inside the container. It is the Spread class of the same size plus the
+ * block margin, so the two axes cannot disagree about the size. */
+const room = (visual: number) => {
+  const spreadClass = spreads.get(visual);
+  if (!spreadClass) throw new Error(`PhoneHitRoom${visual} needs a PhoneHitSpread${visual}`);
+  return style(
+    [spreadClass, { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - visual) / 2 } } }],
+    `PhoneHitRoom${visual}`
+  );
+};
+
+export const PhoneHitRoom26 = room(26);
+export const PhoneHitRoom36 = room(36);

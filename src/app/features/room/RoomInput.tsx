@@ -116,7 +116,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useRoomCreatorsTag } from '../../hooks/useRoomCreatorsTag';
 import { usePowerLevelTags } from '../../hooks/usePowerLevelTags';
 import { useComposingCheck } from '../../hooks/useComposingCheck';
-import { PhoneHitSpread32 } from '../../styles/PhoneHit.css';
+import { PhoneHitSpread24, PhoneHitSpread32 } from '../../styles/PhoneHit.css';
 
 interface RoomInputProps {
   editor: Editor;
@@ -606,7 +606,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                     style={{ padding: `${config.space.S200} ${config.space.S300} 0` }}
                   >
                     <IconButton
-                      className={PhoneHitSpread32}
+                      className={PhoneHitSpread24}
                       onClick={() => setReplyDraft(undefined)}
                       variant="SurfaceVariant"
                       size="300"
