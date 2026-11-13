@@ -7,10 +7,23 @@ import { compile, processVanillaFile } from '@vanilla-extract/integration';
 
 // The CSS a .css.ts file emits, read back from vanilla-extract's own compile (as pages/auth/footerBand.test.ts does;
 // vanilla-extract gzips the inlined source only when it is large, so both forms are read).
-export const emitted = async (file: string) => {
+const compiled = async (file: string) => {
   const filePath = `${process.cwd()}/src/app/${file}`;
   const { source } = await compile({ filePath, cwd: process.cwd(), identOption: 'debug' });
-  const code = await processVanillaFile({ source, filePath, identOption: 'debug' });
+  return processVanillaFile({ source, filePath, identOption: 'debug' });
+};
+
+/** The class list each export of a .css.ts file resolves to (a composed class lists the classes it composes). */
+export const classLists = async (file: string): Promise<Record<string, string[]>> =>
+  Object.fromEntries(
+    [...(await compiled(file)).matchAll(/^export var (\w+) = '([^']*)';$/gm)].map((m) => [
+      m[1],
+      m[2].split(' '),
+    ])
+  );
+
+export const emitted = async (file: string) => {
+  const code = await compiled(file);
   // A file with recipes inlines one source per rule group; read them all.
   return [...code.matchAll(/source=#?([A-Za-z0-9+/=]+)/g)]
     .map((m) => {
@@ -59,26 +72,18 @@ const tagEnd = (src: string, from: number) => {
   return j;
 };
 
-/** The opening tag of every <IconButton in a source file, read to its closing > outside any {} expression. */
-export const iconButtonTags = (src: string) => {
-  const tags: string[] = [];
-  for (let i = src.indexOf('<IconButton'); i !== -1; i = src.indexOf('<IconButton', i + 1)) {
-    tags.push(src.slice(i, tagEnd(src, i) + 1));
-  }
-  return tags;
-};
-
-/** Every <IconButton: its opening tag and what it wraps (empty when self-closing). */
-const iconButtons = (src: string) => {
-  const out: { tag: string; body: string }[] = [];
-  for (let i = src.indexOf('<IconButton'); i !== -1; i = src.indexOf('<IconButton', i + 1)) {
-    const end = tagEnd(src, i);
-    const tag = src.slice(i, end + 1);
+/** Every <IconButton (not <IconButtonX): its opening tag, read to its closing > outside any {} expression, and
+ * what it wraps (empty when self-closing). */
+export const iconButtons = (src: string) =>
+  [...src.matchAll(/<IconButton(?=[\s>/])/g)].map((m) => {
+    const start = m.index ?? 0;
+    const end = tagEnd(src, start);
+    const tag = src.slice(start, end + 1);
     const close = src.indexOf('</IconButton>', end);
-    out.push({ tag, body: tag.endsWith('/>') || close === -1 ? '' : src.slice(end + 1, close) });
-  }
-  return out;
-};
+    return { tag, body: tag.endsWith('/>') || close === -1 ? '' : src.slice(end + 1, close) };
+  });
+
+export const iconButtonTags = (src: string) => iconButtons(src).map((b) => b.tag);
 
 const phoneHitOf = (tag: string) => tag.match(/className=\{[^}]*?\b(PhoneHit\w*)\b/)?.[1] ?? null;
 
@@ -110,6 +115,8 @@ const ICON_PX: Record<string, number> = {
 
 /** The size prop of a tag: its literal value, the default when absent, or undefined when it is an expression. */
 const sizeProp = (tag: string) => {
+  // props spread in may carry a size of their own
+  if (tag.includes('{...')) return undefined;
   const m = tag.match(/\ssize=(?:"(\w+)"|\{([^}]*)\})/);
   if (!m) return '400';
   return m[1] ?? m[2].match(/^'(\w+)'$/)?.[1];
@@ -119,14 +126,15 @@ const sizeProp = (tag: string) => {
  * does not say (a variable size, no Icon, Icons of different sizes). */
 export const drawnPx = (tag: string, body: string): { px: number } | { undetermined: string } => {
   const pad = BUTTON_PAD[sizeProp(tag) ?? ''];
-  if (pad === undefined) return { undetermined: 'size of the IconButton is not a literal' };
-  const icons = [...body.matchAll(/<Icon\b/g)].map((m) => {
+  if (pad === undefined)
+    return { undetermined: 'size of the IconButton is not a literal (or props are spread in)' };
+  const icons = [...body.matchAll(/<Icon(?=[\s>/])/g)].map((m) => {
     const t = body.slice(m.index, tagEnd(body, m.index ?? 0) + 1);
     return ICON_PX[sizeProp(t) ?? ''];
   });
   if (icons.length === 0) return { undetermined: 'no <Icon> inside' };
   if (icons.some((p) => p === undefined))
-    return { undetermined: 'size of an Icon is not a literal' };
+    return { undetermined: 'size of an Icon is not a literal (or props are spread in)' };
   if (new Set(icons).size > 1) return { undetermined: 'Icons of different sizes inside' };
   return { px: icons[0] + 2 * pad };
 };
@@ -139,7 +147,9 @@ export type SizeAllow = Record<string, Record<number, string>>;
 export const expectSizeTie = (file: string, allow: SizeAllow = {}) => {
   const allowed = allow[file] ?? {};
   const seen = new Set<number>();
-  iconButtons(readSource(file)).forEach(({ tag, body }, i) => {
+  const buttons = iconButtons(readSource(file));
+  expect(buttons.length, `${file} has no IconButton`).toBeGreaterThan(0);
+  buttons.forEach(({ tag, body }, i) => {
     const variant = phoneHitOf(tag)?.match(/^PhoneHit(?:Spread|Room)(\d+)$/);
     if (!variant) {
       expect(allowed[i], `${file} #${i} is allow-listed but has no sized variant`).toBeUndefined();

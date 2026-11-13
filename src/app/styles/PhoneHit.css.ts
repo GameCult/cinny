@@ -51,14 +51,14 @@ export const PhoneHitSpread40 = spread(40);
 /** For a button in a clipping container (a Menu's overflow hidden eats a hit area drawn outside the box): the row
  * opens up on both axes, so the 44 px sits inside the container. It is the Spread class of the same size plus the
  * block margin, so the two axes cannot disagree about the size. */
-const room = (visual: number) =>
-  style(
-    [
-      spreads.get(visual) ?? '',
-      { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - visual) / 2 } } },
-    ],
+const room = (visual: number) => {
+  const spreadClass = spreads.get(visual);
+  if (!spreadClass) throw new Error(`PhoneHitRoom${visual} needs a PhoneHitSpread${visual}`);
+  return style(
+    [spreadClass, { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - visual) / 2 } } }],
     `PhoneHitRoom${visual}`
   );
+};
 
 export const PhoneHitRoom26 = room(26);
 export const PhoneHitRoom36 = room(36);

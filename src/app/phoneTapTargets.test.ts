@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MOBILE_BREAKPOINT } from './hooks/useScreenSize';
 import {
+  classLists,
   emitted,
   expectPhoneHitClasses,
   expectSizeTie,
@@ -137,6 +138,20 @@ describe('phone icon-button hit areas', () => {
     const room = (size: number) =>
       rulesFor(css, new RegExp(`PhoneHit_PhoneHitRoom${size}__`), PHONE);
     expect([room(26), room(36)]).toEqual([[{ 'margin-block': 9 }], [{ 'margin-block': 4 }]]);
+  });
+
+  it('compose a Room variant from the Spread class of the same size, which composes PhoneHit', async () => {
+    const lists = await classLists('styles/PhoneHit.css.ts');
+    const named = (list: string[], name: string) => list.filter((c) => c.includes(`_${name}__`));
+    [26, 36].forEach((size) => {
+      const room = lists[`PhoneHitRoom${size}`];
+      expect(
+        named(room, `PhoneHitSpread${size}`),
+        `Room${size} composes Spread${size}`
+      ).toHaveLength(1);
+      expect(named(room, 'PhoneHit'), `Room${size} composes PhoneHit`).toHaveLength(1);
+    });
+    expect(lists.PhoneHitRoom36.some((c) => c.includes('_PhoneHitSpread26__'))).toBe(false);
   });
 
   it("make a message's reaction chip 44 px to tap by opening 9 px above and below it", async () => {
