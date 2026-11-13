@@ -5,6 +5,7 @@ import { StatusDivider } from './components';
 import { CallEmbed, useCallControlState } from '../../plugins/call';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { callEmbedAtom } from '../../state/callEmbed';
+import { PhoneHitSpread26 } from '../../styles/PhoneHit.css';
 
 type MicrophoneButtonProps = {
   enabled: boolean;
@@ -26,6 +27,7 @@ function MicrophoneButton({ enabled, onToggle, disabled }: MicrophoneButtonProps
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread26}
           ref={anchorRef}
           variant={enabled ? 'Surface' : 'Warning'}
           fill="Soft"
@@ -59,6 +61,7 @@ function SoundButton({ enabled, onToggle, disabled }: SoundButtonProps) {
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread26}
           ref={anchorRef}
           variant={enabled ? 'Surface' : 'Warning'}
           fill="Soft"
@@ -99,6 +102,7 @@ function VideoButton({ enabled, onToggle, disabled }: VideoButtonProps) {
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread26}
           ref={anchorRef}
           variant={enabled ? 'Success' : 'Surface'}
           fill="Soft"
@@ -136,6 +140,7 @@ function ScreenShareButton({ enabled, onToggle, disabled }: ScreenShareButtonPro
     >
       {(anchorRef) => (
         <IconButton
+          className={PhoneHitSpread26}
           ref={anchorRef}
           variant={enabled ? 'Success' : 'Surface'}
           fill="Soft"
