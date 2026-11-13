@@ -12,6 +12,7 @@ import {
 } from '../../state/room/roomInputDrafts';
 import { useObjectURL } from '../../hooks/useObjectURL';
 import { useMediaConfig } from '../../hooks/useMediaConfig';
+import { PhoneHitSpread28 } from '../../styles/PhoneHit.css';
 
 type PreviewImageProps = {
   fileItem: TUploadItem;
@@ -160,6 +161,7 @@ export function UploadCardRenderer({
             </Chip>
           )}
           <IconButton
+            className={PhoneHitSpread28}
             onClick={removeUpload}
             aria-label="Cancel Upload"
             variant="SurfaceVariant"

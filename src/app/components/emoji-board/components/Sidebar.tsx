@@ -14,6 +14,7 @@ import {
 } from 'folds';
 import classNames from 'classnames';
 import * as css from './styles.css';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function Sidebar({ children }: { children: ReactNode }) {
   return (
@@ -68,6 +69,7 @@ function SidebarBtn<T extends string>({
     >
       {(ref) => (
         <IconButton
+          className={PhoneHit}
           aria-pressed={active}
           aria-labelledby={`SidebarStackItem-${id}-label`}
           ref={ref}

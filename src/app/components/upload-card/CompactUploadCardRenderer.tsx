@@ -6,6 +6,7 @@ import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { TUploadContent } from '../../utils/matrix';
 import { bytesToSize, getFileTypeIcon } from '../../utils/common';
 import { useMediaConfig } from '../../hooks/useMediaConfig';
+import { PhoneHitSpread28 } from '../../styles/PhoneHit.css';
 
 type CompactUploadCardRendererProps = {
   isEncrypted?: boolean;
@@ -63,6 +64,7 @@ export function CompactUploadCardRenderer({
             </Chip>
           )}
           <IconButton
+            className={PhoneHitSpread28}
             onClick={removeUpload}
             aria-label="Cancel Upload"
             variant="SurfaceVariant"

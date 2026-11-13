@@ -36,6 +36,7 @@ import { KeySymbol } from '../../utils/key-symbol';
 import { useSetting } from '../../state/hooks/settings';
 import { settingsAtom } from '../../state/settings';
 import { stopPropagation } from '../../utils/keyboard';
+import { PhoneHit, PhoneHitRoom36, PhoneHitSpread36 } from '../../styles/PhoneHit.css';
 
 function BtnTooltip({ text, shortCode }: { text: string; shortCode?: string }) {
   return (
@@ -72,6 +73,7 @@ export function MarkButton({ format, icon, tooltip }: MarkButtonProps) {
     <TooltipProvider tooltip={tooltip} delay={500}>
       {(triggerRef) => (
         <IconButton
+          className={PhoneHitSpread36}
           ref={triggerRef}
           variant="SurfaceVariant"
           onClick={handleClick}
@@ -104,6 +106,7 @@ export function BlockButton({ format, icon, tooltip }: BlockButtonProps) {
     <TooltipProvider tooltip={tooltip} delay={500}>
       {(triggerRef) => (
         <IconButton
+          className={PhoneHitSpread36}
           ref={triggerRef}
           variant="SurfaceVariant"
           onClick={handleClick}
@@ -163,6 +166,7 @@ export function HeadingBlockButton() {
               >
                 {(triggerRef) => (
                   <IconButton
+                    className={PhoneHitRoom36}
                     ref={triggerRef}
                     onClick={() => handleMenuSelect(1)}
                     size="400"
@@ -178,6 +182,7 @@ export function HeadingBlockButton() {
               >
                 {(triggerRef) => (
                   <IconButton
+                    className={PhoneHitRoom36}
                     ref={triggerRef}
                     onClick={() => handleMenuSelect(2)}
                     size="400"
@@ -193,6 +198,7 @@ export function HeadingBlockButton() {
               >
                 {(triggerRef) => (
                   <IconButton
+                    className={PhoneHitRoom36}
                     ref={triggerRef}
                     onClick={() => handleMenuSelect(3)}
                     size="400"
@@ -208,6 +214,7 @@ export function HeadingBlockButton() {
       }
     >
       <IconButton
+        className={PhoneHit}
         style={{ width: 'unset' }}
         variant="SurfaceVariant"
         onClick={handleMenuOpen}
@@ -239,6 +246,7 @@ export function ExitFormatting({ tooltip }: ExitFormattingProps) {
     <TooltipProvider tooltip={tooltip} delay={500}>
       {(triggerRef) => (
         <IconButton
+          className={PhoneHit}
           ref={triggerRef}
           variant="SurfaceVariant"
           onClick={handleClick}
@@ -344,6 +352,7 @@ export function Toolbar() {
             >
               {(triggerRef) => (
                 <IconButton
+                  className={PhoneHit}
                   ref={triggerRef}
                   variant="SurfaceVariant"
                   onClick={() => setIsMarkdown(!isMarkdown)}
