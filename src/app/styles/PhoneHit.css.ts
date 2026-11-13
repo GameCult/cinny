@@ -38,12 +38,18 @@ const spread = (visual: number) =>
 
 export const PhoneHitSpread24 = spread(24);
 export const PhoneHitSpread26 = spread(26);
+export const PhoneHitSpread28 = spread(28);
 export const PhoneHitSpread32 = spread(32);
+export const PhoneHitSpread36 = spread(36);
 export const PhoneHitSpread40 = spread(40);
 
 /** For a button in a clipping container (a Menu's overflow hidden eats a hit area drawn outside the box): the row
  * opens up on both axes, so the 44 px sits inside the container. */
-export const PhoneHitRoom26 = style([
-  PhoneHitSpread26,
-  { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - 26) / 2 } } },
-]);
+const room = (visual: number, spreadClass: string) =>
+  style(
+    [spreadClass, { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - visual) / 2 } } }],
+    `PhoneHitRoom${visual}`
+  );
+
+export const PhoneHitRoom26 = room(26, PhoneHitSpread26);
+export const PhoneHitRoom36 = room(36, PhoneHitSpread36);
