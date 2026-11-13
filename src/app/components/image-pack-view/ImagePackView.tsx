@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, IconButton, Text, Icon, Icons, Scroll, Chip } from 'folds';
 import { PackAddress } from '../../plugins/custom-emoji';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 import { Page, PageHeader, PageContent } from '../page';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { RoomImagePack } from './RoomImagePack';
@@ -29,7 +30,7 @@ export function ImagePackView({ address, requestClose }: ImagePackViewProps) {
             </Chip>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton onClick={requestClose} variant="Surface" className={PhoneHit}>
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

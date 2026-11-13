@@ -16,6 +16,7 @@ import {
 } from 'folds';
 import { MatrixError } from 'matrix-js-sdk';
 import { Cursor } from '../plugins/text-area';
+import { PhoneHit } from '../styles/PhoneHit.css';
 import { syntaxErrorPosition } from '../utils/dom';
 import { AsyncStatus, useAsyncCallback } from '../hooks/useAsyncCallback';
 import { Page, PageHeader } from './page';
@@ -294,7 +295,7 @@ export function AccountDataEditor({
             </Chip>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton onClick={requestClose} variant="Surface" className={PhoneHit}>
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>
