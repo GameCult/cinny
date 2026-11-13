@@ -30,7 +30,12 @@ describe('a send that hangs on a dead connection', () => {
   });
 
   it('is kept in the outbox, reloads the page once after the stall, and is resent under the same txn id', async () => {
-    const hung = vi.fn(() => new Promise<never>(() => undefined));
+    const hung = vi.fn(
+      () =>
+        new Promise<never>(() => {
+          // never settles
+        })
+    );
     const mx = {
       getUserId: () => '@a:x',
       makeTxnId: () => 'txn-1',
