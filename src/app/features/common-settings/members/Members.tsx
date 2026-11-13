@@ -56,6 +56,7 @@ import { useSpaceOptionally } from '../../../hooks/useSpace';
 import { useFlattenPowerTagMembers, useGetMemberPowerTag } from '../../../hooks/useMemberPowerTag';
 import { useRoomCreators } from '../../../hooks/useRoomCreators';
 import { getMouseEventCords } from '../../../utils/dom';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const SEARCH_OPTIONS: UseAsyncSearchOptions = {
   limit: 1000,
@@ -161,7 +162,7 @@ export function Members({ requestClose }: MembersProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>
@@ -277,6 +278,7 @@ export function Members({ requestClose }: MembersProps) {
                 anchorRef={scrollTopAnchorRef}
               >
                 <IconButton
+                  className={PhoneHit}
                   onClick={() => virtualizer.scrollToOffset(0)}
                   variant="Surface"
                   radii="Pill"

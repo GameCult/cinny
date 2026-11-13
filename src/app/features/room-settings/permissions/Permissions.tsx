@@ -9,6 +9,7 @@ import { usePermissionGroups } from './usePermissionItems';
 import { PermissionGroups, Powers, PowersEditor } from '../../common-settings/permissions';
 import { useRoomCreators } from '../../../hooks/useRoomCreators';
 import { useRoomPermissions } from '../../../hooks/useRoomPermissions';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type PermissionsProps = {
   requestClose: () => void;
@@ -45,7 +46,7 @@ export function Permissions({ requestClose }: PermissionsProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

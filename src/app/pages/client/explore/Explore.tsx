@@ -37,6 +37,7 @@ import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { useNavToActivePathMapper } from '../../../hooks/useNavToActivePathMapper';
 import { PageNav, PageNavContent, PageNavHeader } from '../../../components/page';
 import { stopPropagation } from '../../../utils/keyboard';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function AddServer() {
   const mx = useMatrixClient();
@@ -96,7 +97,12 @@ export function AddServer() {
                 <Box grow="Yes">
                   <Text size="H4">Add Server</Text>
                 </Box>
-                <IconButton size="300" onClick={() => setDialog(false)} radii="300">
+                <IconButton
+                  className={PhoneHit}
+                  size="300"
+                  onClick={() => setDialog(false)}
+                  radii="300"
+                >
                   <Icon src={Icons.Cross} />
                 </IconButton>
               </Header>

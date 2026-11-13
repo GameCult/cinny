@@ -3,6 +3,7 @@ import React, { ReactNode, useCallback, useRef, useState } from 'react';
 import { Badge, Chip, Icon, IconButton, Icons, ProgressBar, Spinner, Text, toRem } from 'folds';
 import { EncryptedAttachmentInfo } from 'browser-encrypt-attachment';
 import { Range } from 'react-range';
+import { PhoneHitSpread24 } from '../../../styles/PhoneHit.css';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { IAudioInfo } from '../../../../types/matrix/common';
@@ -159,6 +160,7 @@ export function AudioContent({
           variant="SurfaceVariant"
           size="300"
           radii="Pill"
+          className={PhoneHitSpread24}
           onClick={() => setMute(!mute)}
           aria-pressed={mute}
         >

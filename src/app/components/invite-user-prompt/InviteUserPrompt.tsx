@@ -42,6 +42,7 @@ import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { BreakWord } from '../../styles/Text.css';
 import { useAlive } from '../../hooks/useAlive';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 const SEARCH_OPTIONS: UseAsyncSearchOptions = {
   limit: 1000,
@@ -173,7 +174,7 @@ export function InviteUserPrompt({ room, requestClose }: InviteUserProps) {
                   </Text>
                 </Box>
                 <Box shrink="No">
-                  <IconButton size="300" radii="300" onClick={requestClose}>
+                  <IconButton className={PhoneHit} size="300" radii="300" onClick={requestClose}>
                     <Icon src={Icons.Cross} />
                   </IconButton>
                 </Box>

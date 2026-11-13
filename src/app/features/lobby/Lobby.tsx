@@ -48,6 +48,7 @@ import { useGetRoom } from '../../hooks/useGetRoom';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { getRoomPermissionsAPI } from '../../hooks/useRoomPermissions';
 import { getRoomCreatorsForRoomId } from '../../hooks/useRoomCreators';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 const useCanDropLobbyItem = (
   space: Room,
@@ -413,6 +414,7 @@ export function Lobby() {
                     onVisibilityChange={setOnTop}
                   >
                     <IconButton
+                      className={PhoneHit}
                       onClick={() => virtualizer.scrollToOffset(0)}
                       variant="SurfaceVariant"
                       radii="Pill"

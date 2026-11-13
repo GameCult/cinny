@@ -23,6 +23,7 @@ import { SearchResultGroup } from './SearchResultGroup';
 import { SearchInput } from './SearchInput';
 import { SearchFilters } from './SearchFilters';
 import { VirtualTile } from '../../components/virtualizer';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 const useSearchPathSearchParams = (searchParams: URLSearchParams): _SearchPathSearchParams =>
   useMemo(
@@ -193,6 +194,7 @@ export function MessageSearch({
     <Box direction="Column" gap="700">
       <ScrollTopContainer scrollRef={scrollRef} anchorRef={scrollTopAnchorRef}>
         <IconButton
+          className={PhoneHit}
           onClick={() => virtualizer.scrollToOffset(0)}
           variant="SurfaceVariant"
           radii="Pill"

@@ -29,6 +29,7 @@ import { LogoutDialog } from '../../../components/LogoutDialog';
 import { stopPropagation } from '../../../utils/keyboard';
 import { useSetting } from '../../../state/hooks/settings';
 import { settingsAtom } from '../../../state/settings';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export function DeviceTilePlaceholder() {
   return (
@@ -288,6 +289,7 @@ export function DeviceTile({
       <SettingTile
         before={
           <IconButton
+            className={PhoneHit}
             variant={deleted ? 'Critical' : 'Secondary'}
             outlined={deleted}
             radii="300"
