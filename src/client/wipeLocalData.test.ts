@@ -95,7 +95,12 @@ describe('wipeLocalData', () => {
   });
   it('a client store that never closes holds the wipe only for the timeout, then storage is cleared', async () => {
     const r = rig({ databases: async () => [{ name: 'a' }] });
-    const mx = { clearStores: () => new Promise<void>(() => undefined) } as never;
+    const mx = {
+      clearStores: () =>
+        new Promise<void>(() => {
+          // never settles
+        }),
+    } as never;
     await wipeLocalData(mx, { ...r.ports, clearStoresTimeoutMs: 10 });
     expect(r.deleted).toEqual(['a']);
     expect(r.cleared()).toBe(1);
