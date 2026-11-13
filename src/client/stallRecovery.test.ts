@@ -94,6 +94,25 @@ describe('a send that hangs on a dead connection', () => {
     expect(loadOutbox('@a:x')).toEqual([]);
   });
 
+  it('resends under a fresh txn id when the SDK still holds an echo for the old one', async () => {
+    const mx = hungClient();
+    const content = { msgtype: 'm.text', body: 'echo still held' };
+    sendTracked(mx as never, '!r:x', content);
+    expect(loadOutbox('@a:x')).toMatchObject([{ txnId: 'txn-1' }]);
+
+    const send = vi.fn().mockResolvedValue({ event_id: '$e' });
+    const held = {
+      ...mx,
+      makeTxnId: () => 'txn-fresh',
+      sendEvent: send,
+      getRoom: () => ({ getEventForTxnId: (id: string) => (id === 'txn-1' ? {} : undefined) }),
+    };
+    await resendInterrupted(held as never, Date.now() + 1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith('!r:x', 'm.room.message', content, 'txn-fresh');
+    expect(loadOutbox('@a:x')).toEqual([]);
+  });
+
   it.each([
     ['hidden', { visible: false, online: true }],
     ['offline', { visible: true, online: false }],
