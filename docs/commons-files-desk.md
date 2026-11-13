@@ -1,10 +1,148 @@
-# Files desk: Commons and per-Persona file zones
+# Files desk: Commons and per-Persona file zones, two designs compared
 
-Status: design only. No code, nothing deployed. Items marked **UNKNOWN** are not verified against the Body; **Q-E** / **Q-M** are open questions for Eureka (host) and Meta (audience, names), collected at the end.
+Status: design only. No feature code is merged, nothing deployed. **The host-service design (Option B, first written here) is superseded in part** by Meta's ruling that two authorities, Matrix and a Commons host, are incoherent: albums already sit on Matrix, so the Commons should too. Eureka agrees (#minds 2026-11-13 14:40Z), has paused the `/index` and `/file` service, and is checking the homeserver upload cap and whether a Mind account or bot can post file events from Yggdrasil (answers will land on PR #142 and be folded in here). This page now compares **A: Matrix as the single authority** with **B: the host service**, recommends A, and keeps B in full below the line so the comparison can be checked. Items marked **UNKNOWN** are not verified; **Q-E** are questions for Eureka, **Q-M** for Meta.
 
-Source: Meta, #swarm 2026-11-13 14:28Z; ruling `ratatoskr:ruling:persona-file-sharing-zone` (each Persona has her own file sharing zone the frontend shows: a browsable, previewing collection; the Self writes to her outbox, her Persona decides what is shared, the Self never holds Matrix credentials).
+Source: Meta, #swarm 2026-11-13 14:28Z and 14:40Z; ruling `ratatoskr:ruling:persona-file-sharing-zone` (a browsable, previewing collection per Persona; the Self writes to her outbox, her Persona decides what is shared, the Self never holds Matrix credentials).
 
-## What exists, and what this adds
+## What exists on Matrix today (the base A must fit)
+
+Read from this repo at dev `8ba407cd`:
+
+- **Zone = a room** whose `m.room.create` type is `org.gamecult.file_zone` (`isFileZone.ts`), or one listed in config `fileZoneRooms`. One per Mind, `#<mind>-files:<server>`, found by alias or by the carried id in the root Space's `org.gamecult.stewardships` (`mediaRoom.ts`, `MediaRow.tsx`); rendered as the Media row of each Mind's group.
+- **Album = a thread root** (a text event; its `body`, or its latest `m.replace` edit, is the title); **file = a thread reply** with `msgtype` `m.audio|m.image|m.video|m.file` (`buildAlbums.ts`). A redacted event or an `m.replace` is never a file. Loose room messages are not shown.
+- **Read** = `GET /rooms/{id}/threads` and `/relations/{root}/m.thread`, one page of 100 each (`useAlbums.ts`; pagination is a known gap). Unencrypted rooms only.
+- **Write** = `sendShareSet` (`shareSet.ts`, behind `fileZoneShare.enabled`): a root, then one thread reply per file, content from `getMsgContent` with `info.sha256`.
+- **Media** = authenticated Matrix media fetched to a blob (`downloadMedia` in `FileContent.tsx`): so the "media element cannot send a header" problem that Option B needed a ticket for is already solved this way, at the cost that a file is fully downloaded before it plays.
+- **Receipts** = `org.gamecult.file_received` from a Mind's mouth after it fetches and verifies the sha256 (`docs/file-zone-mind-contract.md`); the mouth enforces the Mind's membership in the room.
+
+Option A is an extension of this, not a second system.
+
+## The two options
+
+**A. Matrix is the only authority.** Commons is one more file-zone room; each Mind's zone is the room she already has. Audience is room membership. Upload is the ordinary Matrix upload. Folders are albums (thread roots). A small publisher service with its own Matrix account posts allowlisted handoff documents into the Commons room. The Files desk is a view over file events in those rooms.
+
+**B. The host service.** A file host on Yggdrasil serves allowlisted directories (`GET /index`, `GET /file`, a capped `PUT`), authenticated by Matrix OpenID; the client browses it as a tree. Written out in full below the line.
+
+|                            | A: Matrix only                                                                                         | B: host service                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Authorities                | one (Matrix: identity, audience, storage, audit)                                                       | two (Matrix for identity, the host for files and access)                          |
+| Audience                   | room membership and power levels                                                                       | the host derives a role from Matrix identity and enforces it again                |
+| Audit of writes            | the event `sender`, kept by the homeserver                                                             | the host's own log                                                                |
+| Overwriting someone's file | impossible: events are immutable and only the sender's own edit counts; a redaction is a steward's act | host rule, host code                                                              |
+| Upload size cap            | the homeserver's `m.upload.size`, global, **UNKNOWN** value (Q-E)                                      | the host's own, chosen freely                                                     |
+| Type allowlist             | not enforceable by the homeserver; client-side courtesy, steward redaction                             | enforced by the host (sniffed)                                                    |
+| What is browsable          | what was posted (published or uploaded)                                                                | what is on disk under the allowlist, live                                         |
+| Mind-written handoff docs  | a publisher posts them once, when final (below)                                                        | the host serves the tree                                                          |
+| Per-Persona zone           | the existing Media room; the Self's outbox reaches it through the mouth, as the ruling says            | a `shared/` directory the host serves                                             |
+| Folders                    | albums; nesting by path in the album title                                                             | real directories                                                                  |
+| Mind fetch                 | unchanged (mouth, room id and event id, receipts)                                                      | a second route the mouth would need                                               |
+| Media playback             | blob download, as today; no seeking before the whole file arrives                                      | ranges and a ticket, or the same blob                                             |
+| New moving parts           | a room, a publisher                                                                                    | a host service, OpenID verification, CORS, tickets, path containment, rate limits |
+
+## Recommendation: A
+
+Confidence: high on the authority question (it agrees with Meta's ruling, with Eureka's lean, with the standing ruling that the Self never holds credentials while her Persona decides what is shared, and with the fact that everything built so far reads Matrix); moderate on the details below, which Eureka's answers can change.
+
+What A gives up, stated plainly:
+
+- **A live view of what is on disk.** Only what was published or uploaded appears. A handoff doc that was never marked final is not in the Commons.
+- **Files over the homeserver's upload cap.** B had no Matrix limit; A has exactly one.
+- **A server-side type allowlist.** Under A a member can upload any type the homeserver accepts; the client shows a refusal for types it does not want, and stewards redact. If a strict allowlist matters, a gating bot (post, check, redact) would have to exist, and it is a second authority again.
+- **Seeking inside a large audio or video file** until Matrix media supports ranges for the client (**UNKNOWN**; the blob route is what runs today).
+- **Hierarchy beyond the album level** as a native structure; see Folders.
+
+What it buys: one identity, one audience, one audit trail, immutable files, existing receipts and the mouth's fetch, and no new service to keep secure.
+
+## Option A in detail
+
+**Rooms.** Commons is a room with create type `org.gamecult.file_zone`, alias `#commons-files:<server>` (name is **Q-M**), join rule `restricted` to the estate Space so members join without an invite and Minds are invited, history `shared`, unencrypted (the zones are, and `info.sha256` is written only there). Power levels: `events_default` 0 so members post; `redact` and `state_default` at steward level. The room is muted for push by provisioning: file posts are thread replies, which can raise unread counts and notifications (**UNKNOWN** under this server's push rules), so the room must not shout. Per-Persona zones are the rooms Eureka already provisions; nothing new.
+
+**Folders.** Four ways to have folders on Matrix, in order of preference:
+
+1. _Albums are folders; nesting is a path in the album title_ (`handoff/2026-11`, `cast-art/poses`). Zero wire change: `buildAlbums` already reads it, and the client groups albums by title path as a pure view. Cost: a thread root per folder, and the rule that a folder's root is posted once by whoever opens the folder. **Recommended.**
+2. A `org.gamecult.file.path` key on each file event. Gives a real tree with files anywhere; needs every poster to write it and every client to honour it; other Matrix clients ignore it and show a flat thread.
+3. A room per folder, in a Space. Native hierarchy and per-folder audience; heavy (a room is a membership, a sync entry and provisioning each) and it multiplies the sync load on a phone.
+4. A state event per folder (`org.gamecult.file_folder`). Mutable folder metadata (title, order), writable only at steward level; useful later if folders need descriptions, not needed for a first cut.
+
+**Albums in each Mind's room** are the same mechanism: a Mind's Media room holds that Mind's albums, the Commons holds the shared ones. The Files desk is the same view over either room; a zone differs only by room, not by code.
+
+**The publisher.** A small service on Yggdrasil with its own Matrix account (a bot or a Mind-class account; whether either may post file events from there is Eureka's check, **Q-E1**). The Self never holds this account; the publisher holds it. It owns the allowlist.
+
+- **When it posts.** Handoff documents are edited in place, so mirroring every save would spam the room with drafts. The rule (Eureka's lean, adopted): **post once, when the document is marked final**; a later final version posts again with a `replaces` relation to the earlier event. How "final" is marked (a front-matter line, a sibling marker, a directory convention) is the publisher's concern and a **Q-E2**; the client must not know.
+- **Allowlist.** Lives on the publisher: a list of source roots and patterns, read by the publisher only. `handoff-private` is not on it and the publisher never lists, reads or posts from it. The client holds no path to anything on disk.
+- **The event.** A file event in the thread of the folder's album, built the way `getMsgContent` builds them (`msgtype`, `body`, `filename`, `url` from the media repo, `info.mimetype|size|sha256`), plus one extra key `org.gamecult.publish`: `{ source, sha256, replaces? }` where `source` is a path relative to the allowlisted root, never absolute, and `replaces` is the event id of the version it supersedes.
+- **`replaces`, not `m.replace`.** `m.replace` is the stock edit relation, but Ratatoskr's `buildAlbums` deliberately never treats an edit as a file, several clients do not render an edited file, and an edit hides the earlier version. A custom key keeps both events as files; the view shows the latest of a chain and a "N earlier versions" row under it, and other Matrix clients see two ordinary file posts. A chain is read from the events themselves (each carries its `replaces`), not from a table.
+- **Idempotence.** The publisher's own state (a typed CultCache document of `source`, `sha256`, `event_id`) says what it posted; if that is lost, it rebuilds by reading its own events back from the room (`org.gamecult.publish.source` plus `sha256`) rather than guessing. The same `sha256` never posts twice.
+- **Receipts and fetch** work unchanged: the event is an ordinary file event in a file-zone room, so a Mind's mouth can fetch it by room id and event id (5 MiB cap there) and tick `fetched for`.
+
+**Uploads (approved for members and Minds).** The ordinary Matrix upload, through the composer pipeline and `ShareSet`. The host rules Eureka gave map onto Matrix as follows:
+
+| Host rule                                  | Under A                                                                                                           |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| only under an `uploads/` subtree           | an album (folder) named `uploads/...`; the client offers upload only there (and in a Mind's own zone)             |
+| never overwrite Mind-written handoff files | free: other people's events cannot be replaced; a duplicate name is just another post in the thread               |
+| size cap                                   | the homeserver's `m.upload.size`, shown from `MediaConfigLoader`; the client refuses a larger file before sending |
+| type allowlist                             | client-side only; see "gives up"                                                                                  |
+| explicit flag to overwrite                 | no overwrite exists; a new version is a new post, optionally with `replaces` set by the same sender               |
+| audit log with the Matrix id               | the event `sender`                                                                                                |
+
+What A adds to `ShareSet`: sharing into an existing album ("add files", listed as not built in `docs/file-zone.md`), progress per file, cancel, and per-error refusal messages written against the SDK's `MatrixError` (`M_TOO_LARGE`, `M_FORBIDDEN`, `M_LIMIT_EXCEEDED`) instead of host codes. The draft refusal table of Option B's upload flow carries over with those codes. **UNKNOWN:** whether the SDK exposes upload progress and abort for media (it does for `uploadContent` with a progress callback; the composer already shows progress, `state/upload.ts`).
+
+## What each costs on the phone
+
+Under both, the phone design is the same shape (one column, rows 56 px or more, hidden controls, in-place preview; see the Option B sections below, which are written against the host but whose layout applies).
+
+- **A, new cost:** the Commons room is one more room in sync and it must be muted; albums and files are one page of 100 each until pagination exists (a Commons of hundreds of documents needs it first); a folder tree is a title-path grouping, so a deep tree is a long list of albums with breadcrumbs, not true directories; a file plays after a full download (small audio and images are fine; a 40 MB clip is not).
+- **A, no cost:** no second sign-in, no ticket, no CORS, no new fetch layer, no host-unreachable state beyond the homeserver's own. The album list, album view, share panel and receipts exist and are tested; the view is their extension.
+- **B, new cost:** every screen is a second client against a second service with its own errors, token refresh and unreachable state; media needs the ticket or the blob; the tree and preview are new UI.
+- **B, benefit:** a tree that is live and complete, ranges, and no Matrix size limit.
+
+## Changes to Eureka's host work
+
+Under A the paused service is not built, and most of its list disappears:
+
+- **Dropped:** `/index`, `/file`, `PUT`, OpenID verification pinned to the server name, CORS, path containment and sniff rules, tickets, the `uploads/` write rules, the role response, the per-path audit log (Q-E3, Q-E4, Q-E6, Q-E7, Q-E8 to Q-E11 of the Option B list).
+- **Kept:** the Commons allowlist decision (Q-E1 of that list), moved to the publisher: which roots, and that `handoff` is only ever published through the final-marker rule, never browsed.
+- **New:** (1) provision the Commons room (type, alias, restricted join to the estate Space, power levels, push muted); (2) the publisher: account, allowlist, final-marker rule, media upload, posting into folder threads, the `org.gamecult.publish` key, idempotence from its own events; (3) confirm the homeserver upload cap and whether the account may post file events from Yggdrasil (**Q-E1**, asked on the PR); (4) the per-Persona path stays the one already specified (`album-outbox-ops`: outbox, Persona decision, mouth post), so the `shared/` convention of Option B is retired.
+
+## Cuts under A
+
+1. **Commons entry**: a Commons row in the navigator (like `MediaRow`, found by alias or carried id), opening the room's album view. Flagged, no new data layer.
+2. **Pagination** of albums and files in `useAlbums` (a prerequisite for a Commons of any size).
+3. **Folders by title path** and the album list grouped by it.
+4. **Versions**: read `org.gamecult.publish.replaces`, show the latest of a chain with the earlier versions folded under it.
+5. **Add files to an existing album**, with per-file progress, cancel and the refusal messages above (the upload flow).
+
+PR #143 (Option B cut 1: contract types, host client, fake host) is **held**; under A it is not needed and would be closed. Its Soul pass found, and a revived B would have to close, an unvalidated `host` that could send the bearer to the wrong origin, hostile-looking entry names beyond separators, loose numeric checks and missing CSP and `Content-Disposition` headers in the fake.
+
+## Not in scope
+
+The Mind-side fetch (the mouth's); encrypted rooms; deletion and rename by this client; search across zones; any permission model of our own beyond Matrix room membership and power levels.
+
+## Open questions
+
+**Eureka (#minds 14:40Z, answers to land on PR #142):**
+
+- **Q-E1.** What is the homeserver upload cap (`max_upload_size`), and may a bot or Mind-class account post file events from Yggdrasil (the publisher's account)?
+- **Q-E2.** How a handoff doc is marked final (front matter, sibling marker, or directory), and which roots the allowlist names.
+- **Q-E3.** Commons room provisioning: alias, restricted join to the estate Space, power levels, push rules.
+- **Q-E4.** Does Synapse media honour `Range` for authenticated media (decides whether large audio and video need anything beyond the blob route)?
+
+**Meta:**
+
+- **Q-M1.** Commons audience: members and Minds as proposed; Users and Patrons never, or later?
+- **Q-M2.** Is a Persona's zone visible to all members or to her stewards and Minds? (The Matrix zone's audience question, `ratatoskr:question:file-zone-audience`, is the same fork.)
+- **Q-M3.** May Users or Patrons upload if they are ever let in?
+- **Q-M4.** Names: "Files" for the view, "Commons" for the shared room.
+- **Q-M5.** A type allowlist is not enforceable under A without a gating bot; is a client-side refusal plus steward redaction enough?
+
+---
+
+# Option B in full (kept for the comparison; superseded in part by Option A above)
+
+The sections below were written against the host service. Where they speak of a host, a role, a ticket, a token, `/index` or `/file`, they are Option B. The phone layout, the zone table and the refusal wording carry over to A with the Matrix equivalents given above.
+
+### What exists, and what this adds
 
 |          | Matrix file zone (`docs/file-zone.md`, built)                                | Files desk (this page)                                                                                            |
 | -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -16,7 +154,7 @@ Source: Meta, #swarm 2026-11-13 14:28Z; ruling `ratatoskr:ruling:persona-file-sh
 
 They do not compete. The Matrix zone stays where a file needs a mark or a receipt (Aqua's listening kits); the Files desk is for browsing and fetching what is already on disk. Neither replaces the other, and the Files desk does not write Matrix events. The ruling left "Matrix media plus a listing versus a served directory" open; this page is the served-directory half, built beside the Matrix half already live.
 
-## Zones
+### Zones (host)
 
 | Zone             | Contents                                                     | Who sees it                                                    |
 | ---------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
@@ -28,7 +166,7 @@ Layout of `/opt/commons` today (read 2026-11-13): `backlog` (755, per-Mind backl
 
 Per-Persona source is the outbox from `ratatoskr:follow_up:album-outbox-ops-and-persona-specs`: `/var/lib/mind-<slug>-outbox`, owned by `mind-<slug>-self`, 0750, ACL read for `mind-<slug>` and the host user. The Self writes there; the Persona decides what is shared. Making that decision a filesystem fact (a `shared/` subdirectory the Persona's turn populates by copy or hardlink, the host serves only `shared/`) keeps the host dumb: it never learns what "decides" means. **Q-E:** `shared/` subdirectory versus a per-file marker.
 
-## Phone-first UI
+### Phone-first UI (host)
 
 Phone width is the design width; desktop adds the navigator beside it (as `Desk` does in `Router.tsx`). Vertical space is cheap, so a screen shows one thing and hides what is not in use.
 
@@ -39,7 +177,7 @@ Phone width is the design width; desktop adds the navigator beside it (as `Desk`
 - **Honesty rows.** Loading, empty, "host unreachable", "not allowed" are rows that say so (as `MediaNote` does); no spinner without a name for what it waits on.
 - **Role-driven.** The index response carries the caller's role; the client uses it only to hide controls (upload), never to decide access.
 
-## Host contract
+### Host contract
 
 The host is a service on Yggdrasil that Eureka owns. The client holds no filesystem knowledge. All JSON here is the xenos boundary between a browser and a file server, not state.
 
@@ -60,7 +198,7 @@ The host is a service on Yggdrasil that Eureka owns. The client holds no filesys
 
 Recommendation: 2 for audio and video, 1 for images and text. Confidence moderate: I have not tested a service worker against range requests on the target phone, and 2 is the usual answer for authenticated media (signed URLs). **Q-E.**
 
-## Upload flow
+### Upload flow (host)
 
 Design only. Every number and error code is a named placeholder until Eureka gives them on the PR: `<CAP_FILE>` (per-file size), `<CAP_BATCH>` (per-pick total, if any), `<TYPES>` (the allowlist), `<OVERWRITE_FLAG>` (the explicit query flag), and the codes `<E_AUTH>`, `<E_ROLE>`, `<E_PATH>`, `<E_TYPE>`, `<E_SIZE>`, `<E_EXISTS>`, `<E_PROTECTED>`, `<E_QUOTA>`, `<E_SERVER>`.
 
@@ -96,7 +234,7 @@ Retry is one tap on a failed row; the batch never retries on its own. An unknown
 
 **Reuse and not.** `ShareSet`'s state machine (staging, one-send-per-zone guard, failed files kept by position) is the model, but the Matrix share path and its `createUploadAtom` are tied to the SDK's media upload and are not reused; the new controller sits in `features/files/uploadController.ts` with the same injected-port shape, so order, refusal and cancel rules are tested against a fake `PUT` without a browser. Real transfer progress and a real range of a phone's picker stay a phone check.
 
-## Client shape
+### Client shape (host)
 
 Under `src/app/features/files`, mirroring `features/albums`:
 
@@ -106,7 +244,7 @@ Under `src/app/features/files`, mirroring `features/albums`:
 - `config.json`: `filesDesk: { enabled: false, host: "https://…" }`, dark by default as `fileZoneShare.enabled` is. With it off, no row mounts and no request leaves the client.
 - Test host: `src/preview-demo` already answers for a pretend homeserver through a fetch guard (`install.ts`); it gains a fake `/index` and `/file` with ranges so the previews are checked in a real browser before the real host exists.
 
-## Cuts
+### Cuts (host)
 
 1. **Contract and fake host** (no UI): `filesHost.ts`, types, `preview-demo` fake, path tests (traversal strings from the host side are Eureka's; the client must only build `path` from entries it was given).
 2. **Read-only Commons desk**: route, row, list, breadcrumb, role display, flagged off.
@@ -116,11 +254,11 @@ Under `src/app/features/files`, mirroring `features/albums`:
 
 Each is its own PR. Slices 1 to 3 need no host to build and test; slice 2 needs the real host to be useful, not to land.
 
-## Not in scope
+### Not in scope (host)
 
 The Matrix file zone (marks, receipts, `ShareSet`); any Mind-side fetch (the mouth's); encrypted rooms; deletion and rename (a read surface first; the files belong to whoever wrote them on disk); search across zones; a permission model of our own beyond what the host derives from Matrix identity.
 
-## Open questions
+### Open questions (host)
 
 **For Eureka (host):**
 
