@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import zlib from 'zlib';
 import { compile, processVanillaFile } from '@vanilla-extract/integration';
@@ -154,5 +155,34 @@ describe('phone icon-button hit areas', () => {
     const [phone] = rulesFor(css, /^button\.layout_Username__/, PHONE);
     expect(phone['min-width']).toBe(TAP);
     expect(css).toMatch(/text-align: start;/);
+  });
+});
+
+describe('icon buttons in the room view', () => {
+  // The opening tag of every <IconButton in a source file, read to its closing > outside any {} expression.
+  const iconButtonTags = (src: string) => {
+    const tags: string[] = [];
+    for (let i = src.indexOf('<IconButton'); i !== -1; i = src.indexOf('<IconButton', i + 1)) {
+      let depth = 0;
+      let j = i;
+      for (; j < src.length; j += 1) {
+        if (src[j] === '{') depth += 1;
+        else if (src[j] === '}') depth -= 1;
+        else if (src[j] === '>' && depth === 0) break;
+      }
+      tags.push(src.slice(i, j + 1));
+    }
+    return tags;
+  };
+
+  it.each([
+    'features/room/message/Message.tsx',
+    'features/room/RoomInput.tsx',
+    'features/room/RoomViewHeader.tsx',
+  ])('%s: every IconButton carries a PhoneHit class', (file) => {
+    const tags = iconButtonTags(readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8'));
+    expect(tags.length).toBeGreaterThan(0);
+    const bare = tags.filter((t) => !/PhoneHit/.test(t));
+    expect(bare).toEqual([]);
   });
 });
