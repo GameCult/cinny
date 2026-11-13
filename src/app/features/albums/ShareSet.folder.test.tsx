@@ -1,0 +1,85 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MatrixClientProvider } from '../../hooks/useMatrixClient';
+
+// ShareSet hands its folder to the title the send lands under. The controller is held still and its
+// `run` captured, and sendShareSet records the title it was given, so the path from the `folder`
+// prop to the album root's title is read without a homeserver or a DOM.
+const captured = vi.hoisted(() => ({
+  run: undefined as undefined | ((files: unknown[], title: string, onFile: () => void) => unknown),
+  titles: [] as string[],
+}));
+
+vi.mock('./shareController', () => ({
+  createShareController: (deps: { run: NonNullable<typeof captured.run> }) => {
+    captured.run = deps.run;
+    return {
+      subscribe: () => () => undefined,
+      getState: () => ({ files: [], title: '', phase: { kind: 'idle' }, epoch: 0 }),
+      pick: () => undefined,
+      setTitle: () => undefined,
+      send: () => undefined,
+      cancel: () => undefined,
+    };
+  },
+}));
+vi.mock('./shareSet', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./shareSet')>()),
+  sendShareSet: async (_port: unknown, title: string) => {
+    captured.titles.push(title);
+    return { albumId: '$a', sent: 0, failed: [], failedAt: [] };
+  },
+}));
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  // The server renderer has no snapshot for an external store; read the client one.
+  const useSyncExternalStore = (_sub: unknown, get: () => unknown) => get();
+  return { ...actual, default: { ...actual, useSyncExternalStore }, useSyncExternalStore };
+});
+
+// eslint-disable-next-line import/first
+import { ShareSet } from './ShareSet';
+
+const mount = (folder?: string[]) => {
+  const room = { roomId: '!r:x', hasEncryptionStateEvent: () => false } as never;
+  renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <MatrixClientProvider value={{ sendMessage: async () => ({ event_id: '$e' }) } as never}>
+        <ShareSet room={room} folder={folder} />
+      </MatrixClientProvider>
+    </QueryClientProvider>
+  );
+};
+const send = async (typed: string) => {
+  await captured.run?.([], typed, () => undefined);
+  return captured.titles.at(-1);
+};
+
+describe('ShareSet: the folder reaches the album title', () => {
+  beforeEach(() => {
+    captured.run = undefined;
+    captured.titles.length = 0;
+  });
+
+  it('at the top, the typed title goes as typed', async () => {
+    mount();
+    expect(await send('Poses')).toBe('Poses');
+  });
+
+  it('inside a folder, the path prefixes the typed title', async () => {
+    mount(['cast-art', 'poses']);
+    expect(await send('Set 2')).toBe('cast-art/poses/Set 2');
+  });
+
+  it('an empty typed title falls back to the default, still under the folder', async () => {
+    mount(['handoff']);
+    expect(await send('  ')).toBe('handoff/Shared files');
+  });
+
+  it('a typed title containing a slash goes deeper', async () => {
+    mount(['a']);
+    expect(await send('b/c')).toBe('a/b/c');
+  });
+});

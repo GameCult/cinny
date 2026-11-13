@@ -21,7 +21,7 @@ Read from this repo at dev `8ba407cd`:
 
 - **Zone = a room** whose `m.room.create` type is `org.gamecult.file_zone` (`isFileZone.ts`), or one listed in config `fileZoneRooms`. One per Mind, `#<mind>-files:<server>`, found by alias or by the carried id in the root Space's `org.gamecult.stewardships` (`mediaRoom.ts`, `MediaRow.tsx`); rendered as the Media row of each Mind's group.
 - **Album = a thread root** (a text event; its `body`, or its latest `m.replace` edit, is the title); **file = a thread reply** with `msgtype` `m.audio|m.image|m.video|m.file` (`buildAlbums.ts`). A redacted event or an `m.replace` is never a file. Loose room messages are not shown.
-- **Read** = `GET /rooms/{id}/threads` and `/relations/{root}/m.thread`, one page of 100 each (`useAlbums.ts`; pagination is a known gap). Unencrypted rooms only.
+- **Read** = `GET /rooms/{id}/threads` and `/relations/{root}/m.thread`, every page, 100 per request, at most 20 pages per endpoint (`useAlbums.ts`, `readPages.ts`; a capped read shows a note in the list). Unencrypted rooms only.
 - **Write** = `sendShareSet` (`shareSet.ts`, behind `fileZoneShare.enabled`): a root, then one thread reply per file, content from `getMsgContent` with `info.sha256`.
 - **Media** = authenticated Matrix media fetched to a blob (`downloadMedia` in `FileContent.tsx`): so the "media element cannot send a header" problem that Option B needed a ticket for is already solved this way, at the cost that a file is fully downloaded before it plays.
 - **Receipts** = `org.gamecult.file_received` from a Mind's mouth after it fetches and verifies the sha256 (`docs/file-zone-mind-contract.md`); the mouth enforces the Mind's membership in the room.
@@ -103,7 +103,7 @@ What A adds to `ShareSet`: sharing into an existing album ("add files", listed a
 
 Under both, the phone design is the same shape (one column, rows 56 px or more, hidden controls, in-place preview; see the Option B sections below, which are written against the host but whose layout applies).
 
-- **A, new cost:** the Commons room is one more room in sync and it must be muted; albums and files are one page of 100 each until pagination exists (a Commons of hundreds of documents needs it first); a folder tree is a title-path grouping, so a deep tree is a long list of albums with breadcrumbs, not true directories; a file plays after a full download (small audio and images are fine; a 40 MB clip is not).
+- **A, new cost:** the Commons room is one more room in sync and it must be muted; albums and files are read to a cap of 20 pages of 100 per endpoint (a Commons past that shows a truncation note); a folder tree is a title-path grouping, so a deep tree is a long list of albums with breadcrumbs, not true directories; a file plays after a full download (small audio and images are fine; a 40 MB clip is not).
 - **A, no cost:** no second sign-in, no ticket, no CORS, no new fetch layer, no host-unreachable state beyond the homeserver's own. The album list, album view, share panel and receipts exist and are tested; the view is their extension.
 - **B, new cost:** every screen is a second client against a second service with its own errors, token refresh and unreachable state; media needs the ticket or the blob; the tree and preview are new UI.
 - **B, benefit:** a tree that is live and complete, ranges, and no Matrix size limit.
@@ -121,7 +121,7 @@ Under A the paused service is not built, and most of its list disappears:
 Status 2026-11-13: cut 1 merged to dev as bb615570 (PR #147); cuts 2-5 follow. Cut 1's shape was: a pure `albumFolders` view (folders from `/`-separated album titles, leaf name, counts), folder navigation and breadcrumb in `AlbumView` through a presentational list component tested by static render, `ShareSet` sending into the current folder by prefixing the album title, and a quiet `Commons` row (alias `#commons:gamecult.org` or the carried `media.commons` id, through `lookupMediaRoom`, hidden while unset or looking, behind a dark `filesDesk.enabled` flag, and filtered out of the tiers so it is not listed twice). Muting is provisioning's (Q-E3), not the client's.
 
 1. **Commons entry**: a Commons row in the navigator (like `MediaRow`, found by alias or carried id), opening the room's album view. Flagged, no new data layer.
-2. **Pagination** of albums and files in `useAlbums` (a prerequisite for a Commons of any size).
+2. **Pagination** of albums and files in `useAlbums` (done, PR #148).
 3. **Folders by title path** and the album list grouped by it.
 4. **Versions**: read `org.gamecult.publish.replaces`, show the latest of a chain with the earlier versions folded under it.
 5. **Add files to an existing album**, with per-file progress, cancel and the refusal messages above (the upload flow).
