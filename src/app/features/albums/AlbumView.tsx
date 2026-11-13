@@ -168,7 +168,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
         {here.folders.length === 0 && here.albums.length === 0 && <Text>Nothing here.</Text>}
         {truncated && (
           <Text size="T200" className={css.Dim}>
-            The list is cut short: older albums are not loaded.
+            The list is cut short: some albums or files are not loaded.
           </Text>
         )}
       </>
