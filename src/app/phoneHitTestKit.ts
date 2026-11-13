@@ -85,7 +85,48 @@ export const iconButtons = (src: string) =>
 
 export const iconButtonTags = (src: string) => iconButtons(src).map((b) => b.tag);
 
-const phoneHitOf = (tag: string) => tag.match(/className=\{[^}]*?\b(PhoneHit\w*)\b/)?.[1] ?? null;
+/** The expression of a tag's className={...} and the index of its closing brace, read to the balanced brace
+ * (strings and templates may hold braces); undefined when the tag has none. */
+const classNameExpr = (tag: string) => {
+  const m = /\sclassName=\{/.exec(tag);
+  if (!m) return undefined;
+  const from = m.index + m[0].length;
+  let depth = 1;
+  let quote = '';
+  for (let j = from; j < tag.length; j += 1) {
+    const c = tag[j];
+    if (quote) {
+      if (c === '\\') j += 1;
+      else if (c === quote) quote = '';
+    } else if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '{') depth += 1;
+    else if (c === '}' && (depth -= 1) === 0) return { expr: tag.slice(from, j), end: j };
+  }
+  return undefined;
+};
+
+/** The expression with its string literals and the literal text of its templates removed (a `${...}` keeps its
+ * expression), so only identifiers and operators remain. */
+const withoutLiterals = (expr: string) =>
+  expr
+    .replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, ' ')
+    .replace(/`((?:[^`\\]|\\.)*)`/g, (_, body: string) =>
+      [...body.matchAll(/\$\{([^}]*)\}/g)].map((t) => ` ${t[1]} `).join(' ')
+    );
+
+/** The PhoneHit* class a tag carries: a bare identifier in its className expression, applied unconditionally. A
+ * name inside a string, built by concatenation, or behind ?:, &&, || or ??, or followed by a {...spread}, is not the
+ * imported class (or not always applied), so it reads as null. */
+export const phoneHitOf = (tag: string) => {
+  const found = classNameExpr(tag);
+  if (found === undefined) return null;
+  // props spread in after className can override it at runtime; before it they cannot
+  if (tag.slice(found.end).includes('{...')) return null;
+  const bare = withoutLiterals(found.expr);
+  if (/\?|&&|\|\|/.test(bare)) return null;
+  const names = [...bare.matchAll(/(?<![\w$.])(PhoneHit\w*)(?![\w$])/g)].map((m) => m[1]);
+  return names.length === 1 ? names[0] : null;
+};
 
 /** The class each IconButton must carry, in source order: the variant is chosen by the button's drawn size and
  * whether a clipping container or neighbours surround it, so a swapped variant is a wrong hit area. Also checks
