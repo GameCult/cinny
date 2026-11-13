@@ -19,10 +19,24 @@ import {
   USERS,
 } from './fixtures';
 import { DemoMedia, pngGradient, wavTone } from './media';
+import { createDemoFiles, DEMO_OPENID_TOKEN } from './filesHost';
 
 /** `raw` answers a media download with bytes instead of JSON. */
-export type DemoResponse = { status: number; body: unknown; raw?: DemoMedia };
-export type DemoRequest = { method: string; url: string; body?: unknown; signal?: AbortSignal };
+export type DemoResponse = {
+  status: number;
+  body: unknown;
+  raw?: DemoMedia;
+  /** extra response headers (lower-case names), e.g. a file host's Content-Range */
+  headers?: Record<string, string>;
+};
+export type DemoRequest = {
+  method: string;
+  url: string;
+  body?: unknown;
+  signal?: AbortSignal;
+  /** request headers, lower-case names */
+  headers?: Record<string, string>;
+};
 
 const POSE_KEY = 'org.gamecult.pose';
 const NOTICE_TYPE = 'org.gamecult.notice';
@@ -334,7 +348,10 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
     return ROOMS.filter((r) => !r.direct).map(entry);
   };
 
+  const files = createDemoFiles(now);
+
   const handle = async (req: DemoRequest): Promise<DemoResponse> => {
+    if (files.handles(req.url)) return files.handle(req);
     const u = new URL(req.url, DEMO_ORIGIN);
     const p = decodeURIComponent(u.pathname);
     const m = req.method.toUpperCase();
@@ -350,6 +367,13 @@ export const createDemoServer = (now: () => number = Date.now): DemoServer => {
       return found ? { status: 200, body: null, raw: found } : err(404, 'M_NOT_FOUND', 'No media');
     }
     const c = p.replace(/^\/_matrix\/client\/(v\d+|r0|unstable)/, '');
+    if (m === 'POST' && /^\/user\/[^/]+\/openid\/request_token$/.test(c))
+      return ok({
+        access_token: DEMO_OPENID_TOKEN,
+        token_type: 'Bearer',
+        matrix_server_name: DEMO_SERVER,
+        expires_in: 3600,
+      });
     if (p.endsWith('/versions'))
       return ok({ versions: ['v1.1', 'v1.5', 'v1.11'], unstable_features: {} });
     if (c === '/login') {

@@ -54,6 +54,14 @@ const parseBody = (body: unknown): unknown => {
   }
 };
 
+const lowerHeaders = (h: HeadersInit | undefined): Record<string, string> => {
+  const out: Record<string, string> = {};
+  new Headers(h).forEach((v, k) => {
+    out[k] = v;
+  });
+  return out;
+};
+
 export type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 // Own-origin requests go to the real fetch, the demo origin to the pretend server, the rest throw.
@@ -72,16 +80,17 @@ export const guardedFetch =
       url,
       body: parseBody(raw),
       signal: init?.signal ?? req?.signal ?? undefined,
+      headers: lowerHeaders(init?.headers ?? req?.headers),
     });
     if (out.raw) {
       return new Response(out.raw.data, {
         status: out.status,
-        headers: { 'Content-Type': out.raw.type },
+        headers: { ...out.headers, 'Content-Type': out.raw.type },
       });
     }
     return new Response(JSON.stringify(out.body), {
       status: out.status,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...out.headers, 'Content-Type': 'application/json' },
     });
   };
 

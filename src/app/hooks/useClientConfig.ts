@@ -38,6 +38,10 @@ export type ClientConfig = {
   // Sharing a set of files into a file-zone room as one album. Off unless `enabled` is true.
   fileZoneShare?: { enabled?: boolean };
 
+  // The Files desk (docs/commons-files-desk.md): a served-directory file zone beside the Matrix one. Off unless
+  // `enabled` is true; `host` is the file host's base URL (a value Eureka names, never a path this client invents).
+  filesDesk?: { enabled?: boolean; host?: string };
+
   // The sign-up entry on the sign-in page. Off unless `enabled` is true; `url` is the account
   // service's own registration page (a value, never a route this client invents).
   registration?: RegistrationConfig;
