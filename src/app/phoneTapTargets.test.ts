@@ -127,6 +127,10 @@ describe('phone icon-button hit areas', () => {
     expect(phone.map((m) => m[1])).toEqual([PHONE]);
     expect(css).toMatch(/::after \{[^}]*width: max\(100%, 44px\);[^}]*height: max\(100%, 44px\);/);
     expect(css).toMatch(/::after \{[^}]*position: absolute;/);
+    // centred on the button: top and left at half, pulled back by half its own size
+    expect(css).toMatch(/::after \{[^}]*top: 50%;/);
+    expect(css).toMatch(/::after \{[^}]*left: 50%;/);
+    expect(css).toMatch(/::after \{[^}]*transform: translate\(-50%, -50%\);/);
     expect(stripPhone(css).trim()).toBe('');
   });
 
