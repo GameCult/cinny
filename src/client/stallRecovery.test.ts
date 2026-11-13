@@ -40,7 +40,12 @@ describe('a send that hangs on a dead connection', () => {
         n += 1;
         return `txn-${n}`;
       },
-      sendEvent: vi.fn(() => new Promise<never>(() => undefined)), // never settles: the request is hung
+      sendEvent: vi.fn(
+        () =>
+          new Promise<never>(() => {
+            // never settles: the request is hung
+          })
+      ),
       getRoom: () => undefined,
     };
   };
