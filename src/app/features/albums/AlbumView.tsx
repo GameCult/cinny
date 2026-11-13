@@ -89,7 +89,7 @@ function useMarkZoneRead(room: Room) {
 type AlbumViewProps = { room: Room; onTimeline: () => void };
 export function AlbumView({ room, onTimeline }: AlbumViewProps) {
   useMarkZoneRead(room);
-  const { loading, error, albums } = useAlbums(room);
+  const { loading, error, albums, truncated } = useAlbums(room);
   const [dateFormat] = useSetting(settingsAtom, 'dateFormatString');
   const [openId, setOpenId] = useState<string>();
   const [path, setPath] = useState<string[]>([]);
@@ -166,6 +166,11 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
           </button>
         ))}
         {here.folders.length === 0 && here.albums.length === 0 && <Text>Nothing here.</Text>}
+        {truncated && (
+          <Text size="T200" className={css.Dim}>
+            The list is cut short: older albums are not loaded.
+          </Text>
+        )}
       </>
     );
   }
