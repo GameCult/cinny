@@ -168,7 +168,7 @@ export const phoneHitOf = (tag: string) => {
 
 /** The PhoneHit* class of each IconButton of a source, in source order; null when it has none or the name is not
  * the one imported from PhoneHit.css. */
-const phoneHitClasses = (src: string) => {
+export const phoneHitClasses = (src: string) => {
   const sf = tsx(src);
   const imported = importedHits(sf);
   return elements(sf).map((el) => hitOf(el, imported));

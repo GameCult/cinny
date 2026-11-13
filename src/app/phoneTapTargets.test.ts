@@ -102,13 +102,16 @@ describe('phone icon-button hit areas', () => {
     expect(css).toMatch(/::after \{[^}]*transform: translate\(-50%, -50%\);/);
     // the box anchors to its own button, receives the tap, and sits above nothing it should not
     expect(css).toMatch(/@media [^{]+ \{\n\s*\.PhoneHit_PhoneHit__\w+ \{\n\s*position: relative;/);
-    const afterDecls = [...css.matchAll(/::after \{\n([^}]*)\}/g)].flatMap((m) =>
+    // PhoneHit and PhoneHitInPlace each draw it; the Spread and Room classes compose PhoneHit
+    const afters = [...css.matchAll(/::after \{\n([^}]*)\}/g)];
+    expect(afters).toHaveLength(2);
+    const afterDecls = afters.flatMap((m) =>
       m[1]
         .split('\n')
         .map((l) => l.trim().split(':')[0])
         .filter(Boolean)
     );
-    expect([...afterDecls].sort()).toEqual([
+    expect([...new Set(afterDecls)].sort()).toEqual([
       'content',
       'height',
       'left',
@@ -117,8 +120,9 @@ describe('phone icon-button hit areas', () => {
       'transform',
       'width',
     ]);
-    // nothing on a phone moves a button off its own anchor: only relative (the button) and absolute (the box)
+    // nothing on a phone moves a button off its own anchor: only relative (the button) and absolute (the boxes)
     expect([...css.matchAll(/position: (\w+);/g)].map((m) => m[1]).sort()).toEqual([
+      'absolute',
       'absolute',
       'relative',
     ]);
