@@ -2,6 +2,7 @@
 // group of IconButtons). Not a test file: it registers nothing, the test files call it.
 import { readFileSync } from 'fs';
 import { expect } from 'vitest';
+import ts from 'typescript';
 import zlib from 'zlib';
 import { compile, processVanillaFile } from '@vanilla-extract/integration';
 
@@ -72,35 +73,112 @@ const tagEnd = (src: string, from: number) => {
   return j;
 };
 
-/** Every <IconButton (not <IconButtonX): its opening tag, read to its closing > outside any {} expression, and
- * what it wraps (empty when self-closing). */
+const tsx = (src: string) =>
+  ts.createSourceFile('source.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+
+type Opening = ts.JsxOpeningElement | ts.JsxSelfClosingElement;
+
+/** Every IconButton element (not IconButtonX) of a parsed source, in source order. */
+const elements = (sf: ts.SourceFile) => {
+  const found: Opening[] = [];
+  const walk = (n: ts.Node) => {
+    if (
+      (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) &&
+      ts.isIdentifier(n.tagName) &&
+      n.tagName.text === 'IconButton'
+    )
+      found.push(n);
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return found;
+};
+
+const bodyOf = (el: Opening) =>
+  ts.isJsxOpeningElement(el) && ts.isJsxElement(el.parent)
+    ? el.getSourceFile().text.slice(el.end, el.parent.closingElement.getStart())
+    : '';
+
+/** Every <IconButton (not <IconButtonX): its opening tag and what it wraps (empty when self-closing). */
 export const iconButtons = (src: string) =>
-  [...src.matchAll(/<IconButton(?=[\s>/])/g)].map((m) => {
-    const start = m.index ?? 0;
-    const end = tagEnd(src, start);
-    const tag = src.slice(start, end + 1);
-    const close = src.indexOf('</IconButton>', end);
-    return { tag, body: tag.endsWith('/>') || close === -1 ? '' : src.slice(end + 1, close) };
-  });
+  elements(tsx(src)).map((el) => ({ tag: el.getText(), body: bodyOf(el) }));
 
 export const iconButtonTags = (src: string) => iconButtons(src).map((b) => b.tag);
 
-const phoneHitOf = (tag: string) => tag.match(/className=\{[^}]*?\b(PhoneHit\w*)\b/)?.[1] ?? null;
-
-/** The class each IconButton must carry, in source order: the variant is chosen by the button's drawn size and
- * whether a clipping container or neighbours surround it, so a swapped variant is a wrong hit area. Also checks
- * the name is the one PhoneHit.css.ts exports, not a local of the same name. */
-export const expectPhoneHitClasses = (file: string, want: string[]) => {
-  const src = readSource(file);
-  expect(iconButtonTags(src).map(phoneHitOf)).toEqual(want);
-  [...new Set(want)].forEach((name) =>
-    expect(src).toMatch(
-      new RegExp(
-        `import \\{(?:[^}]*,)?\\s*${name}\\s*(?:,[^}]*)?\\} from '(\\.\\./)+styles/PhoneHit\\.css'`
-      )
-    )
+/** Local names the source imports from the PhoneHit.css module (as written, not aliased). */
+const importedHits = (sf: ts.SourceFile) =>
+  new Set(
+    sf.statements.flatMap((st) => {
+      const nb = ts.isImportDeclaration(st) ? st.importClause?.namedBindings : undefined;
+      return nb &&
+        ts.isNamedImports(nb) &&
+        ts.isStringLiteral((st as ts.ImportDeclaration).moduleSpecifier) &&
+        /^(\.\.\/)+styles\/PhoneHit\.css$/.test(
+          ((st as ts.ImportDeclaration).moduleSpecifier as ts.StringLiteral).text
+        )
+        ? nb.elements.filter((e) => !e.propertyName).map((e) => e.name.text)
+        : [];
+    })
   );
+
+const MERGERS = new Set(['classNames', 'clsx', 'cx']);
+
+/** The PhoneHit* class an IconButton carries, or null. className must appear exactly once, with no props spread
+ * after it (a spread can override it at runtime), and its expression must be: the bare identifier; a classNames /
+ * clsx / cx call with it as a direct argument; or a template with it as a direct span. The identifier must occur
+ * nowhere else in the expression, so a key, a member, a closure, a conditional or a comma can never carry it. When
+ * `imported` is given, the identifier must also be a binding imported from the PhoneHit.css module. */
+const hitOf = (el: Opening, imported?: Set<string>): string | null => {
+  const props = el.attributes.properties;
+  const at = props.flatMap((p, i) =>
+    ts.isJsxAttribute(p) && ts.isIdentifier(p.name) && p.name.text === 'className' ? [i] : []
+  );
+  if (at.length !== 1 || props.slice(at[0] + 1).some(ts.isJsxSpreadAttribute)) return null;
+  const attr = props[at[0]] as ts.JsxAttribute;
+  const expr =
+    attr.initializer && ts.isJsxExpression(attr.initializer) && attr.initializer.expression;
+  if (!expr) return null;
+  const isHit = (n: ts.Node): n is ts.Identifier =>
+    ts.isIdentifier(n) && /^PhoneHit\w*$/.test(n.text) && (!imported || imported.has(n.text));
+  let direct: ts.Node[] = [];
+  if (ts.isIdentifier(expr)) direct = [expr];
+  else if (
+    ts.isCallExpression(expr) &&
+    ts.isIdentifier(expr.expression) &&
+    MERGERS.has(expr.expression.text)
+  )
+    direct = [...expr.arguments];
+  else if (ts.isTemplateExpression(expr)) direct = expr.templateSpans.map((sp) => sp.expression);
+  const hits = direct.filter(isHit);
+  if (hits.length !== 1) return null;
+  let occurrences = 0;
+  const count = (n: ts.Node) => {
+    if (ts.isIdentifier(n) && n.text === hits[0].text) occurrences += 1;
+    ts.forEachChild(n, count);
+  };
+  count(expr);
+  return occurrences === 1 ? hits[0].text : null;
 };
+
+/** The PhoneHit* class of one tag's text (see hitOf), without the import-binding check. */
+export const phoneHitOf = (tag: string) => {
+  const els = elements(tsx(tag.endsWith('/>') ? tag : `${tag}</IconButton>`));
+  return els.length === 1 ? hitOf(els[0]) : null;
+};
+
+/** The PhoneHit* class of each IconButton of a source, in source order; null when it has none or the name is not
+ * the one imported from PhoneHit.css. */
+const phoneHitClasses = (src: string) => {
+  const sf = tsx(src);
+  const imported = importedHits(sf);
+  return elements(sf).map((el) => hitOf(el, imported));
+};
+
+/** The class each IconButton must carry, in source order (null = must carry none): the variant is chosen by the
+ * button's drawn size and whether a clipping container or neighbours surround it, so a swapped variant is a wrong
+ * hit area. The name must also be the one PhoneHit.css exports, not a local of the same name. */
+export const expectPhoneHitClasses = (file: string, want: (string | null)[]) =>
+  expect(phoneHitClasses(readSource(file))).toEqual(want);
 
 // IconButton `size` -> padding on each side, Icon `size` -> px (folds 2.7.2). Both default to 400.
 const BUTTON_PAD: Record<string, number> = { '300': 4, '400': 8, '500': 12, '600': 16 };
@@ -147,10 +225,12 @@ export type SizeAllow = Record<string, Record<number, string>>;
 export const expectSizeTie = (file: string, allow: SizeAllow = {}) => {
   const allowed = allow[file] ?? {};
   const seen = new Set<number>();
-  const buttons = iconButtons(readSource(file));
+  const src = readSource(file);
+  const buttons = iconButtons(src);
+  const classes = phoneHitClasses(src);
   expect(buttons.length, `${file} has no IconButton`).toBeGreaterThan(0);
   buttons.forEach(({ tag, body }, i) => {
-    const variant = phoneHitOf(tag)?.match(/^PhoneHit(?:Spread|Room)(\d+)$/);
+    const variant = classes[i]?.match(/^PhoneHit(?:Spread|Room)(\d+)$/);
     if (!variant) {
       expect(allowed[i], `${file} #${i} is allow-listed but has no sized variant`).toBeUndefined();
       return;
