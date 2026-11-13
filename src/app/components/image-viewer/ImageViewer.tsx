@@ -7,6 +7,7 @@ import * as css from './ImageViewer.css';
 import { useZoom } from '../../hooks/useZoom';
 import { usePan } from '../../hooks/usePan';
 import { downloadMedia } from '../../utils/matrix';
+import { PhoneHit, PhoneHitSpread24 } from '../../styles/PhoneHit.css';
 
 export type ImageViewerProps = {
   alt: string;
@@ -33,7 +34,7 @@ export const ImageViewer = as<'div', ImageViewerProps>(
       >
         <Header className={css.ImageViewerHeader} size="400">
           <Box grow="Yes" alignItems="Center" gap="200">
-            <IconButton size="300" radii="300" onClick={requestClose}>
+            <IconButton className={PhoneHit} size="300" radii="300" onClick={requestClose}>
               <Icon size="50" src={Icons.ArrowLeft} />
             </IconButton>
             <Text size="T300" truncate>
@@ -42,6 +43,7 @@ export const ImageViewer = as<'div', ImageViewerProps>(
           </Box>
           <Box shrink="No" alignItems="Center" gap="200">
             <IconButton
+              className={PhoneHitSpread24}
               variant={zoom < 1 ? 'Success' : 'SurfaceVariant'}
               outlined={zoom < 1}
               size="300"
@@ -55,6 +57,7 @@ export const ImageViewer = as<'div', ImageViewerProps>(
               <Text size="B300">{Math.round(zoom * 100)}%</Text>
             </Chip>
             <IconButton
+              className={PhoneHitSpread24}
               variant={zoom > 1 ? 'Success' : 'SurfaceVariant'}
               outlined={zoom > 1}
               size="300"

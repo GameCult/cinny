@@ -43,6 +43,7 @@ import { ModalWide } from '../../../styles/Modal.css';
 import { createUploadAtom, UploadSuccess } from '../../../state/upload';
 import { CompactUploadCardRenderer } from '../../../components/upload-card';
 import { useCapabilities } from '../../../hooks/useCapabilities';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type ProfileProps = {
   profile: UserProfile;
@@ -185,7 +186,12 @@ function ProfileAvatar({ profile, userId }: ProfileProps) {
                 <Box grow="Yes">
                   <Text size="H4">Remove Avatar</Text>
                 </Box>
-                <IconButton size="300" onClick={() => setAlertRemove(false)} radii="300">
+                <IconButton
+                  className={PhoneHit}
+                  size="300"
+                  onClick={() => setAlertRemove(false)}
+                  radii="300"
+                >
                   <Icon src={Icons.Cross} />
                 </IconButton>
               </Header>
@@ -273,6 +279,7 @@ function ProfileDisplayName({ profile, userId }: ProfileProps) {
                 hasChanges &&
                 !changingDisplayName && (
                   <IconButton
+                    className={PhoneHit}
                     type="reset"
                     onClick={handleReset}
                     size="300"

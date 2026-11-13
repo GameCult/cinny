@@ -39,6 +39,7 @@ import { useAlive } from '../../../hooks/useAlive';
 import { creatorsSupported } from '../../../utils/matrix';
 import { useRoomCreators } from '../../../hooks/useRoomCreators';
 import { BreakWord } from '../../../styles/Text.css';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 function RoomUpgradeDialog({ requestClose }: { requestClose: () => void }) {
   const mx = useMatrixClient();
@@ -105,7 +106,7 @@ function RoomUpgradeDialog({ requestClose }: { requestClose: () => void }) {
               <Box grow="Yes">
                 <Text size="H4">{room.isSpaceRoom() ? 'Space Upgrade' : 'Room Upgrade'}</Text>
               </Box>
-              <IconButton size="300" onClick={requestClose} radii="300">
+              <IconButton className={PhoneHit} size="300" onClick={requestClose} radii="300">
                 <Icon src={Icons.Cross} />
               </IconButton>
             </Header>

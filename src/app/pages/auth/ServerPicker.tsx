@@ -23,6 +23,7 @@ import FocusTrap from 'focus-trap-react';
 
 import { useDebounce } from '../../hooks/useDebounce';
 import { stopPropagation } from '../../utils/keyboard';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export function ServerPicker({
   server,
@@ -129,6 +130,7 @@ export function ServerPicker({
             }
           >
             <IconButton
+              className={PhoneHit}
               onClick={handleOpenServerMenu}
               variant={allowCustomServer ? 'Background' : 'Surface'}
               size="300"

@@ -5,6 +5,7 @@ import { Box, Chip, Header, Icon, IconButton, Icons, Scroll, Text, as } from 'fo
 import { ErrorBoundary } from 'react-error-boundary';
 import * as css from './TextViewer.css';
 import { copyToClipboard } from '../../utils/dom';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 const ReactPrism = lazy(() => import('../../plugins/react-prism/ReactPrism'));
 
@@ -53,7 +54,7 @@ export const TextViewer = as<'div', TextViewerProps>(
       >
         <Header className={css.TextViewerHeader} size="400">
           <Box grow="Yes" alignItems="Center" gap="200">
-            <IconButton size="300" radii="300" onClick={requestClose}>
+            <IconButton className={PhoneHit} size="300" radii="300" onClick={requestClose}>
               <Icon size="50" src={Icons.ArrowLeft} />
             </IconButton>
             <Text size="T300" truncate>

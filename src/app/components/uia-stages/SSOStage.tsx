@@ -1,6 +1,7 @@
 import { Box, Button, color, config, Dialog, Header, Icon, IconButton, Icons, Text } from 'folds';
 import React, { useCallback, useEffect, useState } from 'react';
 import { StageComponentProps } from './types';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 export function SSOStage({
   ssoRedirectURL,
@@ -56,7 +57,7 @@ export function SSOStage({
         <Box grow="Yes">
           <Text size="H4">SSO Login</Text>
         </Box>
-        <IconButton size="300" onClick={onCancel} radii="300">
+        <IconButton className={PhoneHit} size="300" onClick={onCancel} radii="300">
           <Icon src={Icons.Cross} />
         </IconButton>
       </Header>
