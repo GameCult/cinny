@@ -1,6 +1,13 @@
 # Files desk: Commons and per-Persona file zones, two designs compared
 
-Status: design only. No feature code is merged, nothing deployed. **The host-service design (Option B, first written here) is superseded in part** by Meta's ruling that two authorities, Matrix and a Commons host, are incoherent: albums already sit on Matrix, so the Commons should too. Eureka agrees (#minds 2026-11-13 14:40Z), has paused the `/index` and `/file` service, and is checking the homeserver upload cap and whether a Mind account or bot can post file events from Yggdrasil (answers will land on PR #142 and be folded in here). This page now compares **A: Matrix as the single authority** with **B: the host service**, recommends A, and keeps B in full below the line so the comparison can be checked. Items marked **UNKNOWN** are not verified; **Q-E** are questions for Eureka, **Q-M** for Meta.
+Status: **decided: Option A, Matrix as the single authority** (Meta, #swarm 2026-11-13 14:44Z: "Let's try matrix shaped"). Design only; no Files desk code is merged and nothing is deployed. Option B (the host service) is parked, not deleted: Eureka's branch `eureka-self/commons-host` at `a391960d` has no PR and a Soul verdict of NOT READY with fixes owed, and is woken only if Meta later wants a real file store. PR #143 (B's cut 1 in this repo) is closed unmerged. Items marked **UNKNOWN** are not verified; **Q-E** are questions for Eureka, **Q-M** for Meta.
+
+### Eureka's answers so far (`/opt/commons/handoff/commons-matrix-notes-20261113.md`, read 2026-11-13; not yet posted on PR #142)
+
+- **Upload cap (Q-E1, read).** Synapse 1.164.1; the repo template `homeserver.yaml` has `max_upload_size: 50M` and the nginx vhost `client_max_body_size 50m`; the live runtime file is root-only and was not read. No per-room or per-user per-file cap exists; `media_upload_limits` is a per-user time-window quota. `GET /_matrix/client/v1/media/config` returns `m.upload.size` to an authenticated client, which is what the client reads. Raising the cap takes the config line, a Synapse restart and nginx at least as large.
+- **Posting (Q-E1, read).** A Self holds no Matrix credentials, so the publisher needs its own bot account and token (a MAS compatibility token via `mas-cli`). It uploads with `POST /_matrix/media/v3/upload` and sends `m.room.message` with `msgtype` `m.file` or `m.image`. The Persona mouth sends `m.text` only today, so file events are new for it too.
+- **Not yet read:** the final-marker convention (Eureka proposes a sibling `<name>.final` or a `published/` hardlink the publisher watches, with `org.gamecult.publish.replaces` carrying the prior event id and sha256), Commons room provisioning (alias, power levels, unencrypted, membership by the estate Space, publisher bot at power level 50), and whether Synapse media honours `Range` (to be checked in `synapse/media/media_repository.py` and against a live mxc).
+- **Edited-doc stale copies:** a redacted file's media persists unless purged; the publisher dedupes by sha256.
 
 Source: Meta, #swarm 2026-11-13 14:28Z and 14:40Z; ruling `ratatoskr:ruling:persona-file-sharing-zone` (a browsable, previewing collection per Persona; the Self writes to her outbox, her Persona decides what is shared, the Self never holds Matrix credentials).
 
@@ -39,7 +46,7 @@ Option A is an extension of this, not a second system.
 | Media playback             | blob download, as today; no seeking before the whole file arrives                                      | ranges and a ticket, or the same blob                                             |
 | New moving parts           | a room, a publisher                                                                                    | a host service, OpenID verification, CORS, tickets, path containment, rate limits |
 
-## Recommendation: A
+## Recommendation: A (decided)
 
 Confidence: high on the authority question (it agrees with Meta's ruling, with Eureka's lean, with the standing ruling that the Self never holds credentials while her Persona decides what is shared, and with the fact that everything built so far reads Matrix); moderate on the details below, which Eureka's answers can change.
 
@@ -106,6 +113,8 @@ Under A the paused service is not built, and most of its list disappears:
 - **New:** (1) provision the Commons room (type, alias, restricted join to the estate Space, power levels, push muted); (2) the publisher: account, allowlist, final-marker rule, media upload, posting into folder threads, the `org.gamecult.publish` key, idempotence from its own events; (3) confirm the homeserver upload cap and whether the account may post file events from Yggdrasil (**Q-E1**, asked on the PR); (4) the per-Persona path stays the one already specified (`album-outbox-ops`: outbox, Persona decision, mouth post), so the `shared/` convention of Option B is retired.
 
 ## Cuts under A
+
+Status 2026-11-13: none built. Cut 1 below is next, on branch `void/files-desk-view` (worktree `wt/files-view`, no commits yet); its shape: a pure `albumFolders` view (folders from `/`-separated album titles, leaf name, counts), folder navigation and breadcrumb in `AlbumView` through a presentational list component tested by static render, `ShareSet` sending into the current folder by prefixing the album title, and a quiet `Commons` row (alias `#commons-files:<server>` or the carried `media.commons` id, through `lookupMediaRoom`, hidden while unset or looking, behind a dark `filesDesk.enabled` flag, and filtered out of the tiers so it is not listed twice). Muting is provisioning's (Q-E3), not the client's.
 
 1. **Commons entry**: a Commons row in the navigator (like `MediaRow`, found by alias or carried id), opening the room's album view. Flagged, no new data layer.
 2. **Pagination** of albums and files in `useAlbums` (a prerequisite for a Commons of any size).
