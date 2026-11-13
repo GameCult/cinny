@@ -9,6 +9,7 @@ import { safeFile } from '../../utils/mimeTypes';
 import { getMsgContent } from '../room/msgContent';
 import { FILE_HASH_KEY, hashForSend } from './fileReceipt';
 import { ShareController, ShareState, createShareController } from './shareController';
+import { titleIn } from './albumFolders';
 import { DEFAULT_TITLE, sendShareSet } from './shareSet';
 import * as css from './AlbumView.css';
 
@@ -100,14 +101,15 @@ export function ShareSetView({
   );
 }
 
-export function ShareSet({ room }: { room: Room }) {
+/** `folder` is the path the share lands in: its albums are titled under it (docs/commons-files-desk.md). */
+export function ShareSet({ room, folder = [] }: { room: Room; folder?: string[] }) {
   const mx = useMatrixClient();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   // Built once per mount (AlbumView keys the panel by room): the pick lives in the controller, so a
   // rerender with a new client or Room object must not build another. Live values go through `live`.
-  const live = useRef({ mx, room, queryClient });
-  live.current = { mx, room, queryClient };
+  const live = useRef({ mx, room, queryClient, folder });
+  live.current = { mx, room, queryClient, folder };
   const [controller]: [ShareController<File>, unknown] = useState(() =>
     createShareController<File>({
       roomId: room.roomId,
@@ -140,7 +142,7 @@ export function ShareSet({ room }: { room: Room }) {
             },
             onFile,
           },
-          title,
+          titleIn(live.current.folder, title, DEFAULT_TITLE),
           files.map((file) => ({ name: file.name, mimeType: file.type, file }))
         ),
     })

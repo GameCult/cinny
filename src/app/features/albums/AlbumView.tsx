@@ -15,6 +15,7 @@ import { getBlobSafeMimeType } from '../../utils/mimeTypes';
 import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
 import { Album, AlbumFile } from './buildAlbums';
+import { folderOf, listFolder, pathLabel } from './albumFolders';
 import { FileReadBy } from './FileReadBy';
 import { ShareSet, useShareEnabled } from './ShareSet';
 import { useAlbums } from './useAlbums';
@@ -91,6 +92,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
   const { loading, error, albums } = useAlbums(room);
   const [dateFormat] = useSetting(settingsAtom, 'dateFormatString');
   const [openId, setOpenId] = useState<string>();
+  const [path, setPath] = useState<string[]>([]);
   const open: Album | undefined = albums.find((a) => a.id === openId);
   const authorOf = (a: Album) => getMemberDisplayName(room, a.author) ?? a.author;
   const encrypted = room.hasEncryptionStateEvent();
@@ -103,8 +105,17 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     const images = open.files.length > 0 && open.files.every((f) => f.kind === 'image');
     body = (
       <>
-        <button type="button" className={css.Back} onClick={() => setOpenId(undefined)}>
-          <Text size="B400">‹ Albums</Text>
+        <button
+          type="button"
+          className={css.Back}
+          onClick={() => {
+            setPath(folderOf(open));
+            setOpenId(undefined);
+          }}
+        >
+          <Text size="B400">{`‹ ${
+            folderOf(open).length ? pathLabel(folderOf(open)) : 'Albums'
+          }`}</Text>
         </button>
         <Text size="H4">{open.title}</Text>
         <Text size="T200" className={css.Dim}>
@@ -120,16 +131,43 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     );
   } else if (encrypted)
     body = <Text>This zone is encrypted, so its albums cannot be listed here.</Text>;
-  else if (albums.length === 0) body = <Text>No albums yet.</Text>;
+  else if (albums.length === 0 && path.length === 0) body = <Text>No albums yet.</Text>;
   else {
-    body = albums.map((a) => (
-      <button key={a.id} type="button" className={css.Row} onClick={() => setOpenId(a.id)}>
-        <Text size="T400">{a.title}</Text>
-        <Text size="T200" className={css.Dim}>
-          {authorOf(a)} · {countLabel(a.count)} · {timeDayMonYear(a.ts, dateFormat)}
-        </Text>
-      </button>
-    ));
+    const here = listFolder(albums, path);
+    body = (
+      <>
+        {path.length > 0 && (
+          <button type="button" className={css.Back} onClick={() => setPath(path.slice(0, -1))}>
+            <Text size="B400">{`‹ ${
+              path.length > 1 ? pathLabel(path.slice(0, -1)) : 'Albums'
+            }`}</Text>
+          </button>
+        )}
+        {path.length > 0 && <Text size="H4">{pathLabel(path)}</Text>}
+        {here.folders.map((f) => (
+          <button
+            key={`d:${f.name}`}
+            type="button"
+            className={css.Row}
+            onClick={() => setPath(f.path)}
+          >
+            <Text size="T400">{`${f.name} /`}</Text>
+            <Text size="T200" className={css.Dim}>
+              {f.albums} {f.albums === 1 ? 'album' : 'albums'} · {timeDayMonYear(f.ts, dateFormat)}
+            </Text>
+          </button>
+        ))}
+        {here.albums.map(({ album: a, leaf }) => (
+          <button key={a.id} type="button" className={css.Row} onClick={() => setOpenId(a.id)}>
+            <Text size="T400">{leaf}</Text>
+            <Text size="T200" className={css.Dim}>
+              {authorOf(a)} · {countLabel(a.count)} · {timeDayMonYear(a.ts, dateFormat)}
+            </Text>
+          </button>
+        ))}
+        {here.folders.length === 0 && here.albums.length === 0 && <Text>Nothing here.</Text>}
+      </>
+    );
   }
 
   return (
@@ -139,7 +177,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
         {/* Stays mounted while an album is open, so a running send keeps its progress. */}
         {canShare && (
           <div hidden={!!open}>
-            <ShareSet room={room} />
+            <ShareSet room={room} folder={path} />
           </div>
         )}
         <button type="button" className={css.Row} onClick={onTimeline}>
