@@ -23,7 +23,7 @@ export type ShareDeps<F extends Picked> = {
   roomId: string;
   isEncrypted: () => boolean;
   /** Sends the files as one album; reports each settled file through onFile. */
-  run: (files: F[], title: string, onFile: () => void) => Promise<ShareResult>;
+  run: (files: F[], title: string, onFile: () => void, signal: AbortSignal) => Promise<ShareResult>;
   /** Called after a send that reached the room, whatever it left unsent. */
   onSent?: () => void;
 };
@@ -34,6 +34,7 @@ const sending = new Set<string>();
 export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
   let state: ShareState<F> = { files: [], title: '', phase: { kind: 'idle' }, epoch: 0 };
   const listeners = new Set<() => void>();
+  let running: AbortController | undefined;
   const set = (patch: Partial<ShareState<F>>) => {
     state = { ...state, ...patch };
     listeners.forEach((l) => l());
@@ -48,14 +49,21 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
       return;
     }
     sending.add(deps.roomId);
+    const abort = new AbortController();
+    running = abort;
     const { files, title } = state;
     set({ phase: { kind: 'sending', done: 0 } });
     let settled = 0;
     try {
-      const res = await deps.run(files, title, () => {
-        settled += 1;
-        set({ phase: { kind: 'sending', done: settled } });
-      });
+      const res = await deps.run(
+        files,
+        title,
+        () => {
+          settled += 1;
+          set({ phase: { kind: 'sending', done: settled } });
+        },
+        abort.signal
+      );
       deps.onSent?.();
       const left = remainingAfter(files, res);
       const phase: SharePhase = { kind: 'done', text: resultNote(res) };
@@ -65,6 +73,7 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
     } catch (e: any) {
       set({ phase: { kind: 'done', text: `Could not share: ${e?.message ?? 'send failed'}` } });
     } finally {
+      running = undefined;
       sending.delete(deps.roomId);
     }
   };
@@ -80,6 +89,8 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
     pick: (files: F[]) => set({ files, phase: { kind: 'idle' } }),
     setTitle: (title: string) => set({ title }),
     cancel: clear,
+    /** Stops a send in flight: the running upload is aborted and the rest are left picked. */
+    stop: () => running?.abort(),
     send,
   };
 };

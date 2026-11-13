@@ -5,6 +5,8 @@ import {
   DEFAULT_TITLE,
   ShareFile,
   SharePort,
+  CANCELLED,
+  freshest,
   refusalOf,
   remainingAfter,
   resultNote,
@@ -171,7 +173,11 @@ describe('adding to an existing album', () => {
         return `$n${sent.length}`;
       },
     };
-    const res = await sendShareSet(port, { albumId: '$root', lastId: '$last' }, clips.slice(0, 2));
+    const res = await sendShareSet(
+      port,
+      { albumId: '$root', lastId: '$last', lastTs: 1 },
+      clips.slice(0, 2)
+    );
     expect(res.albumId).toBe('$root');
     expect(res.sent).toBe(2);
     expect(sent.map((c) => c.msgtype)).toEqual(['m.audio', 'm.audio']);
@@ -212,5 +218,95 @@ describe('refusals', () => {
   it('an unnamed failure lists the bare name', async () => {
     const res = await sendShareSet(refuse('M_UNKNOWN'), 't', clips.slice(0, 1));
     expect(resultNote(res)).toBe('Nothing was shared. Not sent: a.ogg');
+  });
+});
+
+describe('stopping a send', () => {
+  /** A port whose upload of `stopAt` aborts the signal as it runs, as the Stop button does mid-upload. */
+  const stopping = (stopAt: string, abortAfterUpload = false) => {
+    const ac = new AbortController();
+    const r = room();
+    const port: SharePort<ShareFile> = {
+      ...r.port,
+      signal: ac.signal,
+      contentOf: async (f) => {
+        if (f.name !== stopAt) return r.port.contentOf(f);
+        ac.abort();
+        if (abortAfterUpload) return r.port.contentOf(f);
+        throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+      },
+    };
+    return { port, r };
+  };
+
+  it('an upload aborted mid-file leaves that file and the rest unsent, named as stopped', async () => {
+    const { port, r } = stopping('b.ogg');
+    const res = await sendShareSet(port, 't', clips);
+    expect(res.sent).toBe(1);
+    expect(res.failed).toEqual(['b.ogg', 'c.txt']);
+    expect(res.failedAt).toEqual([1, 2]);
+    expect(res.reasons).toEqual([CANCELLED, CANCELLED]);
+    expect(r.album().files.map((f) => f.name)).toEqual(['a.ogg']);
+    expect(remainingAfter(clips, res).map((f) => f.name)).toEqual(['b.ogg', 'c.txt']);
+    expect(resultNote(res)).toBe('Shared 1. Not sent: b.ogg (stopped), c.txt (stopped)');
+  });
+
+  it('a file whose upload finished after the stop is not sent', async () => {
+    const { port, r } = stopping('b.ogg', true);
+    const res = await sendShareSet(port, 't', clips);
+    expect(res.sent).toBe(1);
+    expect(res.failedAt).toEqual([1, 2]);
+    expect(r.album().files.map((f) => f.name)).toEqual(['a.ogg']);
+  });
+
+  it('a signal already aborted starts nothing and sends everything back as unsent', async () => {
+    const r = room();
+    const ac = new AbortController();
+    ac.abort();
+    let uploads = 0;
+    const res = await sendShareSet(
+      {
+        ...r.port,
+        signal: ac.signal,
+        contentOf: async (f) => {
+          uploads += 1;
+          return r.port.contentOf(f);
+        },
+      },
+      { albumId: '$a', lastId: '$l', lastTs: 1 },
+      clips
+    );
+    expect(uploads).toBe(0);
+    expect(res.sent).toBe(0);
+    expect(res.failedAt).toEqual([0, 1, 2]);
+    expect(r.events).toEqual([]);
+  });
+
+  it('an abort that is not a stop is an ordinary failure', async () => {
+    const r = room(['b.ogg']);
+    const res = await sendShareSet({ ...r.port, signal: new AbortController().signal }, 't', clips);
+    expect(res.failedAt).toEqual([1]);
+    expect(res.reasons).toEqual([undefined]);
+  });
+});
+
+describe('freshest', () => {
+  const album = { albumId: '$alb', lastId: '$old', lastTs: 100 };
+  it('moves lastId to a newer event of the same thread', () => {
+    expect(
+      freshest(album, [
+        { id: '$mid', ts: 150, threadRoot: '$alb' },
+        { id: '$new', ts: 200, threadRoot: '$alb' },
+      ])
+    ).toEqual({ albumId: '$alb', lastId: '$new', lastTs: 200 });
+  });
+  it('ignores older events and events of other threads or none', () => {
+    expect(
+      freshest(album, [
+        { id: '$older', ts: 50, threadRoot: '$alb' },
+        { id: '$other', ts: 900, threadRoot: '$else' },
+        { id: '$loose', ts: 900 },
+      ])
+    ).toEqual(album);
   });
 });

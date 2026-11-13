@@ -1,7 +1,7 @@
 import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { Text } from 'folds';
 import { useQueryClient } from '@tanstack/react-query';
-import { Room } from 'matrix-js-sdk';
+import { EventStatus, Room } from 'matrix-js-sdk';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { uploadContent } from '../../utils/matrix';
@@ -10,7 +10,7 @@ import { getMsgContent } from '../room/msgContent';
 import { FILE_HASH_KEY, hashForSend } from './fileReceipt';
 import { ShareController, ShareState, createShareController } from './shareController';
 import { titleIn } from './albumFolders';
-import { DEFAULT_TITLE, ExistingAlbum, sendShareSet } from './shareSet';
+import { DEFAULT_TITLE, ExistingAlbum, freshest, sendShareSet, ThreadEvent } from './shareSet';
 import * as css from './AlbumView.css';
 
 /** Off unless `fileZoneShare.enabled` is true. An encrypted zone is never offered the share. */
@@ -29,6 +29,7 @@ type ShareViewProps = {
   onTitle: (title: string) => void;
   onSend: () => void;
   onCancel: () => void;
+  onStop: () => void;
   /** Adding to an existing album: the files join it, so there is no title to ask for. */
   adding?: boolean;
   inputRef?: React.Ref<HTMLInputElement>;
@@ -45,6 +46,7 @@ export function ShareSetView({
   onTitle,
   onSend,
   onCancel,
+  onStop,
   adding,
   inputRef,
 }: ShareViewProps) {
@@ -85,9 +87,14 @@ export function ShareSetView({
             {files.map((f) => f.name).join(' · ')}
           </Text>
           {phase.kind === 'sending' ? (
-            <Text size="T300">
-              Sending {phase.done} of {files.length}…
-            </Text>
+            <>
+              <Text size="T300">
+                Sending {phase.done} of {files.length}…
+              </Text>
+              <button type="button" className={css.Row} onClick={onStop}>
+                <Text size="B400">Stop</Text>
+              </button>
+            </>
           ) : (
             <>
               <button type="button" className={css.Row} onClick={onSend}>
@@ -105,6 +112,14 @@ export function ShareSetView({
     </div>
   );
 }
+
+/** The sent events in the room's live timeline, as the thread view of them `freshest` reads. */
+const threadEvents = (room: Room): ThreadEvent[] =>
+  room
+    .getLiveTimeline()
+    .getEvents()
+    .filter((e) => (!e.status || e.status === EventStatus.SENT) && !!e.getId())
+    .map((e) => ({ id: e.getId() as string, ts: e.getTs(), threadRoot: e.threadRootId }));
 
 type ShareSetProps = {
   room: Room;
@@ -127,15 +142,27 @@ export function ShareSet({ room, folder = [], into }: ShareSetProps) {
       isEncrypted: () => live.current.room.hasEncryptionStateEvent(),
       onSent: () =>
         live.current.queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] }),
-      run: (files, title, onFile) =>
+      run: (files, title, onFile, signal) =>
         sendShareSet(
           {
+            signal,
             send: async (content) =>
               (await live.current.mx.sendMessage(room.roomId, content as any)).event_id,
             contentOf: async (f) => {
               const file = safeFile(f.file);
               const mxc = await new Promise<string>((resolve, reject) => {
-                uploadContent(live.current.mx, file, { onSuccess: resolve, onError: reject });
+                const { mx: client } = live.current;
+                let upload: Promise<unknown> | undefined;
+                const abort = () => upload && client.cancelUpload(upload as never);
+                signal.addEventListener('abort', abort, { once: true });
+                uploadContent(client, file, {
+                  onPromise: (p) => {
+                    upload = p;
+                    if (signal.aborted) abort();
+                  },
+                  onSuccess: resolve,
+                  onError: reject,
+                });
               });
               const content = await getMsgContent(
                 live.current.mx,
@@ -153,7 +180,9 @@ export function ShareSet({ room, folder = [], into }: ShareSetProps) {
             },
             onFile,
           },
-          live.current.into ?? titleIn(live.current.folder, title, DEFAULT_TITLE),
+          live.current.into
+            ? freshest(live.current.into, threadEvents(live.current.room))
+            : titleIn(live.current.folder, title, DEFAULT_TITLE),
           files.map((file) => ({ name: file.name, mimeType: file.type, file }))
         ),
     })
@@ -168,6 +197,7 @@ export function ShareSet({ room, folder = [], into }: ShareSetProps) {
       onTitle={controller.setTitle}
       onSend={controller.send}
       onCancel={controller.cancel}
+      onStop={controller.stop}
       adding={!!into}
     />
   );

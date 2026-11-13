@@ -18,7 +18,7 @@ type Versioned<F> = F & { earlier: F[] };
  * Files not replaced by another file in the list, oldest first as given, each carrying the files it
  * supersedes (nearest first) in `earlier`. A replacement whose target is missing from the list (a
  * redacted event, another thread) replaces nothing and stands as a head. A replacement by another sender is ignored. A file two others claim to
- * replace sits under both. The walk refuses to revisit a file, so a malformed chain cannot loop (an event id hashes its content, so a real one cannot cycle).
+ * replace sits under both. The walk refuses to revisit a file, so a malformed chain cannot loop (a real event id hashes its content and cannot cycle); files caught in a loop with no head outside it are all shown, none folded.
  */
 export const foldVersions = <
   F extends { id: string; sender: string; content: Record<string, unknown> }
@@ -46,5 +46,11 @@ export const foldVersions = <
     }
     return out;
   };
-  return files.filter((f) => !replaced.has(f.id)).map((h) => ({ ...h, earlier: chainOf(h) }));
+  const heads = files.filter((f) => !replaced.has(f.id));
+  const covered = new Set(heads.flatMap((h) => [h.id, ...chainOf(h).map((e) => e.id)]));
+  // Files that replace one another with no head outside the loop are never reached from a head; show
+  // each of them as it is rather than let the loop hide itself.
+  return files
+    .filter((f) => !replaced.has(f.id) || !covered.has(f.id))
+    .map((f) => ({ ...f, earlier: replaced.has(f.id) ? [] : chainOf(f) }));
 };

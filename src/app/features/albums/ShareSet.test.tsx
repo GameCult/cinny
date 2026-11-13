@@ -23,6 +23,7 @@ const view = (over: Partial<ShareState<File>> = {}, adding = false) =>
       onTitle={noop}
       onSend={noop}
       onCancel={noop}
+      onStop={noop}
       adding={adding}
     />
   );
@@ -55,6 +56,7 @@ describe('the share panel, drawn', () => {
       phase: { kind: 'sending', done: 2 },
     });
     expect(text(html)).toContain('Sending 2 of 3…');
+    expect(text(html)).toContain('Stop');
     expect(text(html)).not.toContain('Send 3 files');
     expect(text(html)).not.toContain('Cancel');
     expect(html).toMatch(

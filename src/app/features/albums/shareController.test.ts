@@ -7,11 +7,11 @@ const ok = (n: number): ShareResult => ({ albumId: '$r', sent: n, failed: [], fa
 
 /** A run the test settles by hand, so "in flight" is a state the test can stand in. */
 const hand = () => {
-  const calls: { files: Picked[]; title: string; onFile: () => void }[] = [];
+  const calls: { files: Picked[]; title: string; onFile: () => void; signal: AbortSignal }[] = [];
   let release: (r: ShareResult) => void = () => undefined;
   let fail: (e: Error) => void = () => undefined;
-  const run: ShareDeps<Picked>['run'] = (files, title, onFile) => {
-    calls.push({ files, title, onFile });
+  const run: ShareDeps<Picked>['run'] = (files, title, onFile, signal) => {
+    calls.push({ files, title, onFile, signal });
     return new Promise<ShareResult>((resolve, reject) => {
       release = resolve;
       fail = reject;
@@ -257,5 +257,25 @@ describe('an encrypted room', () => {
       kind: 'done',
       text: 'Not shared: this room is encrypted.',
     });
+  });
+});
+
+describe('Stop', () => {
+  it('aborts the signal of the send in flight, and only that send', async () => {
+    const { c, h } = make();
+    c.pick([file('a'), file('b')]);
+    c.stop(); // nothing running: nothing to abort
+    const sending = c.send();
+    expect(h.calls[0].signal.aborted).toBe(false);
+    c.stop();
+    expect(h.calls[0].signal.aborted).toBe(true);
+    h.release({ albumId: '$r', sent: 0, failed: ['a', 'b'], failedAt: [0, 1] });
+    await sending;
+    expect(c.getState().files.map((f) => f.name)).toEqual(['a', 'b']);
+    // the next send gets a fresh signal
+    const again = c.send();
+    expect(h.calls[1].signal.aborted).toBe(false);
+    h.release(ok(2));
+    await again;
   });
 });

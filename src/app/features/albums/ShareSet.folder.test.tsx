@@ -27,8 +27,8 @@ vi.mock('./shareController', () => ({
 }));
 vi.mock('./shareSet', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./shareSet')>()),
-  sendShareSet: async (_port: unknown, into: string | { albumId: string }) => {
-    captured.titles.push(typeof into === 'string' ? into : `into:${into.albumId}`);
+  sendShareSet: async (_port: unknown, into: string | { albumId: string; lastId: string }) => {
+    captured.titles.push(typeof into === 'string' ? into : `into:${into.albumId}@${into.lastId}`);
     return { albumId: '$a', sent: 0, failed: [], failedAt: [] };
   },
 }));
@@ -42,8 +42,19 @@ vi.mock('react', async (importOriginal) => {
 // eslint-disable-next-line import/first
 import { ShareSet } from './ShareSet';
 
-const mount = (folder?: string[], into?: { albumId: string; lastId: string }) => {
-  const room = { roomId: '!r:x', hasEncryptionStateEvent: () => false } as never;
+const timeline: unknown[] = [];
+const ev = (id: string, ts: number, threadRootId?: string, status: string | null = null) => ({
+  getId: () => id,
+  getTs: () => ts,
+  threadRootId,
+  status,
+});
+const mount = (folder?: string[], into?: { albumId: string; lastId: string; lastTs: number }) => {
+  const room = {
+    roomId: '!r:x',
+    hasEncryptionStateEvent: () => false,
+    getLiveTimeline: () => ({ getEvents: () => timeline }),
+  } as never;
   renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
       <MatrixClientProvider value={{ sendMessage: async () => ({ event_id: '$e' }) } as never}>
@@ -61,6 +72,7 @@ describe('ShareSet: the folder reaches the album title', () => {
   beforeEach(() => {
     captured.run = undefined;
     captured.titles.length = 0;
+    timeline.length = 0;
   });
 
   it('at the top, the typed title goes as typed', async () => {
@@ -84,7 +96,19 @@ describe('ShareSet: the folder reaches the album title', () => {
   });
 
   it('an existing album takes the files instead of a title, whatever the folder', async () => {
-    mount(['a'], { albumId: '$alb', lastId: '$last' });
-    expect(await send('ignored')).toBe('into:$alb');
+    mount(['a'], { albumId: '$alb', lastId: '$last', lastTs: 5 });
+    expect(await send('ignored')).toBe('into:$alb@$last');
+  });
+
+  it('the freshest sent event of that thread in the room timeline is where the files thread after', async () => {
+    timeline.push(
+      ev('$other', 99, '$else'),
+      ev('$local', 98, '$alb', 'sending'),
+      ev('$new', 50, '$alb'),
+      ev('$sentNotEchoed', 60, '$alb', 'sent'),
+      ev('$failed', 70, '$alb', 'not_sent')
+    );
+    mount(['a'], { albumId: '$alb', lastId: '$last', lastTs: 5 });
+    expect(await send('x')).toBe('into:$alb@$sentNotEchoed');
   });
 });
