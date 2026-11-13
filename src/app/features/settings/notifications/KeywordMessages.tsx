@@ -15,6 +15,7 @@ import {
 } from '../../../hooks/useNotificationMode';
 import { NotificationModeSwitcher } from './NotificationModeSwitcher';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const NOTIFY_MODE_OPS: NotificationModeOptions = {
   highlight: true,
@@ -75,6 +76,7 @@ function KeywordInput() {
             keyword &&
             !addingKeyword && (
               <IconButton
+                className={PhoneHit}
                 type="reset"
                 onClick={handleReset}
                 size="300"
@@ -118,7 +120,14 @@ function KeywordCross({ pushRule }: PushRulesProps) {
 
   const removing = removeState.status === AsyncStatus.Loading;
   return (
-    <IconButton onClick={remove} size="300" radii="Pill" variant="Secondary" disabled={removing}>
+    <IconButton
+      className={PhoneHit}
+      onClick={remove}
+      size="300"
+      radii="Pill"
+      variant="Secondary"
+      disabled={removing}
+    >
       {removing ? <Spinner size="100" /> : <Icon src={Icons.Cross} size="100" />}
     </IconButton>
   );

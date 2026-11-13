@@ -20,6 +20,7 @@ import { MatrixError } from 'matrix-js-sdk';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { stopPropagation } from '../../utils/keyboard';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type LeaveRoomPromptProps = {
   roomId: string;
@@ -68,7 +69,7 @@ export function LeaveRoomPrompt({ roomId, onDone, onCancel }: LeaveRoomPromptPro
               <Box grow="Yes">
                 <Text size="H4">Leave Room</Text>
               </Box>
-              <IconButton size="300" onClick={onCancel} radii="300">
+              <IconButton className={PhoneHit} size="300" onClick={onCancel} radii="300">
                 <Icon src={Icons.Cross} />
               </IconButton>
             </Header>

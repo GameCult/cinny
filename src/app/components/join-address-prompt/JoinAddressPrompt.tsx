@@ -20,6 +20,7 @@ import { stopPropagation } from '../../utils/keyboard';
 import { isRoomAlias, isRoomId } from '../../utils/matrix';
 import { parseMatrixToRoom, parseMatrixToRoomEvent, testMatrixTo } from '../../plugins/matrix-to';
 import { tryDecodeURIComponent } from '../../utils/dom';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type JoinAddressProps = {
   onOpen: (roomIdOrAlias: string, via?: string[], eventId?: string) => void;
@@ -82,7 +83,7 @@ export function JoinAddressPrompt({ onOpen, onCancel }: JoinAddressProps) {
               <Box grow="Yes">
                 <Text size="H4">Join with Address</Text>
               </Box>
-              <IconButton size="300" onClick={onCancel} radii="300">
+              <IconButton className={PhoneHit} size="300" onClick={onCancel} radii="300">
                 <Icon src={Icons.Cross} />
               </IconButton>
             </Header>

@@ -40,6 +40,7 @@ import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { useAlive } from '../../../hooks/useAlive';
 import { useRoomCreators } from '../../../hooks/useRoomCreators';
 import { useRoomPermissions } from '../../../hooks/useRoomPermissions';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type CreatePackTileProps = {
   packs: ImagePack[];
@@ -215,6 +216,7 @@ export function RoomPacks({ onViewPack }: RoomPacksProps) {
               {canEdit &&
                 (removed ? (
                   <IconButton
+                    className={PhoneHit}
                     size="300"
                     radii="Pill"
                     variant="Critical"
@@ -225,6 +227,7 @@ export function RoomPacks({ onViewPack }: RoomPacksProps) {
                   </IconButton>
                 ) : (
                   <IconButton
+                    className={PhoneHit}
                     size="300"
                     radii="Pill"
                     variant="Secondary"
