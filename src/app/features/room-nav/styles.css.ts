@@ -3,6 +3,7 @@ import { config } from 'folds';
 import { surfaceInk } from '../scene/sceneShell.css';
 import { skyLabelInk } from '../scene/skyLabelInk';
 import { NAV_ICON_REST_OPACITY } from '../../components/nav/styles.css';
+import { PHONE_GLYPHS } from '../../../phoneGlyph.css';
 
 export const CategoryButton = style({
   flexGrow: 1,
@@ -32,4 +33,11 @@ export const CategoryButton = style({
 });
 export const CategoryButtonIcon = style({
   opacity: NAV_ICON_REST_OPACITY,
+  // A phone draws the 16 px chevron as its IconButton neighbours are drawn (see phoneGlyph.css.ts): paint-time, so
+  // the gutter and the row keep their layout.
+  '@media': {
+    'screen and (max-width: 750px)': {
+      scale: `${PHONE_GLYPHS['50'].phonePx / PHONE_GLYPHS['50'].px}`,
+    },
+  },
 });

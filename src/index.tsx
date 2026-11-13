@@ -14,6 +14,7 @@ import '@fontsource/montserrat/200.css';
 import '@fontsource/montserrat/300.css';
 import '@fontsource/ibm-plex-mono/400.css';
 import 'folds/dist/style.css';
+import './phoneGlyph.css';
 import { configClass, varsClass } from 'folds';
 
 enableMapSet();
