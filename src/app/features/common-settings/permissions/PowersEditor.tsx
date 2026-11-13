@@ -49,6 +49,7 @@ import { useAlive } from '../../../hooks/useAlive';
 import { BetaNoticeBadge } from '../../../components/BetaNoticeBadge';
 import { getPowerTagIconSrc } from '../../../hooks/useMemberPowerTag';
 import { creatorsSupported } from '../../../utils/matrix';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type EditPowerProps = {
   maxPower: number;
@@ -369,7 +370,7 @@ export function PowersEditor({ powerLevels, requestClose }: PowersEditorProps) {
             </Chip>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

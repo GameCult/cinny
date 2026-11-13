@@ -22,6 +22,7 @@ import { useTextAreaCodeEditor } from '../../../hooks/useTextAreaCodeEditor';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { syntaxErrorPosition } from '../../../utils/dom';
 import { Cursor } from '../../../plugins/text-area';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const EDITOR_INTENT_SPACE_COUNT = 2;
 
@@ -118,7 +119,7 @@ export function SendRoomEvent({ type, stateKey, requestClose }: SendRoomEventPro
             </Chip>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

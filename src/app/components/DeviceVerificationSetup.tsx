@@ -25,6 +25,7 @@ import { ActionUIA, ActionUIAFlowsLoader } from './ActionUIA';
 import { useMatrixClient } from '../hooks/useMatrixClient';
 import { useAlive } from '../hooks/useAlive';
 import { UseStateProvider } from './UseStateProvider';
+import { PhoneHit } from '../styles/PhoneHit.css';
 
 type UIACallback<T> = (
   authDict: AuthDict | null
@@ -301,7 +302,7 @@ export const DeviceVerificationSetup = forwardRef<HTMLDivElement, DeviceVerifica
           <Box grow="Yes">
             <Text size="H4">Setup Device Verification</Text>
           </Box>
-          <IconButton size="300" radii="300" onClick={onCancel}>
+          <IconButton className={PhoneHit} size="300" radii="300" onClick={onCancel}>
             <Icon src={Icons.Cross} />
           </IconButton>
         </Header>
@@ -336,7 +337,7 @@ export const DeviceVerificationReset = forwardRef<HTMLDivElement, DeviceVerifica
           <Box grow="Yes">
             <Text size="H4">Reset Device Verification</Text>
           </Box>
-          <IconButton size="300" radii="300" onClick={onCancel}>
+          <IconButton className={PhoneHit} size="300" radii="300" onClick={onCancel}>
             <Icon src={Icons.Cross} />
           </IconButton>
         </Header>

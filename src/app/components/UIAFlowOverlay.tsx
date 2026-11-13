@@ -13,6 +13,7 @@ import {
   IconButton,
 } from 'folds';
 import FocusTrap from 'focus-trap-react';
+import { PhoneHit } from '../styles/PhoneHit.css';
 
 export type UIAFlowOverlayProps = {
   currentStep: number;
@@ -53,6 +54,7 @@ export function UIAFlowOverlay({
             >
               {(anchorRef) => (
                 <IconButton
+                  className={PhoneHit}
                   ref={anchorRef}
                   variant="Critical"
                   size="300"

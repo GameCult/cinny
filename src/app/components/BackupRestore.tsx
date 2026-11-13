@@ -30,6 +30,7 @@ import {
 } from '../hooks/useKeyBackup';
 import { stopPropagation } from '../utils/keyboard';
 import { useRestoreBackupOnVerification } from '../hooks/useRestoreBackupOnVerification';
+import { PhoneHit } from '../styles/PhoneHit.css';
 
 type BackupStatusProps = {
   enabled: boolean;
@@ -177,6 +178,7 @@ export function BackupRestoreTile({ crypto }: BackupRestoreTileProps) {
             <BackupSyncing count={remainingSession} />
           )}
           <IconButton
+            className={PhoneHit}
             aria-pressed={!!menuCords}
             size="300"
             variant="Surface"
