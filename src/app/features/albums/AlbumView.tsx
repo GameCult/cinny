@@ -68,6 +68,26 @@ function FileRow({ room, file, author }: FileRowProps) {
   );
 }
 
+/** A file, and under it a row that unfolds the versions it supersedes. */
+function VersionedFileRow({ room, file, author }: FileRowProps) {
+  const [shown, setShown] = useState(false);
+  const n = file.earlier.length;
+  return (
+    <>
+      <FileRow room={room} file={file} author={author} />
+      {n > 0 && (
+        <button type="button" className={css.Row} onClick={() => setShown(!shown)}>
+          <Text size="T200" className={css.Dim}>
+            {`${shown ? '▾' : '▸'} ${n} earlier ${n === 1 ? 'version' : 'versions'}`}
+          </Text>
+        </button>
+      )}
+      {shown &&
+        file.earlier.map((e) => <FileRow key={e.id} room={room} file={e} author={author} />)}
+    </>
+  );
+}
+
 const countLabel = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
 
 /** The zone never mounts RoomTimeline, so it sends the read receipt the timeline would. */
@@ -124,7 +144,7 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
         {open.count === 0 && <Text>This album has no files.</Text>}
         <div className={images ? `${css.Files} ${css.FilesWide}` : css.Files}>
           {open.files.map((f) => (
-            <FileRow key={f.id} room={room} file={f} author={authorOf(open)} />
+            <VersionedFileRow key={f.id} room={room} file={f} author={authorOf(open)} />
           ))}
         </div>
       </>

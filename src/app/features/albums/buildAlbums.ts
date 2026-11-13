@@ -3,6 +3,7 @@
 // into albums. See docs/file-zone.md for the rulings this encodes.
 import { readersOf } from './fileReceipt';
 import type { FileReader } from './fileReceipt';
+import { foldVersions } from './versions';
 
 /** The slice of a Matrix event this module reads. Every field may be missing. */
 export type ZoneEvent = {
@@ -22,11 +23,14 @@ export type AlbumFile = {
   id: string;
   kind: FileKind;
   name: string;
+  sender: string;
   ts: number;
   /** The event content, as RenderMessageContent reads it. */
   content: Record<string, unknown>;
   /** Receipts in this album that name this file, one per sender (the latest), oldest first. */
   readBy: FileReader[];
+  /** The versions this file supersedes, nearest first (`org.gamecult.publish.replaces`). */
+  earlier: AlbumFile[];
 };
 
 export type Album = {
@@ -72,9 +76,11 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     id: e.event_id,
     kind,
     name: asString(e.content.filename) || asString(e.content.body),
+    sender: e.sender ?? '',
     ts: tsOf(e.origin_server_ts),
     content: e.content,
     readBy: [],
+    earlier: [],
   };
 };
 
@@ -103,14 +109,15 @@ const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
     })
     .sort((a, b) => a.ts - b.ts)
     .map((f) => ({ ...f, readBy: readersOf(list, f.id, f.content, server) }));
+  const heads = foldVersions(files);
   return {
     id: root.event_id,
     title: titleOf(root),
     author: root.sender ?? '',
     ts: tsOf(root.origin_server_ts),
-    cover: files.find((f) => f.kind === 'image'),
-    files,
-    count: files.length,
+    cover: heads.find((f) => f.kind === 'image'),
+    files: heads,
+    count: heads.length,
   };
 };
 
