@@ -1,8 +1,8 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { buildShaPlugin, gitIn, readBuildSha } from './buildSha';
 
 const SHA = 'b6b1d522f1c0a9d3e2b4c5d6e7f8091a2b3c4d5e';
@@ -35,8 +35,13 @@ describe('readBuildSha', () => {
 });
 
 describe('readBuildSha against a real repository', () => {
+  const made = [];
+  afterEach(() => {
+    made.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
+  });
   const repo = () => {
     const dir = mkdtempSync(join(tmpdir(), 'buildsha-'));
+    made.push(dir);
     const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
     g('init', '-q');
     mkdirSync(join(dir, 'src'));
