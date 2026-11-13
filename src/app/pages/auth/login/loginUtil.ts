@@ -1,6 +1,6 @@
 import to from 'await-to-js';
 import { LoginRequest, LoginResponse, MatrixError, createClient } from 'matrix-js-sdk';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ClientConfig, clientAllowedServer } from '../../../hooks/useClientConfig';
 import { autoDiscovery, specVersions } from '../../../cs-api';
@@ -12,7 +12,7 @@ import {
 import { getHomePath } from '../../pathUtils';
 import { setFallbackSession } from '../../../state/sessions';
 import { settleLocalData } from '../../../state/softLogout';
-import { wipeLocalData } from '../../../../client/initMatrix';
+import { wipeLocalData } from '../../../../client/wipeLocalData';
 
 export enum GetBaseUrlError {
   NotAllow = 'NotAllow',
@@ -112,9 +112,11 @@ export const login = async (
 
 export const useLoginComplete = (data?: CustomLoginResponse) => {
   const navigate = useNavigate();
+  const settled = useRef<CustomLoginResponse>();
 
   useEffect(() => {
-    if (!data) return;
+    if (!data || settled.current === data) return;
+    settled.current = data;
     const { response: loginRes, baseUrl: loginBaseUrl } = data;
     const finish = async () => {
       const afterLoginRedirectUrl = getAfterLoginRedirectPath();

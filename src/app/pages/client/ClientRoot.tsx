@@ -19,11 +19,11 @@ import React, { MouseEventHandler, ReactNode, useCallback, useEffect, useState }
 import {
   clearCacheAndReload,
   clearLoginData,
-  wipeLocalData,
   initClient,
   logoutClient,
   startClient,
 } from '../../../client/initMatrix';
+import { wipeLocalData } from '../../../client/wipeLocalData';
 import { SplashScreen } from '../../components/splash-screen';
 import { ServerConfigsLoader } from '../../components/ServerConfigsLoader';
 import { CapabilitiesProvider } from '../../hooks/useCapabilities';

@@ -168,6 +168,13 @@ describe('the logout handler', () => {
     await handler({ data: {} });
     expect(calls).toEqual({ stop: 0, wipe: 0, reload: 0, worker: 0 });
   });
+  it('soft with no session in storage: one wipe, no record', async () => {
+    const { storage, calls, handler } = rig(true);
+    storage.removeItem('cinny_access_token');
+    await handler({ data: { soft_logout: true } });
+    expect(calls).toEqual({ stop: 1, wipe: 1, reload: 1, worker: 0 });
+    expect(getSoftLogout(storage)).toBeUndefined();
+  });
   it('hard twice: one wipe', async () => {
     const { calls, handler, err } = rig(false);
     await handler(err);

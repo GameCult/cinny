@@ -6,7 +6,7 @@ import {
   RegisterRequest,
   RegisterResponse,
 } from 'matrix-js-sdk';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LoginPathSearchParams } from '../../paths';
 import { ErrorCode } from '../../../cs-errorcode';
@@ -18,7 +18,7 @@ import { getHomePath, getLoginPath, withSearchParam } from '../../pathUtils';
 import { getMxIdLocalPart, getMxIdServer } from '../../../utils/matrix';
 import { setFallbackSession } from '../../../state/sessions';
 import { settleLocalData } from '../../../state/softLogout';
-import { wipeLocalData } from '../../../../client/initMatrix';
+import { wipeLocalData } from '../../../../client/wipeLocalData';
 import type { RegisterTrouble } from '../authMessages';
 
 export enum RegisterError {
@@ -133,9 +133,11 @@ export const register = async (
 
 export const useRegisterComplete = (data?: CustomRegisterResponse) => {
   const navigate = useNavigate();
+  const settled = useRef<CustomRegisterResponse>();
 
   useEffect(() => {
-    if (data) {
+    if (data && settled.current !== data) {
+      settled.current = data;
       const { response, baseUrl } = data;
 
       const userId = response.user_id;

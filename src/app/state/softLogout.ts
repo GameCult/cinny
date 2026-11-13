@@ -98,8 +98,9 @@ export const createLogoutHandler = (ports: LogoutHandlerPorts) => {
     if (fired || getSoftLogout(ports.storage)) return;
     fired = true;
     ports.stop();
-    if (classifyLogout(err) === 'soft') {
-      if (beginSoftLogout(ports.storage)) ports.forgetSessionInWorker();
+    // Soft needs a session to remember; without one nothing can vouch for the stores, so wipe.
+    if (classifyLogout(err) === 'soft' && beginSoftLogout(ports.storage)) {
+      ports.forgetSessionInWorker();
       ports.reload();
       return;
     }

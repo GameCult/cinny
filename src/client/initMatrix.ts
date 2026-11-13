@@ -7,6 +7,7 @@ import {
   SyncState,
 } from 'matrix-js-sdk';
 
+import { wipeLocalData } from './wipeLocalData';
 import { cryptoCallbacks } from './secretStorageKeys';
 import { clearNavToActivePathStore } from '../app/state/navToActivePath';
 import { pushSessionToSW } from '../sw-session';
@@ -109,45 +110,6 @@ export const clearCacheAndReload = async (mx: MatrixClient) => {
   clearNavToActivePathStore(mx.getSafeUserId());
   await mx.store.deleteAllData();
   window.location.reload();
-};
-
-// The rust crypto databases the SDK names, for browsers without indexedDB.databases().
-const KNOWN_DATABASES = [
-  'web-sync-store',
-  'crypto-store',
-  'matrix-js-sdk::matrix-sdk-crypto',
-  'matrix-js-sdk::matrix-sdk-crypto-meta',
-];
-
-const deleteDatabase = (name: string) =>
-  new Promise<void>((resolve) => {
-    const req = window.indexedDB.deleteDatabase(name);
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
-
-/**
- * The one wipe of everything this browser holds for the account: client stores, every IndexedDB
- * database, localStorage. Hard logout, a soft logout answered by another user or device, and
- * "sign in as someone else" all end here. Callers reload afterwards.
- */
-export const wipeLocalData = async (mx?: MatrixClient) => {
-  try {
-    await mx?.clearStores();
-  } catch {
-    // the databases go below regardless
-  }
-  let names: string[];
-  try {
-    names = (await window.indexedDB.databases())
-      .map((db) => db.name)
-      .filter((name): name is string => !!name);
-  } catch {
-    names = KNOWN_DATABASES;
-  }
-  await Promise.all(names.map(deleteDatabase));
-  window.localStorage.clear();
 };
 
 export const logoutClient = async (mx: MatrixClient) => {
