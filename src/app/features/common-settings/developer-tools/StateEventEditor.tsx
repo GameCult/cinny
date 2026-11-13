@@ -31,6 +31,7 @@ import { usePowerLevels } from '../../../hooks/usePowerLevels';
 import { useTextAreaCodeEditor } from '../../../hooks/useTextAreaCodeEditor';
 import { useRoomCreators } from '../../../hooks/useRoomCreators';
 import { useRoomPermissions } from '../../../hooks/useRoomPermissions';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const EDITOR_INTENT_SPACE_COUNT = 2;
 
@@ -275,7 +276,7 @@ export function StateEventEditor({ type, stateKey, requestClose }: StateEventEdi
             </Chip>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

@@ -28,6 +28,7 @@ import { useRoom } from '../../../hooks/useRoom';
 import { useStateEvent } from '../../../hooks/useStateEvent';
 import { stopPropagation } from '../../../utils/keyboard';
 import { RoomPermissionsAPI } from '../../../hooks/useRoomPermissions';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 const ROOM_ENC_ALGO = 'm.megolm.v1.aes-sha2';
 
@@ -123,7 +124,12 @@ export function RoomEncryption({ permissions }: RoomEncryptionProps) {
                     <Box grow="Yes">
                       <Text size="H4">Enable Encryption</Text>
                     </Box>
-                    <IconButton size="300" onClick={() => setPrompt(false)} radii="300">
+                    <IconButton
+                      className={PhoneHit}
+                      size="300"
+                      onClick={() => setPrompt(false)}
+                      radii="300"
+                    >
                       <Icon src={Icons.Cross} />
                     </IconButton>
                   </Header>

@@ -43,6 +43,7 @@ import { allRoomsAtom } from '../../../state/room-list/roomList';
 import { AccountDataEvent } from '../../../../types/matrix/accountData';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { stopPropagation } from '../../../utils/keyboard';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 function GlobalPackSelector({
   packs,
@@ -368,6 +369,7 @@ export function GlobalPacks({ onViewPack }: GlobalPacksProps) {
             <Box alignItems="Center" gap="300">
               {removed ? (
                 <IconButton
+                  className={PhoneHit}
                   size="300"
                   radii="Pill"
                   variant="Critical"
@@ -378,6 +380,7 @@ export function GlobalPacks({ onViewPack }: GlobalPacksProps) {
                 </IconButton>
               ) : (
                 <IconButton
+                  className={PhoneHit}
                   size="300"
                   radii="Pill"
                   variant="Secondary"

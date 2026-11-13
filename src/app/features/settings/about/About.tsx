@@ -8,6 +8,7 @@ import { LogoMark } from '../../../components/logo/logoMark.css';
 import RatatoskrSVG from '../../../../../public/res/svg/ratatoskr.svg';
 import { clearCacheAndReload } from '../../../../client/initMatrix';
 import { useMatrixClient } from '../../../hooks/useMatrixClient';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type AboutProps = {
   requestClose: () => void;
@@ -25,7 +26,7 @@ export function About({ requestClose }: AboutProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

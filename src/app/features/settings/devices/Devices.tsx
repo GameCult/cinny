@@ -26,6 +26,7 @@ import {
 } from '../../../hooks/useSecretStorage';
 import { useCrossSigningActive } from '../../../hooks/useCrossSigning';
 import { BackupRestoreTile } from '../../../components/BackupRestore';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 function DevicesPlaceholder() {
   return (
@@ -74,7 +75,7 @@ export function Devices({ requestClose }: DevicesProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>

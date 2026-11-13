@@ -24,6 +24,7 @@ import {
 import { CreateRoomModalState } from '../../state/createRoomModal';
 import { stopPropagation } from '../../utils/keyboard';
 import { CreateRoomType } from '../../components/create-room/types';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type CreateRoomModalProps = {
   state: CreateRoomModalState;
@@ -63,7 +64,7 @@ function CreateRoomModal({ state }: CreateRoomModalProps) {
                     </Text>
                   </Box>
                   <Box shrink="No">
-                    <IconButton size="300" radii="300" onClick={closeDialog}>
+                    <IconButton className={PhoneHit} size="300" radii="300" onClick={closeDialog}>
                       <Icon src={Icons.Cross} />
                     </IconButton>
                   </Box>
