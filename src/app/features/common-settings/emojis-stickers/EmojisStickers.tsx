@@ -4,6 +4,7 @@ import { Page, PageContent, PageHeader } from '../../../components/page';
 import { ImagePack } from '../../../plugins/custom-emoji';
 import { ImagePackView } from '../../../components/image-pack-view';
 import { RoomPacks } from './RoomPacks';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type EmojisStickersProps = {
   requestClose: () => void;
@@ -29,7 +30,7 @@ export function EmojisStickers({ requestClose }: EmojisStickersProps) {
             </Text>
           </Box>
           <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
+            <IconButton className={PhoneHit} onClick={requestClose} variant="Surface">
               <Icon src={Icons.Cross} />
             </IconButton>
           </Box>
