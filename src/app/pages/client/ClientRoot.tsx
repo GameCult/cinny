@@ -36,7 +36,7 @@ import { stopPropagation } from '../../utils/keyboard';
 import { SyncStatus } from './SyncStatus';
 import { AuthMetadataProvider } from '../../hooks/useAuthMetadata';
 import { getFallbackSession } from '../../state/sessions';
-import { beginSoftLogout, classifyLogout } from '../../state/softLogout';
+import { createLogoutHandler } from '../../state/softLogout';
 import { pushSessionToSW } from '../../../sw-session';
 import { AutoDiscovery } from './AutoDiscovery';
 import { PhoneHit } from '../../styles/PhoneHit.css';
@@ -130,17 +130,15 @@ function ClientRootOptions({ mx }: { mx?: MatrixClient }) {
 
 const useLogoutListener = (mx?: MatrixClient) => {
   useEffect(() => {
-    const handleLogout: HttpApiEventHandlerMap[HttpApiEvent.SessionLoggedOut] = async (err) => {
-      mx?.stopClient();
-      // Soft: the token is dead, the device is not. Keep the stores and ask for a sign-in.
-      if (classifyLogout(err) === 'soft' && beginSoftLogout()) {
-        pushSessionToSW();
-        window.location.reload();
-        return;
+    const handleLogout: HttpApiEventHandlerMap[HttpApiEvent.SessionLoggedOut] = createLogoutHandler(
+      {
+        storage: window.localStorage,
+        stop: () => mx?.stopClient(),
+        wipe: () => wipeLocalData(mx),
+        reload: () => window.location.reload(),
+        forgetSessionInWorker: () => pushSessionToSW(),
       }
-      await wipeLocalData(mx);
-      window.location.reload();
-    };
+    );
 
     mx?.on(HttpApiEvent.SessionLoggedOut, handleLogout);
     return () => {

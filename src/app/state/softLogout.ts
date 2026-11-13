@@ -10,23 +10,15 @@ const ACCESS_TOKEN_KEY = 'cinny_access_token';
 export type SoftLogoutRecord = {
   userId: string;
   deviceId: string;
-  baseUrl: string;
 };
 
 export const getSoftLogout = (storage: Storage = localStorage): SoftLogoutRecord | undefined => {
   const raw = storage.getItem(SOFT_LOGOUT_KEY);
   if (!raw) return undefined;
   try {
-    const { userId, deviceId, baseUrl } = JSON.parse(raw) as Partial<SoftLogoutRecord>;
-    if (
-      typeof userId === 'string' &&
-      typeof deviceId === 'string' &&
-      typeof baseUrl === 'string' &&
-      userId &&
-      deviceId &&
-      baseUrl
-    ) {
-      return { userId, deviceId, baseUrl };
+    const { userId, deviceId } = JSON.parse(raw) as Partial<SoftLogoutRecord>;
+    if (typeof userId === 'string' && typeof deviceId === 'string' && userId && deviceId) {
+      return { userId, deviceId };
     }
   } catch {
     // an unreadable record is no record
@@ -57,10 +49,7 @@ export const classifyLogout = (err: unknown): LogoutKind => {
 export const beginSoftLogout = (storage: Storage = localStorage): boolean => {
   const session = getFallbackSession(storage);
   if (!session) return false;
-  setSoftLogout(
-    { userId: session.userId, deviceId: session.deviceId, baseUrl: session.baseUrl },
-    storage
-  );
+  setSoftLogout({ userId: session.userId, deviceId: session.deviceId }, storage);
   storage.removeItem(ACCESS_TOKEN_KEY);
   return true;
 };
@@ -89,3 +78,47 @@ export const decideLoginOutcome = (
 };
 
 export const useSoftLogout = (): SoftLogoutRecord | undefined => useState(() => getSoftLogout())[0];
+
+export type LogoutHandlerPorts = {
+  storage: Storage;
+  stop: () => void;
+  wipe: () => Promise<void>;
+  reload: () => void;
+  forgetSessionInWorker: () => void;
+};
+
+/**
+ * The SessionLoggedOut handler. The SDK emits once per failing request and in-flight requests
+ * outlive stopClient, so the first event decides and every later one is ignored: a second soft
+ * event must never find the token already gone and fall into the wipe.
+ */
+export const createLogoutHandler = (ports: LogoutHandlerPorts) => {
+  let fired = false;
+  return async (err: unknown): Promise<void> => {
+    if (fired || getSoftLogout(ports.storage)) return;
+    fired = true;
+    ports.stop();
+    if (classifyLogout(err) === 'soft') {
+      if (beginSoftLogout(ports.storage)) ports.forgetSessionInWorker();
+      ports.reload();
+      return;
+    }
+    await ports.wipe();
+    ports.reload();
+  };
+};
+
+/**
+ * Settle local data when a login or registration hands back a session: wipe first when a soft
+ * logout left stores that belong to someone else, then retire the record.
+ */
+export const settleLocalData = async (
+  response: { user_id: string; device_id: string },
+  wipe: () => Promise<void>,
+  storage: Storage = localStorage
+): Promise<LoginOutcome> => {
+  const outcome = decideLoginOutcome(getSoftLogout(storage), response);
+  if (outcome === 'wipe') await wipe();
+  clearSoftLogout(storage);
+  return outcome;
+};

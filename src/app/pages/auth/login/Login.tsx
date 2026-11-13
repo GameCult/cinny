@@ -62,6 +62,7 @@ export function Login() {
 
   const parsedFlows = useParsedLoginFlows(loginFlows.flows);
   const masUrl = useMasAccountUrl();
+  const registerEntry = registrationEntry(config);
   const softLogout = useSoftLogout();
 
   return (
@@ -100,9 +101,9 @@ export function Login() {
           <span data-spacing-node />
         </>
       )}
-      {masUrl && <MasAccountNotice url={masUrl} />}
-      {!masUrl && registrationEntry(config) && <RegisterEntry />}
-      {!masUrl && !registrationEntry(config) && (
+      {registerEntry && <RegisterEntry />}
+      {!registerEntry && masUrl && <MasAccountNotice url={masUrl} />}
+      {!registerEntry && !masUrl && (
         <Text align="Center">
           Do not have an account? <Link to={getRegisterPath(server)}>Register</Link>
         </Text>

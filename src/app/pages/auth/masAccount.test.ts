@@ -41,12 +41,12 @@ describe('masAccountUrl', () => {
 const src = (p: string) => readFileSync(`${process.cwd()}/src/app/pages/auth/${p}`, 'utf8');
 
 describe('MAS front guards', () => {
-  it('Login hides both register entries behind the MAS predicate', () => {
+  it('Login keeps a configured register entry, else MAS notice, else the bare link', () => {
     const s = src('login/Login.tsx');
     expect(s).toContain('useMasAccountUrl()');
-    expect(s).toContain('{masUrl && <MasAccountNotice');
-    expect(s).toContain('{!masUrl && registrationEntry(config) && <RegisterEntry />}');
-    expect(s).toContain('{!masUrl && !registrationEntry(config) && (');
+    expect(s).toContain('{registerEntry && <RegisterEntry />}');
+    expect(s).toContain('{!registerEntry && masUrl && <MasAccountNotice');
+    expect(s).toContain('{!registerEntry && !masUrl && (');
   });
   it('PasswordLoginForm hides the forgot link behind the MAS predicate', () => {
     const s = src('login/PasswordLoginForm.tsx');
@@ -66,9 +66,10 @@ describe('MAS front guards', () => {
   });
   it('the logout listener and login completion defer to the one wipe', () => {
     const root = readFileSync(`${process.cwd()}/src/app/pages/client/ClientRoot.tsx`, 'utf8');
-    expect(root).toContain('classifyLogout(err)');
+    expect(root).toContain('createLogoutHandler(');
     expect(root).toContain('wipeLocalData(mx)');
     expect(root).not.toContain('localStorage.clear');
-    expect(src('login/loginUtil.ts')).toContain('wipeLocalData()');
+    expect(src('login/loginUtil.ts')).toContain('settleLocalData(loginRes');
+    expect(src('register/registerUtil.ts')).toContain('settleLocalData(');
   });
 });

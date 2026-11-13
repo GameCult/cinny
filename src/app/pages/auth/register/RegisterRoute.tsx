@@ -13,10 +13,11 @@ export function RegisterRoute() {
   const entry = registrationEntry(useClientConfig());
   const masUrl = useMasAccountUrl();
   useEffect(() => {
-    if (entry && !masUrl) window.location.replace(entry.url);
-  }, [entry, masUrl]);
-  // Under MAS the in-client sign-up (UIA) cannot work; the account page is the only way.
-  if (masUrl) {
+    if (entry) window.location.replace(entry.url);
+  }, [entry]);
+  // Under MAS the in-client sign-up (UIA) cannot work; with no configured entry the account page
+  // is the only way. A configured entry keeps its own page and its training notice.
+  if (!entry && masUrl) {
     return (
       <Box direction="Column" gap="300">
         <Text size="H2" priority="400">

@@ -17,6 +17,8 @@ import {
 import { getHomePath, getLoginPath, withSearchParam } from '../../pathUtils';
 import { getMxIdLocalPart, getMxIdServer } from '../../../utils/matrix';
 import { setFallbackSession } from '../../../state/sessions';
+import { settleLocalData } from '../../../state/softLogout';
+import { wipeLocalData } from '../../../../client/initMatrix';
 import type { RegisterTrouble } from '../authMessages';
 
 export enum RegisterError {
@@ -141,10 +143,15 @@ export const useRegisterComplete = (data?: CustomRegisterResponse) => {
       const deviceId = response.device_id;
 
       if (accessToken && deviceId) {
-        setFallbackSession(accessToken, deviceId, userId, baseUrl);
         const afterLoginRedirectPath = getAfterLoginRedirectPath();
-        deleteAfterLoginRedirectPath();
-        navigate(afterLoginRedirectPath ?? getHomePath(), { replace: true });
+        // A new account never boots on a soft-logged-out user's stores.
+        settleLocalData({ user_id: userId, device_id: deviceId }, () => wipeLocalData()).then(
+          () => {
+            setFallbackSession(accessToken, deviceId, userId, baseUrl);
+            deleteAfterLoginRedirectPath();
+            navigate(afterLoginRedirectPath ?? getHomePath(), { replace: true });
+          }
+        );
       } else {
         const username = getMxIdLocalPart(userId);
         const userServer = getMxIdServer(userId);

@@ -45,14 +45,19 @@ describe('the /register route', () => {
     ).toContain('in-client register form');
   });
 
-  it('under MAS shows the account page notice, not the form, with the switch on or off', () => {
-    [{}, { registration: { enabled: true, url: 'https://accounts.example/join' } }].forEach(
-      (config) => {
-        const html = render(config, mas);
-        expect(html).toContain('href="https://auth.example/account"');
-        expect(html).not.toContain('in-client register form');
-        expect(html).not.toContain('Continue to sign up');
-      }
+  it('under MAS with no configured entry shows the account page notice, not the form', () => {
+    const html = render({}, mas);
+    expect(html).toContain('href="https://auth.example/account"');
+    expect(html).not.toContain('in-client register form');
+  });
+
+  it('under MAS a configured entry keeps its own page, not the notice or the form', () => {
+    const html = render(
+      { registration: { enabled: true, url: 'https://accounts.example/join' } },
+      mas
     );
+    expect(html).toContain('href="https://accounts.example/join"');
+    expect(html).not.toContain('auth.example/account');
+    expect(html).not.toContain('in-client register form');
   });
 });

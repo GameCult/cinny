@@ -5,6 +5,8 @@ import {
   beginSoftLogout,
   classifyLogout,
   clearSoftLogout,
+  createLogoutHandler,
+  settleLocalData,
   decideLoginOutcome,
   getSoftLogout,
   setSoftLogout,
@@ -29,7 +31,7 @@ const memoryStorage = (): Storage => {
   };
 };
 
-const record = { userId: '@a:hs', deviceId: 'DEV', baseUrl: 'https://hs.example' };
+const record = { userId: '@a:hs', deviceId: 'DEV' };
 
 describe('classifyLogout', () => {
   it('is soft only for soft_logout === true', () => {
@@ -116,5 +118,97 @@ describe('decideLoginOutcome', () => {
   it('wipes for another user or another device', () => {
     expect(decideLoginOutcome(record, { user_id: '@b:hs', device_id: 'DEV' })).toBe('wipe');
     expect(decideLoginOutcome(record, { user_id: '@a:hs', device_id: 'NEW' })).toBe('wipe');
+  });
+});
+
+describe('the logout handler', () => {
+  const rig = (soft: boolean) => {
+    const storage = memoryStorage();
+    storage.setItem('cinny_access_token', 'tok');
+    storage.setItem('cinny_device_id', 'DEV');
+    storage.setItem('cinny_user_id', '@a:hs');
+    storage.setItem('cinny_hs_base_url', 'https://hs.example');
+    const calls = { stop: 0, wipe: 0, reload: 0, worker: 0 };
+    const handler = createLogoutHandler({
+      storage,
+      stop: () => {
+        calls.stop += 1;
+      },
+      wipe: async () => {
+        calls.wipe += 1;
+      },
+      reload: () => {
+        calls.reload += 1;
+      },
+      forgetSessionInWorker: () => {
+        calls.worker += 1;
+      },
+    });
+    const err = { data: { soft_logout: soft } };
+    return { storage, calls, handler, err };
+  };
+
+  it('soft twice: one begin, no wipe, record kept', async () => {
+    const { storage, calls, handler, err } = rig(true);
+    await handler(err);
+    await handler(err);
+    expect(calls).toEqual({ stop: 1, wipe: 0, reload: 1, worker: 1 });
+    expect(getSoftLogout(storage)).toEqual(record);
+    expect(storage.getItem('cinny_device_id')).toBe('DEV');
+  });
+  it('soft then hard: the later event does not wipe', async () => {
+    const { calls, handler } = rig(true);
+    await handler({ data: { soft_logout: true } });
+    await handler({ data: {} });
+    expect(calls.wipe).toBe(0);
+  });
+  it('a record already standing swallows a fresh handler too', async () => {
+    const { storage, calls, handler } = rig(false);
+    setSoftLogout(record, storage);
+    await handler({ data: {} });
+    expect(calls).toEqual({ stop: 0, wipe: 0, reload: 0, worker: 0 });
+  });
+  it('hard twice: one wipe', async () => {
+    const { calls, handler, err } = rig(false);
+    await handler(err);
+    await handler(err);
+    expect(calls).toEqual({ stop: 1, wipe: 1, reload: 1, worker: 0 });
+  });
+});
+
+describe('settleLocalData', () => {
+  const run = async (
+    rec: typeof record | undefined,
+    res: { user_id: string; device_id: string }
+  ) => {
+    const s = memoryStorage();
+    if (rec) setSoftLogout(rec, s);
+    let wipes = 0;
+    const outcome = await settleLocalData(
+      res,
+      async () => {
+        wipes += 1;
+      },
+      s
+    );
+    return { outcome, wipes, left: getSoftLogout(s) };
+  };
+  it('same user and device: keep stores, retire the record', async () => {
+    expect(await run(record, { user_id: '@a:hs', device_id: 'DEV' })).toEqual({
+      outcome: 'keep',
+      wipes: 0,
+      left: undefined,
+    });
+  });
+  it('another user or device (a new account too): wipe once, retire the record', async () => {
+    expect(await run(record, { user_id: '@new:hs', device_id: 'X' })).toEqual({
+      outcome: 'wipe',
+      wipes: 1,
+      left: undefined,
+    });
+    expect((await run(record, { user_id: '@a:hs', device_id: 'OTHER' })).wipes).toBe(1);
+  });
+  it('no record: plain, no wipe', async () => {
+    expect((await run(undefined, { user_id: '@a:hs', device_id: 'D' })).wipes).toBe(0);
   });
 });
