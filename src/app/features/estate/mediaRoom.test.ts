@@ -45,7 +45,7 @@ describe('the Media row of a Mind', () => {
       throw new Error('must not be asked');
     });
     const carried = mediaRoomIdFromStewardships(
-      { void: ['GameCult/x'], media: { void: '!c:gamecult.org' } },
+      { void: ['GameCult/x'], '@rooms': { file_zones: { void: '!c:gamecult.org' } } },
       'void'
     );
     expect(carried).toBe('!c:gamecult.org');
@@ -58,7 +58,23 @@ describe('the Media row of a Mind', () => {
 
   it('ignores a stewardships state that carries no id for the Mind, or something that is not a room id', () => {
     expect(mediaRoomIdFromStewardships({ void: ['GameCult/x'] }, 'void')).toBeUndefined();
-    expect(mediaRoomIdFromStewardships({ media: { void: 'nope' } }, 'void')).toBeUndefined();
+    expect(
+      mediaRoomIdFromStewardships({ '@rooms': { file_zones: { void: 'nope' } } }, 'void')
+    ).toBeUndefined();
+    // the project ids beside it, another Mind's id, and the old provisional key carry nothing for this Mind
+    expect(
+      mediaRoomIdFromStewardships(
+        {
+          '@rooms': { projects: { x: '!p:s' }, file_zones: { kiko: '!k:s' } },
+          media: { void: '!m:s' },
+        },
+        'void'
+      )
+    ).toBeUndefined();
+    // a Mind named "constructor" must not read an inherited property as an id
+    expect(
+      mediaRoomIdFromStewardships({ '@rooms': { file_zones: {} } }, 'constructor')
+    ).toBeUndefined();
     expect(mediaRoomIdFromStewardships(undefined, 'void')).toBeUndefined();
   });
 
