@@ -1,7 +1,8 @@
 // The commit a bundle was built from, stamped into its index.html as <meta name="build-sha">, so a built
 // folder says what it is without a build log: `grep -o 'build-sha" content="[^"]*' dist/index.html`.
-// BUILD_SHA wins when it is a full sha (a build from a source archive has no git); otherwise git's HEAD,
-// suffixed -dirty when the tree has uncommitted changes; otherwise 'unknown'.
+// BUILD_SHA names the commit when it is a full sha (a build from a source archive has no git), otherwise git's
+// HEAD does; either way -dirty is appended when git can see uncommitted changes, so an explicit sha never
+// vouches for a tree that differs from it. No git and no BUILD_SHA: 'unknown'.
 import { execFileSync } from 'child_process';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -9,8 +10,9 @@ import { fileURLToPath } from 'url';
 const REPO_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Vite writes vite.config.js.timestamp-*.mjs next to the config while it loads it; that file is the
-// build's own, not source, so it must not mark the tree dirty. Any other untracked file still does.
-const VITE_TEMP = ':(exclude,glob)**/vite.config.*.timestamp-*.mjs';
+// build's own, not source, so an UNTRACKED one must not mark the tree dirty. A tracked file of that name,
+// or any other change, still does. Filtering status lines (not a pathspec) is what keeps it untracked-only.
+const VITE_TEMP = /^\?\? (?:.*\/)?vite\.config\.[^/]*\.timestamp-[^/]*\.mjs$/;
 
 export const gitIn =
   (cwd) =>
@@ -19,13 +21,17 @@ export const gitIn =
 
 export const readBuildSha = (env = process.env, run = gitIn(REPO_DIR)) => {
   const fromEnv = (env.BUILD_SHA ?? '').trim();
-  if (/^[0-9a-f]{40}$/.test(fromEnv)) return fromEnv;
+  const explicit = /^[0-9a-f]{40}$/.test(fromEnv) ? fromEnv : null;
   try {
     const head = run('rev-parse', 'HEAD').trim();
-    if (!/^[0-9a-f]{40}$/.test(head)) return 'unknown';
-    return run('status', '--porcelain', '--', '.', VITE_TEMP).trim() === '' ? head : `${head}-dirty`;
+    const sha = explicit ?? head;
+    if (!/^[0-9a-f]{40}$/.test(sha)) return 'unknown';
+    const dirty = run('status', '--porcelain', '-uall', '--', '.')
+      .split('\n')
+      .some((l) => l.trim() !== '' && !VITE_TEMP.test(l));
+    return dirty ? `${sha}-dirty` : sha;
   } catch {
-    return 'unknown';
+    return explicit ?? 'unknown';
   }
 };
 
