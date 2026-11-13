@@ -27,8 +27,8 @@ vi.mock('./shareController', () => ({
 }));
 vi.mock('./shareSet', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./shareSet')>()),
-  sendShareSet: async (_port: unknown, title: string) => {
-    captured.titles.push(title);
+  sendShareSet: async (_port: unknown, into: string | { albumId: string }) => {
+    captured.titles.push(typeof into === 'string' ? into : `into:${into.albumId}`);
     return { albumId: '$a', sent: 0, failed: [], failedAt: [] };
   },
 }));
@@ -42,12 +42,12 @@ vi.mock('react', async (importOriginal) => {
 // eslint-disable-next-line import/first
 import { ShareSet } from './ShareSet';
 
-const mount = (folder?: string[]) => {
+const mount = (folder?: string[], into?: { albumId: string; lastId: string }) => {
   const room = { roomId: '!r:x', hasEncryptionStateEvent: () => false } as never;
   renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
       <MatrixClientProvider value={{ sendMessage: async () => ({ event_id: '$e' }) } as never}>
-        <ShareSet room={room} folder={folder} />
+        <ShareSet room={room} folder={folder} into={into} />
       </MatrixClientProvider>
     </QueryClientProvider>
   );
@@ -81,5 +81,10 @@ describe('ShareSet: the folder reaches the album title', () => {
   it('a typed title containing a slash goes deeper', async () => {
     mount(['a']);
     expect(await send('b/c')).toBe('a/b/c');
+  });
+
+  it('an existing album takes the files instead of a title, whatever the folder', async () => {
+    mount(['a'], { albumId: '$alb', lastId: '$last' });
+    expect(await send('ignored')).toBe('into:$alb');
   });
 });
