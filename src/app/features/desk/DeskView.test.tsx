@@ -5,10 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScreenSize, ScreenSizeProvider } from '../../hooks/useScreenSize';
 import { SkyInkContextProvider } from '../../hooks/useTheme';
 import { SCRIM_GROUND, SCRIM_INK } from '../scene/skyInk';
-import { DeskEntry, DeskLink } from './DeskEntry';
+import { DeskEntry, DeskLink, openCount } from './DeskEntry';
 import { DeskView, SIGN_IN_NOTE, rowOpen } from './DeskView';
 import { ForkList } from './forkContract';
-import { STATES } from './fixtures';
+import { STATES, entry as forkEntry, list as forkList } from './fixtures';
 import { setDeskSource } from './source';
 
 // useTheme reads the stored settings when it loads.
@@ -250,6 +250,20 @@ describe('counts when the ids are withheld', () => {
   it('says the singular for one', () => {
     const html = view('noAnswers', ScreenSize.Desktop);
     expect(html).toContain('1 decider · 0 answerers');
+  });
+});
+
+describe('the navigator count', () => {
+  const two = forkList([forkEntry('one'), forkEntry('two')]);
+  it('is none until the hash check has landed', () => {
+    expect(openCount(two, undefined)).toBe(0);
+  });
+  it('is the desk page count once it has: an open card withdrawn as unverified is not counted', () => {
+    expect(openCount(two, new Set())).toBe(2);
+    expect(openCount(two, new Set([two.forks[0].card.fork_id]))).toBe(1);
+  });
+  it('is none for a Mind with no desk', () => {
+    expect(openCount(undefined, new Set())).toBe(0);
   });
 });
 
