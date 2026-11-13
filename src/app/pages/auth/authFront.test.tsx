@@ -91,7 +91,7 @@ describe('PasswordLoginForm through Login', () => {
     expect(render(<Login />, mas)).not.toContain('Forget Password?');
   });
   it('fixes the username and offers someone else only with a soft record', () => {
-    expect(render(<Login />, plain)).not.toContain('readOnly');
+    expect(render(<Login />, plain)).not.toMatch(/readonly/i);
     expect(render(<Login />, plain)).not.toContain('Sign in as someone else');
     setSoftLogout({ userId: '@a:hs.example', deviceId: 'DEV' });
     const html = render(<Login />, plain);

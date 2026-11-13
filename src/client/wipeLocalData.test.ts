@@ -39,6 +39,12 @@ describe('wipeLocalData', () => {
     const absent = rig({});
     await wipeLocalData(undefined, absent.ports);
     expect(absent.deleted).toEqual(KNOWN_DATABASES);
+    expect(KNOWN_DATABASES).toEqual([
+      'web-sync-store',
+      'crypto-store',
+      'matrix-js-sdk::matrix-sdk-crypto',
+      'matrix-js-sdk::matrix-sdk-crypto-meta',
+    ]);
     expect(absent.cleared()).toBe(1);
     const throws = rig({
       databases: async () => {
@@ -72,6 +78,25 @@ describe('wipeLocalData', () => {
       },
     };
     await wipeLocalData(mx as never, r.ports);
+    expect(r.deleted).toEqual(['a']);
+    expect(r.cleared()).toBe(1);
+  });
+  it('a storage that refuses to clear does not make the wipe reject', async () => {
+    const r = rig({ databases: async () => [] });
+    const ports = {
+      ...r.ports,
+      storage: {
+        clear: () => {
+          throw new Error('SecurityError');
+        },
+      },
+    };
+    await expect(wipeLocalData(undefined, ports)).resolves.toBeUndefined();
+  });
+  it('a client store that never closes holds the wipe only for the timeout, then storage is cleared', async () => {
+    const r = rig({ databases: async () => [{ name: 'a' }] });
+    const mx = { clearStores: () => new Promise<void>(() => undefined) } as never;
+    await wipeLocalData(mx, { ...r.ports, clearStoresTimeoutMs: 10 });
     expect(r.deleted).toEqual(['a']);
     expect(r.cleared()).toBe(1);
   });
