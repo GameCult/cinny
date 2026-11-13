@@ -17,6 +17,7 @@ import { Permissions } from './permissions';
 import { RoomSettingsPage } from '../../state/roomSettings';
 import { useRoom } from '../../hooks/useRoom';
 import { DeveloperTools } from '../common-settings/developer-tools';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type RoomSettingsMenuItem = {
   page: RoomSettingsPage;
@@ -117,7 +118,7 @@ export function RoomSettings({ initialPage, requestClose }: RoomSettingsProps) {
               </Box>
               <Box shrink="No">
                 {screenSize === ScreenSize.Mobile && (
-                  <IconButton onClick={requestClose} variant="Background">
+                  <IconButton className={PhoneHit} onClick={requestClose} variant="Background">
                     <Icon src={Icons.Cross} />
                   </IconButton>
                 )}

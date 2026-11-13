@@ -30,6 +30,7 @@ import { IPowerLevels } from '../../hooks/usePowerLevels';
 import { getRoomCreatorsForRoomId } from '../../hooks/useRoomCreators';
 import { getRoomPermissionsAPI } from '../../hooks/useRoomPermissions';
 import { InviteUserPrompt } from '../../components/invite-user-prompt';
+import { PhoneHitSpread24 } from '../../styles/PhoneHit.css';
 
 type HierarchyItemWithParent = HierarchyItem & {
   parentId: string;
@@ -231,6 +232,7 @@ export function HierarchyItemMenu({
   return (
     <Box gap="200" alignItems="Center" shrink="No">
       <IconButton
+        className={PhoneHitSpread24}
         onClick={handleOpenMenu}
         size="300"
         variant="SurfaceVariant"
