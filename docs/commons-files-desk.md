@@ -124,7 +124,7 @@ Status 2026-11-13: cut 1 merged to dev as bb615570 (PR #147); cuts 2-5 follow. C
 2. **Pagination** of albums and files in `useAlbums` (done, PR #148).
 3. **Folders by title path** and the album list grouped by it.
 4. **Versions**: read `org.gamecult.publish.replaces`, show the latest of a chain with the earlier versions folded under it (done, PR #149).
-5. **Add files to an existing album**, with per-file progress, cancel and the refusal messages above (the upload flow).
+5. **Add files to an existing album**, with per-file progress, cancel and the refusal messages above (the upload flow). Done: adding to an open album and the three refusal messages (PR #150); cancel of a send in flight is not, and needs an abort path through `uploadContent`.
 
 PR #143 (Option B cut 1: contract types, host client, fake host) is **held**; under A it is not needed and would be closed. Its Soul pass found, and a revived B would have to close, an unvalidated `host` that could send the bearer to the wrong origin, hostile-looking entry names beyond separators, loose numeric checks and missing CSP and `Content-Disposition` headers in the fake.
 

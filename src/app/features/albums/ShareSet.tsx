@@ -10,7 +10,7 @@ import { getMsgContent } from '../room/msgContent';
 import { FILE_HASH_KEY, hashForSend } from './fileReceipt';
 import { ShareController, ShareState, createShareController } from './shareController';
 import { titleIn } from './albumFolders';
-import { DEFAULT_TITLE, sendShareSet } from './shareSet';
+import { DEFAULT_TITLE, ExistingAlbum, sendShareSet } from './shareSet';
 import * as css from './AlbumView.css';
 
 /** Off unless `fileZoneShare.enabled` is true. An encrypted zone is never offered the share. */
@@ -29,6 +29,8 @@ type ShareViewProps = {
   onTitle: (title: string) => void;
   onSend: () => void;
   onCancel: () => void;
+  /** Adding to an existing album: the files join it, so there is no title to ask for. */
+  adding?: boolean;
   inputRef?: React.Ref<HTMLInputElement>;
 };
 
@@ -43,6 +45,7 @@ export function ShareSetView({
   onTitle,
   onSend,
   onCancel,
+  adding,
   inputRef,
 }: ShareViewProps) {
   const { files, title, phase, epoch } = state;
@@ -58,7 +61,7 @@ export function ShareSetView({
       />
       {files.length === 0 && phase.kind !== 'sending' && (
         <button type="button" className={css.Row} onClick={onPickClick}>
-          <Text size="B400">Share files ›</Text>
+          <Text size="B400">{adding ? 'Add files ›' : 'Share files ›'}</Text>
         </button>
       )}
       {phase.kind === 'done' && (
@@ -68,14 +71,16 @@ export function ShareSetView({
       )}
       {files.length > 0 && (
         <>
-          <input
-            className={css.ShareTitle}
-            value={title}
-            placeholder={DEFAULT_TITLE}
-            aria-label="Album title"
-            disabled={phase.kind === 'sending'}
-            onChange={(e) => onTitle(e.target.value)}
-          />
+          {!adding && (
+            <input
+              className={css.ShareTitle}
+              value={title}
+              placeholder={DEFAULT_TITLE}
+              aria-label="Album title"
+              disabled={phase.kind === 'sending'}
+              onChange={(e) => onTitle(e.target.value)}
+            />
+          )}
           <Text size="T200" className={`${css.Dim} ${css.ShareNames}`}>
             {files.map((f) => f.name).join(' · ')}
           </Text>
@@ -101,15 +106,21 @@ export function ShareSetView({
   );
 }
 
-/** `folder` is the path the share lands in: its albums are titled under it (docs/commons-files-desk.md). */
-export function ShareSet({ room, folder = [] }: { room: Room; folder?: string[] }) {
+type ShareSetProps = {
+  room: Room;
+  /** The path a new album lands in: its title is prefixed by it (docs/commons-files-desk.md). */
+  folder?: string[];
+  /** Add the files to this album instead of making one. */
+  into?: ExistingAlbum;
+};
+export function ShareSet({ room, folder = [], into }: ShareSetProps) {
   const mx = useMatrixClient();
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   // Built once per mount (AlbumView keys the panel by room): the pick lives in the controller, so a
   // rerender with a new client or Room object must not build another. Live values go through `live`.
-  const live = useRef({ mx, room, queryClient, folder });
-  live.current = { mx, room, queryClient, folder };
+  const live = useRef({ mx, room, queryClient, folder, into });
+  live.current = { mx, room, queryClient, folder, into };
   const [controller]: [ShareController<File>, unknown] = useState(() =>
     createShareController<File>({
       roomId: room.roomId,
@@ -142,7 +153,7 @@ export function ShareSet({ room, folder = [] }: { room: Room; folder?: string[] 
             },
             onFile,
           },
-          titleIn(live.current.folder, title, DEFAULT_TITLE),
+          live.current.into ?? titleIn(live.current.folder, title, DEFAULT_TITLE),
           files.map((file) => ({ name: file.name, mimeType: file.type, file }))
         ),
     })
@@ -157,6 +168,7 @@ export function ShareSet({ room, folder = [] }: { room: Room; folder?: string[] 
       onTitle={controller.setTitle}
       onSend={controller.send}
       onCancel={controller.cancel}
+      adding={!!into}
     />
   );
 }

@@ -5,6 +5,7 @@ import {
   DEFAULT_TITLE,
   ShareFile,
   SharePort,
+  refusalOf,
   remainingAfter,
   resultNote,
   sendShareSet,
@@ -56,7 +57,7 @@ describe('sendShareSet', () => {
   it('reads back as one album of the files in pick order', async () => {
     const r = room();
     const res = await sendShareSet(r.port, 'Take 4', clips);
-    expect(res).toEqual({ albumId: '$e1', sent: 3, failed: [], failedAt: [] });
+    expect(res).toEqual({ albumId: '$e1', sent: 3, failed: [], failedAt: [], reasons: [] });
     const album = r.album();
     expect(album.title).toBe('Take 4');
     expect(album.files.map((f) => [f.name, f.kind])).toEqual([
@@ -156,5 +157,60 @@ describe('after a send', () => {
     const res = await sendShareSet(r.port, 't', clips);
     expect(remainingAfter(clips, res)).toEqual([]);
     expect(resultNote(res)).toBe('Shared 3 files.');
+  });
+});
+
+describe('adding to an existing album', () => {
+  it('sends no root; each file threads under the album, the first after `lastId`', async () => {
+    const r = room();
+    const sent: Record<string, unknown>[] = [];
+    const port = {
+      ...r.port,
+      send: async (c: Record<string, unknown>) => {
+        sent.push(c);
+        return `$n${sent.length}`;
+      },
+    };
+    const res = await sendShareSet(port, { albumId: '$root', lastId: '$last' }, clips.slice(0, 2));
+    expect(res.albumId).toBe('$root');
+    expect(res.sent).toBe(2);
+    expect(sent.map((c) => c.msgtype)).toEqual(['m.audio', 'm.audio']);
+    expect(sent.map((c) => c['m.relates_to'])).toEqual([
+      threadRelation('$root', '$last'),
+      threadRelation('$root', '$n1'),
+    ]);
+  });
+});
+
+describe('refusals', () => {
+  const refuse = (errcode: string): SharePort<ShareFile> => ({
+    send: async () => '$e',
+    contentOf: async () => {
+      throw Object.assign(new Error('raw server text'), { errcode });
+    },
+  });
+
+  it('names the three upload refusals and nothing else', () => {
+    expect(refusalOf({ errcode: 'M_TOO_LARGE' })).toBe('too large for this server');
+    expect(refusalOf({ errcode: 'M_FORBIDDEN' })).toBe('not allowed to upload here');
+    expect(refusalOf({ errcode: 'M_LIMIT_EXCEEDED' })).toBe(
+      'uploading too fast, try again shortly'
+    );
+    expect(refusalOf({ errcode: 'M_UNKNOWN' })).toBeUndefined();
+    expect(refusalOf({ errcode: 'constructor' })).toBeUndefined();
+    expect(refusalOf(new Error('x'))).toBeUndefined();
+    expect(refusalOf(null)).toBeUndefined();
+  });
+
+  it('the note carries the reason beside each refused file', async () => {
+    const res = await sendShareSet(refuse('M_TOO_LARGE'), 't', clips.slice(0, 2));
+    expect(resultNote(res)).toBe(
+      'Nothing was shared. Not sent: a.ogg (too large for this server), b.ogg (too large for this server)'
+    );
+  });
+
+  it('an unnamed failure lists the bare name', async () => {
+    const res = await sendShareSet(refuse('M_UNKNOWN'), 't', clips.slice(0, 1));
+    expect(resultNote(res)).toBe('Nothing was shared. Not sent: a.ogg');
   });
 });

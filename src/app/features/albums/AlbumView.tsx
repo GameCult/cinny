@@ -14,7 +14,7 @@ import { markAsRead } from '../../utils/notifications';
 import { getBlobSafeMimeType } from '../../utils/mimeTypes';
 import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
-import { Album, AlbumFile } from './buildAlbums';
+import { Album, AlbumFile, lastEventId } from './buildAlbums';
 import { folderOf, listFolder, pathLabel } from './albumFolders';
 import { FileReadBy } from './FileReadBy';
 import { ShareSet, useShareEnabled } from './ShareSet';
@@ -142,6 +142,13 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
           {authorOf(open)} · {countLabel(open.count)} · {timeDayMonYear(open.ts, dateFormat)}
         </Text>
         {open.count === 0 && <Text>This album has no files.</Text>}
+        {canShare && (
+          <ShareSet
+            key={open.id}
+            room={room}
+            into={{ albumId: open.id, lastId: lastEventId(open) }}
+          />
+        )}
         <div className={images ? `${css.Files} ${css.FilesWide}` : css.Files}>
           {open.files.map((f) => (
             <VersionedFileRow key={f.id} room={room} file={f} author={authorOf(open)} />
