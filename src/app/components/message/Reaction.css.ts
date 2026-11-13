@@ -1,6 +1,9 @@
 import { createVar, style } from '@vanilla-extract/css';
 import { DefaultReset, FocusOutline, color, config, toRem } from 'folds';
+import { MOBILE_BREAKPOINT } from '../../hooks/useScreenSize';
+import { PHONE_TAP } from '../../styles/PhoneHit.css';
 
+const PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
 const Container = createVar();
 const ContainerHover = createVar();
 const ContainerActive = createVar();
@@ -25,6 +28,14 @@ export const Reaction = style([
     selectors: {
       'button&': {
         cursor: 'pointer',
+        // Phone tap target: the chip is 26 px tall, so its hit area grows 9 px above and below (an ::after) and the
+        // same 9 px of margin opens the row, so the chips of one row and of the next never share a tap.
+        '@media': { [PHONE]: { position: 'relative', marginBlock: (PHONE_TAP - 26) / 2 } },
+      },
+      'button&::after': {
+        '@media': {
+          [PHONE]: { content: '""', position: 'absolute', inset: `${-(PHONE_TAP - 26) / 2}px 0` },
+        },
       },
       '&[aria-pressed=true]': {
         vars: {

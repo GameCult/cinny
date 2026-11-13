@@ -299,7 +299,10 @@ export const BubbleLeftArrow = style({
 });
 
 // Phone tap target: a sender name is 23 px tall, so the button grows 11 px above and below (44+ px to tap) and the
-// negative margin takes the growth back out of the layout. Hit area only: no background, border or outline moves.
+// negative margin takes the growth back out of the layout. Sideways it cannot borrow from the layout the
+// same way (a negative inline margin makes the button shrink inside its shrink-to-fit parent and clip the name), so
+// a name under 44 px is 44 px wide, text kept at the start: real growth of at most 16 px, in a row with room for it.
+// No background, border or outline moves.
 const SCREEN_PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
 export const Username = style({
   overflow: 'hidden',
@@ -309,7 +312,7 @@ export const Username = style({
     'button&': {
       cursor: 'pointer',
       '@media': {
-        [SCREEN_PHONE]: { paddingBlock: 11, marginBlock: -11 },
+        [SCREEN_PHONE]: { paddingBlock: 11, marginBlock: -11, minWidth: 44, textAlign: 'start' },
       },
     },
     'button&:hover, button&:focus-visible': {

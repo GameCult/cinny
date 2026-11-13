@@ -1,0 +1,45 @@
+import { style } from '@vanilla-extract/css';
+import { MOBILE_BREAKPOINT } from '../hooks/useScreenSize';
+
+// Phone tap target for an icon button: on a phone the button's hit area is 44 x 44 px centred on the drawn
+// button (a ::after the button's own click reaches), so nothing drawn changes size. A button with neighbours
+// 44 px closer than that would take their taps, so the `Spread` classes also give it horizontal margin of half
+// the shortfall: the row grows by that, on phones only, and the hit areas meet instead of overlapping.
+// Vertical room is cheaper than horizontal on a phone, so only the horizontal axis pays.
+export const PHONE_TAP = 44;
+const PHONE = `screen and (max-width: ${MOBILE_BREAKPOINT}px)`;
+
+const hitArea = {
+  '@media': {
+    [PHONE]: {
+      content: '""',
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      width: `max(100%, ${PHONE_TAP}px)`,
+      height: `max(100%, ${PHONE_TAP}px)`,
+      transform: 'translate(-50%, -50%)',
+    },
+  },
+} as const;
+
+/** An icon button on its own: the hit area grows, nothing else moves. */
+export const PhoneHit = style({
+  '@media': { [PHONE]: { position: 'relative' } },
+  selectors: { '&::after': hitArea },
+});
+
+/** An icon button in a row, `visual` px wide: the row opens up so its 44 px hit area meets its neighbours'. */
+const spread = (visual: number) =>
+  style([PhoneHit, { '@media': { [PHONE]: { marginInline: (PHONE_TAP - visual) / 2 } } }]);
+
+const PhoneHitSpread26 = spread(26);
+export const PhoneHitSpread32 = spread(32);
+export const PhoneHitSpread40 = spread(40);
+
+/** For a button in a clipping container (a Menu's overflow hidden eats a hit area drawn outside the box): the row
+ * opens up on both axes, so the 44 px sits inside the container. */
+export const PhoneHitRoom26 = style([
+  PhoneHitSpread26,
+  { '@media': { [PHONE]: { marginBlock: (PHONE_TAP - 26) / 2 } } },
+]);

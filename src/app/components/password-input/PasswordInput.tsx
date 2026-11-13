@@ -1,6 +1,7 @@
 import React, { ComponentProps, forwardRef } from 'react';
 import { Icon, IconButton, Input, config, Icons } from 'folds';
 import { UseStateProvider } from '../UseStateProvider';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 type PasswordInputProps = Omit<ComponentProps<typeof Input>, 'type' | 'size'> & {
   size: '400' | '500';
@@ -23,6 +24,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
               <>
                 {after}
                 <IconButton
+                  className={PhoneHit}
                   onClick={() => setVisible(!visible)}
                   type="button"
                   variant={visible ? 'Warning' : variant}

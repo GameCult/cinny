@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { describe, expect, it } from 'vitest';
 import zlib from 'zlib';
 import { compile, processVanillaFile } from '@vanilla-extract/integration';
@@ -115,4 +116,87 @@ describe('phone navigator rows', () => {
       .join('\n');
     expect(phone.match(/min-height: 2\.75rem/g)?.length).toBeGreaterThanOrEqual(2);
   });
+});
+
+describe('phone icon-button hit areas', () => {
+  const stripPhone = (css: string) => css.replace(/@media [^{]+ \{\n[\s\S]*?\n\}(?:\n|$)/g, '');
+
+  it('draw a 44 x 44 box around the button on a phone and nothing on any other screen', async () => {
+    const css = await emitted('styles/PhoneHit.css.ts');
+    const phone = [...css.matchAll(/@media ([^{]+) \{\n([\s\S]*?\n)\}(?:\n|$)/g)];
+    expect(phone.map((m) => m[1])).toEqual([PHONE]);
+    expect(css).toMatch(/::after \{[^}]*width: max\(100%, 44px\);[^}]*height: max\(100%, 44px\);/);
+    expect(css).toMatch(/::after \{[^}]*position: absolute;/);
+    // centred on the button: top and left at half, pulled back by half its own size
+    expect(css).toMatch(/::after \{[^}]*top: 50%;/);
+    expect(css).toMatch(/::after \{[^}]*left: 50%;/);
+    expect(css).toMatch(/::after \{[^}]*transform: translate\(-50%, -50%\);/);
+    expect(stripPhone(css).trim()).toBe('');
+  });
+
+  it('open a row up by half the shortfall, so neighbouring hit areas meet and do not overlap', async () => {
+    const css = await emitted('styles/PhoneHit.css.ts');
+    const margins = (selector: RegExp) =>
+      rulesFor(css, selector, PHONE).map((d) => d['margin-inline']);
+    // 32 px composer buttons, 40 px header buttons, 26 px message-option buttons (which also open vertically,
+    // the menu around them clips a hit area drawn outside its box)
+    expect(margins(/PhoneHit_spread__/)).toEqual(expect.arrayContaining([9, 6, 2]));
+    expect(rulesFor(css, /PhoneHit_PhoneHitRoom26__/, PHONE)).toEqual([{ 'margin-block': 9 }]);
+  });
+
+  it("make a message's reaction chip 44 px to tap by opening 9 px above and below it", async () => {
+    const css = await emitted('components/message/Reaction.css.ts');
+    const [chip] = rulesFor(css, /^button\.Reaction_Reaction__\w+$/, PHONE);
+    expect(chip['margin-block']).toBe((TAP - 26) / 2);
+    expect(css).toMatch(/::after \{[^}]*inset: -9px 0;/);
+    rulesFor(css, /^button\.Reaction_Reaction__\w+$/, undefined).forEach((d) =>
+      expect(Object.keys(d)).not.toContain('margin-block')
+    );
+  });
+
+  it('give a sender name a 44 px wide button too, text kept at its start', async () => {
+    const css = await emitted('components/message/layout/layout.css.ts');
+    const [phone] = rulesFor(css, /^button\.layout_Username__/, PHONE);
+    expect(phone['min-width']).toBe(TAP);
+    expect(css).toMatch(/text-align: start;/);
+  });
+});
+
+describe('icon buttons in the room view', () => {
+  // The opening tag of every <IconButton in a source file, read to its closing > outside any {} expression.
+  const iconButtonTags = (src: string) => {
+    const tags: string[] = [];
+    for (let i = src.indexOf('<IconButton'); i !== -1; i = src.indexOf('<IconButton', i + 1)) {
+      let depth = 0;
+      let j = i;
+      for (; j < src.length; j += 1) {
+        if (src[j] === '{') depth += 1;
+        else if (src[j] === '}') depth -= 1;
+        else if (src[j] === '>' && depth === 0) break;
+      }
+      tags.push(src.slice(i, j + 1));
+    }
+    return tags;
+  };
+
+  // The class each IconButton must carry, in source order: the variant is chosen by the button's drawn size
+  // and whether a clipping container or neighbours surround it, so a swapped variant is a wrong hit area.
+  const expected: Record<string, string[]> = {
+    'features/room/message/Message.tsx': [
+      'PhoneHitSpread32', // quick-reaction emoji buttons
+      'PhoneHitSpread32', // delete dialog close
+      'PhoneHitSpread32', // report dialog close
+      ...Array(6).fill('PhoneHitRoom26'), // message options bar, inside a clipping menu
+    ],
+    'features/room/RoomInput.tsx': Array(6).fill('PhoneHitSpread32'),
+    'features/room/RoomViewHeader.tsx': Array(6).fill('PhoneHitSpread40'),
+  };
+
+  it.each(Object.entries(expected))(
+    '%s: each IconButton carries its own PhoneHit class',
+    (file, want) => {
+      const tags = iconButtonTags(readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8'));
+      expect(tags.map((t) => t.match(/\bPhoneHit\w+/)?.[0] ?? null)).toEqual(want);
+    }
+  );
 });

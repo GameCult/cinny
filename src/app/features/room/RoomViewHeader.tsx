@@ -72,6 +72,7 @@ import { RoomSettingsPage } from '../../state/roomSettings';
 import { useCallEmbed, useCallStart } from '../../hooks/useCallEmbed';
 import { useLivekitSupport } from '../../hooks/useLivekitSupport';
 import { webRTCSupported } from '../../utils/rtc';
+import { PhoneHitSpread40 } from '../../styles/PhoneHit.css';
 
 type RoomMenuProps = {
   room: Room;
@@ -336,6 +337,7 @@ function CallButton() {
       >
         {(triggerRef) => (
           <IconButton
+            className={PhoneHitSpread40}
             variant="Surface"
             fill="None"
             ref={triggerRef}
@@ -455,7 +457,7 @@ export function RoomViewHeader({ callView }: { callView?: boolean }) {
           <BackRouteHandler>
             {(onBack) => (
               <Box shrink="No" alignItems="Center">
-                <IconButton fill="None" onClick={onBack}>
+                <IconButton className={PhoneHitSpread40} fill="None" onClick={onBack}>
                   <Icon src={Icons.ArrowLeft} />
                 </IconButton>
               </Box>
@@ -531,7 +533,12 @@ export function RoomViewHeader({ callView }: { callView?: boolean }) {
               }
             >
               {(triggerRef) => (
-                <IconButton fill="None" ref={triggerRef} onClick={handleSearchClick}>
+                <IconButton
+                  className={PhoneHitSpread40}
+                  fill="None"
+                  ref={triggerRef}
+                  onClick={handleSearchClick}
+                >
                   <Icon size="400" src={Icons.Search} />
                 </IconButton>
               )}
@@ -548,6 +555,7 @@ export function RoomViewHeader({ callView }: { callView?: boolean }) {
           >
             {(triggerRef) => (
               <IconButton
+                className={PhoneHitSpread40}
                 fill="None"
                 style={{ position: 'relative' }}
                 onClick={handleOpenPinMenu}
@@ -612,7 +620,12 @@ export function RoomViewHeader({ callView }: { callView?: boolean }) {
               }
             >
               {(triggerRef) => (
-                <IconButton fill="None" ref={triggerRef} onClick={handleMemberToggle}>
+                <IconButton
+                  className={PhoneHitSpread40}
+                  fill="None"
+                  ref={triggerRef}
+                  onClick={handleMemberToggle}
+                >
                   <Icon size="400" src={Icons.User} />
                 </IconButton>
               )}
@@ -631,6 +644,7 @@ export function RoomViewHeader({ callView }: { callView?: boolean }) {
           >
             {(triggerRef) => (
               <IconButton
+                className={PhoneHitSpread40}
                 fill="None"
                 onClick={handleOpenMenu}
                 ref={triggerRef}
