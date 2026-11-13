@@ -175,14 +175,24 @@ describe('icon buttons in the room view', () => {
     return tags;
   };
 
-  it.each([
-    'features/room/message/Message.tsx',
-    'features/room/RoomInput.tsx',
-    'features/room/RoomViewHeader.tsx',
-  ])('%s: every IconButton carries a PhoneHit class', (file) => {
-    const tags = iconButtonTags(readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8'));
-    expect(tags.length).toBeGreaterThan(0);
-    const bare = tags.filter((t) => !/PhoneHit/.test(t));
-    expect(bare).toEqual([]);
-  });
+  // The class each IconButton must carry, in source order: the variant is chosen by the button's drawn size
+  // and whether a clipping container or neighbours surround it, so a swapped variant is a wrong hit area.
+  const expected: Record<string, string[]> = {
+    'features/room/message/Message.tsx': [
+      'PhoneHitSpread32', // quick-reaction emoji buttons
+      'PhoneHitSpread32', // delete dialog close
+      'PhoneHitSpread32', // report dialog close
+      ...Array(6).fill('PhoneHitRoom26'), // message options bar, inside a clipping menu
+    ],
+    'features/room/RoomInput.tsx': Array(6).fill('PhoneHitSpread32'),
+    'features/room/RoomViewHeader.tsx': Array(6).fill('PhoneHitSpread40'),
+  };
+
+  it.each(Object.entries(expected))(
+    '%s: each IconButton carries its own PhoneHit class',
+    (file, want) => {
+      const tags = iconButtonTags(readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8'));
+      expect(tags.map((t) => t.match(/\bPhoneHit\w+/)?.[0] ?? null)).toEqual(want);
+    }
+  );
 });
