@@ -31,6 +31,7 @@ import { getToday, getYesterday, timeDayMonthYear, timeHourMinute } from '../../
 import { DatePicker, TimePicker } from '../../../components/time-date';
 import { useSetting } from '../../../state/hooks/settings';
 import { settingsAtom } from '../../../state/settings';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type JumpToTimeProps = {
   onCancel: () => void;
@@ -108,7 +109,7 @@ export function JumpToTime({ onCancel, onSubmit }: JumpToTimeProps) {
               <Box grow="Yes">
                 <Text size="H4">Jump to Time</Text>
               </Box>
-              <IconButton size="300" onClick={onCancel} radii="300">
+              <IconButton className={PhoneHit} size="300" onClick={onCancel} radii="300">
                 <Icon src={Icons.Cross} />
               </IconButton>
             </Header>

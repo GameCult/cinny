@@ -28,6 +28,7 @@ import { useMediaAuthentication } from '../../../hooks/useMediaAuthentication';
 import { useOpenUserRoomProfile } from '../../../state/hooks/userRoomProfile';
 import { useSpaceOptionally } from '../../../hooks/useSpace';
 import { getMouseEventCords } from '../../../utils/dom';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 export type ReactionViewerProps = {
   room: Room;
@@ -100,7 +101,7 @@ export const ReactionViewer = as<'div', ReactionViewerProps>(
             <Box grow="Yes">
               <Text size="H3" truncate>{`Reacted with :${selectedShortcode}:`}</Text>
             </Box>
-            <IconButton size="300" onClick={requestClose}>
+            <IconButton className={PhoneHit} size="300" onClick={requestClose}>
               <Icon src={Icons.Cross} />
             </IconButton>
           </Header>
