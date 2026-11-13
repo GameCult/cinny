@@ -8,6 +8,7 @@ import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
 import { isUserId } from '../../../utils/matrix';
 import { useIgnoredUsers } from '../../../hooks/useIgnoredUsers';
 import { useAlive } from '../../../hooks/useAlive';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 function IgnoreUserInput({ userList }: { userList: string[] }) {
   const mx = useMatrixClient();
@@ -67,6 +68,7 @@ function IgnoreUserInput({ userList }: { userList: string[] }) {
             userId &&
             !ignoring && (
               <IconButton
+                className={PhoneHit}
                 type="reset"
                 onClick={handleReset}
                 size="300"

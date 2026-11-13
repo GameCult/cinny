@@ -30,6 +30,7 @@ import {
 } from '../hooks/useVerificationRequest';
 import { AsyncStatus, useAsyncCallback } from '../hooks/useAsyncCallback';
 import { ContainerColor } from '../styles/ContainerColor.css';
+import { PhoneHit } from '../styles/PhoneHit.css';
 
 const DialogHeaderStyles: CSSProperties = {
   padding: `0 ${config.space.S200} 0 ${config.space.S400}`,
@@ -261,7 +262,7 @@ export function DeviceVerification({ request, onExit }: DeviceVerificationProps)
               <Box grow="Yes">
                 <Text size="H4">Device Verification</Text>
               </Box>
-              <IconButton size="300" radii="300" onClick={handleCancel}>
+              <IconButton className={PhoneHit} size="300" radii="300" onClick={handleCancel}>
                 <Icon src={Icons.Cross} />
               </IconButton>
             </Header>

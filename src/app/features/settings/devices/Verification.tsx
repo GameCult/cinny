@@ -35,6 +35,7 @@ import { stopPropagation } from '../../../utils/keyboard';
 import { useAuthMetadata } from '../../../hooks/useAuthMetadata';
 import { withSearchParam } from '../../../pages/pathUtils';
 import { useAccountManagementActions } from '../../../hooks/useAccountManagement';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 type VerificationStatusBadgeProps = {
   verificationStatus: VerificationStatus;
@@ -288,6 +289,7 @@ export function DeviceVerificationOptions() {
   return (
     <>
       <IconButton
+        className={PhoneHit}
         aria-pressed={!!menuCords}
         variant="SurfaceVariant"
         size="300"
