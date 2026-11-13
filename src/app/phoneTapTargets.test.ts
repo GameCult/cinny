@@ -133,6 +133,16 @@ describe('phone icon-button hit areas', () => {
     expect(css).toMatch(/::after \{[^}]*top: 50%;/);
     expect(css).toMatch(/::after \{[^}]*left: 50%;/);
     expect(css).toMatch(/::after \{[^}]*transform: translate\(-50%, -50%\);/);
+    // the box anchors to its own button, receives the tap, and sits above nothing it should not
+    expect(css).toMatch(/@media [^{]+ \{\n\s*\.PhoneHit_PhoneHit__\w+ \{\n\s*position: relative;/);
+    const afterDecls = [...css.matchAll(/::after \{\n([^}]*)\}/g)].flatMap((m) =>
+      m[1]
+        .split('\n')
+        .map((l) => l.trim().split(':')[0])
+        .filter(Boolean)
+    );
+    expect(afterDecls).not.toContain('pointer-events');
+    expect(afterDecls).not.toContain('z-index');
     expect(stripPhone(css).trim()).toBe('');
   });
 
@@ -142,7 +152,7 @@ describe('phone icon-button hit areas', () => {
       rulesFor(css, selector, PHONE).map((d) => d['margin-inline']);
     // 32 px composer buttons, 40 px header buttons, 26 px message-option buttons (which also open vertically,
     // the menu around them clips a hit area drawn outside its box)
-    expect(margins(/PhoneHit_spread__/)).toEqual(expect.arrayContaining([9, 6, 2]));
+    expect(margins(/PhoneHit_spread__/)).toEqual(expect.arrayContaining([10, 9, 6, 2]));
     expect(rulesFor(css, /PhoneHit_PhoneHitRoom26__/, PHONE)).toEqual([{ 'margin-block': 9 }]);
   });
 
@@ -194,10 +204,10 @@ describe('icon buttons in the room view', () => {
     'features/room/RoomViewHeader.tsx': Array(6).fill('PhoneHitSpread40'),
     // The chat path's other buttons. Two neighbours in a row: Spread32. One on its own: the plain PhoneHit.
     'features/room/message/MessageEditor.tsx': ['PhoneHitSpread32', 'PhoneHitSpread32'], // toolbar, emoji
-    'features/room-nav/RoomNavItem.tsx': ['PhoneHitSpread32', 'PhoneHitSpread32'], // chat toggle, options
+    'features/room-nav/RoomNavItem.tsx': ['PhoneHitSpread24', 'PhoneHitSpread24'], // chat toggle, options: 16 px icon + 8 padding = 24 px, 0 gap
     'features/room/MembersDrawer.tsx': ['PhoneHit', 'PhoneHit'], // close, scroll to top
     'features/room/reaction-viewer/ReactionViewer.tsx': ['PhoneHit'],
-    'features/room/room-pin-menu/RoomPinMenu.tsx': ['PhoneHit', 'PhoneHit'], // unpin, close
+    'features/room/room-pin-menu/RoomPinMenu.tsx': ['PhoneHitSpread26', 'PhoneHit'], // unpin (26 px, 8 px from the Open chip), close
     'features/room/RoomViewTyping.tsx': ['PhoneHit'],
     'features/room/CallChatView.tsx': ['PhoneHit'],
     'features/room/jump-to-time/JumpToTime.tsx': ['PhoneHit'],
@@ -212,11 +222,15 @@ describe('icon buttons in the room view', () => {
     '%s: each IconButton carries its own PhoneHit class',
     (file, want) => {
       const src = readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8');
-      expect(iconButtonTags(src).map((t) => t.match(/\bPhoneHit\w*/)?.[0] ?? null)).toEqual(want);
+      expect(
+        iconButtonTags(src).map((t) => t.match(/className=\{[^}]*?\b(PhoneHit\w*)\b/)?.[1] ?? null)
+      ).toEqual(want);
       // the name is the one PhoneHit.css.ts exports, not a local of the same name
       [...new Set(want)].forEach((name) =>
         expect(src).toMatch(
-          new RegExp(`import \\{[^}]*\\b${name}\\b[^}]*\\} from '(\\.\\./)+styles/PhoneHit\\.css'`)
+          new RegExp(
+            `import \\{[^}]*\\b${name}\\b(?!\\s+as\\b)[^}]*\\} from '(\\.\\./)+styles/PhoneHit\\.css'`
+          )
         )
       );
     }

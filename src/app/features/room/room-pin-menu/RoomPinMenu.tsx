@@ -86,7 +86,7 @@ import {
   useGetMemberPowerTag,
 } from '../../../hooks/useMemberPowerTag';
 import { useRoomCreatorsTag } from '../../../hooks/useRoomCreatorsTag';
-import { PhoneHit } from '../../../styles/PhoneHit.css';
+import { PhoneHit, PhoneHitSpread26 } from '../../../styles/PhoneHit.css';
 
 type PinnedMessageProps = {
   room: Room;
@@ -147,7 +147,7 @@ function PinnedMessage({
       </Chip>
       {canPinEvent && (
         <IconButton
-          className={PhoneHit}
+          className={PhoneHitSpread26}
           data-event-id={eventId}
           variant="Secondary"
           size="300"

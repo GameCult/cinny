@@ -33,7 +33,8 @@ export const PhoneHit = style({
 const spread = (visual: number) =>
   style([PhoneHit, { '@media': { [PHONE]: { marginInline: (PHONE_TAP - visual) / 2 } } }]);
 
-const PhoneHitSpread26 = spread(26);
+export const PhoneHitSpread24 = spread(24);
+export const PhoneHitSpread26 = spread(26);
 export const PhoneHitSpread32 = spread(32);
 export const PhoneHitSpread40 = spread(40);
 

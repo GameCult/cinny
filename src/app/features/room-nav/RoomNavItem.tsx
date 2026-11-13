@@ -66,7 +66,7 @@ import { useAutoDiscoveryInfo } from '../../hooks/useAutoDiscoveryInfo';
 import { livekitSupport } from '../../hooks/useLivekitSupport';
 import { StateEvent } from '../../../types/matrix/room';
 import { webRTCSupported } from '../../utils/rtc';
-import { PhoneHitSpread32 } from '../../styles/PhoneHit.css';
+import { PhoneHitSpread24 } from '../../styles/PhoneHit.css';
 
 type RoomNavItemMenuProps = {
   room: Room;
@@ -230,7 +230,7 @@ function CallChatToggle() {
 
   return (
     <IconButton
-      className={PhoneHitSpread32}
+      className={PhoneHitSpread24}
       onClick={() => setChat(!chat)}
       aria-pressed={chat}
       aria-label="Toggle Chat"
@@ -438,7 +438,7 @@ export function RoomNavItem({
             }
           >
             <IconButton
-              className={PhoneHitSpread32}
+              className={PhoneHitSpread24}
               onClick={handleOpenMenu}
               aria-pressed={!!menuAnchor}
               aria-controls={`menu-${room.roomId}`}
