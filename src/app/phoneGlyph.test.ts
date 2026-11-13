@@ -5,6 +5,14 @@ import { emitted } from './phoneHitTestKit';
 import { ICON_BUTTON_CLASS, PHONE_GLYPHS } from '../phoneGlyph.css';
 
 const foldsJs = readFileSync(`${process.cwd()}/node_modules/folds/dist/index.js`, 'utf8');
+const foldsCss = readFileSync(`${process.cwd()}/node_modules/folds/dist/style.css`, 'utf8');
+
+/** The px folds draws an Icon class at: its width variable's rem value, at the 16 px root. */
+const foldsPx = (cls: string) => {
+  const v = foldsCss.match(new RegExp(`\\.${cls} \\{\\s*width: var\\((--[\\w-]+)\\)`))?.[1];
+  const rem = v && foldsCss.match(new RegExp(`${v}: ([\\d.]+)rem`))?.[1];
+  return rem ? Number(rem) * 16 : undefined;
+};
 
 describe('phone glyphs inside IconButtons', () => {
   it("name folds' own classes: the IconButton base class and one Icon class per size", () => {
@@ -19,6 +27,9 @@ describe('phone glyphs inside IconButtons', () => {
       expect(iconSizes).toContain(`"${size}": "${cls}"`)
     );
   });
+
+  it("start from the px folds draws each Icon size at (the scale's divisor is not a guess)", () =>
+    Object.values(PHONE_GLYPHS).forEach(({ cls, px }) => expect(foldsPx(cls)).toBe(px)));
 
   it('draw the folds Icon px (16 18 20 22 24) at 22..28 px, never smaller, never past the smallest button box', () => {
     // folds IconButton padding is 4 px a side at the smallest size, so its box is the glyph plus 8.
