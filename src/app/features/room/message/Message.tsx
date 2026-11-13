@@ -86,6 +86,7 @@ import colorMXID from '../../../../util/colorMXID';
 import { useSkyInk } from '../../../hooks/useTheme';
 import { userColorInk } from '../../scene/skyInk';
 import { getPowerTagIconSrc } from '../../../hooks/useMemberPowerTag';
+import { PhoneHitRoom26 } from '../../../styles/PhoneHit.css';
 
 export type ReactionHandler = (keyOrMxc: string, shortcode: string) => void;
 
@@ -950,6 +951,7 @@ export const Message = as<'div', MessageProps>(
                     }
                   >
                     <IconButton
+                      className={PhoneHitRoom26}
                       onClick={handleOpenEmojiBoard}
                       variant="SurfaceVariant"
                       size="300"
@@ -961,6 +963,7 @@ export const Message = as<'div', MessageProps>(
                   </PopOut>
                 )}
                 <IconButton
+                  className={PhoneHitRoom26}
                   onClick={onReplyClick}
                   data-event-id={mEvent.getId()}
                   variant="SurfaceVariant"
@@ -971,6 +974,7 @@ export const Message = as<'div', MessageProps>(
                 </IconButton>
                 {!isThreadedMessage && (
                   <IconButton
+                    className={PhoneHitRoom26}
                     onClick={(ev) => onReplyClick(ev, true)}
                     data-event-id={mEvent.getId()}
                     variant="SurfaceVariant"
@@ -982,6 +986,7 @@ export const Message = as<'div', MessageProps>(
                 )}
                 {canEditEvent(mx, mEvent) && onEditId && (
                   <IconButton
+                    className={PhoneHitRoom26}
                     onClick={() => onEditId(mEvent.getId())}
                     variant="SurfaceVariant"
                     size="300"
@@ -1147,6 +1152,7 @@ export const Message = as<'div', MessageProps>(
                   }
                 >
                   <IconButton
+                    className={PhoneHitRoom26}
                     variant="SurfaceVariant"
                     size="300"
                     radii="300"
@@ -1320,6 +1326,7 @@ export const Event = as<'div', EventProps>(
                   }
                 >
                   <IconButton
+                    className={PhoneHitRoom26}
                     variant="SurfaceVariant"
                     size="300"
                     radii="300"

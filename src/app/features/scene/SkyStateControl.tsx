@@ -28,6 +28,7 @@ import {
   setSceneStyle,
   type ServedSceneStyle,
 } from './sceneStyle';
+import { PhoneHit } from '../../styles/PhoneHit.css';
 
 const STYLE_LABEL: Record<ServedSceneStyle, string> = { terrain: 'Terrain', ridge: 'Ridges' };
 
@@ -149,6 +150,7 @@ export function SkyStateControl() {
       }
     >
       <IconButton
+        className={PhoneHit}
         variant="Background"
         aria-label={`Sky: ${LABEL[state]}`}
         title={`Sky: ${LABEL[state]}`}

@@ -39,6 +39,7 @@ import { loginErrorMessage } from '../authMessages';
 import { ForgotLink } from '../styles.css';
 import { getResetPasswordPath } from '../../pathUtils';
 import { stopPropagation } from '../../../utils/keyboard';
+import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 function UsernameHint({ server }: { server: string }) {
   const [anchor, setAnchor] = useState<RectCords>();
@@ -94,6 +95,7 @@ function UsernameHint({ server }: { server: string }) {
       }
     >
       <IconButton
+        className={PhoneHit}
         tabIndex={-1}
         onClick={handleOpenMenu}
         type="button"

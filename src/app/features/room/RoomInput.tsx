@@ -116,6 +116,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useRoomCreatorsTag } from '../../hooks/useRoomCreatorsTag';
 import { usePowerLevelTags } from '../../hooks/usePowerLevelTags';
 import { useComposingCheck } from '../../hooks/useComposingCheck';
+import { PhoneHitSpread32 } from '../../styles/PhoneHit.css';
 
 interface RoomInputProps {
   editor: Editor;
@@ -605,6 +606,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                     style={{ padding: `${config.space.S200} ${config.space.S300} 0` }}
                   >
                     <IconButton
+                      className={PhoneHitSpread32}
                       onClick={() => setReplyDraft(undefined)}
                       variant="SurfaceVariant"
                       size="300"
@@ -638,6 +640,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
           }
           before={
             <IconButton
+              className={PhoneHitSpread32}
               onClick={() => pickFile('*')}
               variant="SurfaceVariant"
               size="300"
@@ -649,6 +652,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
           after={
             <>
               <IconButton
+                className={PhoneHitSpread32}
                 variant="SurfaceVariant"
                 size="300"
                 radii="300"
@@ -691,6 +695,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                   >
                     {!hideStickerBtn && (
                       <IconButton
+                        className={PhoneHitSpread32}
                         aria-pressed={emojiBoardTab === EmojiBoardTab.Sticker}
                         onClick={() => setEmojiBoardTab(EmojiBoardTab.Sticker)}
                         variant="SurfaceVariant"
@@ -704,6 +709,7 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                       </IconButton>
                     )}
                     <IconButton
+                      className={PhoneHitSpread32}
                       ref={emojiBtnRef}
                       aria-pressed={
                         hideStickerBtn ? !!emojiBoardTab : emojiBoardTab === EmojiBoardTab.Emoji
@@ -723,7 +729,13 @@ export const RoomInput = forwardRef<HTMLDivElement, RoomInputProps>(
                   </PopOut>
                 )}
               </UseStateProvider>
-              <IconButton onClick={submit} variant="SurfaceVariant" size="300" radii="300">
+              <IconButton
+                className={PhoneHitSpread32}
+                onClick={submit}
+                variant="SurfaceVariant"
+                size="300"
+                radii="300"
+              >
                 <Icon src={Icons.Send} />
               </IconButton>
             </>

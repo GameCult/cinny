@@ -116,3 +116,43 @@ describe('phone navigator rows', () => {
     expect(phone.match(/min-height: 2\.75rem/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('phone icon-button hit areas', () => {
+  const stripPhone = (css: string) => css.replace(/@media [^{]+ \{\n[\s\S]*?\n\}(?:\n|$)/g, '');
+
+  it('draw a 44 x 44 box around the button on a phone and nothing on any other screen', async () => {
+    const css = await emitted('styles/PhoneHit.css.ts');
+    const phone = [...css.matchAll(/@media ([^{]+) \{\n([\s\S]*?\n)\}(?:\n|$)/g)];
+    expect(phone.map((m) => m[1])).toEqual([PHONE]);
+    expect(css).toMatch(/::after \{[^}]*width: max\(100%, 44px\);[^}]*height: max\(100%, 44px\);/);
+    expect(css).toMatch(/::after \{[^}]*position: absolute;/);
+    expect(stripPhone(css).trim()).toBe('');
+  });
+
+  it('open a row up by half the shortfall, so neighbouring hit areas meet and do not overlap', async () => {
+    const css = await emitted('styles/PhoneHit.css.ts');
+    const margins = (selector: RegExp) =>
+      rulesFor(css, selector, PHONE).map((d) => d['margin-inline']);
+    // 32 px composer buttons, 40 px header buttons, 26 px message-option buttons (which also open vertically,
+    // the menu around them clips a hit area drawn outside its box)
+    expect(margins(/PhoneHit_spread__/)).toEqual(expect.arrayContaining([9, 6, 2]));
+    expect(rulesFor(css, /PhoneHit_PhoneHitRoom26__/, PHONE)).toEqual([{ 'margin-block': 9 }]);
+  });
+
+  it("make a message's reaction chip 44 px to tap by opening 9 px above and below it", async () => {
+    const css = await emitted('components/message/Reaction.css.ts');
+    const [chip] = rulesFor(css, /^button\.Reaction_Reaction__\w+$/, PHONE);
+    expect(chip['margin-block']).toBe((TAP - 26) / 2);
+    expect(css).toMatch(/::after \{[^}]*inset: -9px 0;/);
+    rulesFor(css, /^button\.Reaction_Reaction__\w+$/, undefined).forEach((d) =>
+      expect(Object.keys(d)).not.toContain('margin-block')
+    );
+  });
+
+  it('give a sender name a 44 px wide button too, text kept at its start', async () => {
+    const css = await emitted('components/message/layout/layout.css.ts');
+    const [phone] = rulesFor(css, /^button\.layout_Username__/, PHONE);
+    expect(phone['min-width']).toBe(TAP);
+    expect(css).toMatch(/text-align: start;/);
+  });
+});
