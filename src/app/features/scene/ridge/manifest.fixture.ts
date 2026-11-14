@@ -1,5 +1,6 @@
 // A hand-written manifest v1 and index v1 (wire form, as export.py writes them): the runtime's tests need no real bake and no decoder.
 import { FRAME_KEYS } from './manifest';
+import type { View } from './view';
 
 const SUN: Record<typeof FRAME_KEYS[number], [number, number]> = {
   dawn: [100, 0],
@@ -61,4 +62,15 @@ export const wireIndex = {
   schema: 1,
   default: 'vienna',
   places: { vienna: 'vienna-abc123abc123', graz: 'graz-def456def456' },
+};
+
+/** A View that differs from FALLBACK_VIEW in every field the sky reads (place, altitude, look azimuth, window, horizon row), so a test can tell the two apart. */
+export const ELSEWHERE_VIEW: View = {
+  place: { id: 'elsewhere', lat: -33.9, lon: 151.2, altitudeKm: 1.5 },
+  lookAzDeg: 20,
+  windowDeg: 90,
+  planeW: 1600,
+  planeH: 700,
+  pxPerDegH: 1600 / 90,
+  horizonRow: 250,
 };

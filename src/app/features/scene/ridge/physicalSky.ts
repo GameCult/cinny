@@ -11,7 +11,7 @@ import { display8, fitDisplay, holdBudget, MARGIN } from './toneMap';
 import type { Display, Fit } from './toneMap';
 import { sunForState } from './sunAt';
 import type { SunSample } from './sunAt';
-import { FALLBACK_VIEW, windowFor } from './view';
+import { windowFor } from './view';
 import type { Camera, View } from './view';
 import { weatherOf } from './weather';
 import type { Weather } from './weather';
@@ -53,7 +53,7 @@ export function makePhysicalSky(
   state: FixedSkyState,
   now: Date,
   weatherValue: number,
-  view: View = FALLBACK_VIEW
+  view: View
 ): PhysicalSky {
   const t0 = clock();
   const sun = sunForState(view.place, state, now);

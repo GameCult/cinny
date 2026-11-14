@@ -8,6 +8,9 @@ import { forgetManifests } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
 import { FALLBACK_VIEW } from './ridge/view';
 import { frameChoice } from './ridge/frameChoice';
+import { sunAt } from './ridge/sunAt';
+import { ridgeWeather } from './ridge/weather';
+import { parseWeatherFile, WEATHER_ATTRIBUTION, weatherFromFile } from './ridge/weatherFeed';
 
 const { createRidgeScene, createScene } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
@@ -51,7 +54,7 @@ describe('startBackgroundScene follows the sky state', () => {
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     expect(createRidgeScene).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night').top));
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night', FALLBACK_VIEW).top));
     scene?.dispose();
   });
 
@@ -70,7 +73,7 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('night');
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night').top));
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night', FALLBACK_VIEW).top));
     scene?.dispose();
   });
 
@@ -82,7 +85,7 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('day');
     await flush();
     expect(first.dispose).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day').top));
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day', FALLBACK_VIEW).top));
     scene?.dispose();
     expect(second.dispose).toHaveBeenCalledOnce();
   });
@@ -95,7 +98,7 @@ describe('startBackgroundScene follows the sky state', () => {
     const scene = await started;
     await flush();
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day').top));
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day', FALLBACK_VIEW).top));
     expect(a.dispose).toHaveBeenCalledOnce();
     scene?.dispose();
     expect(b.dispose).toHaveBeenCalledOnce();
@@ -175,7 +178,7 @@ describe('startBackgroundScene follows the sky state', () => {
     // The sky last built is dusk's, and it is the live scene: a login reaches it and nothing else.
     const built = createRidgeScene.mock.calls.length;
     expect(hex(createRidgeScene.mock.calls[built - 1][0].sky.top)).toBe(
-      hex(ridgeSkyFor('dusk').top)
+      hex(ridgeSkyFor('dusk', FALLBACK_VIEW).top)
     );
     const live = scenes[built - 1];
     scene?.login();
@@ -205,7 +208,7 @@ describe('startBackgroundScene follows the sky state', () => {
     const at = `at ${ticks} microtasks`;
     const built = createRidgeScene.mock.calls.length;
     expect(hex(createRidgeScene.mock.calls[built - 1][0].sky.top), at).toBe(
-      hex(ridgeSkyFor('dusk').top)
+      hex(ridgeSkyFor('dusk', FALLBACK_VIEW).top)
     );
     // The newest build is live, every earlier one disposed exactly once, and only the live one is shown.
     const live = [a, b, c][built - 1];
@@ -456,11 +459,65 @@ describe('the ridge planes and the live scene', () => {
     const opts = createRidgeScene.mock.calls[0][0];
     const { manifest } = opts.backdrop;
     const own = frameChoice(manifest.frames, opts.sky.physical.sun);
-    const fallbackSun = ridgeSkyFor('day').physical!.sun;
+    const fallbackSun = ridgeSkyFor('day', FALLBACK_VIEW).physical!.sun;
     const theirs = frameChoice(manifest.frames, fallbackSun);
     expect(own.a.key).not.toBe(theirs.a.key);
     expect(opts.backdrop.choice.a.key).toBe(own.a.key);
     expect(opts.backdrop.choice.b?.key ?? null).toBe(own.b?.key ?? null);
+  });
+
+  it("keys a rebuild by the manifest's place: the same sky state over a rebaked place rebuilds", async () => {
+    serve();
+    decoder();
+    const [a, b] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b);
+    const w = wireManifest() as any;
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    // 'auto' at midnight and 'night' are one sky: no rebuild, while the place is the one drawn.
+    setSkyState('night');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    forgetManifests();
+    serve({ ...w, place: { ...w.place, id: 'graz' } });
+    setSkyState('auto');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('graz');
+    scene?.dispose();
+  });
+
+  it("reads the weather against the manifest place's sun, not the fallback place's", async () => {
+    const w = wireManifest() as any;
+    const place = { ...w.place, id: 'weather-place', lat: -33, lon: -163.65, tz_h: -11 };
+    const now = new Date('2026-11-11T10:50:00Z');
+    const wx = {
+      fetched_at: '2026-11-11T10:45:00Z',
+      observed_at: '2026-11-11T10:40:00Z',
+      station: 11035,
+      precip_mm_10min: 0,
+      humidity_pct: 60,
+      sunshine_s_10min: null,
+      glow_wm2: 100,
+      attribution: WEATHER_ATTRIBUTION,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          url.endsWith('weather.json') ? wx : url.endsWith('index.json') ? wireIndex : { ...w, place },
+      }))
+    );
+    decoder();
+    setSkyClock(() => now);
+    createRidgeScene.mockReturnValue(fakeScene());
+    (await startBackgroundScene(config, caps, { canvas }))?.dispose();
+    const file = parseWeatherFile(wx)!;
+    const at = (p: { lat: number; lon: number }) =>
+      weatherFromFile(file, sunAt({ id: 'x', altitudeKm: 0, ...p }, new Date(Date.parse(wx.observed_at) - 5 * 60_000)).elevation);
+    expect(at(FALLBACK_VIEW.place)).not.toBe(at(place));
+    expect(ridgeWeather()).toBe(at(place));
   });
 
   it('a failed load is the sky alone on the fallback view, never the manifest place', async () => {

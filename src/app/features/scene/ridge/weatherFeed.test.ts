@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sunAt } from './sunAt';
 import { FALLBACK_VIEW } from './view';
+import { ELSEWHERE_VIEW } from './manifest.fixture';
 import {
   CLEAR_SKY,
   currentWeather,
@@ -121,17 +122,18 @@ describe('weather from the file', () => {
 
 describe('the weather now', () => {
   it('uses the file while it is fresh', () => {
-    expect(currentWeather(file({ glow_wm2: 0, humidity_pct: 95 }), NOW)).toBeCloseTo(0.7, 2);
+    expect(currentWeather(file({ glow_wm2: 0, humidity_pct: 95 }), FALLBACK_VIEW.place, NOW)).toBeCloseTo(0.7, 2);
   });
   it('falls back to a clear sky when the file was fetched more than 30 minutes ago', () => {
     const f = file({ humidity_pct: 100, fetched_at: '2026-11-11T10:19:00Z' });
     expect(NOW.getTime() - Date.parse(f.fetched_at)).toBeGreaterThan(STALE_MS);
-    expect(currentWeather(f, NOW)).toBe(CLEAR_SKY);
+    expect(currentWeather(f, FALLBACK_VIEW.place, NOW)).toBe(CLEAR_SKY);
   });
   it('the 30 minute mark itself is still fresh', () => {
     expect(
       currentWeather(
         file({ glow_wm2: 0, humidity_pct: 100, fetched_at: '2026-11-11T10:20:00Z' }),
+        FALLBACK_VIEW.place,
         NOW
       )
     ).toBe(0.75);
@@ -139,16 +141,31 @@ describe('the weather now', () => {
   it('falls back to a clear sky when the observation is more than 40 minutes old, though the file is fresh', () => {
     const f = file({ precip_mm_10min: 2, observed_at: '2026-11-11T10:09:00Z' });
     expect(NOW.getTime() - Date.parse(f.observed_at)).toBeGreaterThan(OBSERVATION_STALE_MS);
-    expect(currentWeather(f, NOW)).toBe(CLEAR_SKY);
+    expect(currentWeather(f, FALLBACK_VIEW.place, NOW)).toBe(CLEAR_SKY);
     expect(
-      currentWeather(file({ precip_mm_10min: 2, observed_at: '2026-11-11T10:11:00Z' }), NOW)
+      currentWeather(file({ precip_mm_10min: 2, observed_at: '2026-11-11T10:11:00Z' }), FALLBACK_VIEW.place, NOW)
     ).toBeGreaterThan(0.8);
   });
   it('falls back to a clear sky with no file, and with a fetch time from the future', () => {
-    expect(currentWeather(null, NOW)).toBe(CLEAR_SKY);
+    expect(currentWeather(null, FALLBACK_VIEW.place, NOW)).toBe(CLEAR_SKY);
     expect(
-      currentWeather(file({ precip_mm_10min: 2, fetched_at: '2026-11-12T10:40:00Z' }), NOW)
+      currentWeather(file({ precip_mm_10min: 2, fetched_at: '2026-11-12T10:40:00Z' }), FALLBACK_VIEW.place, NOW)
     ).toBe(CLEAR_SKY);
+  });
+});
+
+describe('the sun the weather is read against is the place it is given', () => {
+  it("sets radiation against the sun over that place: by day in Vienna it reads cloud, at the other side of the world, in the night, it reads the humidity", () => {
+    const f = file({ glow_wm2: 100, sunshine_s_10min: null, humidity_pct: 60 });
+    const sunEl = (place: typeof FALLBACK_VIEW.place) =>
+      sunAt(place, new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation;
+    expect(sunEl(FALLBACK_VIEW.place)).toBeGreaterThan(20);
+    expect(sunEl(ELSEWHERE_VIEW.place)).toBeLessThan(0);
+    const vienna = currentWeather(f, FALLBACK_VIEW.place, NOW);
+    const elsewhere = currentWeather(f, ELSEWHERE_VIEW.place, NOW);
+    expect(vienna).toBe(weatherFromFile(f, sunEl(FALLBACK_VIEW.place)));
+    expect(elsewhere).toBe(weatherFromFile(f, sunEl(ELSEWHERE_VIEW.place)));
+    expect(vienna).not.toBe(elsewhere);
   });
 });
 
@@ -165,7 +182,7 @@ describe('bad instrument values', () => {
       sunshine_s_10min: null,
       humidity_pct: 50,
     });
-    const at = (m: number) => currentWeather(f, new Date(Date.parse(f.observed_at) + m * 60_000));
+    const at = (m: number) => currentWeather(f, FALLBACK_VIEW.place, new Date(Date.parse(f.observed_at) + m * 60_000));
     expect(at(0)).toBe(at(29));
   });
 });
@@ -194,7 +211,7 @@ describe('reading weather.json', () => {
       sunshine_s_10min: null,
       glow_wm2: null,
     });
-    expect(currentWeather(gap, new Date('2026-11-11T22:50:00Z'))).toBe(CLEAR_SKY);
+    expect(currentWeather(gap, FALLBACK_VIEW.place, new Date('2026-11-11T22:50:00Z'))).toBe(CLEAR_SKY);
   });
   it("is not another station's file", () => {
     expect(parseWeatherFile({ ...file(), station: 11036 })).toBeNull();

@@ -6,6 +6,8 @@ import type { SkyState } from './skyState';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
 import { loadManifest } from './ridge/manifest';
+import type { RidgeManifest } from './ridge/manifest';
+import { FALLBACK_VIEW } from './ridge/view';
 import { frameChoice } from './ridge/frameChoice';
 
 export type { Scene, SceneStats } from './Scene';
@@ -26,6 +28,20 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 
 /** The observation file the ridge sky reads: the page's own, beside config.json. The browser calls no weather service. */
 const weatherUrl = (): string => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/weather.json`;
+
+/**
+ * The baked place's manifest, or why there is none. Its View is the one owner of the sun's place and the camera for the weather, the sky,
+ * the rebuild key and the planes; a scene with no manifest has FALLBACK_VIEW.
+ */
+async function manifestOf(
+  config: BackgroundSceneConfig | undefined
+): Promise<{ manifest: RidgeManifest | null; fail: Error | null }> {
+  try {
+    return { manifest: await loadManifest(import.meta.env.BASE_URL, config?.place), fail: null };
+  } catch (e) {
+    return { manifest: null, fail: e instanceof Error ? e : new Error(String(e)) };
+  }
+}
 
 /** A scene made ready: every await is done, so `make` is synchronous and a rebuild can keep the old scene until the instant it swaps. */
 interface Prepared {
@@ -70,31 +86,33 @@ async function prepare(
       );
     }
     const { createRidgeScene } = await import('./ridge/Ridge');
-    await loadWeather(weatherUrl());
+    const { manifest, fail } = await manifestOf(config);
+    await loadWeather(weatherUrl(), (manifest?.view ?? FALLBACK_VIEW).place);
     // The planes load with the scene chunk and the weather: createRidgeScene stays synchronous. Any failure is the sky alone.
     let backdrop: Backdrop | null = null;
     let sky: SkyColours | undefined;
-    let planesFail: Error | null = null;
-    try {
-      const manifest = await loadManifest(import.meta.env.BASE_URL, config?.place);
-      const manifestSky = ridgeSkyFor(state, undefined, undefined, manifest.view);
-      sky = manifestSky;
-      const choice = frameChoice(
-        manifest.frames,
-        (manifestSky.physical as NonNullable<typeof manifestSky.physical>).sun
-      );
-      const { loadBackdrop } = await import('./ridge/Backdrop');
-      backdrop = await loadBackdrop(manifest, choice);
-      if (!backdrop) throw new Error('ridge planes did not load');
-    } catch (e) {
-      backdrop = null;
-      sky = undefined;
-      planesFail = e instanceof Error ? e : new Error(String(e));
+    let planesFail: Error | null = fail;
+    if (manifest) {
+      try {
+        const manifestSky = ridgeSkyFor(state, manifest.view);
+        sky = manifestSky;
+        const choice = frameChoice(
+          manifest.frames,
+          (manifestSky.physical as NonNullable<typeof manifestSky.physical>).sun
+        );
+        const { loadBackdrop } = await import('./ridge/Backdrop');
+        backdrop = await loadBackdrop(manifest, choice);
+        if (!backdrop) throw new Error('ridge planes did not load');
+      } catch (e) {
+        backdrop = null;
+        sky = undefined;
+        planesFail = e instanceof Error ? e : new Error(String(e));
+      }
     }
     const made = guarded(() =>
       createRidgeScene({
         ...options,
-        sky: sky ?? ridgeSkyFor(state),
+        sky: sky ?? ridgeSkyFor(state, FALLBACK_VIEW),
         backdrop: backdrop ?? undefined,
       })
     );
@@ -117,8 +135,9 @@ async function skyKey(
   try {
     const { loadWeather, ridgeSkyKey, terrainSkyFor } = await import('./skyForState');
     if (config?.style === 'terrain') return JSON.stringify(terrainSkyFor(state));
-    await loadWeather(weatherUrl());
-    return ridgeSkyKey(state);
+    const view = (await manifestOf(config)).manifest?.view ?? FALLBACK_VIEW;
+    await loadWeather(weatherUrl(), view.place);
+    return ridgeSkyKey(state, view);
   } catch {
     // The chunk failed to load: no key, so every change rebuilds (and `create` reports the failure).
     return null;

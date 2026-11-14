@@ -7,7 +7,7 @@
 // missing, unreadable, malformed or stale (below) is no observation, and no observation is a clear sky.
 import { WEATHER_CREDIT } from './credits';
 import { sunAt } from './sunAt';
-import { FALLBACK_VIEW } from './view';
+import type { Place } from './view';
 
 /** Reader rule of docs/weather-feed.md: the file is stale 30 minutes after it was fetched or 40 after the observation it holds (the station reports every 10). */
 export const STALE_MS = 30 * 60_000;
@@ -105,8 +105,8 @@ export function weatherFromFile(f: WeatherFile, sunEl: number): number {
   return Math.max(0.7 * cloud, mist);
 }
 
-/** The weather number now: the file's, or a clear sky when there is none or it is stale (see STALE_MS) or from the future. */
-export function currentWeather(f: WeatherFile | null, now: Date = new Date()): number {
+/** The weather number now, its sun taken at `place` (the View's): the file's, or a clear sky when there is none or it is stale (see STALE_MS) or from the future. */
+export function currentWeather(f: WeatherFile | null, place: Place, now: Date = new Date()): number {
   if (!f) return CLEAR_SKY;
   const fetched = now.getTime() - Date.parse(f.fetched_at);
   const observed = now.getTime() - Date.parse(f.observed_at);
@@ -120,7 +120,7 @@ export function currentWeather(f: WeatherFile | null, now: Date = new Date()): n
   )
     return CLEAR_SKY;
   // GLOW and SO are means of the ten minutes ending at observed_at: the sun of their midpoint is the one to set them against.
-  return weatherFromFile(f, sunAt(FALLBACK_VIEW.place, new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
+  return weatherFromFile(f, sunAt(place, new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
 }
 
 /** Fetch and parse `weather.json`; null on any failure. */
