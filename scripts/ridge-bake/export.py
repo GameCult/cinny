@@ -25,6 +25,8 @@ DECODE_BYTES_MAX = 20_000_000          # the six planes of a frame pair decoded 
 WEBP_QUALITY = 80
 LUMA_SKY = 0.5                         # the flat mid-grey sky the planes are composited over for the luma probe
 LUMA_COVER = 0.5                       # composite coverage (1 - prod(1 - alpha)) at or above which a pixel is measured
+NEAR_CREST_ALPHA = 64                  # alpha (0..255) at which a near-plane pixel counts as the ridge's body: the crest of a column is its first such row
+NEAR_HOLE_ALPHA = 24                   # alpha below which a pixel under the crest is a hole (the sky would show through the ground in front of the eye)
 SHEET_SKY = (0.80, 0.86, 0.94)         # the flat sky of the contact sheet
 ATTRIBUTION = dict(
     credit_line='Contains modified Copernicus data: DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.',
@@ -99,6 +101,14 @@ def luma_range(decoded):
     c = img[m]; lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); y = lin @ np.array([0.2126, 0.7152, 0.0722])
     return float(y.min()), float(y.max())
 
+def check_near_cover(near, horizon_row):
+    """Refuse a near plane (RGBA uint8) that does not cover the ground in front of the eye: every column must have a crest (an alpha >= NEAR_CREST_ALPHA row), and from the crest down to the horizon row no pixel may be a hole (alpha < NEAR_HOLE_ALPHA).
+    A transparent column, or a wedge of holes under a crest, shows the sky through the foreground; the farther planes may leave columns empty (a place with no ridge at that distance), the nearest may not."""
+    a = near[..., 3]; h, w = a.shape; crest = np.argmax(a >= NEAR_CREST_ALPHA, axis=0); none = ~(a >= NEAR_CREST_ALPHA).any(0)
+    if none.any(): raise ValueError(f'near plane: {int(none.sum())} fully transparent columns, first at x={int(np.argmax(none))}')
+    rows = np.arange(h)[:, None]; hole = (a < NEAR_HOLE_ALPHA) & (rows >= crest[None, :]) & (rows < int(horizon_row))
+    if hole.any(): x = int(np.argmax(hole.any(0))); raise ValueError(f'near plane: {int(hole.any(0).sum())} columns have a hole between the crest and the horizon, first at x={x} row {int(np.argmax(hole[:, x]))}')
+
 def check_budget(frame_bytes, plane_w, plane_h):
     """Refuse a bake the runtime could not hold: any two adjacent frames (night with dawn too) above PAIR_BYTES_MAX, or the planes of a frame pair decoding above DECODE_BYTES_MAX."""
     if plane_w > PLANE_W_MAX: raise ValueError(f'plane width {plane_w} above {PLANE_W_MAX}')
@@ -123,6 +133,7 @@ def write_bake(out, place, view, suns, frames_webp, default=None):
     h, w = shapes.pop()
     if h != view['plane_h']: raise ValueError(f"the planes are {h} rows, the view says {view['plane_h']}")
     check_budget([sum(sizes[k].values()) for k in KEYS], w, h)
+    for k in KEYS: check_near_cover(dec[k][-1], view['horizon_row'])
     bid = bake_id(frames_webp); name = f"{place['id']}-{bid}"; out = Path(out); out.mkdir(parents=True, exist_ok=True); dest = out / name
     frames = []
     for k in KEYS:

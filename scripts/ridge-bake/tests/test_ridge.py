@@ -388,12 +388,17 @@ def _over(planes, sky):
     img = np.broadcast_to(np.array(sky), planes[export.PLANES[0]].shape[:2] + (3,)).copy()
     for n in export.PLANES: a = planes[n]; img = img * (1 - a[..., 3:]) + a[..., :3] * a[..., 3:]
     return img
+def _open_to(L, first):
+    """Pixels (window columns) that the layers from index `first` on leave open: no coverage within OCCLUDE_MARGIN_PX columns, so the plane's knock-out does not touch them."""
+    if first >= len(L): return np.ones((ridge.H, ridge.WIN), bool)
+    cov = ridge.win(1 - np.prod([1 - Ly['a'] for Ly in L[first:]], axis=0)); m = ridge.OCCLUDE_MARGIN_PX; pad = np.pad(cov, ((0, 0), (m, m)), mode='edge')
+    return np.lib.stride_tricks.sliding_window_view(pad, 2 * m + 1, axis=1).max(-1) < 1e-6
 def test_the_far_plane_over_a_flat_sky_equals_the_opaque_relight_of_its_group():
     """The affine haze split is exact for one group: the far plane (floor + slot 0) over one flat colour equals relight of slot 0 alone with that colour as sky and haze (grain off, no shadows) within 1/255 mean and 4/255 max.
     The planes carry no sky: above the ridge their alpha is 0."""
     r, L = _three_slot_layers(); f = _statics_flat_grain(); sun = (200.0, 40.0); sky = export.SHEET_SKY
     planes = ridge.relight_planes(L, *sun, *f, shadows=False, ref=sky); img = _over(dict(far=planes['far'], mid=0 * planes['mid'], near=0 * planes['near']), sky)
-    want = ridge.win(ridge.relight(L[:1], *sun, *f, shadows=False, flat=sky)); d = np.abs(img - want) * 255
+    want = ridge.win(ridge.relight(L[:1], *sun, *f, shadows=False, flat=sky)); d = np.abs(img - want) * 255; d = d[_open_to(L, 1)]       # a nearer layer hides the far plane where it covers (test_a_farther_plane_is_hidden_behind_the_nearer_layers_that_cover_it)
     assert d.mean() < 1.0 and d.max() < 4.0, ('the far plane over a flat sky differs from its opaque relight', d.mean(), d.max())
     assert planes['far'][0, :, 3].max() < 0.01 and planes['near'][0, :, 3].max() < 0.01, 'the top row (sky) is not transparent'
 _VIENNA = {}
@@ -405,15 +410,60 @@ def _vienna_noon():
         _VIENNA['err'] = np.abs(_over(planes, sky) - ridge.win(ridge.relight(L, sun['az'], sun['el'], *f, shadows=False, flat=sky))).mean(-1) * 255; _VIENNA['planes'] = planes; ridge.P = saved
     return _VIENNA['err'], _VIENNA['planes']
 def test_stacked_planes_stay_close_to_the_opaque_relight_on_vienna_noon():
-    """Real Vienna bake at noon, three planes over a flat sky vs relight(flat=that sky): the stacking loss (a nearer group's haze veils the farther plane instead of the sky) measured 4.9/255 mean over the frame; the bound is 6,
-    so a split that loses colour or alpha shows.  The spec's 2/255 pin was not pursued (reported as a deviation); the loss is concentrated where planes overlap, see the next test."""
-    err, _ = _vienna_noon(); assert err.mean() < 6.0, ('stacked planes drift from the opaque relight', err.mean())
+    """Real Vienna bake at noon, three planes over a flat sky vs relight(flat=that sky): the stacking loss (a nearer group's haze veils the farther plane instead of the sky) measured 4.9/255 mean over the frame before the farther planes were knocked out
+    behind the nearer layers, 1.8 after; the bound is 3, so a split that loses colour or alpha, or a knock-out that stops working, shows.  The spec's 2/255 pin is met with 0.2 to spare; the loss is concentrated where planes overlap, see the next test."""
+    err, _ = _vienna_noon(); assert err.mean() < 3.0, ('stacked planes drift from the opaque relight', err.mean())
 def test_stacked_planes_error_over_the_overlap_region_is_the_measured_leak():
-    """Where a nearer plane covers a farther one (two or more planes with alpha above 1/100) the farther ridge shows through the nearer plane's haze: measured 21.8/255 mean over 22.6% of the frame on Vienna noon, bound 23.
-    Outside the overlap the planes are exact (0.004/255).  The honest figure; it is the price of independent haze-as-alpha planes."""
+    """Where a nearer plane covers a farther one (two or more planes with alpha above 1/100) the rest of the leak sits: measured 11.2/255 mean over 16.4% of the frame on Vienna noon (21.8 over 22.6% before the knock-out), bound 12.5.  It is what the 48 px knock-out margin
+    and the easing leave visible (a soft darker blob beside the near plane's wedge), and the dissolving feet where a nearer layer is only partly opaque.  Outside the overlap the planes are exact (0.005/255)."""
     err, planes = _vienna_noon(); ov = sum((planes[n][..., 3] > 0.01).astype(int) for n in export.PLANES) >= 2
-    assert 0.15 < ov.mean() < 0.30, ('the overlap region is not the 20-ish percent the bound was measured on', ov.mean())
-    assert err[ov].mean() < 23.0, ('overlap-region error', err[ov].mean()); assert err[~ov].mean() < 0.1, ('error outside the overlap', err[~ov].mean())
+    assert 0.10 < ov.mean() < 0.25, ('the overlap region is not the 16-ish percent the bound was measured on', ov.mean())
+    assert err[ov].mean() < 12.5, ('overlap-region error', err[ov].mean()); assert err[~ov].mean() < 0.1, ('error outside the overlap', err[~ov].mean())
+def test_a_farther_plane_is_hidden_behind_the_nearer_layers_that_cover_it():
+    """The opaque frame never shows a farther ridge through a nearer layer, but the stacked planes did (the nearer plane's haze share became transparency and the farther ridge showed in it: a slanted seam through the near plane on Vienna).
+    Right answer on the 3-slot fixture: where the nearer layers are opaque for OCCLUDE_MARGIN_PX columns around a pixel, the mid and far planes are transparent there; where nothing nearer is within the margin, the planes are exactly what they were without the knock-out;
+    and the knock-out eases in (a pixel just inside the covered region keeps most of its alpha), so no edge of its own is drawn."""
+    r, L = _three_slot_layers(); f = _statics_flat_grain(); on = ridge.relight_planes(L, 200.0, 40.0, *f, shadows=False); keep = ridge.most_open; ridge.most_open = lambda seen: np.ones_like(seen)
+    try: off = ridge.relight_planes(L, 200.0, 40.0, *f, shadows=False)
+    finally: ridge.most_open = keep
+    m = ridge.OCCLUDE_MARGIN_PX
+    for name, first in (('mid', 2), ('far', 1)):
+        cov = ridge.win(1 - np.prod([1 - Ly['a'] for Ly in L[first:]], axis=0)); reach = lambda w: np.lib.stride_tricks.sliding_window_view(np.pad(cov, ((0, 0), (w, w)), mode='edge'), 2 * w + 1, axis=1).min(-1)
+        deep = reach(3 * m) > 0.999                                   # the max filter looks m columns out and the easing another 1.5 m
+        assert deep.sum() > 2000 and (off[name][..., 3][deep] > 0.1).sum() > 500, (name, 'the fixture has no farther body under a nearer layer to hide')
+        assert on[name][..., 3][deep].max() < 0.03, (name, 'a farther plane shows through the layer in front of it', float(on[name][..., 3][deep].max()))
+        free = _open_to(L, first); assert np.array_equal(on[name][..., 3][free], off[name][..., 3][free]) and free.sum() > 2000, (name, 'the knock-out reached pixels no nearer layer covers')
+        edge = (cov > 0.999) & (reach(2) < 0.5) & (off[name][..., 3] > 0.1); assert edge.sum() > 50 and (on[name][..., 3][edge] / off[name][..., 3][edge]).mean() > 0.4, (name, 'the knock-out has a hard edge at the margin')
+def test_the_nearest_layer_is_opaque_down_to_the_horizon_and_the_others_keep_their_dissolve():
+    """Right answer: the nearest layer's alpha is 1 from its crest to the horizon row, whatever its strip's valley angle says (above the horizon a dissolved body shows the sky under a crest: the wedge of Vienna's near plane, whose valley angle jumps where the winning chain changes);
+    a farther layer keeps its dissolve (the far blue ridges fade into the haze above the horizon by design).  Fixture: a 400 m block at 3 km (crest 5.7 deg, foot 210 px but 380 px to the horizon) and a 4000 m block at 20 km (a crest above the near one, so it is a ridge of its own)."""
+    r, L = _bake_view(lambda dk, az: np.where(in_arc(az, 100, 140) & (dk >= 3000) & (dk < 3600), 400.0, np.where(in_arc(az, 100, 140) & (dk >= 20000) & (dk < 24000), 4000.0, 0.0)), 120.0)
+    c = col_of(120); hz = int(np.argmax(ridge.rowang < 0)); assert len(L) == 2, [Ly['dist'] for Ly in L]
+    for Ly, solid in ((L[-1], True), (L[0], False)):
+        a = Ly['a'][:, c]; crest = int(np.argmax(a > 0.5)); body = a[crest + 3:hz]; assert body.size > 20, ('fixture crest is not above the horizon', crest, hz)
+        assert (body.min() > 0.999) if solid else (body.min() < 0.5), ('nearest' if solid else 'farther', 'layer alpha between crest and horizon', float(body.min()))
+def test_near_plane_must_cover_every_column_and_leave_no_hole_under_its_crest():
+    """check_near_cover: a near plane passes when every column has a crest and nothing between the crest and the horizon row is a hole; it refuses a fully transparent column, and a hole under a crest (the wedge: alpha 0 at the plane's right edge, rows 230-480 with a hard edge, in the committed Vienna set).
+    Holes below the horizon are the foot dissolving into the floor and pass."""
+    ok = np.zeros((60, 40, 4), np.uint8); ok[10:, :, 3] = 200; export.check_near_cover(ok, 30.0); export.check_near_cover(ok, 59.0)
+    cols = ok.copy(); cols[:, 33:, 3] = 0; wedge = ok.copy(); wedge[20:50, 30:, 3] = 0; below = ok.copy(); below[35:, 30:, 3] = 0
+    export.check_near_cover(below, 30.0)
+    for bad, why in ((cols, 'transparent'), (wedge, 'hole')):
+        try: export.check_near_cover(bad, 40.0)
+        except ValueError as e: assert why in str(e), (why, str(e))
+        else: assert False, ('a near plane with a ' + why + ' was accepted')
+    export.check_near_cover(ok, 30.0)
+def test_write_bake_refuses_a_near_plane_with_a_wedge_and_lets_the_other_planes_have_empty_columns():
+    """The refusal is at the writer, on the decoded near plane of every frame; the far and mid planes may have transparent columns (a place with no ridge at that distance in part of the window)."""
+    d = tempfile.mkdtemp()
+    try:
+        place, view, suns, planes = _fixture_bake()
+        for k in export.KEYS: planes[k]['mid'][:, 200:260, 3] = 0
+        export.write_bake(d + '/ok', place, view, suns, _encode_all(planes))
+        for k, ys, xs in (('dawn', slice(20, 80), slice(1200, 1280)), ('night', slice(0, 600), slice(600, 700))):
+            bad = {kk: {n: np.array(v) for n, v in vv.items()} for kk, vv in planes.items()}; bad[k]['near'][ys, xs, 3] = 0
+            _refuses(d + '/bad', place, view, suns, _encode_all(bad), 'a near plane with a transparent wedge in frame %s was written' % k)
+    finally: shutil.rmtree(d)
 def test_plane_grouping_far_mid_near_and_refuses_fewer_than_three_slots():
     """far = slot 0, near = the last slot, mid = every slot between (the union); a 3-slot place fills all three planes; fewer than 3 slots are refused."""
     assert ridge.group_slots(3) == dict(far=[0], mid=[1], near=[2]) and ridge.group_slots(6) == dict(far=[0], mid=[1, 2, 3, 4], near=[5])
@@ -434,11 +484,12 @@ def test_straight_alpha_planes_unpremultiply_the_composite():
     for name, i in (('mid', 1), ('near', 2)):
         got = _over({n: (pl[n] if n == name else 0 * pl[n]) for n in export.PLANES}, sky)[:top]; want = ridge.win(ridge.relight(L[i:i + 1], *sun, *f, shadows=False, flat=sky))[:top]
         body = pl[name][:top, :, 3] > 0.3; assert body.sum() > 1000 and pl[name][:top, :, 3][body].mean() < 0.97, (name, 'the fixture has no translucent body to test')
-        d = np.abs(got - want) * 255; assert d.mean() < 0.5 and d.max() < 4.0, (name, 'plane over a flat sky differs from its slot relight: colour is premultiplied or the haze split is wrong', d.mean(), d.max())
+        d = (np.abs(got - want) * 255)[_open_to(L, i + 1)[:top]]; assert d.mean() < 0.5 and d.max() < 4.0, (name, 'plane over a flat sky differs from its slot relight: colour is premultiplied or the haze split is wrong', d.mean(), d.max())
 def _encode_all(planes): return {k: {n: export.encode(planes[k][n]) for n in export.PLANES} for k in export.KEYS}
 def _fixture_bake():
     r, L = _three_slot_layers(); f = _statics_flat_grain(); suns = {k: dict(az=100.0 + 20 * i, el=-10.0 + 15 * i, hour_utc=float(i)) for i, k in enumerate(export.KEYS)}
     planes = {k: ridge.relight_planes(L, suns[k]['az'], max(suns[k]['el'], 5.0) if k != 'night' else 5.0, *f, shadows=False) for k in export.KEYS}
+    for k in export.KEYS: planes[k]['near'][..., 3] = np.maximum(planes[k]['near'][..., 3], 0.6)      # the writer refuses a near plane with an empty column: the fixture's nearest ridge covers only 40 degrees, so its plane is lifted to cover the window
     place = dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.1, tz_h=2, tz_name='CEST', date='2026-09-23')
     view = dict(look_az_deg=120.0, plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=ridge.PXDEG_V, horizon_row=100.0, sky_row=24.0, near_row=396.0)
     return place, view, suns, planes
