@@ -27,9 +27,11 @@ vi.mock('./skyForState', async (importOriginal) => {
   return {
     ...actual,
     ridgeSkyFor: (...args: Parameters<typeof actual.ridgeSkyFor>) => {
-      if (args.length !== 1) return actual.ridgeSkyFor(...args);
-      if (!baked.has(args[0])) baked.set(args[0], actual.ridgeSkyFor(args[0]));
-      return baked.get(args[0]) as ReturnType<typeof actual.ridgeSkyFor>;
+      const [state, view] = args;
+      // One bake per state and place; the view is the one owner of the place, so it is part of what a sky is.
+      const key = `${state}@${JSON.stringify(view.place)}`;
+      if (!baked.has(key)) baked.set(key, actual.ridgeSkyFor(...args));
+      return baked.get(key) as ReturnType<typeof actual.ridgeSkyFor>;
     },
   };
 });
@@ -216,7 +218,7 @@ describe('startBackgroundScene follows the sky state', () => {
     await flush();
     // The initial build and one rebuild, for dusk; day's rebuild stood down before building anything.
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('dusk').top));
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('dusk', FALLBACK_VIEW).top));
     scene?.dispose();
   });
 
