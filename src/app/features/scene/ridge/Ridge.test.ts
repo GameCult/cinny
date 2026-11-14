@@ -174,9 +174,10 @@ function ctx() {
       else draws.push('fill');
     },
     drawImage(...a: unknown[]) {
-      images.push(a);
+      images.push(Object.assign(a, { alpha: c.globalAlpha, op: c.globalCompositeOperation }));
     },
     globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
     set fillStyle(_v: unknown) {},
   };
   return c;
@@ -580,14 +581,30 @@ describe('the ridge planes in the scene', () => {
     s.dispose();
   });
 
-  it('lays frame b over frame a at the blend weight', () => {
+  it('crossfades a into b: a at 1 - w, b added at w, in a group of its own', () => {
     const { parent, canvas } = host();
-    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: BLEND })!;
+    const BLEND3 = backdropAt(4, 130); // w = 0.2, not the symmetric half
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: BLEND3 })!;
+    const { w } = BLEND3.choice;
+    expect(w).toBeCloseTo(0.2, 6);
     const g = rigOf(parent).children[1];
-    expect(g.children.map((i: any) => [i.src, i.style.opacity])).toEqual([
-      ['dawn-mid', '1'],
-      ['morning-mid', String(BLEND.choice.w)],
+    expect(g.style.isolation).toBe('isolate');
+    expect(
+      g.children.map((i: any) => [i.src, i.style.opacity, i.style.mixBlendMode ?? null])
+    ).toEqual([
+      ['dawn-mid', String(1 - w), null],
+      ['morning-mid', String(w), 'plus-lighter'],
     ]);
+    s.dispose();
+  });
+
+  it('a lone frame is drawn at full opacity with no blend mode', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: NOON })!;
+    const g = rigOf(parent).children[1];
+    expect(
+      g.children.map((i: any) => [i.src, i.style.opacity, i.style.mixBlendMode ?? null])
+    ).toEqual([['noon-mid', '1', null]]);
     s.dispose();
   });
 
@@ -622,28 +639,50 @@ describe('the ridge planes in the scene', () => {
     anims.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
   });
 
-  it("a still draws the planes into the host canvas at windowFor's placement and leaves no animation", () => {
+  it("a still sums each blended plane in an offscreen (a at 1 - w, then b lighter at w) and draws it at windowFor's placement", () => {
     const { parent, canvas } = host();
-    createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: BLEND });
+    const BLEND3 = backdropAt(4, 130);
+    createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: BLEND3 });
+    const { w } = BLEND3.choice;
     const win = windowFor(manifest.view, 400, 800);
-    const planesDrawn = images.filter((a) => (a[0] as any).src);
-    expect(planesDrawn).toHaveLength(6);
-    expect(planesDrawn.map((a) => (a[0] as any).src)).toEqual([
-      'dawn-far',
-      'morning-far',
-      'dawn-mid',
-      'morning-mid',
-      'dawn-near',
-      'morning-near',
-    ]);
-    const [, x, y, w, h] = planesDrawn[0] as number[];
-    expect([x, y, w, h]).toEqual([
+    const planesDrawn = images.filter((a) => (a[0] as any).src) as any[];
+    expect(planesDrawn.map((a) => [a[0].src, a.alpha, a.op])).toEqual(
+      ['far', 'mid', 'near'].flatMap((n) => [
+        [`dawn-${n}`, 1 - w, 'source-over'],
+        [`morning-${n}`, w, 'lighter'],
+      ])
+    );
+    // Each sum then meets the host canvas once, plainly, at the plane's placement.
+    const summed = images.filter((a) => !(a[0] as any).src && (a[0] as any).width) as any[];
+    expect(summed).toHaveLength(3);
+    summed.forEach((a) => {
+      expect([a[1], a[2], a[3], a[4]]).toEqual([
+        (800 - win.plane.w * 2) / 2,
+        1600 - win.plane.h * 2,
+        win.plane.w * 2,
+        win.plane.h * 2,
+      ]);
+      expect([a.alpha, a.op]).toEqual([1, 'source-over']);
+      expect([a[0].width, a[0].height]).toEqual([win.plane.w * 2, win.plane.h * 2]);
+    });
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('a lone frame in a still goes straight to the host canvas at full alpha', () => {
+    const { canvas } = host();
+    createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: NOON });
+    const win = windowFor(manifest.view, 400, 800);
+    const planesDrawn = images.filter((a) => (a[0] as any).src) as any[];
+    expect(planesDrawn.map((a) => [a[0].src, a.alpha, a.op])).toEqual(
+      ['far', 'mid', 'near'].map((n) => [`noon-${n}`, 1, 'source-over'])
+    );
+    const [, x, y, dw, dh] = planesDrawn[0];
+    expect([x, y, dw, dh]).toEqual([
       (800 - win.plane.w * 2) / 2,
       1600 - win.plane.h * 2,
       win.plane.w * 2,
       win.plane.h * 2,
     ]);
-    expect(parent.children).toEqual([canvas]);
   });
 
   it('settles to a still with the planes painted when the frame rate is poor', () => {

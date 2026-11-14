@@ -4,9 +4,9 @@
 import type { Frame, FrameKey } from './manifest';
 
 export interface FrameChoice {
-  /** The frame shown at full opacity. */
+  /** The frame shown alone when b is null, else weighted 1 - w. */
   a: Frame;
-  /** The frame blended over it at `w`, or null when one frame stands alone. */
+  /** The frame crossfaded in at `w`, or null when one frame stands alone. */
   b: Frame | null;
   /** Weight of b in 0..1; 0 when b is null. */
   w: number;
@@ -14,6 +14,15 @@ export interface FrameChoice {
 
 /** Blends this close to either frame are not worth a second image. */
 export const BLEND_EDGE = 0.02;
+
+/**
+ * The one rule of a blend, for the rig and the still alike: a true crossfade, a at 1 - w plus b at w, summed (premultiplied) in a group of
+ * their own. The baked planes carry haze as alpha (no pixel is opaque), so b laid over a at opacity w would double the haze mid-blend
+ * and jump when the choice collapses to b alone; the sum is a lerp of the two frames and never denser than either.
+ */
+export function crossfade(choice: FrameChoice): { a: number; b: number } {
+  return choice.b ? { a: 1 - choice.w, b: choice.w } : { a: 1, b: 0 };
+}
 
 const MORNING: readonly FrameKey[] = ['night', 'dawn', 'morning', 'noon'];
 const AFTERNOON: readonly FrameKey[] = ['night', 'dusk', 'golden', 'noon'];

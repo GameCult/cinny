@@ -4,6 +4,7 @@ import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
 import { windowFor } from './view';
+import { crossfade } from './frameChoice';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import { drawRainTile, RAIN_TILES } from './rain';
 import type { Backdrop, Planes } from './Backdrop';
@@ -237,7 +238,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         height: `${win.plane.h}px`,
         willChange: 'transform',
       });
-      const layer = (planes: Planes, opacity: number) => {
+      const layer = (planes: Planes, opacity: number, blend?: string) => {
         const img = planes[name].cloneNode() as HTMLImageElement;
         Object.assign(img.style, {
           position: 'absolute',
@@ -247,10 +248,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
           height: '100%',
           opacity: String(opacity),
         });
+        if (blend) img.style.mixBlendMode = blend;
         group.appendChild(img);
       };
-      layer(bd.a, 1);
-      if (bd.b) layer(bd.b, bd.choice.w);
+      // One rule (`crossfade`): a at 1 - w, b added to it at w; the group is its own isolated backdrop, so the sum meets the sky once.
+      const fade = crossfade(bd.choice);
+      group.style.isolation = 'isolate';
+      layer(bd.a, fade.a);
+      if (bd.b) layer(bd.b, fade.b, 'plus-lighter');
       el.appendChild(group);
       const reach = win.driftPx * DRIFT_DEPTH[k];
       anims.push(
@@ -272,7 +277,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     return { el, anims };
   };
 
-  /** Paint the ridge planes into the host canvas, a over b, far to near: the still scene's one image. */
+  /** Paint the ridge planes into the host canvas, a and b crossfaded, far to near: the still scene's one image. */
   const paintPlanes = (bd: Backdrop) => {
     const ctx = context2d(canvas);
     if (!ctx) return;
@@ -282,15 +287,28 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const dh = win.plane.h * scale;
     const x = (canvas.width - dw) / 2;
     const y = canvas.height - dh - win.plane.bottom * scale;
+    const fade = crossfade(bd.choice);
+    // A blend is summed in an offscreen of its own, as the rig sums it in an isolated group: 'lighter' on the host canvas would add to the sky.
+    const sum = bd.b ? document.createElement('canvas') : null;
+    if (sum) {
+      sum.width = dw;
+      sum.height = dh;
+    }
+    const sctx = sum ? context2d(sum) : null;
     PLANE_NAMES.forEach((name) => {
-      ctx.globalAlpha = 1;
-      ctx.drawImage(bd.a[name], x, y, dw, dh);
-      if (bd.b) {
-        ctx.globalAlpha = bd.choice.w;
-        ctx.drawImage(bd.b[name], x, y, dw, dh);
+      if (!bd.b || !sum || !sctx) {
+        ctx.drawImage(bd.a[name], x, y, dw, dh);
+        return;
       }
+      sctx.clearRect(0, 0, dw, dh);
+      sctx.globalCompositeOperation = 'source-over';
+      sctx.globalAlpha = fade.a;
+      sctx.drawImage(bd.a[name], 0, 0, dw, dh);
+      sctx.globalCompositeOperation = 'lighter';
+      sctx.globalAlpha = fade.b;
+      sctx.drawImage(bd.b[name], 0, 0, dw, dh);
+      ctx.drawImage(sum, x, y, dw, dh);
     });
-    ctx.globalAlpha = 1;
   };
 
   /** Paint the sky, the stars and the rain. Returns false when a 2D context is missing or there is no area yet. */
