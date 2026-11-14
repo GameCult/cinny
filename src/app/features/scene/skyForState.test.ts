@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FALLBACK_VIEW } from './ridge/view';
+import { ELSEWHERE_VIEW } from './ridge/manifest.fixture';
 import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, luminance } from '../../../sky/skyTokens.js';
-import { skyColours } from './ridge/skyColour';
 import { chooseSky, skyColour } from './terrain/terrainSky';
 import {
   DUSK_SUN_ELEVATION,
@@ -10,6 +11,7 @@ import {
   ridgeDrawn,
   ridgeSkyFor,
   ridgeSkyKey,
+  loadWeather,
   terrainDrawn,
   terrainSkyFor,
 } from './skyForState';
@@ -78,10 +80,9 @@ describe('the bands the text ink needs', () => {
 });
 
 describe('ridgeSkyFor', () => {
-  it('carries the state band, which the layers are shaped into, and the physical sky of that state', () => {
+  it('carries the physical sky of the state', () => {
     for (const state of STATES) {
-      const sky = ridgeSkyFor(state, 0.3);
-      expect(sky.band).toEqual(SKY_BAND[state]);
+      const sky = ridgeSkyFor(state, FALLBACK_VIEW, 0.3);
       expect(sky.physical?.state).toBe(state);
       expect(sky.physical?.stops).toEqual({ top: sky.top, mid: sky.mid, horizon: sky.horizon });
     }
@@ -92,32 +93,42 @@ describe('ridgeSkyFor', () => {
       s.top,
       s.mid,
       s.horizon,
-      s.band,
       s.physical?.sun,
     ];
     setSkyClock(() => atStandardTime(12, 0));
-    expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('day', 0.3)));
+    expect(key(ridgeSkyFor('auto', FALLBACK_VIEW, 0.3))).toEqual(key(ridgeSkyFor('day', FALLBACK_VIEW, 0.3)));
     setSkyClock(() => atStandardTime(0, 0));
-    expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('night', 0.3)));
+    expect(key(ridgeSkyFor('auto', FALLBACK_VIEW, 0.3))).toEqual(key(ridgeSkyFor('night', FALLBACK_VIEW, 0.3)));
     setSkyClock(() => atStandardTime(18, 10));
-    expect(key(ridgeSkyFor('auto', 0.3))).toEqual(key(ridgeSkyFor('dusk', 0.3)));
+    expect(key(ridgeSkyFor('auto', FALLBACK_VIEW, 0.3))).toEqual(key(ridgeSkyFor('dusk', FALLBACK_VIEW, 0.3)));
   });
 
   it("is lit from the real sun over Vienna: a forced state's sun is inside the state, the clear noon sky is blue", () => {
-    const day = ridgeSkyFor('day', 0);
+    const day = ridgeSkyFor('day', FALLBACK_VIEW, 0);
     expect(day.physical?.sun.elevation).toBeGreaterThanOrEqual(DAY_FROM);
     expect(day.top[2]).toBeGreaterThan(day.top[0]);
-    const dusk = ridgeSkyFor('dusk', 0);
+    const dusk = ridgeSkyFor('dusk', FALLBACK_VIEW, 0);
     expect(Math.abs(dusk.physical?.sun.elevation ?? 99)).toBeLessThanOrEqual(DAY_FROM);
-    expect(ridgeSkyFor('night', 0).physical?.sun.elevation).toBeLessThanOrEqual(-DAY_FROM);
-    expect(day.ground).toEqual(skyColours().ground);
+    expect(ridgeSkyFor('night', FALLBACK_VIEW, 0).physical?.sun.elevation).toBeLessThanOrEqual(-DAY_FROM);
+  });
+
+  it("is made over the View's place: the sun and the observer are the View's", () => {
+    const sky = ridgeSkyFor('day', ELSEWHERE_VIEW, 0);
+    expect(sky.physical?.view).toBe(ELSEWHERE_VIEW);
+    expect(sky.physical?.atm.observerKm).toBe(ELSEWHERE_VIEW.place.altitudeKm);
+  });
+
+  it("keys a rebuild by the View's place as well: another place is another key", () => {
+    const other = { ...FALLBACK_VIEW, place: { ...FALLBACK_VIEW.place, id: 'graz' } };
+    expect(ridgeSkyKey('day', FALLBACK_VIEW, 0.3)).not.toBe(ridgeSkyKey('day', other, 0.3));
+    expect(ridgeSkyKey('day', other, 0.3)).toContain('graz');
   });
 
   it('keys a rebuild by state and weather, not by the moving sun', () => {
     setSkyClock(() => atStandardTime(12, 0));
-    expect(ridgeSkyKey('auto', 0.3)).toBe(ridgeSkyKey('day', 0.3));
-    expect(ridgeSkyKey('day', 0.3)).not.toBe(ridgeSkyKey('day', 0.8));
-    expect(ridgeSkyKey('day', 0.3)).not.toBe(ridgeSkyKey('night', 0.3));
+    expect(ridgeSkyKey('auto', FALLBACK_VIEW, 0.3)).toBe(ridgeSkyKey('day', FALLBACK_VIEW, 0.3));
+    expect(ridgeSkyKey('day', FALLBACK_VIEW, 0.3)).not.toBe(ridgeSkyKey('day', FALLBACK_VIEW, 0.8));
+    expect(ridgeSkyKey('day', FALLBACK_VIEW, 0.3)).not.toBe(ridgeSkyKey('night', FALLBACK_VIEW, 0.3));
   });
 
   it.each(STATES)('%s: the display is fitted to the budget its text ink needs', (state) => {
@@ -125,7 +136,7 @@ describe('ridgeSkyFor', () => {
     const r = ridgeDrawn(state);
     expect(r.darkest).toBeGreaterThanOrEqual(floor);
     expect(r.lightest).toBeLessThanOrEqual(ceiling);
-    const fit = ridgeSkyFor(state, 0.3).physical?.fit;
+    const fit = ridgeSkyFor(state, FALLBACK_VIEW, 0.3).physical?.fit;
     expect(fit?.lo).toBeGreaterThanOrEqual(r.darkest - 1e-9);
     expect(fit?.hi).toBeLessThanOrEqual(r.lightest + 1e-9);
   });
@@ -369,5 +380,19 @@ describe('skyBackdrop holds the union of what the scenes draw', () => {
     expect(l.high).toBeLessThanOrEqual(b.lightest + EPS);
     expect(b.lightest - Math.max(l.high, r.lightest)).toBeLessThan(5e-4);
     expect(Math.min(l.low, r.darkest) - b.darkest).toBeLessThan(5e-4);
+  });
+});
+
+describe('loadWeather', () => {
+  it('reads the file again for another place inside the refresh window: the weather it set belongs to the sun of the place it was read for', async () => {
+    const fetched = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+    vi.stubGlobal('fetch', fetched);
+    const t = new Date('2030-01-01T00:00:00Z');
+    await loadWeather('/w.json', FALLBACK_VIEW.place, t);
+    await loadWeather('/w.json', FALLBACK_VIEW.place, new Date(t.getTime() + 60_000));
+    expect(fetched).toHaveBeenCalledTimes(1);
+    await loadWeather('/w.json', ELSEWHERE_VIEW.place, new Date(t.getTime() + 120_000));
+    expect(fetched).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
   });
 });

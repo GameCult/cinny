@@ -75,6 +75,9 @@ export const BUDGET: Record<FixedSkyState, Budget> = {
   night: { floor: 0, ceiling: 0.047 - MARGIN, key: 0.03, min: 8, max: 3000 },
 };
 
+/** The luma one 8-bit code moves at the day floor (about 0.0037): a lift step smaller than this can leave the encoded luma where it was, so the floor search never steps less. */
+const CODE_STEP = 0.0045;
+
 /** The display transform of a sky: exposure, then ACES, then a black lift (veiling glare) in display-linear. */
 export interface Display {
   exposure: number;
@@ -157,7 +160,7 @@ export function fitDisplay(state: FixedSkyState, hdr: Float32Array, meanLuma: nu
     lift = (b.floor - r.lo) / (1 - r.lo);
     let probe = range({ exposure, lift });
     for (let k = 0; k < 6 && probe.lo < b.floor; k += 1) {
-      lift += (b.floor - probe.lo) * 1.05;
+      lift += Math.max((b.floor - probe.lo) * 1.05, CODE_STEP);
       probe = range({ exposure, lift });
     }
     r = probe;

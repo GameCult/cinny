@@ -7,8 +7,8 @@ import { baked } from '../../../sky/baked';
 import { chooseSky, skyColour, urlSky } from './terrain/terrainSky';
 import type { SkyName } from './terrain/terrainSky';
 import type { SkyColours, Srgb } from './ridge/skyColour';
-import { skyColours } from './ridge/skyColour';
 import { makePhysicalSky } from './ridge/physicalSky';
+import type { Place, View } from './ridge/view';
 import { BUDGET } from './ridge/toneMap';
 import { ridgeWeather, setFedWeather } from './ridge/weather';
 import { currentWeather, fetchWeatherFile } from './ridge/weatherFeed';
@@ -28,39 +28,40 @@ export const DUSK_SUN_ELEVATION = 2;
  */
 export const ridgeSkyKey = (
   state: SkyState,
+  view: View,
   weather: number = ridgeWeather(),
   now: Date = skyNow()
-): string => `ridge:${resolveSkyState(state, now)}:${weather}`;
+): string => `ridge:${resolveSkyState(state, now)}:${weather}:${view.place.id}`;
 
 const WEATHER_REFRESH_MS = 10 * 60_000;
 let weatherAt = -Infinity;
+let weatherPlace = '';
 /**
  * Read `weather.json` (the page's own, next to config.json) into the weather the ridge sky is drawn for; at most once in ten minutes.
  * Never throws: a missing, stale or broken file is a clear sky (`currentWeather`).
  */
-export async function loadWeather(url: string, now: Date = skyNow()): Promise<void> {
-  if (now.getTime() - weatherAt < WEATHER_REFRESH_MS) return;
+export async function loadWeather(url: string, place: Place, now: Date = skyNow()): Promise<void> {
+  if (place.id === weatherPlace && now.getTime() - weatherAt < WEATHER_REFRESH_MS) return;
   weatherAt = now.getTime();
-  setFedWeather(currentWeather(await fetchWeatherFile(url), now));
+  weatherPlace = place.id;
+  setFedWeather(currentWeather(await fetchWeatherFile(url), place, now));
 }
 
 /**
- * The ridge scene's `sky` option: the physical sky over Vienna for the state ('auto': the real sun now; a forced state: the
+ * The ridge scene's `sky` option: the physical sky over the View's place for the state ('auto': the real sun now; a forced state: the
  * sun of today at a moment inside it, `sunForState`), as a palette for the layers and stars plus the `physical` sky the host canvas
  * is painted from. The atmosphere LUTs are baked here, once per scene start (tens of ms).
  */
 export function ridgeSkyFor(
   state: SkyState,
+  view: View,
   weather: number = ridgeWeather(),
   now: Date = skyNow()
 ): SkyColours {
-  const { ground } = skyColours();
   const fixed = resolveSkyState(state, now);
-  const physical = makePhysicalSky(fixed, now, weather);
+  const physical = makePhysicalSky(fixed, now, weather, view);
   return {
     ...physical.stops,
-    ground,
-    band: SKY_BAND[fixed],
     physical,
   };
 }

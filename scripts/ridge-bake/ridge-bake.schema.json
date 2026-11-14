@@ -1,0 +1,313 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "ridge-bake manifest v1 and index v1",
+ "$defs": {
+  "manifest": {
+   "type": "object",
+   "required": [
+    "schema",
+    "baker_version",
+    "bake_id",
+    "place",
+    "view",
+    "frames",
+    "attribution"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "schema": {
+     "const": 1
+    },
+    "baker_version": {
+     "type": "integer"
+    },
+    "bake_id": {
+     "type": "string"
+    },
+    "place": {
+     "type": "object",
+     "required": [
+      "id",
+      "name",
+      "lat",
+      "lon",
+      "altitude_km",
+      "tz_h",
+      "tz_name",
+      "date"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "id": {
+       "type": "string"
+      },
+      "name": {
+       "type": "string"
+      },
+      "lat": {
+       "type": "number"
+      },
+      "lon": {
+       "type": "number"
+      },
+      "altitude_km": {
+       "type": "number"
+      },
+      "tz_h": {
+       "type": "number"
+      },
+      "tz_name": {
+       "type": "string"
+      },
+      "date": {
+       "type": "string"
+      }
+     }
+    },
+    "view": {
+     "type": "object",
+     "required": [
+      "look_az_deg",
+      "window_deg",
+      "plane_w",
+      "plane_h",
+      "px_per_deg_h",
+      "px_per_deg_v",
+      "horizon_row",
+      "sky_row",
+      "near_row"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "look_az_deg": {
+       "type": "number"
+      },
+      "window_deg": {
+       "const": 72
+      },
+      "plane_w": {
+       "type": "integer",
+       "maximum": 4096
+      },
+      "plane_h": {
+       "type": "integer"
+      },
+      "px_per_deg_h": {
+       "type": "number"
+      },
+      "px_per_deg_v": {
+       "type": "number"
+      },
+      "horizon_row": {
+       "type": "number"
+      },
+      "sky_row": {
+       "type": "number"
+      },
+      "near_row": {
+       "type": "number"
+      }
+     }
+    },
+    "frames": {
+     "type": "array",
+     "minItems": 6,
+     "maxItems": 6,
+     "items": {
+      "type": "object",
+      "required": [
+       "key",
+       "sun",
+       "hour_utc",
+       "planes",
+       "bytes",
+       "luma"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "key": {
+        "enum": [
+         "dawn",
+         "morning",
+         "noon",
+         "golden",
+         "dusk",
+         "night"
+        ]
+       },
+       "sun": {
+        "type": "object",
+        "required": [
+         "az",
+         "el"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "az": {
+          "type": "number"
+         },
+         "el": {
+          "type": "number"
+         }
+        }
+       },
+       "hour_utc": {
+        "type": "number"
+       },
+       "planes": {
+        "type": "object",
+        "required": [
+         "far",
+         "mid",
+         "near"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "far": {
+          "type": "object",
+          "required": [
+           "file",
+           "bytes",
+           "w",
+           "h"
+          ],
+          "additionalProperties": false,
+          "properties": {
+           "file": {
+            "type": "string"
+           },
+           "bytes": {
+            "type": "integer"
+           },
+           "w": {
+            "type": "integer"
+           },
+           "h": {
+            "type": "integer"
+           }
+          }
+         },
+         "mid": {
+          "type": "object",
+          "required": [
+           "file",
+           "bytes",
+           "w",
+           "h"
+          ],
+          "additionalProperties": false,
+          "properties": {
+           "file": {
+            "type": "string"
+           },
+           "bytes": {
+            "type": "integer"
+           },
+           "w": {
+            "type": "integer"
+           },
+           "h": {
+            "type": "integer"
+           }
+          }
+         },
+         "near": {
+          "type": "object",
+          "required": [
+           "file",
+           "bytes",
+           "w",
+           "h"
+          ],
+          "additionalProperties": false,
+          "properties": {
+           "file": {
+            "type": "string"
+           },
+           "bytes": {
+            "type": "integer"
+           },
+           "w": {
+            "type": "integer"
+           },
+           "h": {
+            "type": "integer"
+           }
+          }
+         }
+        }
+       },
+       "bytes": {
+        "type": "integer"
+       },
+       "luma": {
+        "type": "object",
+        "required": [
+         "min",
+         "max"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "min": {
+          "type": "number"
+         },
+         "max": {
+          "type": "number"
+         }
+        },
+        "description": "min and max WCAG relative luminance of the three planes composited far, mid, near over a flat mid-grey sky, over pixels whose composite coverage 1 - prod(1 - alpha) is at least 0.5"
+       }
+      }
+     }
+    },
+    "attribution": {
+     "type": "object",
+     "required": [
+      "credit_line",
+      "licence",
+      "dem_source",
+      "url"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "credit_line": {
+       "type": "string"
+      },
+      "licence": {
+       "type": "string"
+      },
+      "dem_source": {
+       "type": "string"
+      },
+      "url": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
+  "index": {
+   "type": "object",
+   "required": [
+    "schema",
+    "default",
+    "places"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "schema": {
+     "const": 1
+    },
+    "default": {
+     "type": "string"
+    },
+    "places": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ }
+}

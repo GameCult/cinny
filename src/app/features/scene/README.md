@@ -4,37 +4,31 @@
 config says `backgroundScene.style: 'raymarch'`; the tier flag still defaults to `off`, and null still
 means "keep the CSS ground". Everything below this section describes the opt-in ray-march scene.
 
-- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, onBake?, sky? })` returns `{ login, dispose }` or
-  null (tier `off`, no 2D context). Each of four ridge layers is a function of world-x (`ridge/ridgeWorld.ts` `profile`:
-  ridged multifractal value noise, each octave folded at its crest and weighted by the previous one, domain-warped; one
-  function, a parameter row per layer; nothing repeats). World-x is baked in chunks (1.2 viewport widths, integer pixels)
-  onto plain 2D canvases over a baked sky gradient on the host canvas. Per layer a track holds three chunk canvases: two
-  the window can reach and one ahead. The first view bakes only the first chunk of each layer; the others are baked in
-  tasks of about 6 ms (`setTimeout`; a chunk is baked, put on a canvas with its in-scatter, and blurred in column bands, each sized from the last band's time). Per frame the only motion is the
-  compositor sliding the track with a CSS transform (a Web Animation of `translate3d`, one chunk long, `fill: forwards`,
-  150-420 s per viewport width, farther is slower); when it finishes the chunks move one slot left and the track restarts
-  at 0 in the same task (no jump), and the canvas that left is baked with the next stretch of world. A second animation
-  sways the whole rig (up to 5% of the width sideways, 3% of the height down, 150 s loop): the slow yaw and pitch.
-  No script runs per frame. The host canvas and the layers' parent must be positioned and the canvas should fill the parent.
-- `ridge/ridgeBake.ts` is the pixel function (pure, no DOM): per column the crest's slope gives a normal, lit against the
-  sun (`sunDirection`: x = 0.9 sin(2 pi \* `sunAzimuth`), so the sun is toward +x for azimuth 0 to 0.5, strongest at 0.25, toward -x for 0.5 to 1; with no `sunAzimuth` the face lighting falls back to 0.3 and the in-scatter is off); the face under it has a light-to-haze gradient, erosion
-  streaks (a folded noise at gully width, darker with steepness) and a lit rim on the crest. Contrast scales with
-  `transmittance`; the base colour, haze and blur are the aerial perspective below, not redone.
-- Paused when the tab is hidden; under `prefers-reduced-motion` the layers are painted but never played.
-  `tier: 'still'` flattens sky and layers into the host canvas at once and leaves no extra elements.
+- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky? })` returns `{ login, dispose }` or
+  null (tier `off`, no 2D context). It paints the sky (`ridge/physicalSky.ts`, from the `SkyColours` the host passes) on the host
+  canvas at the viewport's size in canvas pixels, then the stars baked into it, a twinkle overlay canvas for the swinging ones
+  (`ridge/stars.ts`), the baked ridge planes (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`).
+  With no planes (the load failed) the scene shows sky, stars and weather only. No script runs per frame except the twinkle, at most every 50 ms.
+  The host canvas and its parent must be positioned and the canvas should fill the parent. A resize rebuilds it; so does a sky change
+  (`index.ts`).
+- Paused when the tab is hidden; under `prefers-reduced-motion` the rain is paused and the stars stay at base brightness.
+  `tier: 'still'` paints the sky and stars and adds no overlay, no rain and no loop.
 - Cadence guard: for the first 2 s after start (after 5 warm-up frames) rAF intervals are sampled; if their p95 is over
-  33 ms the scene flattens to a still image (`ridge/probe.ts`) and stops. `?probe=1` (or `probe: true`) keeps sampling
+  33 ms the scene settles to a still image (`ridge/probe.ts`) and stops. `?probe=1` (or `probe: true`) keeps sampling
   and shows `n / median / p95` in a corner readout.
-- `ridge/skyColour.ts` `skyColours()` is the one place sky colours come from: a fixed dusk placeholder until Void's
-  `src/sky/sun.js` `light()` lands (PR #20); replace its body, keep the signature.
-- Aerial perspective (`ridge/ridgeWorld.ts` `AERIAL`, `transmittance`, `layerColour`, `edgeBlur`, `scatterAlpha`) is applied
-  once while the layers are baked, from the `SkyColours` the one seam returns (`sunAzimuth` optional: omit it for no
-  in-scatter). Layer distance d = 1 - depth; transmittance T = exp(-1.6 d) (0.24 / 0.37 / 0.58 / 1.00 far to near); colour is
-  `T * ground + (1 - T) * haze`, then chroma drops by `0.5 (1 - T)`; the edge is blurred up to 2 px (canvas pixels at DPR 1,
-  via the 2D `filter`, skipped where unsupported, e.g. Safari); a faint warm in-scatter (at most 0.16 alpha) peaks at the
-  sun's azimuth in world-x (two incommensurate cosines, so not periodic). Nothing runs per frame. The in-scatter lobe is
-  painted into each chunk, so it drifts with the layer rather than staying fixed under the sun; that is a known
-  approximation until the sun is a real, fixed light.
+- `ridge/skyColour.ts` `skyColours()` is the fallback three-stop palette (top, mid, horizon) a scene gets with no `sky` option; the host
+  passes `ridgeSkyFor` (skyForState.ts) instead.
+- Ridge planes: `ridge/manifest.ts` `loadManifest` reads `${BASE_URL}public/ridge/index.json` (config `backgroundScene.place` picks the entry,
+  unknown or absent: the index default), then the place's `manifest.json` (v1, written by `scripts/ridge-bake/export.py`; it is the one JSON
+  the backdrop reads). `ridge/frameChoice.ts` picks the two baked frames the sky's sun lies between and a blend weight; `ridge/Backdrop.ts`
+  decodes only those. `index.ts` `prepare()` loads manifest and planes with the scene chunk, so `createRidgeScene({ backdrop })` stays
+  synchronous, and a rebuild keeps the old scene up until the new one's planes have loaded, then swaps. The rig is one div of three plane groups (far, mid, near; DOM order is paint order; no z-index, no fixed position, nothing
+  outside the scene's parent), each drifting on `Element.animate` (transform only, 150 s loop, paused when the tab is hidden, motion is
+  reduced or the scene is still); a still draws the planes into the host canvas. Two frames are a true crossfade (`frameChoice.ts`
+  `crossfade`: a at 1 - w plus b at w, summed in an isolated group, `plus-lighter` in the rig and `lighter` in an offscreen for the still), because
+  the planes are haze as alpha and b laid over a would double the haze. A failure anywhere (404, bad manifest, an image that
+  will not decode) is the sky-only scene on `FALLBACK_VIEW`, told to the host by the live scene alone, through `onPlanesFail` when the live scene has no planes and `onPlanesOk` when a later one has them (never from a stale or disposed build); it is never `onCompileFail`.
+  `vite.config.js` copies `public/ridge` into `dist/public/`.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
 - Not yet measured on a phone: see the PR description.
 
@@ -78,13 +72,10 @@ holds a GL context gives no 2D one, so a GL failure after context creation (comp
   x `AMBIENT_GAIN` 0.25 x `NIGHT_LIFT` up to 4; now `ambient_linear` as baked, so midnight's fill is about 2.5 to 3.5 times darker than
   the lifted one). `HAZE_K` (0.0004 per metre) is unchanged.
 
-## Ridge scene: Vienna, the real horizon and the weather
+## Ridge scene: Vienna and the weather
 
 The ridge sky is the physical atmosphere (`ridge/earthAtmosphere.ts`) lit by the real sun over the viewpoint, 48.1929826 N, 16.3534237 E
-(`ridge/vienna.ts`). Its farthest layer is the real horizon of that viewpoint, standing still under the sun: `ridge/viennaHorizon.json`,
-baked by `scripts/bake-horizon.py` from Copernicus DEM GLO-30 (nine 1 degree tiles, about 380 MB, kept out of the repo). The file carries its
-own `source` block with the dataset, tiles, licence and the attribution the licence requires. Its elevation range is 2.1 degrees, so the
-layer draws the shape of the ring stretched to a fixed relief, not its scale.
+(`ridge/vienna.ts`).
 
 The weather is one number (`ridge/weather.ts`), from the page URL's `?weather=`, else `weather.json` beside `config.json`, else clear.
 The browser never calls a weather service. `weather.json` is written by Eureka's refresher (gamecult-ops `docs/weather-feed.md`, a 5-minute timer; the only writer) from GeoSphere Austria's TAWES station 11035 (Wien Hohe Warte), credit
@@ -92,7 +83,7 @@ The browser never calls a weather service. `weather.json` is written by Eureka's
 glow_wm2, sunshine_s_10min, attribution}`, null for a missing measurement. A file fetched more than 30 minutes ago, or holding an observation more than 40 minutes old, or from another station, is a clear
 sky. Rain is the gauge; cloud is an estimate from the global radiation against Haurwitz's clear-sky value, cross-checked by the sunshine
 duration, with the humidity as the fallback when the sun is low (`ridge/weatherFeed.ts`). The weather draws a cloud deck in the sky
-(`ridge/clouds.ts`), thickens the layers' valley mist, and lays tiled rain streaks over everything (`ridge/rain.ts`, compositor-driven, none in a still).
+(`ridge/clouds.ts`) and lays tiled rain streaks over the sky (`ridge/rain.ts`, compositor-driven, none in a still).
 
 ## Entry points
 
