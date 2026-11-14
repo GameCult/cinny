@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Picked, ShareDeps, createShareController } from './shareController';
 import { ShareResult } from './shareSet';
 
-const file = (name: string): Picked => ({ name, type: 'audio/ogg' });
+const file = (name: string, size?: number): Picked => ({ name, type: 'audio/ogg', size });
+const MB = 1024 * 1024;
 const ok = (n: number): ShareResult => ({ albumId: '$r', sent: n, failed: [], failedAt: [] });
 
 /** A run the test settles by hand, so "in flight" is a state the test can stand in. */
@@ -277,5 +278,90 @@ describe('Stop', () => {
     expect(h.calls[1].signal.aborted).toBe(false);
     h.release(ok(2));
     await again;
+  });
+});
+
+describe('files over the homeserver cap', () => {
+  const cap = 50 * MB;
+  const capped = () => make({ maxBytes: () => cap });
+
+  it('are named in the note and never sent; the rest go', async () => {
+    const { c, h } = capped();
+    c.pick([file('small.ogg', 3 * MB), file('film.mp4', 80 * MB), file('also.ogg', 1)]);
+    const sent = c.send();
+    expect(h.calls[0].files.map((f) => f.name)).toEqual(['small.ogg', 'also.ogg']);
+    expect(c.getState().files.map((f) => f.name)).toEqual(['small.ogg', 'also.ogg']);
+    h.release(ok(2));
+    await sent;
+    expect(c.getState().phase).toEqual({
+      kind: 'done',
+      text: 'Shared 2 files. Too large for this server (limit 50 MB): film.mp4',
+    });
+    expect(c.getState().files).toEqual([]);
+  });
+
+  it('are not kept for a retry that cannot help them, while a failed small file is', async () => {
+    const { c, h } = capped();
+    c.pick([file('a.ogg', 1), file('big.wav', 60 * MB)]);
+    const sent = c.send();
+    h.release({ albumId: '$r', sent: 0, failed: ['a.ogg'], failedAt: [0] });
+    await sent;
+    expect(c.getState().files.map((f) => f.name)).toEqual(['a.ogg']);
+  });
+
+  it('a pick that is all over the cap sends nothing: no run, so no album root, and the pick clears', async () => {
+    const { c, h, sentTo } = capped();
+    c.pick([file('a.mp4', 51 * MB), file('b.mp4', 99 * MB)]);
+    const { epoch } = c.getState();
+    await c.send();
+    expect(h.calls).toHaveLength(0);
+    expect(sentTo).toEqual([]);
+    expect(c.getState()).toMatchObject({ files: [], epoch: epoch + 1 });
+    expect(c.getState().phase).toEqual({
+      kind: 'done',
+      text: 'Nothing was shared. Too large for this server (limit 50 MB): a.mp4, b.mp4',
+    });
+  });
+
+  it('a file of exactly the cap goes: the server refuses only what is larger', async () => {
+    const { c, h } = capped();
+    c.pick([file('edge.bin', cap)]);
+    const sent = c.send();
+    expect(h.calls[0].files).toHaveLength(1);
+    h.release(ok(1));
+    await sent;
+  });
+
+  it('the room is not held busy by an all-refused pick, so the next pick sends', async () => {
+    const { c, h } = capped();
+    c.pick([file('a.mp4', 99 * MB)]);
+    await c.send();
+    c.pick([file('b.ogg', 1)]);
+    const sent = c.send();
+    expect(h.calls).toHaveLength(1);
+    h.release(ok(1));
+    await sent;
+  });
+
+  it('a server that states no cap, or a file with no size, refuses nothing', async () => {
+    const none = make();
+    none.c.pick([file('a', 10 ** 12)]);
+    const s1 = none.c.send();
+    expect(none.h.calls[0].files).toHaveLength(1);
+    none.h.release(ok(1));
+    await s1;
+    const unsized = make({ maxBytes: () => cap }, '!other:x');
+    unsized.c.pick([file('b')]);
+    const s2 = unsized.c.send();
+    expect(unsized.h.calls[0].files).toHaveLength(1);
+    unsized.h.release(ok(1));
+    await s2;
+  });
+
+  it('a fractional cap reads with one decimal', async () => {
+    const { c } = make({ maxBytes: () => 1.5 * MB });
+    c.pick([file('a', 2 * MB)]);
+    await c.send();
+    expect(c.getState().phase).toMatchObject({ text: expect.stringContaining('limit 1.5 MB') });
   });
 });

@@ -2,7 +2,7 @@
 // send is in, and the rules that keep a room to one send at a time. ShareSet.tsx draws it.
 import { ShareResult, remainingAfter, resultNote } from './shareSet';
 
-export type Picked = { name: string; type: string };
+export type Picked = { name: string; type: string; size?: number };
 
 export type SharePhase =
   | { kind: 'idle' }
@@ -19,11 +19,28 @@ export type ShareState<F extends Picked> = {
 
 export const ENCRYPTED_NOTE = 'Not shared: this room is encrypted.';
 
+const MIB = 1024 * 1024;
+
+/**
+ * Files the homeserver would refuse for size (its `m.upload.size`, which Synapse enforces as a
+ * limit, so a file of exactly that size goes), split from the rest before anything is sent. A
+ * missing cap or size refuses nothing.
+ */
+export const splitBySize = <F extends Picked>(files: F[], cap: number | undefined) => {
+  const over = (f: F) => cap !== undefined && f.size !== undefined && f.size > cap;
+  return { sendable: files.filter((f) => !over(f)), tooLarge: files.filter(over) };
+};
+
+const tooLargeNote = (names: string[], cap: number): string =>
+  `Too large for this server (limit ${Math.round((cap / MIB) * 10) / 10} MB): ${names.join(', ')}`;
+
 export type ShareDeps<F extends Picked> = {
   roomId: string;
   isEncrypted: () => boolean;
   /** Sends the files as one album; reports each settled file through onFile. */
   run: (files: F[], title: string, onFile: () => void, signal: AbortSignal) => Promise<ShareResult>;
+  /** The homeserver's upload cap in bytes (`m.upload.size`), when it states one. */
+  maxBytes?: () => number | undefined;
   /** Called after a send that reached the room, whatever it left unsent. */
   onSent?: () => void;
 };
@@ -48,11 +65,27 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
       set({ phase: { kind: 'done', text: ENCRYPTED_NOTE } });
       return;
     }
+    // Files over the cap are named and dropped from the pick before any upload or album root: a
+    // retry cannot help them, and a root with nothing under it is a lone message nobody lists.
+    const cap = deps.maxBytes?.();
+    const { sendable, tooLarge } = splitBySize(state.files, cap);
+    const sizeNote = tooLarge.length
+      ? tooLargeNote(
+          tooLarge.map((f) => f.name),
+          cap as number
+        )
+      : '';
+    if (sendable.length === 0) {
+      const phase: SharePhase = { kind: 'done', text: `Nothing was shared. ${sizeNote}` };
+      set({ files: [], title: '', epoch: state.epoch + 1, phase });
+      return;
+    }
     sending.add(deps.roomId);
     const abort = new AbortController();
     running = abort;
-    const { files, title } = state;
-    set({ phase: { kind: 'sending', done: 0 } });
+    const { title } = state;
+    const files = sendable;
+    set({ files, phase: { kind: 'sending', done: 0 } });
     let settled = 0;
     try {
       const res = await deps.run(
@@ -66,7 +99,10 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
       );
       deps.onSent?.();
       const left = remainingAfter(files, res);
-      const phase: SharePhase = { kind: 'done', text: resultNote(res) };
+      const phase: SharePhase = {
+        kind: 'done',
+        text: sizeNote ? `${resultNote(res)} ${sizeNote}` : resultNote(res),
+      };
       // One notification: no state is ever drawn with the pick emptied and the send still running.
       if (left.length === 0) set({ files: [], title: '', epoch: state.epoch + 1, phase });
       else set({ files: left, phase });

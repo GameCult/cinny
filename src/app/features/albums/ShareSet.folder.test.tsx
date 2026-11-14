@@ -3,18 +3,24 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MatrixClientProvider } from '../../hooks/useMatrixClient';
+import { MediaConfig, MediaConfigProvider } from '../../hooks/useMediaConfig';
 
 // ShareSet hands its folder to the title the send lands under. The controller is held still and its
 // `run` captured, and sendShareSet records the title it was given, so the path from the `folder`
 // prop to the album root's title is read without a homeserver or a DOM.
 const captured = vi.hoisted(() => ({
   run: undefined as undefined | ((files: unknown[], title: string, onFile: () => void) => unknown),
+  maxBytes: undefined as undefined | (() => number | undefined),
   titles: [] as string[],
 }));
 
 vi.mock('./shareController', () => ({
-  createShareController: (deps: { run: NonNullable<typeof captured.run> }) => {
+  createShareController: (deps: {
+    run: NonNullable<typeof captured.run>;
+    maxBytes: NonNullable<typeof captured.maxBytes>;
+  }) => {
     captured.run = deps.run;
+    captured.maxBytes = deps.maxBytes;
     return {
       subscribe: () => () => undefined,
       getState: () => ({ files: [], title: '', phase: { kind: 'idle' }, epoch: 0 }),
@@ -49,7 +55,11 @@ const ev = (id: string, ts: number, threadRootId?: string, status: string | null
   threadRootId,
   status,
 });
-const mount = (folder?: string[], into?: { albumId: string; lastId: string; lastTs: number }) => {
+const mount = (
+  folder?: string[],
+  into?: { albumId: string; lastId: string; lastTs: number },
+  mediaConfig: MediaConfig = {}
+) => {
   const room = {
     roomId: '!r:x',
     hasEncryptionStateEvent: () => false,
@@ -58,7 +68,9 @@ const mount = (folder?: string[], into?: { albumId: string; lastId: string; last
   renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
       <MatrixClientProvider value={{ sendMessage: async () => ({ event_id: '$e' }) } as never}>
-        <ShareSet room={room} folder={folder} into={into} />
+        <MediaConfigProvider value={mediaConfig}>
+          <ShareSet room={room} folder={folder} into={into} />
+        </MediaConfigProvider>
       </MatrixClientProvider>
     </QueryClientProvider>
   );
@@ -110,5 +122,16 @@ describe('ShareSet: the folder reaches the album title', () => {
     );
     mount(['a'], { albumId: '$alb', lastId: '$last', lastTs: 5 });
     expect(await send('x')).toBe('into:$alb@$sentNotEchoed');
+  });
+});
+
+describe('ShareSet: the homeserver upload cap reaches the controller', () => {
+  it('is the server-stated m.upload.size, and none when the server states none', () => {
+    mount([], undefined, { 'm.upload.size': 52428800 });
+    expect(captured.maxBytes?.()).toBe(52428800);
+    mount([], undefined, {});
+    expect(captured.maxBytes?.()).toBeUndefined();
+    mount([], undefined, { 'm.upload.size': 0 });
+    expect(captured.maxBytes?.()).toBeUndefined();
   });
 });
