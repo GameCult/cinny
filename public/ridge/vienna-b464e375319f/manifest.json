@@ -1,0 +1,232 @@
+{
+ "schema": 1,
+ "baker_version": 1,
+ "bake_id": "b464e375319f",
+ "place": {
+  "id": "vienna",
+  "name": "Vienna, looking SW to Rax/Schneeberg",
+  "lat": 48.1929826,
+  "lon": 16.3534237,
+  "altitude_km": 0.18330000000000002,
+  "tz_h": 2,
+  "tz_name": "CEST",
+  "date": "2026-09-23"
+ },
+ "view": {
+  "look_az_deg": 214.0,
+  "plane_h": 600,
+  "px_per_deg_h": 17.77777777777778,
+  "px_per_deg_v": 177.77777777777777,
+  "horizon_row": 314.5166414048937,
+  "sky_row": 24.0,
+  "near_row": 396.0,
+  "window_deg": 72,
+  "plane_w": 1280
+ },
+ "frames": [
+  {
+   "key": "dawn",
+   "sun": {
+    "az": 91.31344091054159,
+    "el": 1.9676060128650812
+   },
+   "hour_utc": 4.923611110972221,
+   "planes": {
+    "far": {
+     "file": "dawn-far.webp",
+     "bytes": 89842,
+     "w": 1280,
+     "h": 600
+    },
+    "mid": {
+     "file": "dawn-mid.webp",
+     "bytes": 58444,
+     "w": 1280,
+     "h": 600
+    },
+    "near": {
+     "file": "dawn-near.webp",
+     "bytes": 112950,
+     "w": 1280,
+     "h": 600
+    }
+   },
+   "bytes": 261236,
+   "luma": {
+    "min": 0.02173927318967578,
+    "max": 0.2143920269061395
+   }
+  },
+  {
+   "key": "morning",
+   "sun": {
+    "az": 122.50757257559601,
+    "el": 26.09311435610136
+   },
+   "hour_utc": 7.5,
+   "planes": {
+    "far": {
+     "file": "morning-far.webp",
+     "bytes": 91090,
+     "w": 1280,
+     "h": 600
+    },
+    "mid": {
+     "file": "morning-mid.webp",
+     "bytes": 63476,
+     "w": 1280,
+     "h": 600
+    },
+    "near": {
+     "file": "morning-near.webp",
+     "bytes": 119778,
+     "w": 1280,
+     "h": 600
+    }
+   },
+   "bytes": 274344,
+   "luma": {
+    "min": 0.023307705502610833,
+    "max": 0.5954759807347093
+   }
+  },
+  {
+   "key": "noon",
+   "sun": {
+    "az": 179.90578338676787,
+    "el": 42.09425207059211
+   },
+   "hour_utc": 10.778105086666667,
+   "planes": {
+    "far": {
+     "file": "noon-far.webp",
+     "bytes": 92266,
+     "w": 1280,
+     "h": 600
+    },
+    "mid": {
+     "file": "noon-mid.webp",
+     "bytes": 64134,
+     "w": 1280,
+     "h": 600
+    },
+    "near": {
+     "file": "noon-near.webp",
+     "bytes": 122270,
+     "w": 1280,
+     "h": 600
+    }
+   },
+   "bytes": 278670,
+   "luma": {
+    "min": 0.028025005749671317,
+    "max": 0.7071301021405179
+   }
+  },
+  {
+   "key": "golden",
+   "sun": {
+    "az": 263.5260325423649,
+    "el": 6.139314360766868
+   },
+   "hour_utc": 16.193611110972224,
+   "planes": {
+    "far": {
+     "file": "golden-far.webp",
+     "bytes": 89676,
+     "w": 1280,
+     "h": 600
+    },
+    "mid": {
+     "file": "golden-mid.webp",
+     "bytes": 59462,
+     "w": 1280,
+     "h": 600
+    },
+    "near": {
+     "file": "golden-near.webp",
+     "bytes": 114342,
+     "w": 1280,
+     "h": 600
+    }
+   },
+   "bytes": 263480,
+   "luma": {
+    "min": 0.02402914320144737,
+    "max": 0.2869579287555448
+   }
+  },
+  {
+   "key": "dusk",
+   "sun": {
+    "az": 273.0513939324655,
+    "el": -1.8289117519819837
+   },
+   "hour_utc": 17.04388888875,
+   "planes": {
+    "far": {
+     "file": "dusk-far.webp",
+     "bytes": 89124,
+     "w": 1280,
+     "h": 600
+    },
+    "mid": {
+     "file": "dusk-mid.webp",
+     "bytes": 56656,
+     "w": 1280,
+     "h": 600
+    },
+    "near": {
+     "file": "dusk-near.webp",
+     "bytes": 111564,
+     "w": 1280,
+     "h": 600
+    }
+   },
+   "bytes": 257344,
+   "luma": {
+    "min": 0.018028911802351475,
+    "max": 0.18841340359158804
+   }
+  },
+  {
+   "key": "night",
+   "sun": {
+    "az": 283.9869292652113,
+    "el": -11.998720821772542
+   },
+   "hour_utc": 18.004444444305555,
+   "planes": {
+    "far": {
+     "file": "night-far.webp",
+     "bytes": 88064,
+     "w": 1280,
+     "h": 600
+    },
+    "mid": {
+     "file": "night-mid.webp",
+     "bytes": 54654,
+     "w": 1280,
+     "h": 600
+    },
+    "near": {
+     "file": "night-near.webp",
+     "bytes": 110050,
+     "w": 1280,
+     "h": 600
+    }
+   },
+   "bytes": 252768,
+   "luma": {
+    "min": 0.012974147057371975,
+    "max": 0.14175859785553058
+   }
+  }
+ ],
+ "attribution": {
+  "credit_line": "Contains modified Copernicus data: DEM \u00a9 DLR e.V. 2010-2014 and \u00a9 Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
+  "licence": "Copernicus DEM licence: free, full and open access, with the credit line shown",
+  "dem_source": "Copernicus DEM GLO-30 (30 m)",
+  "url": "https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model"
+ }
+}

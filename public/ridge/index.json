@@ -1,0 +1,7 @@
+{
+ "schema": 1,
+ "default": "vienna",
+ "places": {
+  "vienna": "vienna-b464e375319f"
+ }
+}
