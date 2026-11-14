@@ -1,0 +1,32 @@
+schema = "gamecult.idunn.target_declaration.v1"
+target = "ratatoskr"
+# Idunn stamps the source commit into the build environment under this name. The release is not built from source: the
+# dist tarball below is built by scripts the release owner runs (build-prod-dist.sh) and enters pinned by sha256, so
+# each release is a recipe commit whose pin is its provenance. The stamp the served index carries is the commit the
+# tarball was built from, which is not this commit.
+source_stamp_environment = "RATATOSKR_BUILD_COMMIT"
+
+# Release dist 934f82386d612c3e056f851555c7c9dfd2bdf5db: the output of build-prod-dist.sh (ALLOW_CONFIG_DRIFT=1; the
+# served config.json is the carried live file, not the tree's), packed as dist/ at the top of one gzip tar.
+[[external_inputs]]
+id = "dist-tarball"
+url = "https://eureka.gamecult.org/forge/GameCult/Ratatoskr/releases/download/dist-934f8238/ratatoskr-934f8238-dist.tar.gz"
+sha256 = "55e7be0622a4eddb81008bc0132e3d476bdb3c453e278599d5a0259a76d00c5b"
+runner = "unpack"
+destination = "release/dist.tar.gz"
+
+[[steps]]
+id = "unpack-dist"
+phase = "prepare"
+runner = "unpack"
+argv = ["tar", "-xzf", "release/dist.tar.gz", "-C", "release"]
+
+[[artifacts]]
+id = "dist"
+source_kind = "runner-output"
+runner = "unpack"
+source = "release/dist"
+destination = "dist"
+
+[static_release]
+artifact = "dist"
