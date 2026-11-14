@@ -21,11 +21,13 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
 - Ridge planes: `ridge/manifest.ts` `loadManifest` reads `${BASE_URL}public/ridge/index.json` (config `backgroundScene.place` picks the entry,
   unknown or absent: the index default), then the place's `manifest.json` (v1, written by `scripts/ridge-bake/export.py`; it is the one JSON
   the backdrop reads). `ridge/frameChoice.ts` picks the two baked frames the sky's sun lies between and a blend weight; `ridge/Backdrop.ts`
-  decodes only those. `index.ts` `create()` loads manifest and planes with the scene chunk, so `createRidgeScene({ backdrop })` stays
-  synchronous. The rig is one div of three plane groups (far, mid, near; DOM order is paint order; no z-index, no fixed position, nothing
+  decodes only those. `index.ts` `prepare()` loads manifest and planes with the scene chunk, so `createRidgeScene({ backdrop })` stays
+  synchronous, and a rebuild keeps the old scene up until the new one's planes have loaded, then swaps. The rig is one div of three plane groups (far, mid, near; DOM order is paint order; no z-index, no fixed position, nothing
   outside the scene's parent), each drifting on `Element.animate` (transform only, 150 s loop, paused when the tab is hidden, motion is
-  reduced or the scene is still); a still draws the planes into the host canvas. A failure anywhere (404, bad manifest, an image that
-  will not decode) is the sky-only scene on `FALLBACK_VIEW`, reported once through `onPlanesFail`; it is never `onCompileFail`.
+  reduced or the scene is still); a still draws the planes into the host canvas. Two frames are a true crossfade (`frameChoice.ts`
+  `crossfade`: a at 1 - w plus b at w, summed in an isolated group, `plus-lighter` in the rig and `lighter` in an offscreen for the still), because
+  the planes are haze as alpha and b laid over a would double the haze. A failure anywhere (404, bad manifest, an image that
+  will not decode) is the sky-only scene on `FALLBACK_VIEW`, told to the host by the live scene alone, through `onPlanesFail` when the live scene has no planes and `onPlanesOk` when a later one has them (never from a stale or disposed build); it is never `onCompileFail`.
   `vite.config.js` copies `public/ridge` into `dist/public/`.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
 - Not yet measured on a phone: see the PR description.

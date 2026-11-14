@@ -18,37 +18,63 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
   onInactive?: () => void;
   /** A rebuild made a scene again: the host lets it show. */
   onActive?: () => void;
-  /** The baked ridge planes did not load (no manifest, a missing image): the scene is the sky alone, once per start. The host may fill the ground. */
+  /** The live scene is the sky alone because the baked ridge planes did not load (no manifest, a missing image). The host may fill the ground. Told when the live scene changes to that state, never for a build that did not win. */
   onPlanesFail?: (e: Error) => void;
+  /** The live scene has its planes after `onPlanesFail` said it had none: the host lets go of the ground it filled. */
+  onPlanesOk?: () => void;
 };
 
 /** The observation file the ridge sky reads: the page's own, beside config.json. The browser calls no weather service. */
 const weatherUrl = (): string => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/weather.json`;
 
-async function create(
+/** A scene made ready: every await is done, so `make` is synchronous and a rebuild can keep the old scene until the instant it swaps. */
+interface Prepared {
+  make: () => Scene | null;
+  /** Why this scene is the sky alone, when the baked planes did not load; null when it has planes or none are asked for. */
+  planesFail: Error | null;
+}
+
+async function prepare(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier; debug?: boolean },
   state: SkyState
-): Promise<Scene | null> {
-  const { onPlanesFail, ...sceneOptions } = options;
+): Promise<Prepared> {
+  // Whatever throws in making the scene is a compile failure, as whatever throws in loading it.
+  const guarded = (make: () => Scene | null): Prepared => ({
+    planesFail: null,
+    make: () => {
+      try {
+        return make();
+      } catch (e) {
+        options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
+        return null;
+      }
+    },
+  });
   try {
     // Loaded here, with the scenes, so the main chunk does not carry the terrain sky or the baked tables.
     const { loadWeather, ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
-    if (config?.style === 'raymarch') return (await import('./Scene')).createScene(options);
+    if (config?.style === 'raymarch') {
+      const { createScene } = await import('./Scene');
+      return guarded(() => createScene(options));
+    }
     if (config?.style === 'terrain') {
       const { createTerrainScene } = await import('./terrain/Terrain');
-      const sky = terrainSkyFor(state);
-      const scene = createTerrainScene({ ...options, ...sky });
-      // No WebGL2 (or no usable GL): the terrain's sky alone on the same canvas, not bare ground.
-      if (scene) return scene;
       const { createTerrainSkyScene } = await import('./terrain/TerrainSky2D');
-      return createTerrainSkyScene({ ...options, ...sky });
+      const sky = terrainSkyFor(state);
+      // No WebGL2 (or no usable GL): the terrain's sky alone on the same canvas, not bare ground.
+      return guarded(
+        () =>
+          createTerrainScene({ ...options, ...sky }) ??
+          createTerrainSkyScene({ ...options, ...sky })
+      );
     }
     const { createRidgeScene } = await import('./ridge/Ridge');
     await loadWeather(weatherUrl());
     // The planes load with the scene chunk and the weather: createRidgeScene stays synchronous. Any failure is the sky alone.
     let backdrop: Backdrop | null = null;
     let sky: SkyColours | undefined;
+    let planesFail: Error | null = null;
     try {
       const manifest = await loadManifest(import.meta.env.BASE_URL, config?.place);
       const manifestSky = ridgeSkyFor(state, undefined, undefined, manifest.view);
@@ -63,16 +89,19 @@ async function create(
     } catch (e) {
       backdrop = null;
       sky = undefined;
-      onPlanesFail?.(e instanceof Error ? e : new Error(String(e)));
+      planesFail = e instanceof Error ? e : new Error(String(e));
     }
-    return createRidgeScene({
-      ...sceneOptions,
-      sky: sky ?? ridgeSkyFor(state),
-      backdrop: backdrop ?? undefined,
-    });
+    const made = guarded(() =>
+      createRidgeScene({
+        ...options,
+        sky: sky ?? ridgeSkyFor(state),
+        backdrop: backdrop ?? undefined,
+      })
+    );
+    return { ...made, planesFail };
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
-    return null;
+    return { make: () => null, planesFail: null };
   }
 }
 
@@ -117,19 +146,20 @@ export async function startBackgroundScene(
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
   const debug = debugOverlaysAllowed(config);
-  // A failed load repeats on every rebuild; the host hears of it once.
-  let planesReported = false;
-  const onPlanesFail = (e: Error) => {
-    if (planesReported) return;
-    planesReported = true;
-    options.onPlanesFail?.(e);
+  // What the host was last told of the planes: only the live scene speaks, and only when its state changes.
+  let planesFailed = false;
+  const announce = (planesFail: Error | null) => {
+    if (planesFail && !planesFailed) options.onPlanesFail?.(planesFail);
+    if (!planesFail && planesFailed) options.onPlanesOk?.();
+    planesFailed = planesFail !== null;
   };
-  const build = (state: SkyState) =>
-    create(config, { ...options, onPlanesFail, tier, debug }, state);
+  const prepared = (state: SkyState) => prepare(config, { ...options, tier, debug }, state);
   const state = getSkyState();
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, state);
-  const first = await build(state);
+  const firstReady = await prepared(state);
+  const first = firstReady.make();
   if (!first || config?.style === 'raymarch') return first;
+  announce(firstReady.planesFail);
 
   let inner: Scene | null = first;
   let built = key0;
@@ -146,14 +176,14 @@ export async function startBackgroundScene(
     generation += 1;
     const mine = generation;
     built = key;
+    // The old scene stays up while the next one loads; a build that is stale or after dispose is never made, so it never speaks.
+    const ready = await prepared(next);
+    if (disposed || mine !== generation) return;
     inner?.dispose();
     inner = null;
-    const scene = await build(next);
-    if (disposed || mine !== generation) {
-      scene?.dispose();
-      return;
-    }
+    const scene = ready.make();
     inner = scene;
+    if (scene) announce(ready.planesFail);
     if (!scene) options.onInactive?.();
     else {
       options.onActive?.();
