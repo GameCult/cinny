@@ -28,6 +28,7 @@ COLW = math.radians(360.0 / W)
 R_EARTH, KREF = 6371000.0, 0.13
 PROM_M, NEAR_CAP, MINW, LINK_D, LINK_A, LOOK = 25.0, 4000.0, 50, 0.45, 0.25, 4
 FOREGROUND_M = 5000.0               # a chain nearer than this that is narrower than MINW is kept only where no kept foreground chain covers its columns (the nearest layer must cover every column; a lone stub beside a long near ridge is an arch)
+FADE_AT = 0.6                          # a layer's body is opaque down to this share of its foot length, then smoothsteps to nothing at the foot
 TAPER = 8                              # minimum columns over which a chain end dies into its valley (D's 8; round 1 used a fixed 20 AND borrowed the far end's value: the spike)
 TAPER_K, TAPER_MAX = 30.0, 72          # a taller end falls over more columns: ceil(30 columns per degree of drop), 8..72: at the authored 1.5-4x exaggeration an end leaves the ridge at about 45 deg or less, not a wall
 def taper_len(drop_deg): return np.clip(np.ceil(np.asarray(drop_deg) * TAPER_K), TAPER, TAPER_MAX)
@@ -304,7 +305,7 @@ def face_field(hd, hh, ang, lo, pd, ph, vd, vh):
     b_ = np.maximum(2 * COLW * Dp, 1.0); la = np.where(np.abs(a_) > 3 * b_, 0.0, np.clip((c_ - a_ * sl) / b_, -1.5, 1.5))     # neighbours at very different distances are an occlusion edge, not a surface: no tilt
     return Z.astype(np.float32), Dp, blurw(sl, 2.0).astype(np.float32), blurw(la, 2.0).astype(np.float32), f
 
-def bake_layer(S, rank, far):
+def bake_layer(S, rank, far, near=False):
     b = S['slot']; base = RAMP[b]; reg = int(round((rank - 2) * 1.5)); R_ = lambda v: np.roll(v, reg, axis=-1); px = 1.0 / PXDEG_V
     s_ref = P.get('s_ref_deg', 8.0)
     ang = blurw(S['top'], 2.5) + (pn1(38, 100 + b) - 0.5) * 6 * px + (pn1(7, 200 + b) - 0.5) * 2 * px; ang = R_(ang)   # edge wobble authored in pixels
@@ -315,8 +316,9 @@ def bake_layer(S, rank, far):
     m = np.clip(toppx / 1.6 + 0.5, 0, 1) * np.clip(blurw((wt > 0).astype(float), 1.0) * 1.5, 0, 1)[None, :]       # a layer is drawn only where a chain exists (or tapers)
     rise_px = np.clip((ang - blurw(lo, 12.0)) * PXDEG_V, 1, None)                 # foot length from a smoothed valley: no per-column curtains
     foot = np.clip(0.85 * rise_px, 28 * np.clip(wt, 0, 1), 210).clip(1)                 # a tapering end carries no 28 px curtain: the body shrinks with the chain's weight, so a chain end leaves no stub
+    if near: foot = np.maximum(foot, np.clip(ang * PXDEG_V, 0, None) / FADE_AT)     # the nearest layer is the ground in front of the eye: its body stays opaque down to the horizon, whatever the strip's own valley says; it dissolves only below that (above the horizon a dissolved body shows the sky under a crest, and the valley angle jumps where the winning chain changes, so the sky showed as a wedge with a hard edge)
     depthpx = np.clip(toppx / foot[None], 0, 1)
-    fade = np.clip((depthpx - 0.6) / 0.4, 0, 1); fade = fade * fade * (3 - 2 * fade); alpha = (m * (1 - fade)).astype(np.float32)      # the body dissolves at its foot: what is behind (other layers, floor, sky) shows, so a column boundary leaves no wall down the frame
+    fade = np.clip((depthpx - FADE_AT) / (1 - FADE_AT), 0, 1); fade = fade * fade * (3 - 2 * fade); alpha = (m * (1 - fade)).astype(np.float32)      # the body dissolves at its foot: what is behind (other layers, floor, sky) shows, so a column boundary leaves no wall down the frame
     w = (depthpx ** 0.8 * 0.92).astype(np.float32)                         # weight of the foot colour (floor/haze mix, decided at relight)
     face = np.broadcast_to((base * 1.12).astype(np.float32), (H, W, 3)).copy()
     Z, Dp, sl, la, f = face_field(hd, hhist, ang, lo, pd_, ph, vd_, vh)
@@ -354,7 +356,7 @@ def bake_layer(S, rank, far):
     return dict(m=m.astype(np.float32), a=alpha, face=face, w=w, dpx=dpx, ca=ca, ha=ha, rb=rb, mot=mot.astype(np.float32), sl=sl, la=la, ink=ink, far=far, dist=S['dist'], rank=rank, ang=ang, lo=lo, spts=spts)
 
 def bake(slots):
-    return [bake_layer(S, rank, float(np.clip((math.log(S['dist']) - math.log(2000)) / (math.log(70000) - math.log(2000)), 0, 1))) for rank, S in enumerate(slots)]
+    return [bake_layer(S, rank, float(np.clip((math.log(S['dist']) - math.log(2000)) / (math.log(70000) - math.log(2000)), 0, 1)), near=rank == len(slots) - 1) for rank, S in enumerate(slots)]
 
 # ====================================================================== cast shadows (sun-dependent): DEM march toward the sun from each layer's face samples
 SH_STEPS = 40.0 * 1.1 ** np.arange(0, 66)              # 40 m .. 20 km, geometric
@@ -495,6 +497,12 @@ def group_slots(n):
     if n < 3: raise ValueError(f"a place needs at least 3 layer slots for the far/mid/near planes, this one has {n}")
     return dict(far=[0], mid=list(range(1, n - 1)), near=[n - 1])
 
+OCCLUDE_MARGIN_PX = 48                 # the runtime slides the planes against each other by up to this much; a farther plane is hidden only where the nearer layers cover it at every offset within it, so a slide never uncovers a hole
+def most_open(seen):
+    """The most light any offset within OCCLUDE_MARGIN_PX lets through `seen` (the nearer layers' transmittance), eased over the same distance so the knock-out has no edge of its own: a max filter along the columns, then a Gaussian of sigma OCCLUDE_MARGIN_PX / 2; the window's ends repeat their edge column."""
+    m = OCCLUDE_MARGIN_PX; r = 2 * m; pad = np.pad(seen, ((0, 0), (r, r)), mode='edge')
+    return np.clip(blurw(np.lib.stride_tricks.sliding_window_view(pad, 2 * m + 1, axis=1).max(-1), m / 2.0)[:, m:-m], 0, 1)
+
 def relight_planes(layers, az, el, paperf, grain, fmot, shadows=True, ref=None):
     """The frame as three RGBA planes (window columns, float 0..1, straight alpha) with no sky drawn.  Every pixel of relight is affine in the haze colour c: out = X + c Y
     (the haze enters only as the foot mix and the final Beer-Lambert mix).  Render each layer and the floor with c = 0 (X) and c = 1 (X + Y), composite each group over
@@ -506,7 +514,8 @@ def relight_planes(layers, az, el, paperf, grain, fmot, shadows=True, ref=None):
     for c in (0.0, 1.0):
         hc = np.full((W, 3), c, np.float32); F = (floor_img(st, hc, fmot) * k).astype(np.float32)
         runs.append((F, [relight_layer(Ly, st, hc, F, sh3) * k for Ly, sh3 in zip(layers, shs)]))
-    for name, idx in group_slots(len(layers)).items():
+    groups = group_slots(len(layers)); names = list(groups); seen = {}
+    for name, idx in groups.items():
         img = [np.where(below[..., None], r[0], 0.0) if name == 'far' else np.zeros_like(r[0]) for r in runs]; cov = np.broadcast_to(below, (H, W)).astype(np.float32) if name == 'far' else np.zeros((H, W), np.float32)
         for i in idx:
             a = layers[i]['a'][..., None]
@@ -515,7 +524,11 @@ def relight_planes(layers, az, el, paperf, grain, fmot, shadows=True, ref=None):
         X = win(img[0]); Yc = win(img[1] - img[0]); Y = Yc.mean(-1); alpha = np.clip(win(cov) - Y, 0, 1)
         P = X + ref_w[None] * (Yc - Y[..., None])                                       # premultiplied colour: exact over the reference haze, per channel
         col = np.where(alpha[..., None] > 1e-4, P / np.maximum(alpha, 1e-4)[..., None], 0.0) * win(grain)[..., None]
+        seen[name] = win(np.prod([1 - layers[i]['a'] for i in idx], axis=0))
         out[name] = np.concatenate([np.clip(col, 0, 1), alpha[..., None]], -1).astype(np.float32)
+    for i in range(len(names) - 2, -1, -1):          # near to far: the opaque frame lets a farther plane through only what the nearer layers leave open (their transmittance `seen`), but the stacked planes let it through by their alpha, which also lost the haze share to transparency; the farther plane's alpha is brought to the opaque frame's
+        nearer = names[i + 1:]; left = most_open(np.prod([seen[n] for n in nearer], axis=0)); got = np.prod([1 - out[n][..., 3] for n in nearer], axis=0)
+        out[names[i]][..., 3] *= np.clip(left / np.maximum(got, 1e-3), 0, 1)
     return out
 
 def statics():

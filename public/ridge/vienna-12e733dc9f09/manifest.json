@@ -1,7 +1,7 @@
 {
  "schema": 1,
  "baker_version": 1,
- "bake_id": "b464e375319f",
+ "bake_id": "12e733dc9f09",
  "place": {
   "id": "vienna",
   "name": "Vienna, looking SW to Rax/Schneeberg",
@@ -34,27 +34,27 @@
    "planes": {
     "far": {
      "file": "dawn-far.webp",
-     "bytes": 89842,
+     "bytes": 76030,
      "w": 1280,
      "h": 600
     },
     "mid": {
      "file": "dawn-mid.webp",
-     "bytes": 58444,
+     "bytes": 53926,
      "w": 1280,
      "h": 600
     },
     "near": {
      "file": "dawn-near.webp",
-     "bytes": 112950,
+     "bytes": 113422,
      "w": 1280,
      "h": 600
     }
    },
-   "bytes": 261236,
+   "bytes": 243378,
    "luma": {
     "min": 0.02173927318967578,
-    "max": 0.2143920269061395
+    "max": 0.2161143719823614
    }
   },
   {
@@ -67,27 +67,27 @@
    "planes": {
     "far": {
      "file": "morning-far.webp",
-     "bytes": 91090,
+     "bytes": 77330,
      "w": 1280,
      "h": 600
     },
     "mid": {
      "file": "morning-mid.webp",
-     "bytes": 63476,
+     "bytes": 58076,
      "w": 1280,
      "h": 600
     },
     "near": {
      "file": "morning-near.webp",
-     "bytes": 119778,
+     "bytes": 120478,
      "w": 1280,
      "h": 600
     }
    },
-   "bytes": 274344,
+   "bytes": 255884,
    "luma": {
     "min": 0.023307705502610833,
-    "max": 0.5954759807347093
+    "max": 0.5966843818121018
    }
   },
   {
@@ -100,27 +100,27 @@
    "planes": {
     "far": {
      "file": "noon-far.webp",
-     "bytes": 92266,
+     "bytes": 78634,
      "w": 1280,
      "h": 600
     },
     "mid": {
      "file": "noon-mid.webp",
-     "bytes": 64134,
+     "bytes": 58684,
      "w": 1280,
      "h": 600
     },
     "near": {
      "file": "noon-near.webp",
-     "bytes": 122270,
+     "bytes": 123036,
      "w": 1280,
      "h": 600
     }
    },
-   "bytes": 278670,
+   "bytes": 260354,
    "luma": {
-    "min": 0.028025005749671317,
-    "max": 0.7071301021405179
+    "min": 0.028024916825206435,
+    "max": 0.7110067687110413
    }
   },
   {
@@ -133,26 +133,26 @@
    "planes": {
     "far": {
      "file": "golden-far.webp",
-     "bytes": 89676,
+     "bytes": 76038,
      "w": 1280,
      "h": 600
     },
     "mid": {
      "file": "golden-mid.webp",
-     "bytes": 59462,
+     "bytes": 54686,
      "w": 1280,
      "h": 600
     },
     "near": {
      "file": "golden-near.webp",
-     "bytes": 114342,
+     "bytes": 114944,
      "w": 1280,
      "h": 600
     }
    },
-   "bytes": 263480,
+   "bytes": 245668,
    "luma": {
-    "min": 0.02402914320144737,
+    "min": 0.02139437660612246,
     "max": 0.2869579287555448
    }
   },
@@ -166,27 +166,27 @@
    "planes": {
     "far": {
      "file": "dusk-far.webp",
-     "bytes": 89124,
+     "bytes": 75552,
      "w": 1280,
      "h": 600
     },
     "mid": {
      "file": "dusk-mid.webp",
-     "bytes": 56656,
+     "bytes": 52176,
      "w": 1280,
      "h": 600
     },
     "near": {
      "file": "dusk-near.webp",
-     "bytes": 111564,
+     "bytes": 112176,
      "w": 1280,
      "h": 600
     }
    },
-   "bytes": 257344,
+   "bytes": 239904,
    "luma": {
     "min": 0.018028911802351475,
-    "max": 0.18841340359158804
+    "max": 0.18804654725014905
    }
   },
   {
@@ -199,27 +199,27 @@
    "planes": {
     "far": {
      "file": "night-far.webp",
-     "bytes": 88064,
+     "bytes": 74732,
      "w": 1280,
      "h": 600
     },
     "mid": {
      "file": "night-mid.webp",
-     "bytes": 54654,
+     "bytes": 50192,
      "w": 1280,
      "h": 600
     },
     "near": {
      "file": "night-near.webp",
-     "bytes": 110050,
+     "bytes": 110780,
      "w": 1280,
      "h": 600
     }
    },
-   "bytes": 252768,
+   "bytes": 235704,
    "luma": {
     "min": 0.012974147057371975,
-    "max": 0.14175859785553058
+    "max": 0.14255636176898956
    }
   }
  ],
