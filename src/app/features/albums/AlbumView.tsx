@@ -14,7 +14,14 @@ import { markAsRead } from '../../utils/notifications';
 import { getBlobSafeMimeType } from '../../utils/mimeTypes';
 import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
-import { Album, AlbumFile, TimelineEvent, lastEvent, looseFiles, looseNote } from './buildAlbums';
+import {
+  Album,
+  AlbumFile,
+  TimelineEvent,
+  lastEvent,
+  looseFiles,
+  looseNoteFor,
+} from './buildAlbums';
 import { folderOf, listFolder, pathLabel } from './albumFolders';
 import { FileReadBy } from './FileReadBy';
 import { ShareSet, useShareEnabled } from './ShareSet';
@@ -112,8 +119,10 @@ function useLooseFiles(room: Room): AlbumFile[] {
   useEffect(() => {
     const on = () => bump((n) => n + 1);
     room.on(RoomEvent.Timeline, on);
+    room.on(RoomEvent.Redaction, on);
     return () => {
       room.off(RoomEvent.Timeline, on);
+      room.off(RoomEvent.Redaction, on);
     };
   }, [room]);
   const events: TimelineEvent[] = room
@@ -143,6 +152,12 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
   const encrypted = room.hasEncryptionStateEvent();
   const canShare = useShareEnabled(room);
   const loose = useLooseFiles(room);
+  const looseNote = looseNoteFor(loose, {
+    open: !!open,
+    encrypted,
+    loading,
+    error: !!error,
+  });
 
   let body: React.ReactNode;
   if (loading) body = <Text>Loading albums…</Text>;
@@ -232,9 +247,9 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     <Scroll hideTrack visibility="Hover">
       <div className={css.Column}>
         {body}
-        {!open && !encrypted && !loading && !error && loose.length > 0 && (
+        {looseNote && (
           <Text size="T200" className={css.Dim}>
-            {looseNote(loose)}
+            {looseNote}
           </Text>
         )}
         {/* Stays mounted while an album is open, so a running send keeps its progress. */}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAlbums, looseFiles, looseNote, TimelineEvent } from './buildAlbums';
+import { buildAlbums, looseFiles, looseNote, looseNoteFor, TimelineEvent } from './buildAlbums';
 
 // The Commons publisher as it posted before gamecult-ops #121: loose files (no album thread), a
 // flat `org.gamecult.publish.replaces` key, no info.sha256. The sender must see that, not a
@@ -59,6 +59,33 @@ describe('loose files from a poster that does not thread', () => {
       '5 files were posted outside an album and are not listed here: a.md, b.md, c.md and 2 more. They are in the Timeline.'
     );
     expect(looseNote([])).toBe('');
+  });
+});
+
+describe('where the loose-files note shows', () => {
+  const loose = looseFiles([file('$a', 'notes.md')]);
+  const list = { open: false, encrypted: false, loading: false, error: false };
+
+  it('on the album list, and only there', () => {
+    expect(looseNoteFor(loose, list)).toContain('notes.md');
+    expect(looseNoteFor(loose, { ...list, open: true })).toBe('');
+    expect(looseNoteFor(loose, { ...list, encrypted: true })).toBe('');
+    expect(looseNoteFor(loose, { ...list, loading: true })).toBe('');
+    expect(looseNoteFor(loose, { ...list, error: true })).toBe('');
+  });
+
+  it('says nothing when there are no loose files', () => {
+    expect(looseNoteFor([], list)).toBe('');
+  });
+
+  it('names m.notice and m.sticker posts as not files', () => {
+    const notice = { ...text('$n', 'hi'), content: { msgtype: 'm.notice', body: 'hi' } };
+    expect(looseFiles([notice])).toEqual([]);
+  });
+
+  it('a file with no name reads as unnamed', () => {
+    const bare: TimelineEvent = { ...file('$b', ''), content: { msgtype: 'm.file', body: '' } };
+    expect(looseNote(looseFiles([bare]))).toContain('unnamed');
   });
 });
 

@@ -175,3 +175,10 @@ export const looseNote = (files: AlbumFile[]): string => {
     files.length === 1 ? 'It is' : 'They are'
   } in the Timeline.`;
 };
+
+/** Where the album view stands when it decides whether to show the loose-files note. */
+export type ViewState = { open: boolean; encrypted: boolean; loading: boolean; error: boolean };
+
+/** The note for the list view only: never inside an open album, an encrypted zone, or a load that is not finished. */
+export const looseNoteFor = (files: AlbumFile[], view: ViewState): string =>
+  view.open || view.encrypted || view.loading || view.error ? '' : looseNote(files);
