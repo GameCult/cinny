@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { EventStatus, Room } from 'matrix-js-sdk';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { useClientConfig } from '../../hooks/useClientConfig';
+import { useMediaConfig } from '../../hooks/useMediaConfig';
 import { uploadContent } from '../../utils/matrix';
 import { safeFile } from '../../utils/mimeTypes';
 import { getMsgContent } from '../room/msgContent';
@@ -131,15 +132,20 @@ type ShareSetProps = {
 export function ShareSet({ room, folder = [], into }: ShareSetProps) {
   const mx = useMatrixClient();
   const queryClient = useQueryClient();
+  const mediaConfig = useMediaConfig();
   const input = useRef<HTMLInputElement>(null);
   // Built once per mount (AlbumView keys the panel by room): the pick lives in the controller, so a
   // rerender with a new client or Room object must not build another. Live values go through `live`.
-  const live = useRef({ mx, room, queryClient, folder, into });
-  live.current = { mx, room, queryClient, folder, into };
+  const live = useRef({ mx, room, queryClient, folder, into, mediaConfig });
+  live.current = { mx, room, queryClient, folder, into, mediaConfig };
   const [controller]: [ShareController<File>, unknown] = useState(() =>
     createShareController<File>({
       roomId: room.roomId,
       isEncrypted: () => live.current.room.hasEncryptionStateEvent(),
+      maxBytes: () => {
+        const cap = live.current.mediaConfig['m.upload.size'];
+        return typeof cap === 'number' && Number.isFinite(cap) && cap > 0 ? cap : undefined;
+      },
       onSent: () =>
         live.current.queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] }),
       run: (files, title, onFile, signal) =>

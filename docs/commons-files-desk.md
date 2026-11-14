@@ -118,7 +118,7 @@ Under A the paused service is not built, and most of its list disappears:
 
 ## Cuts under A
 
-Status 2026-11-13 (dev a078346e): built: folders by album title path with navigation and breadcrumb (#147), pagination (#148), version folding (#149), add-to-album with named refusals (#150), Stop for a send in flight, replaces loops shown, freshest last event on add (#151). **Not built: the Commons entry row** (item 1 below, found by `#commons:gamecult.org` or the carried `media.commons` id through `lookupMediaRoom`, behind a dark `filesDesk.enabled` flag; neither the row nor the flag exists in the code). It waits on Eureka's Commons room.
+Status 2026-11-14 (dev da822e9e plus the size-refusal cut): built: folders by album title path with navigation and breadcrumb (#147), pagination (#148), version folding (#149), add-to-album with named refusals (#150), Stop for a send in flight, replaces loops shown, freshest last event on add (#151), and the pre-send size refusal: a file larger than the server's `m.upload.size` is named and left unsent before any upload or album root, and a server stating no cap refuses nothing. **Not built: the Commons entry row** (item 1 below, found by `#commons:gamecult.org` or the carried `media.commons` id through `lookupMediaRoom`, behind a dark `filesDesk.enabled` flag; neither the row nor the flag exists in the code). It waits on Eureka's Commons room.
 
 1. **Commons entry**: a Commons row in the navigator (like `MediaRow`, found by alias or carried id), opening the room's album view. Flagged, no new data layer.
 2. **Pagination** of albums and files in `useAlbums` (done, PR #148).
