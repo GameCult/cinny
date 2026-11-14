@@ -14,7 +14,14 @@ import { markAsRead } from '../../utils/notifications';
 import { getBlobSafeMimeType } from '../../utils/mimeTypes';
 import { timeDayMonYear } from '../../utils/time';
 import { getMemberDisplayName } from '../../utils/room';
-import { Album, AlbumFile, lastEvent } from './buildAlbums';
+import {
+  Album,
+  AlbumFile,
+  TimelineEvent,
+  lastEvent,
+  looseFiles,
+  looseNoteFor,
+} from './buildAlbums';
 import { folderOf, listFolder, pathLabel } from './albumFolders';
 import { FileReadBy } from './FileReadBy';
 import { ShareSet, useShareEnabled } from './ShareSet';
@@ -106,6 +113,33 @@ function useMarkZoneRead(room: Room) {
   }, [mx, room, hideActivity]);
 }
 
+/** The file events in the room's live timeline that no album thread holds, kept current as it syncs. */
+function useLooseFiles(room: Room): AlbumFile[] {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const on = () => bump((n) => n + 1);
+    room.on(RoomEvent.Timeline, on);
+    room.on(RoomEvent.Redaction, on);
+    return () => {
+      room.off(RoomEvent.Timeline, on);
+      room.off(RoomEvent.Redaction, on);
+    };
+  }, [room]);
+  const events: TimelineEvent[] = room
+    .getLiveTimeline()
+    .getEvents()
+    .map((e) => ({
+      event_id: e.getId(),
+      type: e.getType(),
+      sender: e.getSender(),
+      origin_server_ts: e.getTs(),
+      content: e.getContent(),
+      unsigned: e.getUnsigned() as Record<string, unknown>,
+      threadRoot: e.threadRootId,
+    }));
+  return looseFiles(events);
+}
+
 type AlbumViewProps = { room: Room; onTimeline: () => void };
 export function AlbumView({ room, onTimeline }: AlbumViewProps) {
   useMarkZoneRead(room);
@@ -117,6 +151,13 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
   const authorOf = (a: Album) => getMemberDisplayName(room, a.author) ?? a.author;
   const encrypted = room.hasEncryptionStateEvent();
   const canShare = useShareEnabled(room);
+  const loose = useLooseFiles(room);
+  const looseNote = looseNoteFor(loose, {
+    open: !!open,
+    encrypted,
+    loading,
+    error: !!error,
+  });
 
   let body: React.ReactNode;
   if (loading) body = <Text>Loading albums…</Text>;
@@ -206,6 +247,11 @@ export function AlbumView({ room, onTimeline }: AlbumViewProps) {
     <Scroll hideTrack visibility="Hover">
       <div className={css.Column}>
         {body}
+        {looseNote && (
+          <Text size="T200" className={css.Dim}>
+            {looseNote}
+          </Text>
+        )}
         {/* Stays mounted while an album is open, so a running send keeps its progress. */}
         {canShare && (
           <div hidden={!!open}>
