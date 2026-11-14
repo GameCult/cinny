@@ -68,7 +68,7 @@ const tsOf = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-const toFile = (e: ZoneEvent): AlbumFile | undefined => {
+export const toFile = (e: ZoneEvent): AlbumFile | undefined => {
   if (!live(e)) return undefined;
   const kind = KIND_OF_MSGTYPE.get(e.content.msgtype as string);
   if (!kind) return undefined;
@@ -143,3 +143,35 @@ export const lastEvent = (album: Album): { id: string; ts: number } =>
       id: album.id,
       ts: album.ts,
     });
+
+/** A room event with the thread root the SDK resolved for it, when it has one. */
+export type TimelineEvent = ZoneEvent & { threadRoot?: string };
+
+/**
+ * File events that sit in the room outside any album thread: what a poster that does not thread
+ * its files leaves behind. The album list never reads them (it lists threads), so they are named
+ * to the sender instead of left out silently.
+ */
+export const looseFiles = (events: TimelineEvent[]): AlbumFile[] =>
+  events
+    .filter((e) => {
+      const rel = e?.content?.['m.relates_to'] as { rel_type?: unknown } | undefined;
+      return !e?.threadRoot && rel?.rel_type !== 'm.thread';
+    })
+    .map(toFile)
+    .filter((f): f is AlbumFile => !!f);
+
+const NAMED = 3;
+
+/** The line that says loose files exist and are not listed; empty when there are none. */
+export const looseNote = (files: AlbumFile[]): string => {
+  if (files.length === 0) return '';
+  const names = files.slice(0, NAMED).map((f) => f.name || 'unnamed');
+  const more = files.length > NAMED ? ` and ${files.length - NAMED} more` : '';
+  const what = files.length === 1 ? '1 file was' : `${files.length} files were`;
+  return `${what} posted outside an album and ${
+    files.length === 1 ? 'is' : 'are'
+  } not listed here: ${names.join(', ')}${more}. ${
+    files.length === 1 ? 'It is' : 'They are'
+  } in the Timeline.`;
+};
