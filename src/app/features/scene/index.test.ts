@@ -200,6 +200,19 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(live.dispose).toHaveBeenCalledOnce();
   });
 
+  it('a rebuild for a sky that was replaced while its key was awaited builds nothing: only the newest sky is built', async () => {
+    createRidgeScene.mockReturnValueOnce(fakeScene()).mockReturnValueOnce(fakeScene());
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    setSkyState('day');
+    setSkyState('dusk');
+    await flush();
+    // The initial build and one rebuild, for dusk; day's rebuild stood down before building anything.
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('dusk').top));
+    scene?.dispose();
+  });
+
   // A second sky change `ticks` microtasks after the first. True when it landed mid-build: the build for the first
   // change finished, was found stale and dropped (never shown), and only the newest sky was announced.
   const changeAfter = async (ticks: number) => {
