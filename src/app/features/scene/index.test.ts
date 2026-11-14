@@ -596,6 +596,56 @@ describe('the ridge planes and the live scene', () => {
     scene?.dispose();
   });
 
+  it('a superseded build that finishes after the newer one touches nothing of the live scene', async () => {
+    serve();
+    const d = decoder();
+    const [first, second, third] = [fakeScene(), fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(first).mockReturnValueOnce(second).mockReturnValueOnce(third);
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    d.ctl.hold = true;
+    setSkyState('day'); // stale: its decodes are held until after the newer build is live
+    await flush();
+    const dayDecodes = d.ctl.pending.splice(0);
+    setSkyState('dusk');
+    await flush();
+    const duskDecodes = d.ctl.pending.splice(0);
+    expect(dayDecodes.length).toBeGreaterThan(0);
+    expect(duskDecodes.length).toBeGreaterThan(0);
+    duskDecodes.forEach((s) => s());
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(onActive).toHaveBeenCalledOnce();
+    dayDecodes.forEach((s) => s()); // the stale build finishes last
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(second.dispose).not.toHaveBeenCalled(); // the live scene is not disposed by a build that lost
+    expect(onActive).toHaveBeenCalledOnce();
+    scene?.login();
+    expect(second.login).toHaveBeenCalledOnce();
+    scene?.dispose();
+    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(third.dispose).not.toHaveBeenCalled();
+  });
+
+  it('a build that finishes after dispose makes nothing, shows nothing and disposes nothing twice', async () => {
+    serve();
+    const d = decoder();
+    const first = fakeScene();
+    createRidgeScene.mockReturnValueOnce(first).mockReturnValueOnce(fakeScene());
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    d.ctl.hold = true;
+    setSkyState('day');
+    await flush();
+    scene?.dispose();
+    await d.release();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(onActive).not.toHaveBeenCalled();
+  });
+
   it('a rebuild that makes no scene says nothing about planes and leaves the host inactive', async () => {
     serve();
     const d = decoder();
