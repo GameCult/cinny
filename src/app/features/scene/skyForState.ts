@@ -7,7 +7,6 @@ import { baked } from '../../../sky/baked';
 import { chooseSky, skyColour, urlSky } from './terrain/terrainSky';
 import type { SkyName } from './terrain/terrainSky';
 import type { SkyColours, Srgb } from './ridge/skyColour';
-import { skyColours } from './ridge/skyColour';
 import { makePhysicalSky } from './ridge/physicalSky';
 import { BUDGET } from './ridge/toneMap';
 import { ridgeWeather, setFedWeather } from './ridge/weather';
@@ -54,13 +53,10 @@ export function ridgeSkyFor(
   weather: number = ridgeWeather(),
   now: Date = skyNow()
 ): SkyColours {
-  const { ground } = skyColours();
   const fixed = resolveSkyState(state, now);
   const physical = makePhysicalSky(fixed, now, weather);
   return {
     ...physical.stops,
-    ground,
-    band: SKY_BAND[fixed],
     physical,
   };
 }

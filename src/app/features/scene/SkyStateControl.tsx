@@ -16,7 +16,6 @@ import { stopPropagation } from '../../utils/keyboard';
 import { useSkyState } from '../../hooks/useSkyState';
 import { SKY_STATES, setSkyState, type SkyState } from './skyState';
 import {
-  HORIZON_CREDIT,
   WEATHER_CREDIT,
   WEATHER_CREDIT_URL,
   WEATHER_DATASET,
@@ -138,9 +137,6 @@ export function SkyStateControl() {
                       {WEATHER_CREDIT_URL}
                     </a>
                     . {WEATHER_DATASET}.
-                  </Text>
-                  <Text size="T200" priority="300">
-                    {HORIZON_CREDIT}
                   </Text>
                 </Box>
               )}

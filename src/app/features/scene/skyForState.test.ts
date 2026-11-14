@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
 import { AA, luminance } from '../../../sky/skyTokens.js';
-import { skyColours } from './ridge/skyColour';
 import { chooseSky, skyColour } from './terrain/terrainSky';
 import {
   DUSK_SUN_ELEVATION,
@@ -78,10 +77,9 @@ describe('the bands the text ink needs', () => {
 });
 
 describe('ridgeSkyFor', () => {
-  it('carries the state band, which the layers are shaped into, and the physical sky of that state', () => {
+  it('carries the physical sky of the state', () => {
     for (const state of STATES) {
       const sky = ridgeSkyFor(state, 0.3);
-      expect(sky.band).toEqual(SKY_BAND[state]);
       expect(sky.physical?.state).toBe(state);
       expect(sky.physical?.stops).toEqual({ top: sky.top, mid: sky.mid, horizon: sky.horizon });
     }
@@ -92,7 +90,6 @@ describe('ridgeSkyFor', () => {
       s.top,
       s.mid,
       s.horizon,
-      s.band,
       s.physical?.sun,
     ];
     setSkyClock(() => atStandardTime(12, 0));
@@ -110,7 +107,6 @@ describe('ridgeSkyFor', () => {
     const dusk = ridgeSkyFor('dusk', 0);
     expect(Math.abs(dusk.physical?.sun.elevation ?? 99)).toBeLessThanOrEqual(DAY_FROM);
     expect(ridgeSkyFor('night', 0).physical?.sun.elevation).toBeLessThanOrEqual(-DAY_FROM);
-    expect(day.ground).toEqual(skyColours().ground);
   });
 
   it('keys a rebuild by state and weather, not by the moving sun', () => {
