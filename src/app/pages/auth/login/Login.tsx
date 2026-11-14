@@ -15,6 +15,10 @@ import { getLoginPath, getRegisterPath, withSearchParam } from '../../pathUtils'
 import { usePathWithOrigin } from '../../../hooks/usePathWithOrigin';
 import { LoginPathSearchParams } from '../../paths';
 import { useClientConfig } from '../../../hooks/useClientConfig';
+import { useMasAccountUrl } from '../masAccount';
+import { MasAccountNotice } from '../MasAccountNotice';
+import { SoftLogoutNotice } from './SoftLogoutNotice';
+import { useSoftLogout } from '../../../state/softLogout';
 import { noSignInMethodMessage } from '../authMessages';
 
 const getLoginTokenSearchParam = () => {
@@ -57,12 +61,16 @@ export function Login() {
   }
 
   const parsedFlows = useParsedLoginFlows(loginFlows.flows);
+  const masUrl = useMasAccountUrl();
+  const registerEntry = registrationEntry(config);
+  const softLogout = useSoftLogout();
 
   return (
     <Box direction="Column" gap="500">
       <Text size="H2" priority="400">
         Login
       </Text>
+      {softLogout && <SoftLogoutNotice record={softLogout} />}
       {parsedFlows.token && loginSearchParams.loginToken && (
         <TokenLogin token={loginSearchParams.loginToken} />
       )}
@@ -93,9 +101,9 @@ export function Login() {
           <span data-spacing-node />
         </>
       )}
-      {registrationEntry(config) ? (
-        <RegisterEntry />
-      ) : (
+      {registerEntry && <RegisterEntry />}
+      {!registerEntry && masUrl && <MasAccountNotice url={masUrl} />}
+      {!registerEntry && !masUrl && (
         <Text align="Center">
           Do not have an account? <Link to={getRegisterPath(server)}>Register</Link>
         </Text>

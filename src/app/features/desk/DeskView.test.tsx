@@ -5,10 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScreenSize, ScreenSizeProvider } from '../../hooks/useScreenSize';
 import { SkyInkContextProvider } from '../../hooks/useTheme';
 import { SCRIM_GROUND, SCRIM_INK } from '../scene/skyInk';
-import { DeskEntry } from './DeskEntry';
-import { DeskView, SIGN_IN_NOTE } from './DeskView';
+import { DeskEntry, DeskLink, openCount } from './DeskEntry';
+import { DeskView, SIGN_IN_NOTE, rowOpen } from './DeskView';
 import { ForkList } from './forkContract';
-import { STATES } from './fixtures';
+import { STATES, entry as forkEntry, list as forkList } from './fixtures';
 import { setDeskSource } from './source';
 
 // useTheme reads the stored settings when it loads.
@@ -119,8 +119,8 @@ describe('DeskView', () => {
     const html = view('noAnswers', ScreenSize.Desktop, 'void', new Set(['c:question:plain']));
     expect(html).toContain('does not match the hash it was published with');
     expect(html).not.toContain('First way');
-    expect(html).toContain('1 open.');
-    expect(html).not.toContain('Nothing is waiting');
+    expect(html).toContain('Nothing is waiting on you from Void.');
+    expect(html).not.toContain('1 open.');
   });
   it('never claims an empty desk while the list says forks are open, whatever rows it could show', () => {
     setDeskSource(() => undefined);
@@ -131,6 +131,29 @@ describe('DeskView', () => {
     );
     expect(html).toContain('3 open.');
     expect(html).not.toContain('Nothing is waiting');
+  });
+  it('says every row is read-only for a signed-out viewer, in every state the fixtures hold', () => {
+    (['noAnswers', 'blocked', 'answered', 'settled'] as const).forEach((state) => {
+      const html = view(state, ScreenSize.Desktop);
+      const rows = html.match(/<textarea/g)?.length ?? 0;
+      expect(rows).toBeGreaterThan(0);
+      expect(html.match(/<textarea[^>]* disabled=""/g)).toHaveLength(rows);
+      expect(html.split(SIGN_IN_NOTE)).toHaveLength(rows + 1);
+    });
+  });
+  it('shows a guest answer with its text and never an answerer id', () => {
+    const html = view('guest', ScreenSize.Desktop);
+    expect(html).toContain('Answer Second way &quot;From outside the circle.&quot;');
+    expect(html).toContain('1 decider · 2 answerers');
+    expect(html).not.toContain('guest-1');
+    expect(html).not.toContain('acct-1');
+  });
+  it('lists a question settled while it had answers as a ruling only, with neither row nor answers nor open count', () => {
+    const html = view('settledWhileAnswered', ScreenSize.Desktop);
+    expect(html).toContain('Question late (ruling:late-1)');
+    expect(html).not.toContain('Context for late');
+    expect(html).not.toContain('Arrived after');
+    expect(html).toContain('Nothing is waiting on you from Void.');
   });
   it('shows no booth for a Mind without art rather than another face', () => {
     expect(view('noAnswers', ScreenSize.Desktop, 'nobody')).not.toContain('data-pose');
@@ -230,32 +253,66 @@ describe('counts when the ids are withheld', () => {
   });
 });
 
+describe('the navigator count', () => {
+  const two = forkList([forkEntry('one'), forkEntry('two')]);
+  it('is none until the hash check has landed', () => {
+    expect(openCount(two, undefined)).toBe(0);
+  });
+  it('is the desk page count once it has: an open card withdrawn as unverified is not counted', () => {
+    expect(openCount(two, new Set())).toBe(2);
+    expect(openCount(two, new Set([two.forks[0].card.fork_id]))).toBe(1);
+  });
+  it('is none for a Mind with no desk', () => {
+    expect(openCount(undefined, new Set())).toBe(0);
+  });
+});
+
 describe('DeskEntry', () => {
   afterEach(() => setDeskSource(() => undefined));
+  const bare = (html: string) => html.replace(/<[^>]*>/g, '');
   const entry = (mind: string) =>
     renderToStaticMarkup(
       <MemoryRouter>
         <DeskEntry mind={mind} />
       </MemoryRouter>
     );
+  const link = (open: number) =>
+    renderToStaticMarkup(
+      <MemoryRouter>
+        <DeskLink mind="void" open={open} />
+      </MemoryRouter>
+    );
   it('reads "Desk · N open" and links to that Mind\'s desk', () => {
-    setDeskSource(() => STATES.blocked);
-    const html = entry('void');
+    const html = link(2);
     expect(html).toContain('Desk · 2 open');
     expect(html).toContain('href="/desk/void"');
   });
-  it('reads the count the list states, not a count of the forks it carries', () => {
-    setDeskSource(() => ({ ...STATES.empty, open_count: 5 }));
-    expect(entry('void')).toContain('Desk · 5 open');
+  it('is pinned even at zero open', () => {
+    expect(bare(link(0))).toBe('Desk');
+    expect(link(0)).toContain('href="/desk/void"');
   });
-  it('is pinned even at zero open, when nothing is published, and when only settled forks exist', () => {
-    const bare = (html: string) => html.replace(/<[^>]*>/g, '');
-    const states = [STATES.empty, undefined, { ...STATES.settled, open_count: 0 }];
-    states.forEach((state) => {
+  it('is pinned when nothing is published, and when only settled forks exist', () => {
+    [undefined, { ...STATES.settled, open_count: 0 }].forEach((state) => {
       setDeskSource(() => state);
-      const html = entry('void');
-      expect(bare(html)).toBe('Desk');
-      expect(html).toContain('href="/desk/void"');
+      expect(bare(entry('void'))).toBe('Desk');
+      expect(entry('void')).toContain('href="/desk/void"');
     });
+  });
+  it('shows no count before the hash check has landed, so a card about to be withdrawn is never counted', () => {
+    setDeskSource(() => STATES.blocked);
+    expect(bare(entry('void'))).toBe('Desk');
+  });
+});
+
+describe('a row on a rotating screen', () => {
+  it('is open on a wide screen whatever was tapped, and folded on a phone until tapped', () => {
+    expect(rowOpen(false, false)).toBe(true);
+    expect(rowOpen(false, true)).toBe(true);
+    expect(rowOpen(true, false)).toBe(false);
+    expect(rowOpen(true, true)).toBe(true);
+  });
+  it('reads the screen it is on now, not the one it mounted on: wide to phone folds, phone to wide opens', () => {
+    const untapped = [false, true, false, true].map((phone) => rowOpen(phone, false));
+    expect(untapped).toEqual([true, false, true, false]);
   });
 });

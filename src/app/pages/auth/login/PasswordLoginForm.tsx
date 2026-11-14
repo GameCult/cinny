@@ -19,7 +19,7 @@ import {
 } from 'folds';
 import FocusTrap from 'focus-trap-react';
 import { Link } from 'react-router-dom';
-import { MatrixError } from 'matrix-js-sdk';
+import { LoginRequest, MatrixError } from 'matrix-js-sdk';
 import { getMxIdLocalPart, getMxIdServer, isUserId } from '../../../utils/matrix';
 import { EMAIL_REGEX } from '../../../utils/regex';
 import { useAutoDiscoveryInfo } from '../../../hooks/useAutoDiscoveryInfo';
@@ -39,6 +39,8 @@ import { loginErrorMessage } from '../authMessages';
 import { ForgotLink } from '../styles.css';
 import { getResetPasswordPath } from '../../pathUtils';
 import { stopPropagation } from '../../../utils/keyboard';
+import { useSoftLogout, withSoftLogoutDevice } from '../../../state/softLogout';
+import { useMasAccountUrl } from '../masAccount';
 import { PhoneHit } from '../../../styles/PhoneHit.css';
 
 function UsernameHint({ server }: { server: string }) {
@@ -118,6 +120,10 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
   const server = useAuthServer();
   const clientConfig = useClientConfig();
 
+  const softLogout = useSoftLogout();
+  const masUrl = useMasAccountUrl();
+  const withDevice = (request: LoginRequest) => withSoftLogoutDevice(request, softLogout);
+
   const serverDiscovery = useAutoDiscoveryInfo();
   const baseUrl = serverDiscovery['m.homeserver'].base_url;
 
@@ -130,15 +136,18 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
   useLoginComplete(loginState.status === AsyncStatus.Success ? loginState.data : undefined);
 
   const handleUsernameLogin = (username: string, password: string) => {
-    startLogin(baseUrl, {
-      type: 'm.login.password',
-      identifier: {
-        type: 'm.id.user',
-        user: username,
-      },
-      password,
-      initial_device_display_name: 'Ratatoskr Web',
-    });
+    startLogin(
+      baseUrl,
+      withDevice({
+        type: 'm.login.password',
+        identifier: {
+          type: 'm.id.user',
+          user: username,
+        },
+        password,
+        initial_device_display_name: 'Ratatoskr Web',
+      })
+    );
   };
 
   const handleMxIdLogin = async (mxId: string, password: string) => {
@@ -148,27 +157,33 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
 
     const getBaseUrl = factoryGetBaseUrl(clientConfig, mxIdServer);
 
-    startLogin(getBaseUrl, {
-      type: 'm.login.password',
-      identifier: {
-        type: 'm.id.user',
-        user: mxIdUsername,
-      },
-      password,
-      initial_device_display_name: 'Ratatoskr Web',
-    });
+    startLogin(
+      getBaseUrl,
+      withDevice({
+        type: 'm.login.password',
+        identifier: {
+          type: 'm.id.user',
+          user: mxIdUsername,
+        },
+        password,
+        initial_device_display_name: 'Ratatoskr Web',
+      })
+    );
   };
   const handleEmailLogin = (email: string, password: string) => {
-    startLogin(baseUrl, {
-      type: 'm.login.password',
-      identifier: {
-        type: 'm.id.thirdparty',
-        medium: 'email',
-        address: email,
-      },
-      password,
-      initial_device_display_name: 'Ratatoskr Web',
-    });
+    startLogin(
+      baseUrl,
+      withDevice({
+        type: 'm.login.password',
+        identifier: {
+          type: 'm.id.thirdparty',
+          medium: 'email',
+          address: email,
+        },
+        password,
+        initial_device_display_name: 'Ratatoskr Web',
+      })
+    );
   };
 
   const handleSubmit: FormEventHandler<HTMLFormElement> = (evt) => {
@@ -207,7 +222,8 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
           Username
         </Text>
         <Input
-          defaultValue={defaultUsername ?? defaultEmail}
+          defaultValue={softLogout?.userId ?? defaultUsername ?? defaultEmail}
+          readOnly={softLogout !== undefined}
           style={{ paddingRight: config.space.S300 }}
           name="usernameInput"
           variant="Background"
@@ -252,13 +268,15 @@ export function PasswordLoginForm({ defaultUsername, defaultEmail }: PasswordLog
               )}
             </>
           )}
-          <Box grow="Yes" shrink="No" justifyContent="End">
-            <Text as="span" size="T200" priority="400" align="Right">
-              <Link className={ForgotLink} to={getResetPasswordPath(server)}>
-                Forget Password?
-              </Link>
-            </Text>
-          </Box>
+          {!masUrl && (
+            <Box grow="Yes" shrink="No" justifyContent="End">
+              <Text as="span" size="T200" priority="400" align="Right">
+                <Link className={ForgotLink} to={getResetPasswordPath(server)}>
+                  Forget Password?
+                </Link>
+              </Text>
+            </Box>
+          )}
         </Box>
       </Box>
       <Button type="submit" variant="Primary" size="500">

@@ -116,4 +116,30 @@ export const STATES = {
       'n1'
     ),
   ]),
+  /** Answers from a Guest (weight 0, served all the same) beside a Member's; ids are never shown. */
+  guest: list([
+    entry(
+      'open',
+      {},
+      [
+        answer('open', 1, { choice: 'A', answerer: 'acct-1', authority: 'Member' }),
+        answer('open', 2, {
+          choice: 'B',
+          note: 'From outside the circle.',
+          answerer: 'guest-1',
+          authority: 'Guest',
+        }),
+      ],
+      'n1'
+    ),
+  ]),
+  /** Closed with a ruling while answers were still arriving: the card settled, the answers stay on its record. */
+  settledWhileAnswered: list([
+    entry(
+      'late',
+      { status: 'closed', ruling: 'ruling:late-1', ruled_from: ['n1'] },
+      [answer('late', 1), answer('late', 2, { note: 'Arrived after.', answerer: 'acct-2' })],
+      'n1'
+    ),
+  ]),
 } satisfies Record<string, ForkList>;

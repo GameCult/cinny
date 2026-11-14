@@ -52,9 +52,20 @@ describe('buildDesk', () => {
     const odd = list([entry('a', { order: 2 }), entry('b', { order: 9 })]);
     expect(buildDesk(odd).open.map((r) => r.forkId)).toEqual(['c:question:a', 'c:question:b']);
   });
-  it("takes the open count from the list's open_count, not from the rows it could verify or carries", () => {
-    const d = buildDesk({ ...list([entry('only')]), open_count: 4 }, new Set(['c:question:only']));
-    expect(d.counts.open).toBe(4);
+  it("takes the open count from the list's open_count, so rows it could not carry still count", () => {
+    expect(buildDesk({ ...list([entry('only')]), open_count: 4 }).counts.open).toBe(4);
+  });
+  it('does not count an open card it withdraws as unverified: one filter owns the shown rows and the count', () => {
+    const l = list([entry('a'), entry('b')]);
+    const d = buildDesk(l, new Set(['c:question:a']));
+    expect(d.counts.open).toBe(1);
+    expect(d.open.filter((r) => r.kind === 'question')).toHaveLength(1);
+    expect(buildDesk(l, new Set(l.forks.map((f) => f.card.fork_id))).counts.open).toBe(0);
+  });
+  it('does not count a withdrawn id that names a closed card, and never goes below zero', () => {
+    const l = list([entry('a'), entry('shut', { status: 'closed', ruling: 'r:1' })]);
+    expect(buildDesk(l, new Set(['c:question:shut'])).counts.open).toBe(1);
+    expect(buildDesk({ ...l, open_count: 0 }, new Set(['c:question:a'])).counts.open).toBe(0);
   });
   it('marks the answer the record names as counted, and no other', () => {
     const [row] = questions(buildDesk(STATES.answered));

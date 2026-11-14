@@ -3,6 +3,7 @@
 // into albums. See docs/file-zone.md for the rulings this encodes.
 import { readersOf } from './fileReceipt';
 import type { FileReader } from './fileReceipt';
+import { foldVersions } from './versions';
 
 /** The slice of a Matrix event this module reads. Every field may be missing. */
 export type ZoneEvent = {
@@ -22,11 +23,14 @@ export type AlbumFile = {
   id: string;
   kind: FileKind;
   name: string;
+  sender: string;
   ts: number;
   /** The event content, as RenderMessageContent reads it. */
   content: Record<string, unknown>;
   /** Receipts in this album that name this file, one per sender (the latest), oldest first. */
   readBy: FileReader[];
+  /** The versions this file supersedes, nearest first (`org.gamecult.publish.replaces`). */
+  earlier: AlbumFile[];
 };
 
 export type Album = {
@@ -64,7 +68,7 @@ const tsOf = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v
 
 const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-const toFile = (e: ZoneEvent): AlbumFile | undefined => {
+export const toFile = (e: ZoneEvent): AlbumFile | undefined => {
   if (!live(e)) return undefined;
   const kind = KIND_OF_MSGTYPE.get(e.content.msgtype as string);
   if (!kind) return undefined;
@@ -72,9 +76,11 @@ const toFile = (e: ZoneEvent): AlbumFile | undefined => {
     id: e.event_id,
     kind,
     name: asString(e.content.filename) || asString(e.content.body),
+    sender: e.sender ?? '',
     ts: tsOf(e.origin_server_ts),
     content: e.content,
     readBy: [],
+    earlier: [],
   };
 };
 
@@ -103,14 +109,15 @@ const toAlbum = (input: AlbumInput, server: string): Album | undefined => {
     })
     .sort((a, b) => a.ts - b.ts)
     .map((f) => ({ ...f, readBy: readersOf(list, f.id, f.content, server) }));
+  const heads = foldVersions(files);
   return {
     id: root.event_id,
     title: titleOf(root),
     author: root.sender ?? '',
     ts: tsOf(root.origin_server_ts),
-    cover: files.find((f) => f.kind === 'image'),
-    files,
-    count: files.length,
+    cover: heads.find((f) => f.kind === 'image'),
+    files: heads,
+    count: heads.length,
   };
 };
 
@@ -127,3 +134,51 @@ export const buildAlbums = (inputs: AlbumInput[], server = ''): Album[] => {
     })
     .sort((a, b) => b.ts - a.ts);
 };
+
+/** The newest event in an album's thread (shown or folded), else its root: where a new file threads after. */
+export const lastEvent = (album: Album): { id: string; ts: number } =>
+  album.files
+    .flatMap((f) => [f, ...f.earlier])
+    .reduce<{ id: string; ts: number }>((a, f) => (f.ts >= a.ts ? { id: f.id, ts: f.ts } : a), {
+      id: album.id,
+      ts: album.ts,
+    });
+
+/** A room event with the thread root the SDK resolved for it, when it has one. */
+export type TimelineEvent = ZoneEvent & { threadRoot?: string };
+
+/**
+ * File events that sit in the room outside any album thread: what a poster that does not thread
+ * its files leaves behind. The album list never reads them (it lists threads), so they are named
+ * to the sender instead of left out silently.
+ */
+export const looseFiles = (events: TimelineEvent[]): AlbumFile[] =>
+  events
+    .filter((e) => {
+      const rel = e?.content?.['m.relates_to'] as { rel_type?: unknown } | undefined;
+      return !e?.threadRoot && rel?.rel_type !== 'm.thread';
+    })
+    .map(toFile)
+    .filter((f): f is AlbumFile => !!f);
+
+const NAMED = 3;
+
+/** The line that says loose files exist and are not listed; empty when there are none. */
+export const looseNote = (files: AlbumFile[]): string => {
+  if (files.length === 0) return '';
+  const names = files.slice(0, NAMED).map((f) => f.name || 'unnamed');
+  const more = files.length > NAMED ? ` and ${files.length - NAMED} more` : '';
+  const what = files.length === 1 ? '1 file was' : `${files.length} files were`;
+  return `${what} posted outside an album and ${
+    files.length === 1 ? 'is' : 'are'
+  } not listed here: ${names.join(', ')}${more}. ${
+    files.length === 1 ? 'It is' : 'They are'
+  } in the Timeline.`;
+};
+
+/** Where the album view stands when it decides whether to show the loose-files note. */
+export type ViewState = { open: boolean; encrypted: boolean; loading: boolean; error: boolean };
+
+/** The note for the list view only: never inside an open album, an encrypted zone, or a load that is not finished. */
+export const looseNoteFor = (files: AlbumFile[], view: ViewState): string =>
+  view.open || view.encrypted || view.loading || view.error ? '' : looseNote(files);

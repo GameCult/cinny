@@ -18,6 +18,21 @@ const { createRidgeScene, createScene } = vi.hoisted(() => ({
 }));
 vi.mock('./ridge/Ridge', () => ({ createRidgeScene }));
 vi.mock('./Scene', () => ({ createScene }));
+// The physical sky is baked per call (tens of ms: atmosphere LUTs) and the clock here is fixed, so a state always
+// draws the same sky. Baking once per state keeps the 21-offset sweep under the default timeout when the machine is
+// loaded; the sky each build receives is still the one `ridgeSkyFor` makes for that state.
+vi.mock('./skyForState', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./skyForState')>();
+  const baked = new Map<string, ReturnType<typeof actual.ridgeSkyFor>>();
+  return {
+    ...actual,
+    ridgeSkyFor: (...args: Parameters<typeof actual.ridgeSkyFor>) => {
+      if (args.length !== 1) return actual.ridgeSkyFor(...args);
+      if (!baked.has(args[0])) baked.set(args[0], actual.ridgeSkyFor(args[0]));
+      return baked.get(args[0]) as ReturnType<typeof actual.ridgeSkyFor>;
+    },
+  };
+});
 
 const canvas = {} as HTMLCanvasElement;
 const config = { tier: 'low' as const };
@@ -190,6 +205,19 @@ describe('startBackgroundScene follows the sky state', () => {
     });
     scene?.dispose();
     expect(live.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('a rebuild for a sky that was replaced while its key was awaited builds nothing: only the newest sky is built', async () => {
+    createRidgeScene.mockReturnValueOnce(fakeScene()).mockReturnValueOnce(fakeScene());
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    setSkyState('day');
+    setSkyState('dusk');
+    await flush();
+    // The initial build and one rebuild, for dusk; day's rebuild stood down before building anything.
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('dusk').top));
+    scene?.dispose();
   });
 
   // A second sky change `ticks` microtasks after the first. True when it landed mid-build: the build for the first

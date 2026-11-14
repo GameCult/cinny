@@ -6,7 +6,7 @@ import {
   RegisterRequest,
   RegisterResponse,
 } from 'matrix-js-sdk';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LoginPathSearchParams } from '../../paths';
 import { ErrorCode } from '../../../cs-errorcode';
@@ -17,6 +17,8 @@ import {
 import { getHomePath, getLoginPath, withSearchParam } from '../../pathUtils';
 import { getMxIdLocalPart, getMxIdServer } from '../../../utils/matrix';
 import { setFallbackSession } from '../../../state/sessions';
+import { settleLocalData } from '../../../state/softLogout';
+import { wipeLocalData } from '../../../../client/wipeLocalData';
 import type { RegisterTrouble } from '../authMessages';
 
 export enum RegisterError {
@@ -131,9 +133,11 @@ export const register = async (
 
 export const useRegisterComplete = (data?: CustomRegisterResponse) => {
   const navigate = useNavigate();
+  const settled = useRef<CustomRegisterResponse>();
 
   useEffect(() => {
-    if (data) {
+    if (data && settled.current !== data) {
+      settled.current = data;
       const { response, baseUrl } = data;
 
       const userId = response.user_id;
@@ -141,10 +145,15 @@ export const useRegisterComplete = (data?: CustomRegisterResponse) => {
       const deviceId = response.device_id;
 
       if (accessToken && deviceId) {
-        setFallbackSession(accessToken, deviceId, userId, baseUrl);
         const afterLoginRedirectPath = getAfterLoginRedirectPath();
-        deleteAfterLoginRedirectPath();
-        navigate(afterLoginRedirectPath ?? getHomePath(), { replace: true });
+        // A new account never boots on a soft-logged-out user's stores.
+        settleLocalData({ user_id: userId, device_id: deviceId }, () => wipeLocalData()).then(
+          () => {
+            setFallbackSession(accessToken, deviceId, userId, baseUrl);
+            deleteAfterLoginRedirectPath();
+            navigate(afterLoginRedirectPath ?? getHomePath(), { replace: true });
+          }
+        );
       } else {
         const username = getMxIdLocalPart(userId);
         const userServer = getMxIdServer(userId);

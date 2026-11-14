@@ -18,6 +18,7 @@ import { IImageInfo, IThumbnailContent, IVideoInfo } from '../../types/matrix/co
 import { AccountDataEvent } from '../../types/matrix/accountData';
 import { getStateEvent } from './room';
 import { Membership, StateEvent } from '../../types/matrix/room';
+import { NO_INFO, UploadFailureInfo } from './uploadReason';
 
 const DOMAIN_REGEX = /\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b/;
 
@@ -392,8 +393,19 @@ export const uploadFailure = async (
     if (trace.previous) parts.push(`retried (attempt 1: ${trace.previous})`);
   }
   const error = `Upload failed: ${message ? `${name}: ${message}` : name} (${parts.join(', ')})`;
-  const err = new MatrixError({ error, errcode: name });
+  // A homeserver refusal keeps its own errcode (M_TOO_LARGE ...), which is what names it to the sender.
+  const errcode = typeof e?.errcode === 'string' && e.errcode.startsWith('M_') ? e.errcode : name;
+  const err = new MatrixError({ error, errcode });
   (err as any).cause = e;
+  const info: UploadFailureInfo = {
+    unreadable: readable !== 'file readable',
+    offline: typeof navigator !== 'undefined' && navigator.onLine === false,
+    hidden: typeof document !== 'undefined' && document?.visibilityState === 'hidden',
+    aborted: name === 'AbortError',
+    progressed: trace?.firstProgressAt !== undefined,
+    stopped: trace?.signalAborted === true,
+  };
+  (err as any).info = info;
   return err;
 };
 
@@ -435,14 +447,14 @@ export const uploadContent = async (
       body = await copyInMemory(file);
     } catch (readErr: any) {
       const errcode = readErr?.name || 'Error';
-      onError(
-        new MatrixError({
-          error: `Upload failed: file unreadable before upload (${errcode}) (${file.size} bytes, ${
-            file.type || 'unknown type'
-          })`,
-          errcode,
-        })
-      );
+      const unreadable = new MatrixError({
+        error: `Upload failed: file unreadable before upload (${errcode}) (${file.size} bytes, ${
+          file.type || 'unknown type'
+        })`,
+        errcode,
+      });
+      (unreadable as any).info = { ...NO_INFO, unreadable: true };
+      onError(unreadable);
       return;
     }
     const probe = startAbortProbe();

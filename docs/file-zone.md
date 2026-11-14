@@ -120,4 +120,4 @@ Client, `src/app/features/albums`:
 
 Flag: `fileZoneShare.enabled` in `config.json`, default `false`. With it off nothing mounts.
 
-Not built: a Mind's own path into the zone (outbox, Persona decision, mouth post) belongs to gamecult-ops / Huginn / the mouth, not this client; sharing into an existing album ("add files"); upload cancel; pagination beyond 100 albums/files.
+Not built: a Mind's own path into the zone (outbox, Persona decision, mouth post) belongs to gamecult-ops / Huginn / the mouth, not this client; Built since: Stop for a send in flight (aborts the running upload, leaves it and the rest picked as "stopped"), pagination to 20 pages of 100 per endpoint (PR #148), adding files to an open album with named refusals (`M_TOO_LARGE`, `M_FORBIDDEN`, `M_LIMIT_EXCEEDED`).

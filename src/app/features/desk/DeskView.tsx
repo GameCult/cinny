@@ -50,10 +50,13 @@ function Answers({ answers }: { answers: AnswerRow[] }) {
   );
 }
 
+/** Phones list titles and a tap opens one; wide screens show every row open. Derived, so rotating never leaves it stale. */
+export const rowOpen = (phone: boolean, tapped: boolean) => !phone || tapped;
+
 function Row({ row, now }: { row: DeskRow; now: number }) {
   const phone = useScreenSizeContext() === ScreenSize.Mobile;
-  // Phones list titles; a tap opens one. Wide screens show every row open.
-  const [open, setOpen] = useState(!phone);
+  const [tapped, setTapped] = useState(false);
+  const open = rowOpen(phone, tapped);
   if (row.kind === 'unverified') {
     return (
       <li className={css.Row}>
@@ -72,7 +75,7 @@ function Row({ row, now }: { row: DeskRow; now: number }) {
             type="button"
             className={css.Fold}
             aria-expanded={open}
-            onClick={() => setOpen(!open)}
+            onClick={() => setTapped(!tapped)}
           >
             {row.title}
           </button>
