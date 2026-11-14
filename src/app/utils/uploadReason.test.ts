@@ -28,12 +28,19 @@ describe('what the sender is told when an upload fails', () => {
 
   it('a drop with the tab in the background says to keep the tab open', async () => {
     vi.stubGlobal('document', { visibilityState: 'hidden' });
-    expect(await textOf(abort())).toContain('Keep this tab open');
+    const text = await textOf(abort());
+    expect(text).toContain('(this tab was in the background)');
+    expect(text).toContain('Keep this tab open');
   });
 
   it('offline outranks the drop it caused', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     expect(await textOf(abort())).toBe('Upload failed: you are offline. Reconnect and send again.');
+  });
+
+  it('offline is not blamed for a failure that was not a dropped request', async () => {
+    vi.stubGlobal('navigator', { onLine: false });
+    expect(await textOf(new Error('Bad Gateway'))).toContain('Upload failed. Send again;');
   });
 
   it('a file the browser can no longer read says to pick it again', async () => {

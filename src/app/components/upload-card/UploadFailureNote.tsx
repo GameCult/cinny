@@ -7,8 +7,8 @@ export function UploadFailureNote({ error }: { error: Error }) {
   return (
     <>
       <Text size="T200">{uploadFailureText(error)}</Text>
-      <details>
-        <summary>
+      <details style={{ flex: 1, minWidth: 0 }}>
+        <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center' }}>
           <Text as="span" size="T200">
             Details
           </Text>

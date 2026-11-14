@@ -21,7 +21,7 @@ describe('the failed upload card', () => {
       'Upload failed: the connection dropped before the file started. Send again.'
     );
     expect(before).not.toContain('bytes');
-    expect(html).toMatch(/<details>.*Details.*<\/details>/s);
+    expect(html).toMatch(/<details[^>]*>.*Details.*<\/details>/s);
     expect(text(html.slice(html.indexOf('<details')))).toContain('4 bytes');
   });
 

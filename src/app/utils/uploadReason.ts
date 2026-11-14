@@ -53,11 +53,12 @@ export const uploadReason = (e: unknown): UploadReason | undefined => {
       cause: 'this device can no longer read the file',
       action: 'Pick it again; if it came from another app, save a copy first.',
     };
-  if (info.offline) return { cause: 'you are offline', action: 'Reconnect and send again.' };
+  // Offline and hidden-tab are only read as the cause of a dropped request, not of any failure.
   if (!info.aborted) return undefined;
+  if (info.offline) return { cause: 'you are offline', action: 'Reconnect and send again.' };
   if (info.hidden)
     return {
-      cause: 'the connection dropped while this tab was in the background',
+      cause: 'the connection dropped (this tab was in the background)',
       action: 'Keep this tab open while it uploads, and send again.',
     };
   return info.progressed
