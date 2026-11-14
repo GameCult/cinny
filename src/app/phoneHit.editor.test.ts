@@ -104,4 +104,16 @@ describe('what the PhoneHit class relies on', () => {
     expect(stack).toMatch(/direction="Column"/);
     expect(stack).toMatch(/gap="100"/);
   });
+
+  // The same column rhythm in the scrolling Sidebar: its 40 px buttons sit in a Column of Box gap="100" (4 px).
+  it('the emoji sidebar column keeps its 4 px gap', () => {
+    const src = readSource('components/emoji-board/components/Sidebar.tsx');
+    const column = src.slice(
+      src.indexOf('export function Sidebar('),
+      src.indexOf('export const SidebarStack')
+    );
+    expect(column).toMatch(
+      /<Box className=\{css\.SidebarContent\} direction="Column"[^>]*gap="100"/
+    );
+  });
 });

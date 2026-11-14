@@ -7,11 +7,10 @@ import { useClientConfig } from '../../hooks/useClientConfig';
 import { Album, ZoneEvent, buildAlbums } from './buildAlbums';
 import { isFileZone } from './isFileZone';
 import { mapLimit } from './mapLimit';
+import { Page, readPages } from './readPages';
 
 const REPLY_FETCHES_IN_FLIGHT = 6;
 const REFRESH_MS = 30_000;
-
-type Chunk = { chunk?: ZoneEvent[] };
 
 /** True when the room is the file zone: by its create type, or listed in the client config. */
 export const useIsFileZone = (room: Room): boolean => {
@@ -29,37 +28,49 @@ export const useIsFileZone = (room: Room): boolean => {
   );
 };
 
-export type AlbumsState = { loading: boolean; error: Error | null; albums: Album[] };
+export type AlbumsState = {
+  loading: boolean;
+  error: Error | null;
+  albums: Album[];
+  /** A read hit the page cap (readPages), so older albums or files are not in the list. */
+  truncated: boolean;
+};
+
+const PAGE_LIMIT = '100';
 
 /**
- * Slice 1 reads ONE page of each endpoint (threads: 100 roots; replies per root: 100). A zone with
- * more albums or files than that is truncated; pagination is a later slice. Reads are made with
- * the logged-in client, so the room must be unencrypted: encrypted events carry no msgtype and
- * are skipped.
+ * Reads every page of the zone's threads, then every page of each thread's replies, each capped at
+ * MAX_PAGES (readPages). Reads are made with the logged-in client, so the room must be
+ * unencrypted: encrypted events carry no msgtype and are skipped.
  */
 export const useAlbums = (room: Room): AlbumsState => {
   const mx = useMatrixClient();
   const { roomId } = room;
   const query = useQuery({
     queryKey: ['albums', roomId],
-    queryFn: async (): Promise<Album[]> => {
+    queryFn: async (): Promise<{ albums: Album[]; truncated: boolean }> => {
       const get = (path: string, params: Record<string, string>) =>
-        mx.http.authedRequest<Chunk>(Method.Get, path, params, undefined, {
+        mx.http.authedRequest<Page<ZoneEvent>>(Method.Get, path, params, undefined, {
           prefix: ClientPrefix.V1,
         });
+      const paged = (path: string, params: Record<string, string>) =>
+        readPages<ZoneEvent>((from) => get(path, from ? { ...params, from } : params));
       const room_ = encodeURIComponent(roomId);
-      const roots = (await get(`/rooms/${room_}/threads`, { limit: '100' })).chunk ?? [];
-      const inputs = await mapLimit(roots, REPLY_FETCHES_IN_FLIGHT, async (root: ZoneEvent) => ({
-        root,
-        replies:
-          (
-            await get(
-              `/rooms/${room_}/relations/${encodeURIComponent(root.event_id ?? '')}/m.thread`,
-              { limit: '100', dir: 'f' }
-            )
-          ).chunk ?? [],
-      }));
-      return buildAlbums(inputs, mx.getDomain() ?? '');
+      const roots = await paged(`/rooms/${room_}/threads`, { limit: PAGE_LIMIT });
+      let { truncated } = roots;
+      const inputs = await mapLimit(
+        roots.items,
+        REPLY_FETCHES_IN_FLIGHT,
+        async (root: ZoneEvent) => {
+          const replies = await paged(
+            `/rooms/${room_}/relations/${encodeURIComponent(root.event_id ?? '')}/m.thread`,
+            { limit: PAGE_LIMIT, dir: 'f' }
+          );
+          truncated = truncated || replies.truncated;
+          return { root, replies: replies.items };
+        }
+      );
+      return { albums: buildAlbums(inputs, mx.getDomain() ?? ''), truncated };
     },
     retry: 1,
     refetchInterval: REFRESH_MS,
@@ -68,6 +79,7 @@ export const useAlbums = (room: Room): AlbumsState => {
     loading: query.isLoading,
     // A failed refetch keeps the albums already loaded; the error shows only when there are none.
     error: query.data ? null : (query.error as Error | null),
-    albums: query.data ?? [],
+    albums: query.data?.albums ?? [],
+    truncated: query.data?.truncated ?? false,
   };
 };

@@ -49,3 +49,10 @@ export const unverifiedForks = async (forks: ForkEntry[]): Promise<Set<string>> 
   );
   return bad;
 };
+
+/**
+ * `unverifiedForks`, except that a check that cannot run (no `crypto.subtle` on an insecure origin, a rejected
+ * digest) withdraws every card: a card nobody could verify is neither shown nor counted.
+ */
+export const unverifiedOrAll = async (forks: ForkEntry[]): Promise<Set<string>> =>
+  unverifiedForks(forks).catch(() => new Set(forks.map(({ card }) => card.fork_id)));

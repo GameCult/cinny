@@ -14,6 +14,7 @@ import React, { useCallback, useEffect } from 'react';
 import { MatrixError } from 'matrix-js-sdk';
 import { useAutoDiscoveryInfo } from '../../../hooks/useAutoDiscoveryInfo';
 import { AsyncStatus, useAsyncCallback } from '../../../hooks/useAsyncCallback';
+import { useSoftLogout, withSoftLogoutDevice } from '../../../state/softLogout';
 import { CustomLoginResponse, LoginError, login, useLoginComplete } from './loginUtil';
 
 function LoginTokenError({ message }: { message: string }) {
@@ -46,6 +47,7 @@ type TokenLoginProps = {
 export function TokenLogin({ token }: TokenLoginProps) {
   const discovery = useAutoDiscoveryInfo();
   const baseUrl = discovery['m.homeserver'].base_url;
+  const softLogout = useSoftLogout();
 
   const [loginState, startLogin] = useAsyncCallback<
     CustomLoginResponse,
@@ -54,12 +56,14 @@ export function TokenLogin({ token }: TokenLoginProps) {
   >(useCallback(login, []));
 
   useEffect(() => {
-    startLogin(baseUrl, {
-      type: 'm.login.token',
-      token,
-      initial_device_display_name: 'Ratatoskr Web',
-    });
-  }, [baseUrl, token, startLogin]);
+    startLogin(
+      baseUrl,
+      withSoftLogoutDevice(
+        { type: 'm.login.token', token, initial_device_display_name: 'Ratatoskr Web' },
+        softLogout
+      )
+    );
+  }, [baseUrl, token, softLogout, startLogin]);
 
   useLoginComplete(loginState.status === AsyncStatus.Success ? loginState.data : undefined);
 

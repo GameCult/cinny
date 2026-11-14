@@ -12,6 +12,7 @@ import {
 } from '../../state/room/roomInputDrafts';
 import { useObjectURL } from '../../hooks/useObjectURL';
 import { useMediaConfig } from '../../hooks/useMediaConfig';
+import { UploadFailureNote } from './UploadFailureNote';
 import { PhoneHitSpread28 } from '../../styles/PhoneHit.css';
 
 type PreviewImageProps = {
@@ -192,7 +193,7 @@ export function UploadCardRenderer({
           )}
           {upload.status === UploadStatus.Error && (
             <UploadCardError>
-              <Text size="T200">{upload.error.message}</Text>
+              <UploadFailureNote error={upload.error} />
             </UploadCardError>
           )}
           {upload.status === UploadStatus.Idle && fileSizeExceeded && (

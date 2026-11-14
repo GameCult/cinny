@@ -61,37 +61,76 @@ export const rulesFor = (css: string, selector: RegExp, media: string | undefine
 export const readSource = (file: string) =>
   readFileSync(`${process.cwd()}/src/app/${file}`, 'utf8');
 
-/** The end of a JSX opening tag starting at `from`: its closing > outside any {} expression. */
-const tagEnd = (src: string, from: number) => {
-  let depth = 0;
-  let j = from;
-  for (; j < src.length; j += 1) {
-    if (src[j] === '{') depth += 1;
-    else if (src[j] === '}') depth -= 1;
-    else if (src[j] === '>' && depth === 0) break;
-  }
-  return j;
-};
-
-const tsx = (src: string) =>
-  ts.createSourceFile('source.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+// The extension picks the script kind (.ts reads `<T>x` as an assertion, .tsx and .jsx read it as JSX).
+const tsx = (src: string, fileName = 'source.tsx') =>
+  ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true);
 
 type Opening = ts.JsxOpeningElement | ts.JsxSelfClosingElement;
 
-/** Every IconButton element (not IconButtonX) of a parsed source, in source order. */
+const isTag = (n: ts.Node): n is Opening =>
+  ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n);
+
+/** Local names the source binds IconButton to by import: IconButton itself and any alias (IconButton as IB). */
+const iconButtonNames = (sf: ts.SourceFile) => {
+  const names = new Set(['IconButton']);
+  sf.statements.forEach((st) => {
+    const nb = ts.isImportDeclaration(st) ? st.importClause?.namedBindings : undefined;
+    if (nb && ts.isNamedImports(nb))
+      nb.elements.forEach((e) => {
+        if ((e.propertyName ?? e.name).text === 'IconButton') names.add(e.name.text);
+      });
+  });
+  return names;
+};
+
+/** Whether a JSX tag name is an IconButton: the plain or aliased identifier, or a namespace member (<F.IconButton>). */
+const isIconButtonTag = (tag: ts.JsxTagNameExpression, names: Set<string>) =>
+  (ts.isIdentifier(tag) && names.has(tag.text)) ||
+  (ts.isPropertyAccessExpression(tag) && tag.name.text === 'IconButton');
+
+/** Every IconButton element (not IconButtonX) of a parsed source, in source order, however its tag is spelled. */
 const elements = (sf: ts.SourceFile) => {
+  const names = iconButtonNames(sf);
   const found: Opening[] = [];
   const walk = (n: ts.Node) => {
-    if (
-      (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) &&
-      ts.isIdentifier(n.tagName) &&
-      n.tagName.text === 'IconButton'
-    )
-      found.push(n);
+    if (isTag(n) && isIconButtonTag(n.tagName, names)) found.push(n);
     ts.forEachChild(n, walk);
   };
   walk(sf);
   return found;
+};
+
+/** Every mention of IconButton that is not a JSX tag or the import itself: passed as a value (as={IconButton}),
+ * re-bound, re-exported, reached by destructuring or by an element access. Such a render cannot be tied to a
+ * PhoneHit class, so each is reported ("line:col") and the guard fails on it. */
+const unhandledMentions = (sf: ts.SourceFile) => {
+  const names = iconButtonNames(sf);
+  const out: string[] = [];
+  const at = (n: ts.Node) => {
+    const { line, character } = sf.getLineAndCharacterOfPosition(n.getStart());
+    out.push(`${line + 1}:${character + 1}`);
+  };
+  const walk = (n: ts.Node) => {
+    if (ts.isIdentifier(n) && names.has(n.text)) {
+      const p = n.parent;
+      const tagged = (x: ts.Node) =>
+        (isTag(x) || ts.isJsxClosingElement(x)) && x.tagName === (n as ts.Node);
+      const member =
+        ts.isPropertyAccessExpression(p) &&
+        p.name === n &&
+        (isTag(p.parent) || ts.isJsxClosingElement(p.parent)) &&
+        p.parent.tagName === p;
+      if (!ts.isImportSpecifier(p) && !tagged(p) && !member) at(n);
+    } else if (
+      ts.isStringLiteralLike(n) &&
+      n.text === 'IconButton' &&
+      ts.isElementAccessExpression(n.parent)
+    )
+      at(n);
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
 };
 
 const bodyOf = (el: Opening) =>
@@ -105,21 +144,85 @@ export const iconButtons = (src: string) =>
 
 export const iconButtonTags = (src: string) => iconButtons(src).map((b) => b.tag);
 
-/** Local names the source imports from the PhoneHit.css module (as written, not aliased). */
+/** Local names the source imports as values from the PhoneHit.css module (as written, not aliased). An
+ * `import type`, or a `type` specifier, binds no value and is not read. */
 const importedHits = (sf: ts.SourceFile) =>
   new Set(
     sf.statements.flatMap((st) => {
-      const nb = ts.isImportDeclaration(st) ? st.importClause?.namedBindings : undefined;
+      if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) return [];
+      const nb = st.importClause?.namedBindings;
       return nb &&
+        !st.importClause?.isTypeOnly &&
         ts.isNamedImports(nb) &&
-        ts.isStringLiteral((st as ts.ImportDeclaration).moduleSpecifier) &&
-        /^(\.\.\/)+styles\/PhoneHit\.css$/.test(
-          ((st as ts.ImportDeclaration).moduleSpecifier as ts.StringLiteral).text
-        )
-        ? nb.elements.filter((e) => !e.propertyName).map((e) => e.name.text)
+        /^(\.\.\/)+styles\/PhoneHit\.css$/.test(st.moduleSpecifier.text)
+        ? nb.elements.filter((e) => !e.propertyName && !e.isTypeOnly).map((e) => e.name.text)
         : [];
     })
   );
+
+const bindingNames = (b: ts.BindingName): string[] =>
+  ts.isIdentifier(b)
+    ? [b.text]
+    : b.elements.flatMap((e) => (ts.isOmittedExpression(e) ? [] : bindingNames(e.name)));
+
+const declaresVar = (list: ts.VariableDeclarationList, name: string) =>
+  list.declarations.some((d) => bindingNames(d.name).includes(name));
+
+/** Whether `var name` is declared anywhere in a function body, outside nested functions (var hoists to the function). */
+const hoistsVar = (fn: ts.Node, name: string) => {
+  let found = false;
+  const walk = (n: ts.Node) => {
+    if (found || (n !== fn && ts.isFunctionLike(n))) return;
+    if (
+      ts.isVariableDeclarationList(n) &&
+      // eslint-disable-next-line no-bitwise -- NodeFlags is a bit set; var is the one declaration kind with neither flag
+      (n.flags & ts.NodeFlags.BlockScoped) === 0 &&
+      declaresVar(n, name)
+    )
+      found = true;
+    ts.forEachChild(n, walk);
+  };
+  walk(fn);
+  return found;
+};
+
+/** Whether one scope node declares `name` of its own: parameters, a function expression's own name, block-level
+ * let/const/function/class, a for-loop head or a catch variable. */
+const scopeDeclares = (scope: ts.Node, name: string): boolean => {
+  const inStatements = (sts: readonly ts.Statement[]) =>
+    sts.some(
+      (st) =>
+        (ts.isVariableStatement(st) && declaresVar(st.declarationList, name)) ||
+        ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) && st.name?.text === name)
+    );
+  if (ts.isBlock(scope) || ts.isModuleBlock(scope)) return inStatements(scope.statements);
+  if (ts.isCaseBlock(scope)) return inStatements(scope.clauses.flatMap((c) => [...c.statements]));
+  if (ts.isFunctionLike(scope))
+    return (
+      scope.parameters.some((p) => bindingNames(p.name).includes(name)) ||
+      ((ts.isFunctionExpression(scope) || ts.isClassExpression(scope)) &&
+        scope.name?.text === name) ||
+      hoistsVar(scope, name)
+    );
+  if (ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope))
+    return (
+      !!scope.initializer &&
+      ts.isVariableDeclarationList(scope.initializer) &&
+      declaresVar(scope.initializer, name)
+    );
+  if (ts.isCatchClause(scope))
+    return (
+      !!scope.variableDeclaration && bindingNames(scope.variableDeclaration.name).includes(name)
+    );
+  return false;
+};
+
+/** Whether an inner scope between the identifier and the module rebinds its name, so it is not the import. */
+const shadowed = (id: ts.Identifier) => {
+  for (let n: ts.Node | undefined = id.parent; n && !ts.isSourceFile(n); n = n.parent)
+    if (scopeDeclares(n, id.text)) return true;
+  return false;
+};
 
 const MERGERS = new Set(['classNames', 'clsx', 'cx']);
 
@@ -127,7 +230,8 @@ const MERGERS = new Set(['classNames', 'clsx', 'cx']);
  * after it (a spread can override it at runtime), and its expression must be: the bare identifier; a classNames /
  * clsx / cx call with it as a direct argument; or a template with it as a direct span. The identifier must occur
  * nowhere else in the expression, so a key, a member, a closure, a conditional or a comma can never carry it. When
- * `imported` is given, the identifier must also be a binding imported from the PhoneHit.css module. */
+ * `imported` is given, the identifier must also resolve to a value binding imported from the PhoneHit.css module
+ * (not an `import type`, not rebound by an inner scope). */
 const hitOf = (el: Opening, imported?: Set<string>): string | null => {
   const props = el.attributes.properties;
   const at = props.flatMap((p, i) =>
@@ -139,7 +243,9 @@ const hitOf = (el: Opening, imported?: Set<string>): string | null => {
     attr.initializer && ts.isJsxExpression(attr.initializer) && attr.initializer.expression;
   if (!expr) return null;
   const isHit = (n: ts.Node): n is ts.Identifier =>
-    ts.isIdentifier(n) && /^PhoneHit\w*$/.test(n.text) && (!imported || imported.has(n.text));
+    ts.isIdentifier(n) &&
+    /^PhoneHit\w*$/.test(n.text) &&
+    (!imported || (imported.has(n.text) && !shadowed(n)));
   let direct: ts.Node[] = [];
   if (ts.isIdentifier(expr)) direct = [expr];
   else if (
@@ -174,6 +280,18 @@ export const phoneHitClasses = (src: string) => {
   return elements(sf).map((el) => hitOf(el, imported));
 };
 
+/** What a source file leaves uncovered: the indices (source order) of its IconButton elements without a PhoneHit
+ * class, and the "line:col" of every mention of IconButton that is not a tag and so cannot be checked at all. The
+ * fileName picks the parser (.ts, .tsx, .js, ...). */
+export const uncoveredIconButtons = (src: string, fileName = 'source.tsx') => {
+  const sf = tsx(src, fileName);
+  const imported = importedHits(sf);
+  return {
+    bare: elements(sf).flatMap((el, i) => (hitOf(el, imported) === null ? [i] : [])),
+    unhandled: unhandledMentions(sf),
+  };
+};
+
 /** The class each IconButton must carry, in source order (null = must carry none): the variant is chosen by the
  * button's drawn size and whether a clipping container or neighbours surround it, so a swapped variant is a wrong
  * hit area. The name must also be the one PhoneHit.css exports, not a local of the same name. */
@@ -192,29 +310,44 @@ const ICON_PX: Record<string, number> = {
 };
 
 /** The size prop of a tag: its literal value, the default when absent, or undefined when it is an expression. */
-const sizeProp = (tag: string) => {
+const sizeProp = (el: Opening) => {
+  const props = el.attributes.properties;
   // props spread in may carry a size of their own
-  if (tag.includes('{...')) return undefined;
-  const m = tag.match(/\ssize=(?:"(\w+)"|\{([^}]*)\})/);
-  if (!m) return '400';
-  return m[1] ?? m[2].match(/^'(\w+)'$/)?.[1];
+  if (props.some(ts.isJsxSpreadAttribute)) return undefined;
+  const sizes = props.filter(
+    (p): p is ts.JsxAttribute =>
+      ts.isJsxAttribute(p) && ts.isIdentifier(p.name) && p.name.text === 'size'
+  );
+  if (sizes.length === 0) return '400';
+  const init = sizes[sizes.length - 1].initializer;
+  const lit = init && ts.isJsxExpression(init) ? init.expression : init;
+  return lit && ts.isStringLiteralLike(lit) ? lit.text : undefined;
 };
 
 /** The px an IconButton draws, from its size prop and the Icon inside; undefined with a reason when the source
- * does not say (a variable size, no Icon, Icons of different sizes). */
+ * does not say (a variable size, no Icon, Icons of different sizes). Both are read off the parsed tag and body. */
 export const drawnPx = (tag: string, body: string): { px: number } | { undetermined: string } => {
-  const pad = BUTTON_PAD[sizeProp(tag) ?? ''];
+  let button: Opening | undefined;
+  const first = (n: ts.Node) => {
+    if (!button && isTag(n)) button = n;
+    else if (!button) ts.forEachChild(n, first);
+  };
+  first(tsx(tag.endsWith('/>') ? tag : `${tag}</x>`));
+  const pad = BUTTON_PAD[(button && sizeProp(button)) ?? ''];
   if (pad === undefined)
     return { undetermined: 'size of the IconButton is not a literal (or props are spread in)' };
-  const icons = [...body.matchAll(/<Icon(?=[\s>/])/g)].map((m) => {
-    const t = body.slice(m.index, tagEnd(body, m.index ?? 0) + 1);
-    return ICON_PX[sizeProp(t) ?? ''];
-  });
+  const icons: (number | undefined)[] = [];
+  const find = (n: ts.Node) => {
+    if (isTag(n) && ts.isIdentifier(n.tagName) && n.tagName.text === 'Icon')
+      icons.push(ICON_PX[sizeProp(n) ?? '']);
+    ts.forEachChild(n, find);
+  };
+  find(tsx(`<>${body}</>`));
   if (icons.length === 0) return { undetermined: 'no <Icon> inside' };
   if (icons.some((p) => p === undefined))
     return { undetermined: 'size of an Icon is not a literal (or props are spread in)' };
   if (new Set(icons).size > 1) return { undetermined: 'Icons of different sizes inside' };
-  return { px: icons[0] + 2 * pad };
+  return { px: (icons[0] as number) + 2 * pad };
 };
 
 /** Per file, per IconButton index (source order): why its drawn size cannot be derived from the source. */

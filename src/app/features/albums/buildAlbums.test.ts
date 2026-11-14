@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AlbumInput, ZoneEvent, buildAlbums } from './buildAlbums';
+import { AlbumInput, ZoneEvent, buildAlbums, lastEvent } from './buildAlbums';
 
 const root = (id: string, ts: number, over: Partial<ZoneEvent> = {}): ZoneEvent => ({
   event_id: id,
@@ -212,6 +212,42 @@ describe('buildAlbums', () => {
       'm.relates_to': { rel_type: 'm.thread', event_id: '$r' },
     });
     expect(one(root('$q', 1), [threaded]).count).toBe(1);
+  });
+});
+
+describe('versions', () => {
+  const v = (id: string, ts: number, replaces?: string) =>
+    reply(id, ts, 'm.file', id, replaces ? { 'org.gamecult.publish': { replaces } } : {});
+
+  it('lists the latest of a chain and folds the earlier versions under it', () => {
+    const a = one(root('$r', 1), [v('$v1', 10), v('$v2', 20, '$v1'), reply('$x', 30, 'm.file')]);
+    expect(a.files.map((f) => [f.id, f.earlier.map((e) => e.id)])).toEqual([
+      ['$v2', ['$v1']],
+      ['$x', []],
+    ]);
+    expect(a.count).toBe(2);
+  });
+});
+
+describe('versions: cover and sender', () => {
+  it('the cover comes from the shown version, not a folded image', () => {
+    const img = (id: string, ts: number, type: string, replaces?: string) =>
+      reply(id, ts, type, id, replaces ? { 'org.gamecult.publish': { replaces } } : {});
+    const a = one(root('$r', 1), [img('$v1', 10, 'm.image'), img('$v2', 20, 'm.file', '$v1')]);
+    expect(a.files.map((f) => f.id)).toEqual(['$v2']);
+    expect(a.cover).toBeUndefined();
+  });
+});
+
+describe('lastEvent', () => {
+  it('is the newest event of the thread, a folded version included; the root when empty', () => {
+    const v = (id: string, ts: number, replaces?: string) =>
+      reply(id, ts, 'm.file', id, replaces ? { 'org.gamecult.publish': { replaces } } : {});
+    expect(lastEvent(one(root('$r', 1), [v('$a', 10), v('$b', 20, '$a'), v('$c', 15)]))).toEqual({
+      id: '$b',
+      ts: 20,
+    });
+    expect(lastEvent(one(root('$r', 1), []))).toEqual({ id: '$r', ts: 1 });
   });
 });
 

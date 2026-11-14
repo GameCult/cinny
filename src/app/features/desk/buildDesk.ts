@@ -44,7 +44,7 @@ export type Desk = {
   open: DeskRow[];
   /** Closed with a ruling id. A card closed with no ruling (withdrawn) is not listed. */
   recorded: { forkId: string; title: string; rulingId: string }[];
-  /** The list's own open_count: the one count the navigator, the status line and the booth share. */
+  /** The list's open_count less the open cards withdrawn as unverified: the one count the navigator, the status line and the booth share. */
   counts: { open: number };
 };
 
@@ -72,6 +72,7 @@ export const buildDesk = (
   if (!list) return { published: false, open: [], recorded: [], counts: { open: 0 } };
   const open: DeskRow[] = [];
   const recorded: Desk['recorded'] = [];
+  let withdrawn = 0;
   list.forks.forEach((entry) => {
     const { card, record } = entry;
     if (card.status === 'closed') {
@@ -81,6 +82,7 @@ export const buildDesk = (
     }
     if (unverified.has(card.fork_id)) {
       open.push({ kind: 'unverified', forkId: card.fork_id });
+      withdrawn += 1;
       return;
     }
     open.push({
@@ -101,6 +103,6 @@ export const buildDesk = (
     published: true,
     open,
     recorded,
-    counts: { open: list.open_count },
+    counts: { open: Math.max(0, list.open_count - withdrawn) },
   };
 };

@@ -1,6 +1,6 @@
 import to from 'await-to-js';
 import { LoginRequest, LoginResponse, MatrixError, createClient } from 'matrix-js-sdk';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ClientConfig, clientAllowedServer } from '../../../hooks/useClientConfig';
 import { autoDiscovery, specVersions } from '../../../cs-api';
@@ -11,6 +11,8 @@ import {
 } from '../../afterLoginRedirectPath';
 import { getHomePath } from '../../pathUtils';
 import { setFallbackSession } from '../../../state/sessions';
+import { settleLocalData } from '../../../state/softLogout';
+import { wipeLocalData } from '../../../../client/wipeLocalData';
 
 export enum GetBaseUrlError {
   NotAllow = 'NotAllow',
@@ -110,14 +112,20 @@ export const login = async (
 
 export const useLoginComplete = (data?: CustomLoginResponse) => {
   const navigate = useNavigate();
+  const settled = useRef<CustomLoginResponse>();
 
   useEffect(() => {
-    if (data) {
-      const { response: loginRes, baseUrl: loginBaseUrl } = data;
-      setFallbackSession(loginRes.access_token, loginRes.device_id, loginRes.user_id, loginBaseUrl);
+    if (!data || settled.current === data) return;
+    settled.current = data;
+    const { response: loginRes, baseUrl: loginBaseUrl } = data;
+    const finish = async () => {
       const afterLoginRedirectUrl = getAfterLoginRedirectPath();
+      // A soft logout left stores behind; they stay only for the same user on the same device.
+      await settleLocalData(loginRes, () => wipeLocalData());
+      setFallbackSession(loginRes.access_token, loginRes.device_id, loginRes.user_id, loginBaseUrl);
       deleteAfterLoginRedirectPath();
       navigate(afterLoginRedirectUrl ?? getHomePath(), { replace: true });
-    }
+    };
+    finish();
   }, [data, navigate]);
 };

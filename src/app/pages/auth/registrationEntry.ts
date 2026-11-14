@@ -1,14 +1,8 @@
 import type { ClientConfig } from '../../hooks/useClientConfig';
+import { isSecureOrLocalUrl } from '../../utils/secureUrl';
 import { TRAINING_NOTICE_VERSION, trainingNoticeText } from '../../utils/trainingNotice';
 
 export type RegistrationEntry = { url: string; notice: string; noticeVersion: number };
-
-// Plain http is for a developer's own machine only; a stranger's sign-up page is https.
-const isLocalHost = (hostname: string): boolean =>
-  hostname === 'localhost' ||
-  hostname.endsWith('.localhost') ||
-  hostname === '127.0.0.1' ||
-  hostname === '[::1]';
 
 /**
  * The sign-up entry the sign-in page may show: the account service's registration page, when the
@@ -18,12 +12,7 @@ const isLocalHost = (hostname: string): boolean =>
 export const registrationEntry = (config: ClientConfig): RegistrationEntry | undefined => {
   const { enabled, url } = config.registration ?? {};
   if (enabled !== true || typeof url !== 'string') return undefined;
-  try {
-    const { protocol, hostname } = new URL(url);
-    if (protocol !== 'https:' && !(protocol === 'http:' && isLocalHost(hostname))) return undefined;
-  } catch {
-    return undefined;
-  }
+  if (!isSecureOrLocalUrl(url)) return undefined;
   return {
     url,
     notice: trainingNoticeText(config.previewDemo),

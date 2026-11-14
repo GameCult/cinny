@@ -23,6 +23,7 @@ import {
   logoutClient,
   startClient,
 } from '../../../client/initMatrix';
+import { wipeLocalData } from '../../../client/wipeLocalData';
 import { SplashScreen } from '../../components/splash-screen';
 import { ServerConfigsLoader } from '../../components/ServerConfigsLoader';
 import { CapabilitiesProvider } from '../../hooks/useCapabilities';
@@ -35,6 +36,8 @@ import { stopPropagation } from '../../utils/keyboard';
 import { SyncStatus } from './SyncStatus';
 import { AuthMetadataProvider } from '../../hooks/useAuthMetadata';
 import { getFallbackSession } from '../../state/sessions';
+import { createLogoutHandler } from '../../state/softLogout';
+import { pushSessionToSW } from '../../../sw-session';
 import { AutoDiscovery } from './AutoDiscovery';
 import { PhoneHit } from '../../styles/PhoneHit.css';
 
@@ -127,12 +130,15 @@ function ClientRootOptions({ mx }: { mx?: MatrixClient }) {
 
 const useLogoutListener = (mx?: MatrixClient) => {
   useEffect(() => {
-    const handleLogout: HttpApiEventHandlerMap[HttpApiEvent.SessionLoggedOut] = async () => {
-      mx?.stopClient();
-      await mx?.clearStores();
-      window.localStorage.clear();
-      window.location.reload();
-    };
+    const handleLogout: HttpApiEventHandlerMap[HttpApiEvent.SessionLoggedOut] = createLogoutHandler(
+      {
+        storage: window.localStorage,
+        stop: () => mx?.stopClient(),
+        wipe: () => wipeLocalData(mx),
+        reload: () => window.location.reload(),
+        forgetSessionInWorker: () => pushSessionToSW(),
+      }
+    );
 
     mx?.on(HttpApiEvent.SessionLoggedOut, handleLogout);
     return () => {
