@@ -476,15 +476,47 @@ def sky_hz(st, paperf):
     img = img + glow[..., None] * (st['sky_sun'] * 0.8 * st['ex_t'])[None, None, :]
     return img * paperf[..., None] / 0.93, hz
 
-def relight(layers, az, el, paperf, grain, fmot, shadows=True):
+def haze_colour(hz): return hz * (hx('#cdd7e7') / hx('#f5e2c8'))[None, :]
+
+def relight(layers, az, el, paperf, grain, fmot, shadows=True, flat=None):
+    """Opaque frame with the sky.  `flat` (an RGB triple) replaces the sky and the haze colour by that one colour: the stand-in the planes are compared against."""
     st = sun_state(az, el); shs = cast_shadows(layers, az, el) if shadows else [None] * len(layers); sky, hz = sky_hz(st, paperf)
-    hazec = hz * (hx('#cdd7e7') / hx('#f5e2c8'))[None, :]
+    hazec = haze_colour(hz)
+    if flat is not None: hazec = np.broadcast_to(np.asarray(flat, float), (W, 3)); sky = np.broadcast_to(np.asarray(flat, float), sky.shape)
     F = floor_img(st, hazec, fmot) * (paperf[..., None] / 0.93)
     img = np.where((rowang >= 0)[:, None, None], sky, F).astype(np.float32)
     for Ly, sh3 in zip(layers, shs):
         face = relight_layer(Ly, st, hazec.astype(np.float32), F.astype(np.float32), sh3); face *= (paperf[..., None] / 0.93)
         img = img * (1 - Ly['a'][..., None]) + face * Ly['a'][..., None]
     return img * grain[..., None]
+
+def group_slots(n):
+    """Plane grouping by slot index: far = slot 0 (+ the floor), near = the last slot, mid = every slot between.  Fewer than 3 slots cannot fill three planes."""
+    if n < 3: raise ValueError(f"a place needs at least 3 layer slots for the far/mid/near planes, this one has {n}")
+    return dict(far=[0], mid=list(range(1, n - 1)), near=[n - 1])
+
+def relight_planes(layers, az, el, paperf, grain, fmot, shadows=True, ref=None):
+    """The frame as three RGBA planes (window columns, float 0..1, straight alpha) with no sky drawn.  Every pixel of relight is affine in the haze colour c: out = X + c Y
+    (the haze enters only as the foot mix and the final Beer-Lambert mix).  Render each layer and the floor with c = 0 (X) and c = 1 (X + Y), composite each group over
+    nothing, and let the haze share become transparency: alpha = coverage - mean(Y), colour = X / alpha.  Whatever sky the runtime draws behind then supplies the haze.
+    The split is exact for one group over a flat sky; stacked planes put a nearer group's haze over the farther ridge instead of over the sky (see the recomposite test for the measured loss)."""
+    st = sun_state(az, el); shs = cast_shadows(layers, az, el) if shadows else [None] * len(layers); out = {}
+    below = (rowang < 0)[:, None]; k = (paperf[..., None] / 0.93); runs = []
+    ref = haze_colour(sky_hz(st, paperf)[1]) if ref is None else np.broadcast_to(np.asarray(ref, float), (W, 3)); ref_w = win(ref[None].astype(np.float32))[0]
+    for c in (0.0, 1.0):
+        hc = np.full((W, 3), c, np.float32); F = (floor_img(st, hc, fmot) * k).astype(np.float32)
+        runs.append((F, [relight_layer(Ly, st, hc, F, sh3) * k for Ly, sh3 in zip(layers, shs)]))
+    for name, idx in group_slots(len(layers)).items():
+        img = [np.where(below[..., None], r[0], 0.0) if name == 'far' else np.zeros_like(r[0]) for r in runs]; cov = np.broadcast_to(below, (H, W)).astype(np.float32) if name == 'far' else np.zeros((H, W), np.float32)
+        for i in idx:
+            a = layers[i]['a'][..., None]
+            for j in (0, 1): img[j] = img[j] * (1 - a) + runs[j][1][i] * a
+            cov = cov * (1 - a[..., 0]) + a[..., 0]
+        X = win(img[0]); Yc = win(img[1] - img[0]); Y = Yc.mean(-1); alpha = np.clip(win(cov) - Y, 0, 1)
+        P = X + ref_w[None] * (Yc - Y[..., None])                                       # premultiplied colour: exact over the reference haze, per channel
+        col = np.where(alpha[..., None] > 1e-4, P / np.maximum(alpha, 1e-4)[..., None], 0.0) * win(grain)[..., None]
+        out[name] = np.concatenate([np.clip(col, 0, 1), alpha[..., None]], -1).astype(np.float32)
+    return out
 
 def statics():
     paperf = 0.93 + 0.09 * (0.5 * pn2(2, 11) + 0.3 * pn2(9, 12) + 0.2 * pn2(40, 13)) + 0.03 * (pn2(1, 14) - .5)
