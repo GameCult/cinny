@@ -11,6 +11,21 @@ const { createRidgeScene, createScene } = vi.hoisted(() => ({
 }));
 vi.mock('./ridge/Ridge', () => ({ createRidgeScene }));
 vi.mock('./Scene', () => ({ createScene }));
+// The physical sky is baked per call (tens of ms: atmosphere LUTs) and the clock here is fixed, so a state always
+// draws the same sky. Baking once per state keeps the 21-offset sweep under the default timeout when the machine is
+// loaded; the sky each build receives is still the one `ridgeSkyFor` makes for that state.
+vi.mock('./skyForState', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./skyForState')>();
+  const baked = new Map<string, ReturnType<typeof actual.ridgeSkyFor>>();
+  return {
+    ...actual,
+    ridgeSkyFor: (...args: Parameters<typeof actual.ridgeSkyFor>) => {
+      if (args.length !== 1) return actual.ridgeSkyFor(...args);
+      if (!baked.has(args[0])) baked.set(args[0], actual.ridgeSkyFor(args[0]));
+      return baked.get(args[0]) as ReturnType<typeof actual.ridgeSkyFor>;
+    },
+  };
+});
 
 const canvas = {} as HTMLCanvasElement;
 const config = { tier: 'low' as const };
