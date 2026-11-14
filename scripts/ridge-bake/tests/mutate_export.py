@@ -41,7 +41,8 @@ M = {
  'budget checked against the view height only': ('export.py', 'check_budget([sum(sizes[k].values()) for k in KEYS], w, h)', 'check_budget([sum(sizes[k].values()) for k in KEYS], w, 1)'),
  'width cap is exclusive of 4096': ('export.py', 'if plane_w > PLANE_W_MAX:', 'if plane_w >= PLANE_W_MAX:'),
  'width cap 8192': ('export.py', 'PLANE_W_MAX = 4096', 'PLANE_W_MAX = 8192'),
- 'pair cap is exclusive of the cap': ('export.py', 'if frame_bytes[i] + frame_bytes[i + 1] > PAIR_BYTES_MAX:', 'if frame_bytes[i] + frame_bytes[i + 1] >= PAIR_BYTES_MAX:'),
+ 'pair cap is exclusive of the cap': ('export.py', 'if frame_bytes[i] + frame_bytes[j] > PAIR_BYTES_MAX:', 'if frame_bytes[i] + frame_bytes[j] >= PAIR_BYTES_MAX:'),
+ 'pair check does not wrap night to dawn': ('export.py', 'for i in range(len(frame_bytes)):', 'for i in range(len(frame_bytes) - 1):'),
  'decode budget counts one frame, not a pair': ('export.py', 'decoded = 2 * len(PLANES)', 'decoded = len(PLANES)'),
  'decode budget cap doubled': ('export.py', 'DECODE_BYTES_MAX = 20_000_000', 'DECODE_BYTES_MAX = 40_000_000'),
  'decode budget cap is exclusive': ('export.py', 'if decoded > DECODE_BYTES_MAX:', 'if decoded >= DECODE_BYTES_MAX:'),
@@ -61,12 +62,18 @@ M = {
  'a refused bake still creates the out dir': ('export.py', "sizes = {k: {n: len(frames_webp[k][n])", "Path(out).mkdir(parents=True, exist_ok=True); sizes = {k: {n: len(frames_webp[k][n])"),
 
  'luma in sRGB, not linear': ('export.py', 'lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)', 'lin = c'),
- 'pair check skips the last pair': ('export.py', 'for i in range(len(frame_bytes) - 1):', 'for i in range(len(frame_bytes) - 2):'),
+ 'pair check skips the night-dawn pair and the last day pair': ('export.py', 'for i in range(len(frame_bytes)):', 'for i in range(len(frame_bytes) - 2):'),
  'decode budget never checked': ('export.py', 'if decoded > DECODE_BYTES_MAX:', 'if False:'),
  'old dir of the place kept': ('export.py', 'if old and old != name: shutil.rmtree(out / old, ignore_errors=True)', 'pass'),
  'tmp dir left in out on success': ('export.py', 'os.rename(tmp, dest)', 'shutil.copytree(tmp, dest)'),
  'index default always the baked place': ('export.py', "idx['default'] = default or (idx['default'] if idx['default'] in idx['places'] else place['id'])", "idx['default'] = place['id']"),
- 'attribution licence text emptied': ('export.py', "credit_line='Contains modified", "credit_line='' and 'Contains modified"),
+ 'attribution credit_line blanked': ('export.py', "credit_line='Contains modified", "credit_line='' and 'Contains modified"),
+ 'attribution credit_line loses the Airbus line': ('export.py', ' and © Airbus Defence and Space GmbH 2014-2018', ''),
+ 'attribution licence blanked': ('export.py', "licence='Copernicus DEM licence", "licence='' and 'Copernicus DEM licence"),
+ 'attribution dem_source names the 90 m product': ('export.py', "dem_source='Copernicus DEM GLO-30 (30 m)'", "dem_source='Copernicus DEM GLO-90 (90 m)'"),
+ 'attribution url over plain http': ('export.py', "url='https://spacedata", "url='http://spacedata"),
+ 'attribution url blanked': ('export.py', "url='https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model')", "url='')"),
+ 'relight is not deterministic (noise in the planes)': ('ridge.py', 'P = X + ref_w[None] * (Yc - Y[..., None])', 'P = X + ref_w[None] * (Yc - Y[..., None]) + np.random.random() * 0.05'),
 }
 
 def _cap(): resource.setrlimit(resource.RLIMIT_AS, (12 << 30, 12 << 30))

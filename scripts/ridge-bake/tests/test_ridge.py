@@ -451,12 +451,12 @@ def _refuses(out, place, view, suns, webp, why):
     except ValueError: assert not os.path.exists(out), ('a refused bake left files', why)
     else: assert False, why
 def test_manifest_validates_bake_id_is_deterministic_and_luma_is_recorded():
-    """Two encodings of the same planes give the same bytes and bake_id; the manifest validates against the schema, plane w/h are what the written files decode to, frame pairs fit the budget, luma min <= max in 0..1 per frame,
+    """Two independent bakes (the relight and the encode each run twice, not one plane set encoded twice) give the same bytes and bake_id; the manifest validates against the schema, plane w/h are what the written files decode to, frame pairs fit the budget, luma min <= max in 0..1 per frame,
     the index points at the dir, a rebake replaces the place's old dir, and nothing but the dir and index.json is left in the output."""
     d = tempfile.mkdtemp()
     try:
-        place, view, suns, planes = _fixture_bake(); webp = _encode_all(planes); assert webp == _encode_all(planes), 'encoding the same planes twice gave different bytes'
-        a = export.write_bake(d + '/a', place, view, suns, webp); b = export.write_bake(d + '/b', place, view, suns, _encode_all(planes))
+        place, view, suns, planes = _fixture_bake(); webp = _encode_all(planes); again = _encode_all(_fixture_bake()[3]); assert webp == again, 'two independent bakes (relight and encode run twice) gave different plane bytes'
+        a = export.write_bake(d + '/a', place, view, suns, webp); b = export.write_bake(d + '/b', place, view, suns, again)
         assert a.name == b.name and a.name == 'synthetic-' + export.bake_id(webp), (a.name, b.name); assert sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name]), os.listdir(d + '/a')
         m = json.load(open(a / 'manifest.json')); export.validate(m, export.SCHEMA['$defs']['manifest']); assert m['bake_id'] == a.name.split('-')[1] and [f['key'] for f in m['frames']] == list(export.KEYS)
         assert m['view']['plane_w'] <= export.PLANE_W_MAX and m['view']['window_deg'] == 72 and m['view']['plane_w'] == ridge.WIN and m['view']['plane_h'] == ridge.H
@@ -494,11 +494,15 @@ def test_bake_id_follows_the_plane_bytes_in_order():
 def test_budget_refuses_a_pair_above_the_cap_and_a_plane_above_the_width():
     """Any two ADJACENT frames above PAIR_BYTES_MAX are refused (a heavy frame next to a light one at the cap passes), as is a plane wider than the cap, and nothing is written."""
     cap = export.PAIR_BYTES_MAX; ok = [cap // 2] * 6; export.check_budget(ok, export.PLANE_W, ridge.H)
-    for i in range(5):
-        bad = [1000] * 6; bad[i] = cap // 2 + 1; bad[i + 1] = cap // 2 + 1
+    for i in range(6):
+        bad = [1000] * 6; bad[i] = cap // 2 + 1; bad[(i + 1) % 6] = cap // 2 + 1
         try: export.check_budget(bad, export.PLANE_W, ridge.H)
         except ValueError: pass
         else: assert False, ('adjacent pair over the cap accepted', i)
+    try: export.check_budget([400_001, 1, 1, 1, 1, 400_000], export.PLANE_W, ridge.H)
+    except ValueError as e: assert 'night + dawn' in str(e), str(e)
+    else: assert False, 'night + dawn summing 800001 were accepted'
+    export.check_budget([400_000, 1, 1, 1, 1, 400_000], export.PLANE_W, ridge.H)
     export.check_budget([cap - 1000, 1000, cap - 1000, 1000, cap - 1000, 1000], export.PLANE_W, ridge.H)       # non-adjacent heavy frames are fine
     export.check_budget(ok, export.PLANE_W_MAX, 100)           # exactly the cap is fine
     try: export.check_budget(ok, export.PLANE_W_MAX + 1, ridge.H)
@@ -523,6 +527,18 @@ def test_size_refusals_read_the_written_planes_not_constants():
         a = export.write_bake(d + '/ok', place, v(650), suns, _sized(650, 1280)); m = json.load(open(a / 'manifest.json')); assert m['view']['plane_w'] == 1280 and m['view']['plane_h'] == 650
         b = export.write_bake(d + '/narrow', place, v(100), suns, _sized(100, 1000)); m = json.load(open(b / 'manifest.json'))
         assert m['view']['plane_w'] == 1000 and all(p['w'] == 1000 and p['h'] == 100 for f in m['frames'] for p in f['planes'].values()), m['view']
+    finally: shutil.rmtree(d)
+def test_the_shipped_manifest_carries_the_attribution_verbatim():
+    """The Copernicus DEM licence obliges the credit line to ship with the planes: write_bake of the fixture bake (the shipped planes path) writes a manifest whose attribution is exactly the four pinned strings, each its own field:
+    credit_line, licence, dem_source and url (a blanked, shortened or swapped field fails by name)."""
+    d = tempfile.mkdtemp()
+    try:
+        place, view, suns, planes = _fixture_bake(); dest = export.write_bake(d, place, view, suns, _encode_all(planes)); a = json.load(open(dest / 'manifest.json'))['attribution']
+        want = dict(credit_line='Contains modified Copernicus data: DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.',
+                    licence='Copernicus DEM licence: free, full and open access, with the credit line shown', dem_source='Copernicus DEM GLO-30 (30 m)',
+                    url='https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model')
+        assert sorted(a) == sorted(want), sorted(a)
+        for k in want: assert a[k] == want[k], (k, a[k])
     finally: shutil.rmtree(d)
 def _srgb_y(c): c = np.asarray(c, float); lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); return float(lin @ np.array([0.2126, 0.7152, 0.0722]))
 def test_luma_range_is_the_far_mid_near_composite_over_a_grey_sky_where_coverage_is_at_least_half():

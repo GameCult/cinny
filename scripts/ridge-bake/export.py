@@ -100,10 +100,11 @@ def luma_range(decoded):
     return float(y.min()), float(y.max())
 
 def check_budget(frame_bytes, plane_w, plane_h):
-    """Refuse a bake the runtime could not hold: any two adjacent frames above PAIR_BYTES_MAX, or the planes of a frame pair decoding above DECODE_BYTES_MAX."""
+    """Refuse a bake the runtime could not hold: any two adjacent frames (night with dawn too) above PAIR_BYTES_MAX, or the planes of a frame pair decoding above DECODE_BYTES_MAX."""
     if plane_w > PLANE_W_MAX: raise ValueError(f'plane width {plane_w} above {PLANE_W_MAX}')
-    for i in range(len(frame_bytes) - 1):
-        if frame_bytes[i] + frame_bytes[i + 1] > PAIR_BYTES_MAX: raise ValueError(f'frames {KEYS[i]} + {KEYS[i + 1]} are {frame_bytes[i] + frame_bytes[i + 1]} bytes, above {PAIR_BYTES_MAX}')
+    for i in range(len(frame_bytes)):
+        j = (i + 1) % len(frame_bytes)        # night wraps to dawn, as the runtime's frameChoice and the CI sizeGate pair them
+        if frame_bytes[i] + frame_bytes[j] > PAIR_BYTES_MAX: raise ValueError(f'frames {KEYS[i]} + {KEYS[j]} are {frame_bytes[i] + frame_bytes[j]} bytes, above {PAIR_BYTES_MAX}')
     decoded = 2 * len(PLANES) * plane_w * plane_h * 4
     if decoded > DECODE_BYTES_MAX: raise ValueError(f'a frame pair decodes to {decoded} bytes, above {DECODE_BYTES_MAX}')
 
