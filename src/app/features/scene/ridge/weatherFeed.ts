@@ -6,7 +6,8 @@
 // 600 the direct beam was strong enough to burn the card); with the sun low or down it is a ramp of the humidity. A file that is
 // missing, unreadable, malformed or stale (below) is no observation, and no observation is a clear sky.
 import { WEATHER_CREDIT } from './credits';
-import { viennaSun } from './vienna';
+import { sunAt } from './sunAt';
+import { FALLBACK_VIEW } from './view';
 
 /** Reader rule of docs/weather-feed.md: the file is stale 30 minutes after it was fetched or 40 after the observation it holds (the station reports every 10). */
 export const STALE_MS = 30 * 60_000;
@@ -119,7 +120,7 @@ export function currentWeather(f: WeatherFile | null, now: Date = new Date()): n
   )
     return CLEAR_SKY;
   // GLOW and SO are means of the ten minutes ending at observed_at: the sun of their midpoint is the one to set them against.
-  return weatherFromFile(f, viennaSun(new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
+  return weatherFromFile(f, sunAt(FALLBACK_VIEW.place, new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
 }
 
 /** Fetch and parse `weather.json`; null on any failure. */

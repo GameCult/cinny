@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { viennaSun } from './vienna';
+import { sunAt } from './sunAt';
+import { FALLBACK_VIEW } from './view';
 import {
   CLEAR_SKY,
   currentWeather,
@@ -85,8 +86,8 @@ describe('weather from the file', () => {
     expect(weatherFromFile(file({ glow_wm2: 0, humidity_pct: 100 }), -20)).toBe(0.75);
   });
   it('the 2026-11-10 midday fixture, GLOW 56-89 W/m2 under an overcast sky, is full cloud; the clear midday of 2026-10-15, 546-569, is none', () => {
-    const nov = viennaSun(new Date('2026-11-10T10:40:00Z')).elevation;
-    const oct = viennaSun(new Date('2026-10-15T10:50:00Z')).elevation;
+    const nov = sunAt(FALLBACK_VIEW.place, new Date('2026-11-10T10:40:00Z')).elevation;
+    const oct = sunAt(FALLBACK_VIEW.place, new Date('2026-10-15T10:50:00Z')).elevation;
     for (const g of [56, 72, 89]) expect(cloudFromGlow(g, nov)).toBeGreaterThan(0.95);
     for (const g of [546, 569]) expect(cloudFromGlow(g, oct)).toBe(0);
     expect(weatherFromFile(file({ glow_wm2: 72, sunshine_s_10min: 0 }), nov)).toBeGreaterThan(0.65);

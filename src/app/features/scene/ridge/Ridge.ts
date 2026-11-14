@@ -3,6 +3,7 @@ import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
+import { windowFor } from './view';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import { drawRainTile, RAIN_TILES } from './rain';
 
@@ -55,7 +56,12 @@ function paintSky(
   const ctx = context2d(canvas);
   if (!ctx) return false;
   if (sky.physical) {
-    const px = paintPhysicalSky(sky.physical, cssW, cssH);
+    const px = paintPhysicalSky(
+      sky.physical,
+      cssW,
+      cssH,
+      windowFor(sky.physical.view, cssW, cssH).camera
+    );
     const small = makeCanvas();
     small.width = px.w;
     small.height = px.h;

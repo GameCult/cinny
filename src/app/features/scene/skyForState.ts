@@ -8,6 +8,8 @@ import { chooseSky, skyColour, urlSky } from './terrain/terrainSky';
 import type { SkyName } from './terrain/terrainSky';
 import type { SkyColours, Srgb } from './ridge/skyColour';
 import { makePhysicalSky } from './ridge/physicalSky';
+import { FALLBACK_VIEW } from './ridge/view';
+import type { View } from './ridge/view';
 import { BUDGET } from './ridge/toneMap';
 import { ridgeWeather, setFedWeather } from './ridge/weather';
 import { currentWeather, fetchWeatherFile } from './ridge/weatherFeed';
@@ -28,8 +30,9 @@ export const DUSK_SUN_ELEVATION = 2;
 export const ridgeSkyKey = (
   state: SkyState,
   weather: number = ridgeWeather(),
-  now: Date = skyNow()
-): string => `ridge:${resolveSkyState(state, now)}:${weather}`;
+  now: Date = skyNow(),
+  view: View = FALLBACK_VIEW
+): string => `ridge:${resolveSkyState(state, now)}:${weather}:${view.place.id}`;
 
 const WEATHER_REFRESH_MS = 10 * 60_000;
 let weatherAt = -Infinity;
@@ -44,17 +47,18 @@ export async function loadWeather(url: string, now: Date = skyNow()): Promise<vo
 }
 
 /**
- * The ridge scene's `sky` option: the physical sky over Vienna for the state ('auto': the real sun now; a forced state: the
+ * The ridge scene's `sky` option: the physical sky over the View's place for the state ('auto': the real sun now; a forced state: the
  * sun of today at a moment inside it, `sunForState`), as a palette for the layers and stars plus the `physical` sky the host canvas
  * is painted from. The atmosphere LUTs are baked here, once per scene start (tens of ms).
  */
 export function ridgeSkyFor(
   state: SkyState,
   weather: number = ridgeWeather(),
-  now: Date = skyNow()
+  now: Date = skyNow(),
+  view: View = FALLBACK_VIEW
 ): SkyColours {
   const fixed = resolveSkyState(state, now);
-  const physical = makePhysicalSky(fixed, now, weather);
+  const physical = makePhysicalSky(fixed, now, weather, view);
   return {
     ...physical.stops,
     physical,
