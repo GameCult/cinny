@@ -112,8 +112,8 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
   };
 }
 
-async function getJson(url: string): Promise<unknown> {
-  const res = await fetch(url);
+async function getJson(url: string, init?: RequestInit): Promise<unknown> {
+  const res = await fetch(url, init);
   if (!res.ok) throw new Error(`ridge: ${url} answered ${res.status}`);
   return res.json();
 }
@@ -131,7 +131,10 @@ export function loadManifest(baseUrl: string, placeId?: string): Promise<RidgeMa
   const hit = memo.get(key);
   if (hit) return hit;
   const p = (async () => {
-    const index = parseIndex(await getJson(`${root}index.json`));
+    const index = parseIndex(
+      // The index is the one mutable pointer (a rebake deletes the old directory it named); the manifest and planes are content-addressed.
+      await getJson(`${root}index.json`, { cache: 'no-cache' })
+    );
     const id = placeId !== undefined && placeId in index.places ? placeId : index.default;
     const name = index.places[id];
     if (name === undefined) throw new Error(`ridge: index has no place ${id}`);

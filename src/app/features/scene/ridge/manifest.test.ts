@@ -11,6 +11,7 @@ describe('parseManifest', () => {
       windowDeg: 72,
       planeW: 1280,
       planeH: 600,
+      pxPerDegH: 1280 / 72, // not px_per_deg_v (17.7): a real bake's two differ 10x
       horizonRow: 314.5,
     });
     expect(m.view.place).toEqual({ id: 'vienna', lat: 48.19, lon: 16.35, altitudeKm: 0.183 });
@@ -73,6 +74,15 @@ describe('loadManifest', () => {
     expect(f.mock.calls.map((c) => c[0])).toEqual([
       '/b/public/ridge/index.json',
       '/b/public/ridge/vienna-abc123abc123/manifest.json',
+    ]);
+  });
+
+  it('revalidates the index, the one mutable pointer, and leaves the content-addressed manifest to the cache', async () => {
+    const f = serve(files());
+    await loadManifest('/b/');
+    expect(f.mock.calls).toEqual([
+      ['/b/public/ridge/index.json', { cache: 'no-cache' }],
+      ['/b/public/ridge/vienna-abc123abc123/manifest.json', undefined],
     ]);
   });
 
