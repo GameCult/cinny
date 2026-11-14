@@ -24,6 +24,8 @@ export type SceneStyle = 'ridge' | 'raymarch' | 'terrain';
 export interface BackgroundSceneConfig {
   tier?: SceneTier;
   style?: SceneStyle;
+  /** The baked ridge place to show (a key of the ridge index); unknown or absent: the index's default. */
+  place?: string;
   /** Let the page URL switch on the diagnostic overlays (`?probe=1`, `?tierlabel=1`) in a production build. Default: no. */
   debugOverlays?: boolean;
 }

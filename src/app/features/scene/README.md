@@ -7,8 +7,8 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
 - `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky? })` returns `{ login, dispose }` or
   null (tier `off`, no 2D context). It paints the sky (`ridge/physicalSky.ts`, from the `SkyColours` the host passes) on the host
   canvas at the viewport's size in canvas pixels, then the stars baked into it, a twinkle overlay canvas for the swinging ones
-  (`ridge/stars.ts`) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`). There is no skyline: the
-  scene shows sky, stars and weather only. No script runs per frame except the twinkle, at most every 50 ms.
+  (`ridge/stars.ts`), the baked ridge planes (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`).
+  With no planes (the load failed) the scene shows sky, stars and weather only. No script runs per frame except the twinkle, at most every 50 ms.
   The host canvas and its parent must be positioned and the canvas should fill the parent. A resize rebuilds it; so does a sky change
   (`index.ts`).
 - Paused when the tab is hidden; under `prefers-reduced-motion` the rain is paused and the stars stay at base brightness.
@@ -18,6 +18,15 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   and shows `n / median / p95` in a corner readout.
 - `ridge/skyColour.ts` `skyColours()` is the fallback three-stop palette (top, mid, horizon) a scene gets with no `sky` option; the host
   passes `ridgeSkyFor` (skyForState.ts) instead.
+- Ridge planes: `ridge/manifest.ts` `loadManifest` reads `${BASE_URL}public/ridge/index.json` (config `backgroundScene.place` picks the entry,
+  unknown or absent: the index default), then the place's `manifest.json` (v1, written by `scripts/ridge-bake/export.py`; it is the one JSON
+  the backdrop reads). `ridge/frameChoice.ts` picks the two baked frames the sky's sun lies between and a blend weight; `ridge/Backdrop.ts`
+  decodes only those. `index.ts` `create()` loads manifest and planes with the scene chunk, so `createRidgeScene({ backdrop })` stays
+  synchronous. The rig is one div of three plane groups (far, mid, near; DOM order is paint order; no z-index, no fixed position, nothing
+  outside the scene's parent), each drifting on `Element.animate` (transform only, 150 s loop, paused when the tab is hidden, motion is
+  reduced or the scene is still); a still draws the planes into the host canvas. A failure anywhere (404, bad manifest, an image that
+  will not decode) is the sky-only scene on `FALLBACK_VIEW`, reported once through `onPlanesFail`; it is never `onCompileFail`.
+  `vite.config.js` copies `public/ridge` into `dist/public/`.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
 - Not yet measured on a phone: see the PR description.
 

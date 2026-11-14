@@ -6,6 +6,8 @@ import { paintSky as paintPhysicalSky } from './physicalSky';
 import { windowFor } from './view';
 import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
 import { drawRainTile, RAIN_TILES } from './rain';
+import type { Backdrop, Planes } from './Backdrop';
+import { PLANE_NAMES } from './manifest';
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`, where `debug` allows it. */
@@ -16,6 +18,8 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
   sky?: SkyColours;
+  /** The baked ridge planes, already decoded; none is the sky-only scene (`view.ts` FALLBACK_VIEW). */
+  backdrop?: Backdrop;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -92,6 +96,8 @@ const clock = (): number => (typeof performance !== 'undefined' ? performance.no
 interface Built {
   /** The twinkling stars' own canvas, over the sky; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
+  /** The ridge planes' rig, over the twinkle canvas and under the rain; absent in 'still' (the planes are drawn into the host canvas). */
+  rig?: { el: HTMLElement; anims: (Animation | undefined)[] };
   /** The rain's tiles and their falling, present only when the weather rains (`rain.ts`). */
   rain?: { els: HTMLElement[]; anims: (Animation | undefined)[] };
 }
@@ -99,9 +105,13 @@ interface Built {
 /** The twinkle overlay redraws at most this often: the swings are 2 to 7 s, no need for 60 fps. */
 const TWINKLE_FRAME_MS = 50;
 
+/** Far, mid and near slide this share of the drift room (`windowFor` driftPx); one leg of the back-and-forth takes DRIFT_LEG_S, so the loop is 150 s. Authored, tunable by eye. */
+const DRIFT_DEPTH = [0.35, 0.7, 1] as const;
+const DRIFT_LEG_S = 75;
+
 /**
  * The ridge scene: same contract as `createScene` ({ login, dispose }, null for "keep the CSS
- * ground"), no WebGL. It draws the sky, the stars and the rain, with no skyline. The host canvas holds the baked sky; it and
+ * ground"), no WebGL. It draws the sky, the stars, the baked ridge planes when given a `backdrop` (none: the sky alone) and the rain. The host canvas holds the baked sky; it and
  * its parent must be positioned, and the canvas should fill the parent.
  */
 export function createRidgeScene(opts: RidgeOptions): Scene | null {
@@ -133,6 +143,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
 
   const teardown = () => {
     built?.twinkle?.remove();
+    built?.rig?.anims.forEach((a) => a?.cancel());
+    built?.rig?.el.remove();
     built?.rain?.anims.forEach((a) => a?.cancel());
     built?.rain?.els.forEach((e) => e.remove());
     cancelAnimationFrame(twRaf);
@@ -196,6 +208,91 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     return { els, anims };
   };
 
+  /**
+   * The ridge over the sky: one div holding a group per plane (far, mid, near: DOM order is paint order, stacking is by order alone), each the frame's
+   * image and, when the choice blends two frames, the second over it at the blend weight. A group slides sideways on the compositor by
+   * `driftPx` times its depth; the baker's pixels are never touched.
+   */
+  const startRig = (bd: Backdrop, w: number, h: number): NonNullable<Built['rig']> => {
+    const win = windowFor(bd.manifest.view, w, h);
+    const el = document.createElement('div');
+    el.setAttribute('aria-hidden', 'true');
+    Object.assign(el.style, {
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      width: '100%',
+      height: '100%',
+      overflow: 'hidden',
+      pointerEvents: 'none',
+    });
+    const anims: (Animation | undefined)[] = [];
+    PLANE_NAMES.forEach((name, k) => {
+      const group = document.createElement('div');
+      Object.assign(group.style, {
+        position: 'absolute',
+        left: `${(w - win.plane.w) / 2}px`,
+        bottom: `${win.plane.bottom}px`,
+        width: `${win.plane.w}px`,
+        height: `${win.plane.h}px`,
+        willChange: 'transform',
+      });
+      const layer = (planes: Planes, opacity: number) => {
+        const img = planes[name].cloneNode() as HTMLImageElement;
+        Object.assign(img.style, {
+          position: 'absolute',
+          left: '0',
+          top: '0',
+          width: '100%',
+          height: '100%',
+          opacity: String(opacity),
+        });
+        group.appendChild(img);
+      };
+      layer(bd.a, 1);
+      if (bd.b) layer(bd.b, bd.choice.w);
+      el.appendChild(group);
+      const reach = win.driftPx * DRIFT_DEPTH[k];
+      anims.push(
+        group.animate?.(
+          [
+            { transform: `translate3d(${-reach}px,0,0)` },
+            { transform: `translate3d(${reach}px,0,0)` },
+          ],
+          {
+            duration: DRIFT_LEG_S * 1000,
+            iterations: Infinity,
+            direction: 'alternate',
+            easing: 'ease-in-out',
+          }
+        )
+      );
+    });
+    parent.appendChild(el);
+    return { el, anims };
+  };
+
+  /** Paint the ridge planes into the host canvas, a over b, far to near: the still scene's one image. */
+  const paintPlanes = (bd: Backdrop) => {
+    const ctx = context2d(canvas);
+    if (!ctx) return;
+    const { w, h, scale } = viewSize();
+    const win = windowFor(bd.manifest.view, w, h);
+    const dw = win.plane.w * scale;
+    const dh = win.plane.h * scale;
+    const x = (canvas.width - dw) / 2;
+    const y = canvas.height - dh - win.plane.bottom * scale;
+    PLANE_NAMES.forEach((name) => {
+      ctx.globalAlpha = 1;
+      ctx.drawImage(bd.a[name], x, y, dw, dh);
+      if (bd.b) {
+        ctx.globalAlpha = bd.choice.w;
+        ctx.drawImage(bd.b[name], x, y, dw, dh);
+      }
+    });
+    ctx.globalAlpha = 1;
+  };
+
   /** Paint the sky, the stars and the rain. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardown();
@@ -228,6 +325,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     }
     field = stars;
     built = { twinkle };
+    if (opts.backdrop && !still) built.rig = startRig(opts.backdrop, w, h);
     if (tier !== 'still' && sky.physical && sky.physical.weather.rain > 0)
       built.rain = startRain(sky.physical.weather.rain, sky.horizon, w, h, scale);
     syncPlayState();
@@ -262,7 +360,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   function syncPlayState() {
-    const anims = built?.rain?.anims ?? [];
+    const anims = [...(built?.rig?.anims ?? []), ...(built?.rain?.anims ?? [])];
     anims.forEach((a) => (moving() ? a?.play() : a?.pause()));
     if (!built?.twinkle) return;
     if (moving()) {
@@ -281,6 +379,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     teardown();
     cancelAnimationFrame(raf);
     raf = 0;
+    if (opts.backdrop) paintPlanes(opts.backdrop);
     report(true);
   };
 

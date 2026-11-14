@@ -4,6 +4,9 @@ import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
 import { setSkyClock, setSkyState } from './skyState';
 import { ridgeSkyFor } from './skyForState';
+import { forgetManifests } from './ridge/manifest';
+import { wireIndex, wireManifest } from './ridge/manifest.fixture';
+import { FALLBACK_VIEW } from './ridge/view';
 
 const { createRidgeScene, createScene } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
@@ -252,5 +255,126 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(scene).toBeNull();
     expect(onCompileFail).toHaveBeenCalledOnce();
     expect(onCompileFail).toHaveBeenCalledWith(boom);
+  });
+});
+
+describe('the ridge planes', () => {
+  const served = (over: Record<string, unknown> = {}) => {
+    const files: Record<string, unknown> = {
+      '/public/ridge/index.json': wireIndex,
+      '/public/ridge/vienna-abc123abc123/manifest.json': wireManifest(),
+      '/public/ridge/graz-def456def456/manifest.json': wireManifest({
+        place: { ...(wireManifest() as any).place, id: 'graz', name: 'Graz' },
+      }),
+      ...over,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url in files
+          ? { ok: true, status: 200, json: async () => files[url] }
+          : { ok: false, status: 404, json: async () => ({}) }
+      )
+    );
+  };
+  const images = (reject = false) => {
+    const loaded: string[] = [];
+    vi.stubGlobal(
+      'Image',
+      class {
+        src = '';
+        decoding = '';
+        cloneNode = () => this;
+        decode = async () => {
+          if (reject) throw new Error('bad image');
+          loaded.push(this.src);
+        };
+      }
+    );
+    return loaded;
+  };
+  beforeEach(() => forgetManifests());
+
+  it('hands the scene the planes of the frame the sky was baked for, over the manifest view', async () => {
+    served();
+    const loaded = images();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    const opts = createRidgeScene.mock.calls[0][0];
+    expect(opts.backdrop.manifest.view.place.id).toBe('vienna');
+    expect(opts.sky.physical.view).toBe(opts.backdrop.manifest.view);
+    // Midnight in Vienna: the night frame, three planes.
+    expect(loaded.sort()).toEqual([
+      '/public/ridge/vienna-abc123abc123/night-far.webp',
+      '/public/ridge/vienna-abc123abc123/night-mid.webp',
+      '/public/ridge/vienna-abc123abc123/night-near.webp',
+    ]);
+    scene?.dispose();
+  });
+
+  it('config place picks the index entry; an unknown id falls back to the default', async () => {
+    served();
+    images();
+    createRidgeScene.mockReturnValue(fakeScene());
+    (await startBackgroundScene({ ...config, place: 'graz' }, caps, { canvas }))?.dispose();
+    expect(createRidgeScene.mock.calls[0][0].backdrop.manifest.view.place.id).toBe('graz');
+    forgetManifests();
+    (await startBackgroundScene({ ...config, place: 'nowhere' }, caps, { canvas }))?.dispose();
+    expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('vienna');
+  });
+
+  const skyOnly = async (onPlanesFail = vi.fn(), onCompileFail = vi.fn()) => {
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onCompileFail });
+    const opts = createRidgeScene.mock.calls[0][0];
+    expect(scene).not.toBeNull();
+    expect(opts.backdrop).toBeUndefined();
+    expect(opts.sky.physical.view).toBe(FALLBACK_VIEW);
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    expect(onCompileFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  };
+
+  it('a 404 manifest gives the sky-only scene with the fallback view, one onPlanesFail and no onCompileFail', async () => {
+    served({ '/public/ridge/index.json': undefined });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }))
+    );
+    images();
+    await skyOnly();
+  });
+});
+
+describe('the ridge planes failing', () => {
+  it('a rejecting image gives the same sky-only scene, and a rebuild does not report again', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () => (url.endsWith('index.json') ? wireIndex : wireManifest()),
+      }))
+    );
+    vi.stubGlobal(
+      'Image',
+      class {
+        decode = async () => {
+          throw new Error('bad image');
+        };
+      }
+    );
+    forgetManifests();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const onCompileFail = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onCompileFail });
+    expect(createRidgeScene.mock.calls[0][0].backdrop).toBeUndefined();
+    setSkyState('day');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    expect(onCompileFail).not.toHaveBeenCalled();
+    scene?.dispose();
   });
 });

@@ -45,13 +45,14 @@ describe('frameChoice', () => {
   it('collapses a blend within 2% of either end to one frame, and w stays in 0..1', () => {
     expect(keys(at(0.2, 130))).toEqual(['dawn', null]); // w = 0.01
     expect(keys(at(19.8, 130))).toEqual(['morning', null]); // w = 0.99
-    for (let el = -30; el <= 90; el += 0.37) {
-      for (const az of [0, 100, 179, 181, 270]) {
+    const els = Array.from({ length: 325 }, (_, i) => -30 + i * 0.37);
+    els.forEach((el) =>
+      [0, 100, 179, 181, 270].forEach((az) => {
         const c = at(el, az);
         expect(c.w).toBeGreaterThanOrEqual(0);
         expect(c.w).toBeLessThanOrEqual(1);
         expect(c.b === null).toBe(c.w === 0);
-      }
-    }
+      })
+    );
   });
 });

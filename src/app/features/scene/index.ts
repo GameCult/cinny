@@ -3,6 +3,10 @@ import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './t
 import { debugOverlaysAllowed } from './debugOverlays';
 import { getSkyState, subscribe } from './skyState';
 import type { SkyState } from './skyState';
+import type { SkyColours } from './ridge/skyColour';
+import type { Backdrop } from './ridge/Backdrop';
+import { loadManifest } from './ridge/manifest';
+import { frameChoice } from './ridge/frameChoice';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -14,6 +18,8 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
   onInactive?: () => void;
   /** A rebuild made a scene again: the host lets it show. */
   onActive?: () => void;
+  /** The baked ridge planes did not load (no manifest, a missing image): the scene is the sky alone, once per start. The host may fill the ground. */
+  onPlanesFail?: (e: Error) => void;
 };
 
 /** The observation file the ridge sky reads: the page's own, beside config.json. The browser calls no weather service. */
@@ -24,6 +30,7 @@ async function create(
   options: StartOptions & { tier: SceneTier; debug?: boolean },
   state: SkyState
 ): Promise<Scene | null> {
+  const { onPlanesFail, ...sceneOptions } = options;
   try {
     // Loaded here, with the scenes, so the main chunk does not carry the terrain sky or the baked tables.
     const { loadWeather, ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
@@ -39,7 +46,30 @@ async function create(
     }
     const { createRidgeScene } = await import('./ridge/Ridge');
     await loadWeather(weatherUrl());
-    return createRidgeScene({ ...options, sky: ridgeSkyFor(state) });
+    // The planes load with the scene chunk and the weather: createRidgeScene stays synchronous. Any failure is the sky alone.
+    let backdrop: Backdrop | null = null;
+    let sky: SkyColours | undefined;
+    try {
+      const manifest = await loadManifest(import.meta.env.BASE_URL, config?.place);
+      const manifestSky = ridgeSkyFor(state, undefined, undefined, manifest.view);
+      sky = manifestSky;
+      const choice = frameChoice(
+        manifest.frames,
+        (manifestSky.physical as NonNullable<typeof manifestSky.physical>).sun
+      );
+      const { loadBackdrop } = await import('./ridge/Backdrop');
+      backdrop = await loadBackdrop(manifest, choice);
+      if (!backdrop) throw new Error('ridge planes did not load');
+    } catch (e) {
+      backdrop = null;
+      sky = undefined;
+      onPlanesFail?.(e instanceof Error ? e : new Error(String(e)));
+    }
+    return createRidgeScene({
+      ...sceneOptions,
+      sky: sky ?? ridgeSkyFor(state),
+      backdrop: backdrop ?? undefined,
+    });
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
     return null;
@@ -87,7 +117,15 @@ export async function startBackgroundScene(
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
   const debug = debugOverlaysAllowed(config);
-  const build = (state: SkyState) => create(config, { ...options, tier, debug }, state);
+  // A failed load repeats on every rebuild; the host hears of it once.
+  let planesReported = false;
+  const onPlanesFail = (e: Error) => {
+    if (planesReported) return;
+    planesReported = true;
+    options.onPlanesFail?.(e);
+  };
+  const build = (state: SkyState) =>
+    create(config, { ...options, onPlanesFail, tier, debug }, state);
   const state = getSkyState();
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, state);
   const first = await build(state);

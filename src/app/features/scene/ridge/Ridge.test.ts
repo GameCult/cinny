@@ -6,6 +6,11 @@ import type { SkyColours } from './skyColour';
 import { makeStars } from './stars';
 import { makePhysicalSky } from './physicalSky';
 import { startBackgroundScene } from '../index';
+import { frameChoice } from './frameChoice';
+import { parseManifest } from './manifest';
+import { wireManifest } from './manifest.fixture';
+import type { Backdrop } from './Backdrop';
+import { windowFor } from './view';
 
 describe('noise', () => {
   it('is deterministic and in [0, 1)', () => {
@@ -132,6 +137,7 @@ const DAY: SkyColours = {
   horizon: [240, 215, 190],
 };
 const draws: string[] = [];
+const images: unknown[][] = [];
 function ctx() {
   const c: any = {
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
@@ -167,7 +173,10 @@ function ctx() {
       if (c.arcing) c.arcing = false;
       else draws.push('fill');
     },
-    drawImage() {},
+    drawImage(...a: unknown[]) {
+      images.push(a);
+    },
+    globalAlpha: 1,
     set fillStyle(_v: unknown) {},
   };
   return c;
@@ -181,6 +190,7 @@ let search: string;
 beforeEach(() => {
   rafQueue = [];
   draws.length = 0;
+  images.length = 0;
   search = '';
   motion = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   doc = Object.assign(new EventTarget(), {
@@ -320,7 +330,6 @@ describe('createRidgeScene', () => {
     expect(parent.children).toEqual([canvas]);
   });
 });
-
 
 describe('the door', () => {
   it('runs the ridge scene by default and never requests a WebGL context', async () => {
@@ -497,5 +506,190 @@ describe('rain in the scene', () => {
     const s = createRidgeScene({ canvas, tier: 'full', sky: rainy(1) })!;
     rainEls(parent).forEach((e: any) => expect(e.anims[0].play).not.toHaveBeenCalled());
     s.dispose();
+  });
+});
+
+describe('the ridge planes in the scene', () => {
+  const manifest = parseManifest(wireManifest(), '/d/');
+  const fakeImg = (src: string) => {
+    const el = fakeEl('img');
+    el.src = src;
+    el.cloneNode = () => fakeImg(src);
+    return el as unknown as HTMLImageElement;
+  };
+  const planes = (k: string) => ({
+    far: fakeImg(`${k}-far`),
+    mid: fakeImg(`${k}-mid`),
+    near: fakeImg(`${k}-near`),
+  });
+  const backdropAt = (elevation: number, azimuth: number): Backdrop => {
+    const choice = frameChoice(manifest.frames, { elevation, azimuth });
+    return { manifest, choice, a: planes(choice.a.key), b: choice.b ? planes(choice.b.key) : null };
+  };
+  const NOON = backdropAt(60, 180);
+  const BLEND = backdropAt(10, 130);
+  const night: SkyColours = {
+    ...DAY,
+    top: [10, 14, 40],
+    mid: [30, 34, 80],
+    horizon: [60, 50, 90],
+    physical: makePhysicalSky('night', new Date('2026-06-21T22:40:00Z'), 1),
+  };
+  const rigOf = (parent: any) =>
+    parent.children.find((c: any) => c.children.some((g: any) => g.anims.length));
+
+  it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: NOON })!;
+    const kinds = parent.children.map((c: any) => c.tag);
+    expect(kinds).toEqual(['canvas', 'canvas', 'div', 'div', 'div']);
+    expect(parent.children[2].children).toHaveLength(3);
+    parent.children.forEach((c: any) => {
+      expect(c.style.zIndex).toBeUndefined();
+      expect(c.style.position).not.toBe('fixed');
+    });
+    s.dispose();
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('is three groups, far to near, each placed by windowFor and drifting by its depth of driftPx', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: NOON })!;
+    const rig = rigOf(parent);
+    const win = windowFor(manifest.view, 400, 800);
+    expect(rig.children).toHaveLength(3);
+    rig.children.forEach((g: any, k: number) => {
+      expect(g.style.width).toBe(`${win.plane.w}px`);
+      expect(g.style.height).toBe(`${win.plane.h}px`);
+      expect(g.style.bottom).toBe('0px');
+      expect(g.style.left).toBe(`${(400 - win.plane.w) / 2}px`);
+      expect(g.children.map((i: any) => i.src)).toEqual([`noon-${['far', 'mid', 'near'][k]}`]);
+      const { keyframes, options } = g.anims[0];
+      const reach = win.driftPx * [0.35, 0.7, 1][k];
+      expect(keyframes).toEqual([
+        { transform: `translate3d(${-reach}px,0,0)` },
+        { transform: `translate3d(${reach}px,0,0)` },
+      ]);
+      expect(options).toMatchObject({
+        duration: 75000,
+        iterations: Infinity,
+        direction: 'alternate',
+        easing: 'ease-in-out',
+      });
+    });
+    s.dispose();
+  });
+
+  it('lays frame b over frame a at the blend weight', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: BLEND })!;
+    const g = rigOf(parent).children[1];
+    expect(g.children.map((i: any) => [i.src, i.style.opacity])).toEqual([
+      ['dawn-mid', '1'],
+      ['morning-mid', String(BLEND.choice.w)],
+    ]);
+    s.dispose();
+  });
+
+  it('adds no rAF or timer callback of its own: the drift is Element.animate, the stars alone loop', () => {
+    const { canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: NOON })!;
+    expect(rafQueue).toHaveLength(1); // the frame sampler, as without planes
+    s.dispose();
+    const bare = host();
+    const b = createRidgeScene({ canvas: bare.canvas, tier: 'full', sky: DAY })!;
+    expect(rafQueue).toHaveLength(1);
+    b.dispose();
+  });
+
+  it('pauses the drift under reduced motion, in a hidden tab, and plays it again', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: NOON })!;
+    const anims = rigOf(parent).children.map((g: any) => g.anims[0]);
+    anims.forEach((a: any) => expect(a.play).toHaveBeenCalled());
+    anims.forEach((a: any) => a.pause.mockClear());
+    motion.matches = true;
+    motion.addEventListener.mock.calls
+      .filter((c: any[]) => c[0] === 'change')
+      .forEach((c: any[]) => c[1]());
+    anims.forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    motion.matches = false;
+    anims.forEach((a: any) => a.pause.mockClear());
+    doc.visibilityState = 'hidden';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    anims.forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    s.dispose();
+    anims.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
+  });
+
+  it("a still draws the planes into the host canvas at windowFor's placement and leaves no animation", () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: BLEND });
+    const win = windowFor(manifest.view, 400, 800);
+    const planesDrawn = images.filter((a) => (a[0] as any).src);
+    expect(planesDrawn).toHaveLength(6);
+    expect(planesDrawn.map((a) => (a[0] as any).src)).toEqual([
+      'dawn-far',
+      'morning-far',
+      'dawn-mid',
+      'morning-mid',
+      'dawn-near',
+      'morning-near',
+    ]);
+    const [, x, y, w, h] = planesDrawn[0] as number[];
+    expect([x, y, w, h]).toEqual([
+      (800 - win.plane.w * 2) / 2,
+      1600 - win.plane.h * 2,
+      win.plane.w * 2,
+      win.plane.h * 2,
+    ]);
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('settles to a still with the planes painted when the frame rate is poor', () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: NOON });
+    runFrames(100, 400);
+    expect(images.filter((a) => (a[0] as any).src)).toHaveLength(3);
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('with no backdrop it is the sky alone', () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'full', sky: DAY });
+    expect(parent.children).toEqual([canvas]);
+    expect(images.filter((a) => (a[0] as any).src)).toHaveLength(0);
+  });
+});
+
+describe('the scene wiring', () => {
+  it('sizes from the window when the canvas has no client size', () => {
+    const { canvas } = host();
+    canvas.clientWidth = 0;
+    canvas.clientHeight = 0;
+    (window as any).innerWidth = 300;
+    (window as any).innerHeight = 500;
+    createRidgeScene({ canvas, tier: 'full', sky: DAY })!.dispose();
+    expect([canvas.width, canvas.height]).toEqual([600, 1000]);
+  });
+
+  it('a burst of resizes rebuilds once, after 250 ms, and not after dispose', async () => {
+    vi.useFakeTimers();
+    (window as any).setTimeout = setTimeout;
+    const { canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY })!;
+    const skies = () => draws.filter((d) => d === 'sky').length;
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(200);
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(200);
+    expect(skies()).toBe(1);
+    vi.advanceTimersByTime(60);
+    expect(skies()).toBe(2);
+    s.dispose();
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(1000);
+    expect(skies()).toBe(2);
+    vi.useRealTimers();
   });
 });
