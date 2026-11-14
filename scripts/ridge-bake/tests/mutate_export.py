@@ -1,10 +1,10 @@
 """Mutation check of the planes path: re-introduce a cause into a COPY of export.py / ridge.py (relight_planes) and run the planes/export tests of test_ridge.py (PLANES_TESTS) against it; a mutant must fail at least one.
-  RIDGE_TILES=<tiles> RIDGE_WORK=<dir> venv/bin/python -I tests/mutate_export.py [JOBS=4 in the environment]      (prints one line per mutant as it lands; exit 1 if one survives)
+  RIDGE_TILES=<tiles> RIDGE_WORK=<dir> venv/bin/python -I tests/mutate_export.py [JOBS=4 and ONLY=<name substring>[|<another>] in the environment]      (prints one line per mutant as it lands; exit 1 if one survives)
 Each mutant runs under a 12 GB address-space cap and a 20 minute limit.  Equivalent mutants are named in EQUIVALENT with the argument; they are reported but do not fail the run."""
 import os, sys, shutil, subprocess, tempfile, resource
 from concurrent.futures import ThreadPoolExecutor
 HERE = os.path.dirname(os.path.abspath(__file__)); SRC = os.path.join(HERE, '..')
-EQUIVALENT = {}
+EQUIVALENT = {'decode budget cap is exclusive': 'decoded = 2 * 3 * w * h * 4 is a multiple of 24 and 20_000_000 is not (20_000_000 / 24 = 833333.33), so decoded == DECODE_BYTES_MAX never holds for integer w and h and > equals >='}
 M = {
  'no per-channel ref correction (P = X)': ('ridge.py', 'P = X + ref_w[None] * (Yc - Y[..., None])', 'P = X'),
  'alpha ignores haze (alpha = cov)': ('ridge.py', 'alpha = np.clip(win(cov) - Y, 0, 1)', 'alpha = np.clip(win(cov), 0, 1)'),
@@ -58,7 +58,7 @@ M = {
  'near_row left as a fraction': ('export.py', "near_row=v['near_row'] * ridge.H", "near_row=v['near_row']"),
  'index written without replacing a rebaked place': ('export.py', "idx['places'][place['id']] = name;", "idx['places'].setdefault(place['id'], name);"),
  'plane files written under the wrong key': ('export.py', "(tmp / f'{k}-{n}.webp').write_bytes(frames_webp[k][n])", "(tmp / f'{k}-{n}.webp').write_bytes(frames_webp['noon'][n])"),
- 'a refused bake still creates the out dir': ('export.py', 'bid = bake_id(frames_webp); name', 'Path(out).mkdir(parents=True, exist_ok=True); bid = bake_id(frames_webp); name'),
+ 'a refused bake still creates the out dir': ('export.py', "sizes = {k: {n: len(frames_webp[k][n])", "Path(out).mkdir(parents=True, exist_ok=True); sizes = {k: {n: len(frames_webp[k][n])"),
 
  'luma in sRGB, not linear': ('export.py', 'lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)', 'lin = c'),
  'pair check skips the last pair': ('export.py', 'for i in range(len(frame_bytes) - 1):', 'for i in range(len(frame_bytes) - 2):'),
@@ -79,6 +79,7 @@ def run(item):
     except subprocess.TimeoutExpired: fails = 'TIMEOUT'
     shutil.rmtree(d); line = ('KILLED   ' if fails else 'SURVIVED ') + name + ' -> ' + (fails or '-'); print(line, flush=True); return line
 if __name__ == '__main__':
-    with ThreadPoolExecutor(int(os.environ.get('JOBS', '4'))) as ex: lines = list(ex.map(run, M.items()))
+    only = os.environ.get('ONLY'); items = [kv for kv in M.items() if not only or any(o in kv[0] for o in only.split('|'))]
+    with ThreadPoolExecutor(int(os.environ.get('JOBS', '4'))) as ex: lines = list(ex.map(run, items))
     live = [l for l in lines if l.startswith('SURVIVED') and l[9:].split(' -> ')[0] not in EQUIVALENT]
     print('%d mutants, %d killed, %d survived (%d named equivalent)' % (len(lines), sum(l.startswith('KILLED') for l in lines), sum(l.startswith('SURVIVED') for l in lines), len(EQUIVALENT))); sys.exit(1 if live else 0)

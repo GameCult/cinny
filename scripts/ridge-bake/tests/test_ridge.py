@@ -495,11 +495,12 @@ def test_budget_refuses_a_pair_above_the_cap_and_a_plane_above_the_width():
     """Any two ADJACENT frames above PAIR_BYTES_MAX are refused (a heavy frame next to a light one at the cap passes), as is a plane wider than the cap, and nothing is written."""
     cap = export.PAIR_BYTES_MAX; ok = [cap // 2] * 6; export.check_budget(ok, export.PLANE_W, ridge.H)
     for i in range(5):
-        bad = list(ok); bad[i] = cap // 2 + 1; bad[i + 1] = cap // 2 + 1
+        bad = [1000] * 6; bad[i] = cap // 2 + 1; bad[i + 1] = cap // 2 + 1
         try: export.check_budget(bad, export.PLANE_W, ridge.H)
         except ValueError: pass
         else: assert False, ('adjacent pair over the cap accepted', i)
     export.check_budget([cap - 1000, 1000, cap - 1000, 1000, cap - 1000, 1000], export.PLANE_W, ridge.H)       # non-adjacent heavy frames are fine
+    export.check_budget(ok, export.PLANE_W_MAX, 100)           # exactly the cap is fine
     try: export.check_budget(ok, export.PLANE_W_MAX + 1, ridge.H)
     except ValueError: pass
     else: assert False, 'a plane wider than the cap was accepted'
@@ -525,14 +526,14 @@ def test_size_refusals_read_the_written_planes_not_constants():
     finally: shutil.rmtree(d)
 def _srgb_y(c): c = np.asarray(c, float); lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); return float(lin @ np.array([0.2126, 0.7152, 0.0722]))
 def test_luma_range_is_the_far_mid_near_composite_over_a_grey_sky_where_coverage_is_at_least_half():
-    """Hand-built 1x5 planes, none opaque anywhere (haze-as-alpha): px0 far (255,0,0) alpha 128 then near (0,0,255) alpha 128 (order matters, coverage .75); px1 far white alpha 128 (coverage .50, measured);
-    px2 far black alpha 100 (coverage .39, not measured); px3 far and mid black alpha 100 each (coverage .63, measured); px4 nothing.  min and max equal the arithmetic composite over the 0.5 grey sky to 1e-6."""
+    """Hand-built 1x5 planes, none opaque anywhere (haze-as-alpha): px0 far white alpha 200 then near black alpha 128 (order matters, coverage .89); px1 far grey 128 alpha 128 (coverage .50, measured); px2 far white alpha 120
+    (coverage .47, NOT measured: it would be the brightest); px3 far and mid black alpha 100 each (coverage .63, measured); px4 nothing.  min and max equal the arithmetic composite over the 0.5 grey sky to 1e-6."""
     z = lambda: np.zeros((1, 5, 4), np.uint8); far, mid, near = z(), z(), z()
-    far[0, 0] = (255, 0, 0, 128); near[0, 0] = (0, 0, 255, 128); far[0, 1] = (255, 255, 255, 128); far[0, 2] = (0, 0, 0, 100); far[0, 3] = (0, 0, 0, 100); mid[0, 3] = (0, 0, 0, 100)
-    sky = np.full(3, 0.5); a = 128 / 255; p0 = (sky * (1 - a) + np.array([1, 0, 0]) * a) * (1 - a) + np.array([0, 0, 1]) * a; p1 = sky * (1 - a) + a; b = 100 / 255; p3 = sky * (1 - b) ** 2
+    far[0, 0] = (255, 255, 255, 200); near[0, 0] = (0, 0, 0, 128); far[0, 1] = (128, 128, 128, 128); far[0, 2] = (255, 255, 255, 120); far[0, 3] = (0, 0, 0, 100); mid[0, 3] = (0, 0, 0, 100)
+    sky = np.full(3, 0.5); A, a, b = 200 / 255, 128 / 255, 100 / 255; p0 = (sky * (1 - A) + A) * (1 - a); p1 = sky * (1 - a) + 128 / 255 * a; p3 = sky * (1 - b) ** 2
     want = sorted(_srgb_y(p) for p in (p0, p1, p3)); lo, hi = export.luma_range([far, mid, near]); assert abs(lo - want[0]) < 1e-6 and abs(hi - want[-1]) < 1e-6, ((lo, hi), want)
     try: export.luma_range([z(), z(), z()])
-    except ValueError: pass
+    except ValueError as e: assert 'coverage' in str(e), ('the refusal does not name the coverage', str(e))
     else: assert False, 'a frame with no covered pixel was measured'
     z2 = export.decode(export.encode(np.full((8, 8, 4), 1.0, np.float32))); assert z2.shape == (8, 8, 4) and (z2[..., 3] == 255).all(), 'an everywhere-opaque plane must read back as RGBA'
 def _rt_error(planes, back):
@@ -581,6 +582,7 @@ def test_bake_place_manifest_fields_on_vienna():
         place, view, suns, planes = export.bake_place('vienna', relight_keys=export.KEYS); P = ridge.P; rowang = ridge.rowang; pxv = ridge.PXDEG_V
     finally: ridge.P = saved
     assert abs(place['altitude_km'] * 1000 - P['ground_m']) < 1e-6 and P['eye_m'] > 0 and place['id'] == 'vienna' and place['date'] == P['date'] and place['lat'] == P['lat'] and place['lon'] == P['lon']
+    assert abs(view['sky_row'] - 0.04 * ridge.H) < 1e-9 and abs(view['near_row'] - 0.66 * ridge.H) < 1e-9, 'sky_row / near_row are rows (set_view anchors 4% and 66% of the frame)'
     assert 0 < view['sky_row'] < view['horizon_row'] < view['near_row'] < ridge.H and abs(rowang[int(view['horizon_row'])]) <= 1.0 / pxv, (view, rowang[int(view['horizon_row'])])
     assert view['look_az_deg'] == P['az_center'] and view['plane_h'] == ridge.H and view['px_per_deg_h'] == ridge.HPX_DEG and view['px_per_deg_v'] == pxv
     d = tempfile.mkdtemp()
