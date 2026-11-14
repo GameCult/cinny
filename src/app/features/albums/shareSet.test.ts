@@ -215,6 +215,22 @@ describe('refusals', () => {
     );
   });
 
+  it('a failure the client saw, not the server, is named too', async () => {
+    const dropped: SharePort<ShareFile> = {
+      send: async () => '$e',
+      contentOf: async () => {
+        throw Object.assign(new Error('x'), {
+          errcode: 'AbortError',
+          info: { aborted: true, progressed: true },
+        });
+      },
+    };
+    const res = await sendShareSet(dropped, 't', clips.slice(0, 1));
+    expect(resultNote(res)).toBe(
+      'Nothing was shared. Not sent: a.ogg (the connection dropped partway through)'
+    );
+  });
+
   it('an unnamed failure lists the bare name', async () => {
     const res = await sendShareSet(refuse('M_UNKNOWN'), 't', clips.slice(0, 1));
     expect(resultNote(res)).toBe('Nothing was shared. Not sent: a.ogg');

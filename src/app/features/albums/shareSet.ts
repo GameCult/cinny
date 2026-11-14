@@ -3,6 +3,8 @@
 // are the same thing to every viewer. Ports are injected so the order and the failure rules are
 // testable without a homeserver. See docs/file-zone.md, "Share a set".
 
+import { uploadReason } from '../../utils/uploadReason';
+
 export type ShareFile = { name: string; mimeType: string };
 
 /** What sendShareSet needs from the outside world. */
@@ -45,17 +47,8 @@ export const freshest = (album: ExistingAlbum, events: ThreadEvent[]): ExistingA
 
 export const CANCELLED = 'stopped';
 
-const REFUSALS: Record<string, string> = {
-  M_TOO_LARGE: 'too large for this server',
-  M_FORBIDDEN: 'not allowed to upload here',
-  M_LIMIT_EXCEEDED: 'uploading too fast, try again shortly',
-};
-
-/** The sentence for a homeserver refusal we know, from the error's Matrix errcode. */
-export const refusalOf = (e: unknown): string | undefined => {
-  const code = (e as { errcode?: unknown } | null)?.errcode;
-  return typeof code === 'string' && Object.hasOwn(REFUSALS, code) ? REFUSALS[code] : undefined;
-};
+/** The short reason for a failure we can name (the homeserver's refusal or what the client saw), else undefined. */
+export const refusalOf = (e: unknown): string | undefined => uploadReason(e)?.cause;
 
 /** The reply relation Matrix clients expect for a thread message: root, with the last event as fallback reply. */
 export const threadRelation = (rootId: string, lastId: string) => ({
