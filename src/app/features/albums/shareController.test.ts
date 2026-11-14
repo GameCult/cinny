@@ -364,4 +364,17 @@ describe('files over the homeserver cap', () => {
     await c.send();
     expect(c.getState().phase).toMatchObject({ text: expect.stringContaining('limit 1.5 MB') });
   });
+
+  it('a run that throws still names the refused files, which are not kept', async () => {
+    const { c, h } = capped();
+    c.pick([file('a.ogg', 1), file('big.wav', 60 * MB)]);
+    const sent = c.send();
+    h.fail(new Error('network down'));
+    await sent;
+    expect(c.getState().phase).toEqual({
+      kind: 'done',
+      text: 'Could not share: network down. Too large for this server (limit 50 MB): big.wav',
+    });
+    expect(c.getState().files.map((f) => f.name)).toEqual(['a.ogg']);
+  });
 });

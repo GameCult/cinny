@@ -131,7 +131,10 @@ describe('ShareSet: the homeserver upload cap reaches the controller', () => {
     expect(captured.maxBytes?.()).toBe(52428800);
     mount([], undefined, {});
     expect(captured.maxBytes?.()).toBeUndefined();
-    mount([], undefined, { 'm.upload.size': 0 });
-    expect(captured.maxBytes?.()).toBeUndefined();
+    // A cap that is not a positive number is no cap, never "refuse everything".
+    [0, -1, Number.NaN, '50' as unknown as number].forEach((bad) => {
+      mount([], undefined, { 'm.upload.size': bad });
+      expect(captured.maxBytes?.()).toBeUndefined();
+    });
   });
 });

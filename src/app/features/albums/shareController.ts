@@ -107,7 +107,8 @@ export const createShareController = <F extends Picked>(deps: ShareDeps<F>) => {
       if (left.length === 0) set({ files: [], title: '', epoch: state.epoch + 1, phase });
       else set({ files: left, phase });
     } catch (e: any) {
-      set({ phase: { kind: 'done', text: `Could not share: ${e?.message ?? 'send failed'}` } });
+      const failure = `Could not share: ${e?.message ?? 'send failed'}`;
+      set({ phase: { kind: 'done', text: sizeNote ? `${failure}. ${sizeNote}` : failure } });
     } finally {
       running = undefined;
       sending.delete(deps.roomId);

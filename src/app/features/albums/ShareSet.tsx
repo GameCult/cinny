@@ -142,7 +142,10 @@ export function ShareSet({ room, folder = [], into }: ShareSetProps) {
     createShareController<File>({
       roomId: room.roomId,
       isEncrypted: () => live.current.room.hasEncryptionStateEvent(),
-      maxBytes: () => live.current.mediaConfig['m.upload.size'] || undefined,
+      maxBytes: () => {
+        const cap = live.current.mediaConfig['m.upload.size'];
+        return typeof cap === 'number' && Number.isFinite(cap) && cap > 0 ? cap : undefined;
+      },
       onSent: () =>
         live.current.queryClient.invalidateQueries({ queryKey: ['albums', room.roomId] }),
       run: (files, title, onFile, signal) =>
