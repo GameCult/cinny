@@ -396,12 +396,12 @@ def test_the_far_plane_over_a_flat_sky_equals_the_opaque_relight_of_its_group():
     assert d.mean() < 1.0 and d.max() < 4.0, ('the far plane over a flat sky differs from its opaque relight', d.mean(), d.max())
     assert planes['far'][0, :, 3].max() < 0.01 and planes['near'][0, :, 3].max() < 0.01, 'the top row (sky) is not transparent'
 def test_stacked_planes_stay_close_to_the_opaque_relight_on_vienna_noon():
-    """Real Vienna bake at noon, three planes over a flat sky vs relight(flat=that sky): the stacking loss (a nearer group's haze veils the farther plane instead of the sky) measured 7/255 mean; the bound is 9, so a split
+    """Real Vienna bake at noon, three planes over a flat sky vs relight(flat=that sky): the stacking loss (a nearer group's haze veils the farther plane instead of the sky) measured 4.9/255 mean; the bound is 6, so a split
     that loses colour or alpha shows.  The spec's 2/255 pin is not reachable with this trick (reported as a deviation)."""
     saved = ridge.P; ridge.configure(ridge.load_preset('vienna')); d, A, Hh, _ = ridge.stage0(False); r = ridge.sweep(d, A, Hh); ridge.set_view(r['slots']); L = ridge.bake(r['slots']); f = _statics_flat_grain()
     sun = export.sun_set(ridge.P, ridge.P['date'])['noon']; sky = export.SHEET_SKY; planes = ridge.relight_planes(L, sun['az'], sun['el'], *f, shadows=False, ref=sky)
     err = np.abs(_over(planes, sky) - ridge.win(ridge.relight(L, sun['az'], sun['el'], *f, shadows=False, flat=sky))).mean() * 255; ridge.P = saved
-    assert err < 9.0, ('stacked planes drift from the opaque relight', err)
+    assert err < 6.0, ('stacked planes drift from the opaque relight', err)
 def test_plane_grouping_far_mid_near_and_refuses_fewer_than_three_slots():
     """far = slot 0, near = the last slot, mid = every slot between (the union); a 3-slot place fills all three planes; fewer than 3 slots are refused."""
     assert ridge.group_slots(3) == dict(far=[0], mid=[1], near=[2]) and ridge.group_slots(6) == dict(far=[0], mid=[1, 2, 3, 4], near=[5])

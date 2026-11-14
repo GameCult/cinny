@@ -27,7 +27,7 @@ Files are `Copernicus_DSM_COG_10_<N|S>dd_00_<E|W>ddd_00_DEM.tif`; the list below
 
 ## Planes
 
-`relight_planes` renders every layer twice, with haze colour 0 and 1; the relight is affine in the haze colour, so the difference is each pixel's haze share. That share becomes transparency and the sky behind supplies the haze. Far is slot 0 plus the floor, near is the last slot, mid is every slot between (a place needs at least 3). Colour is exact over the frame's own haze colour; over another sky it drifts by the difference between the two. Stacked planes over a flat sky stay within 9/255 mean of the opaque frame (about 7/255 measured on Vienna noon); the spec's 2/255 is not reachable with this trick.
+`relight_planes` renders every layer twice, with haze colour 0 and 1; the relight is affine in the haze colour, so the difference is each pixel's haze share. That share becomes transparency and the sky behind supplies the haze. Far is slot 0 plus the floor, near is the last slot, mid is every slot between (a place needs at least 3). Colour is exact over the frame's own haze colour; over another sky it drifts by the difference between the two. Stacked planes over a flat sky stay within 6/255 mean of the opaque frame (4.9/255 measured on Vienna noon); the spec's 2/255 is not reachable with this trick.
 
 ## Licence
 

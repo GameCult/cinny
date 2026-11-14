@@ -56,7 +56,8 @@ def run(item):
     open(p, 'w').write(s.replace(a, b))
     r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True); shutil.rmtree(d)
     fails = [l.split('|')[0].strip() for l in r.stdout.splitlines() if l.startswith('FAIL')]
-    return ('KILLED   ' if r.returncode else 'SURVIVED ') + name + ' -> ' + (', '.join(fails) or 'no fixture failed'), r.returncode == 0
+    line = ('KILLED   ' if r.returncode else 'SURVIVED ') + name + ' -> ' + (', '.join(fails) or 'no fixture failed'); print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
+    return line, r.returncode == 0
 if __name__ == '__main__':
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(int(os.environ.get('MUTATE_JOBS', '6'))) as ex: res = list(ex.map(run, [(n, v) for n, v in MUTANTS.items() if n not in EQUIVALENT]))
