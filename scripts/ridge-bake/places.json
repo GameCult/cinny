@@ -1,0 +1,657 @@
+{
+ "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); floor_agl_m = authored eye height above the notional valley floor used only for the floor-plane colour gradient; s_ref_deg = front slope that counts as steep for the painter; tz_h = standard-time offset of the local clock on the sun date.",
+ "date": "2026-09-23",
+ "presets": [
+  {
+   "id": "vienna",
+   "name": "Vienna, looking SW to Rax/Schneeberg",
+   "kind": "far range over a flat foreground",
+   "lat": 48.1929826,
+   "lon": 16.3534237,
+   "eye_h_m": 30.0,
+   "ground_override_m": 183.3,
+   "az_deg": 214.0,
+   "rmax_km": 95,
+   "floor_agl_m": 30,
+   "s_ref_deg": 8,
+   "tz_h": 2,
+   "tz_name": "CEST",
+   "viewpoint_source": {
+    "status": "existing observer of the round-1 mockup (the scene camera used by the game), not photo-sourced; eye 30 m above ground as in round 1"
+   }
+  },
+  {
+   "id": "matterhorn",
+   "name": "Matterhorn from the Gornergrat (photo cell, 9.7 km)",
+   "kind": "lone horn, close, 27 deg of relief",
+   "lat": 45.983139,
+   "lon": 7.782466,
+   "eye_h_m": 1.6,
+   "look_at": [
+    45.97666,
+    7.65678
+   ],
+   "rmax_km": 60,
+   "floor_agl_m": 992.3298828124998,
+   "s_ref_deg": 30,
+   "tz_h": 2,
+   "tz_name": "CEST",
+   "initial_guess_not_used": {
+    "lat": 45.9856,
+    "lon": 7.7452
+   },
+   "viewpoint_source": {
+    "status": "sourced",
+    "source": "Wikimedia Commons geosearch (namespace 6), geotagged photos",
+    "query": "geosearch ns=6 gslimit=500 gsradius=10000 around 25 centres (peak + 3 rings x 8 bearings, radii 3600-12000 m), then EXIF GPSImgDirection of every file in range via prop=imageinfo&iiprop=commonmetadata",
+    "files_found": 5003,
+    "in_range": 3241,
+    "with_exif_heading": 205,
+    "facing_the_peak": 52,
+    "pool": "photos whose camera heading is within 30 deg of the bearing to the summit",
+    "rule": "densest 1 km cell of photos 3000-12000 m from the summit whose EXIF camera heading faces the summit (within 30 deg) with the summit visible on the DEM (straight line, first 250 m ignored, 8 m clutter allowed); viewpoint = median coordinate of the cell",
+    "median_camera_heading_deg": 245.8,
+    "photos_in_cell": 7,
+    "cells_tried": [
+     {
+      "n_facing": 7,
+      "lat": 45.98314,
+      "lon": 7.78247,
+      "peak_visible": true
+     }
+    ],
+    "distance_to_peak_m": 9749,
+    "bearing_to_peak_deg": 265.8,
+    "dem_ground_m": 3090.7,
+    "eye_height_rule": "DEM ground at the viewpoint + 1.6 m (the source gives no eye height)",
+    "sample_files": [
+     {
+      "title": "File:Gornergrat-04.jpg",
+      "lat": 45.983061,
+      "lon": 7.782031,
+      "heading": 256.0,
+      "url": "https://commons.wikimedia.org/wiki/File%3AGornergrat-04.jpg"
+     },
+     {
+      "title": "File:Gornergrat-03.jpg",
+      "lat": 45.983058,
+      "lon": 7.782038,
+      "heading": 245.8,
+      "url": "https://commons.wikimedia.org/wiki/File%3AGornergrat-03.jpg"
+     },
+     {
+      "title": "File:Gornergrat-07.jpg",
+      "lat": 45.982653,
+      "lon": 7.782466,
+      "heading": 250.2,
+      "url": "https://commons.wikimedia.org/wiki/File%3AGornergrat-07.jpg"
+     },
+     {
+      "title": "File:Gornergratsee 2021 10.jpg",
+      "lat": 45.986958,
+      "lon": 7.780303,
+      "heading": 243.4,
+      "url": "https://commons.wikimedia.org/wiki/File%3AGornergratsee_2021_10.jpg"
+     },
+     {
+      "title": "File:Early morning Eiger.jpg",
+      "lat": 45.983242,
+      "lon": 7.783361,
+      "heading": 254.7,
+      "url": "https://commons.wikimedia.org/wiki/File%3AEarly_morning_Eiger.jpg"
+     },
+     {
+      "title": "File:Klein Matterhorn mit Wolken an Theodulhorn und Furgghorn \u00fcber dem Oberen Theodulgletscher- a view from Gornergrat 2021 02 (cropped).jpg",
+      "lat": 45.983139,
+      "lon": 7.784172,
+      "heading": 242.1,
+      "url": "https://commons.wikimedia.org/wiki/File%3AKlein_Matterhorn_mit_Wolken_an_Theodulhorn_und_Furgghorn_%C3%BCber_dem_Oberen_Theodulgletscher-_a_view_from_Gornergrat_2021_02_%28cropped%29.jpg"
+     },
+     {
+      "title": "File:Breithorn and neighbours from Gornergrat 2021 02.jpg",
+      "lat": 45.983139,
+      "lon": 7.784172,
+      "heading": 242.1,
+      "url": "https://commons.wikimedia.org/wiki/File%3ABreithorn_and_neighbours_from_Gornergrat_2021_02.jpg"
+     }
+    ],
+    "exif_headings": [
+     {
+      "title": "File:Gornergrat-04.jpg",
+      "heading": 256.0
+     },
+     {
+      "title": "File:Gornergrat-03.jpg",
+      "heading": 245.8
+     },
+     {
+      "title": "File:Gornergrat-07.jpg",
+      "heading": 250.2
+     },
+     {
+      "title": "File:Gornergratsee 2021 10.jpg",
+      "heading": 243.4
+     },
+     {
+      "title": "File:Early morning Eiger.jpg",
+      "heading": 254.7
+     },
+     {
+      "title": "File:Klein Matterhorn mit Wolken an Theodulhorn und Furgghorn \u00fcber dem Oberen Theodulgletscher- a view from Gornergrat 2021 02 (cropped).jpg",
+      "heading": 242.1
+     },
+     {
+      "title": "File:Breithorn and neighbours from Gornergrat 2021 02.jpg",
+      "heading": 242.1
+     }
+    ],
+    "n_with_exif_heading": 7,
+    "summit_dem_m": 4324.9,
+    "summit_nominal": [
+     45.97639,
+     7.65833
+    ]
+   }
+  },
+  {
+   "id": "fuji",
+   "name": "Fuji from the Shiraito Falls side, 13.8 km WSW (photo cell)",
+   "kind": "lone cone, smooth",
+   "lat": 35.312467222222494,
+   "lon": 138.587223194445,
+   "eye_h_m": 1.6,
+   "look_at": [
+    35.36061,
+    138.72731
+   ],
+   "rmax_km": 60,
+   "floor_agl_m": 138.6306213378906,
+   "s_ref_deg": 20,
+   "tz_h": 9,
+   "tz_name": "JST",
+   "initial_guess_not_used": {
+    "lat": 35.4994,
+    "lon": 138.7686
+   },
+   "viewpoint_source": {
+    "status": "sourced",
+    "source": "Wikimedia Commons geosearch (namespace 6), geotagged photos",
+    "query": "geosearch ns=6 gslimit=500 gsradius=10000 around 25 centres (peak + 3 rings x 8 bearings, radii 9000-30000 m), then EXIF GPSImgDirection of every file in range via prop=imageinfo&iiprop=commonmetadata",
+    "files_found": 6494,
+    "in_range": 4280,
+    "with_exif_heading": 588,
+    "facing_the_peak": 132,
+    "pool": "photos whose camera heading is within 30 deg of the bearing to the summit",
+    "rule": "densest 1 km cell of photos 8000-30000 m from the summit whose EXIF camera heading faces the summit (within 30 deg) with the summit visible on the DEM (straight line, first 250 m ignored, 8 m clutter allowed); viewpoint = median coordinate of the cell",
+    "median_camera_heading_deg": 64.4,
+    "photos_in_cell": 8,
+    "cells_tried": [
+     {
+      "n_facing": 15,
+      "lat": 35.36248,
+      "lon": 138.86287,
+      "peak_visible": false
+     },
+     {
+      "n_facing": 8,
+      "lat": 35.31247,
+      "lon": 138.58722,
+      "peak_visible": true
+     }
+    ],
+    "distance_to_peak_m": 13808,
+    "bearing_to_peak_deg": 67.2,
+    "dem_ground_m": 486.9,
+    "eye_height_rule": "DEM ground at the viewpoint + 1.6 m (the source gives no eye height)",
+    "sample_files": [
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 03.JPG",
+      "lat": 35.31114,
+      "lon": 138.5886,
+      "heading": 48.0,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_03.JPG"
+     },
+     {
+      "title": "File:Mount Fuji, view from Shiraito no Taki.jpg",
+      "lat": 35.313589,
+      "lon": 138.588394,
+      "heading": 68.8,
+      "url": "https://commons.wikimedia.org/wiki/File%3AMount_Fuji%2C_view_from_Shiraito_no_Taki.jpg"
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 02.JPG",
+      "lat": 35.313248055556,
+      "lon": 138.58760805556,
+      "heading": 64.2,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_02.JPG"
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 07.JPG",
+      "lat": 35.312428055556,
+      "lon": 138.58723138889,
+      "heading": 88.8,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_07.JPG"
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 08.JPG",
+      "lat": 35.312418055556,
+      "lon": 138.587215,
+      "heading": 64.0,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_08.JPG"
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 04.JPG",
+      "lat": 35.312478055556,
+      "lon": 138.58717805556,
+      "heading": 62.2,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_04.JPG"
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 06.JPG",
+      "lat": 35.312456388889,
+      "lon": 138.58715805556,
+      "heading": 65.2,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_06.JPG"
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 05.JPG",
+      "lat": 35.312479722222,
+      "lon": 138.58714138889,
+      "heading": 64.5,
+      "url": "https://commons.wikimedia.org/wiki/File%3A%E5%AF%8C%E5%A3%AB%E5%B1%B1%EF%BC%88%E3%81%B5%E3%81%98%E3%81%95%E3%82%93%E3%80%81%E8%8B%B1%E8%AA%9E%EF%BC%9AMount_Fuji%EF%BC%89_05.JPG"
+     }
+    ],
+    "exif_headings": [
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 03.JPG",
+      "heading": 48.0
+     },
+     {
+      "title": "File:Mount Fuji, view from Shiraito no Taki.jpg",
+      "heading": 68.8
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 02.JPG",
+      "heading": 64.2
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 07.JPG",
+      "heading": 88.8
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 08.JPG",
+      "heading": 64.0
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 04.JPG",
+      "heading": 62.2
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 06.JPG",
+      "heading": 65.2
+     },
+     {
+      "title": "File:\u5bcc\u58eb\u5c71\uff08\u3075\u3058\u3055\u3093\u3001\u82f1\u8a9e\uff1aMount Fuji\uff09 05.JPG",
+      "heading": 64.5
+     }
+    ],
+    "n_with_exif_heading": 8,
+    "summit_dem_m": 3765.5,
+    "summit_nominal": [
+     35.36061,
+     138.72731
+    ]
+   }
+  },
+  {
+   "id": "halfdome",
+   "name": "Half Dome from the Yosemite Valley floor (Sentinel Bridge photo cell)",
+   "kind": "granite wall across a valley",
+   "lat": 37.745833333333,
+   "lon": -119.592606,
+   "eye_h_m": 1.6,
+   "look_at": [
+    37.74435,
+    -119.53426
+   ],
+   "rmax_km": 40,
+   "floor_agl_m": 5.5442382812500455,
+   "s_ref_deg": 30,
+   "tz_h": -7,
+   "tz_name": "PDT",
+   "initial_guess_not_used": {
+    "lat": 37.7305,
+    "lon": -119.5734
+   },
+   "viewpoint_source": {
+    "status": "sourced",
+    "source": "Wikimedia Commons geosearch (namespace 6), geotagged photos",
+    "query": "geosearch ns=6 gslimit=500 gsradius=10000 around 25 centres (peak + 3 rings x 8 bearings, radii 2700-9000 m), then EXIF GPSImgDirection of every file in range via prop=imageinfo&iiprop=commonmetadata",
+    "files_found": 2505,
+    "in_range": 1788,
+    "with_exif_heading": 181,
+    "facing_the_peak": 64,
+    "pool": "photos whose camera heading is within 30 deg of the bearing to the summit",
+    "rule": "densest 1 km cell of photos 2000-9000 m from the summit whose EXIF camera heading faces the summit (within 30 deg) with the summit visible on the DEM (straight line, first 250 m ignored, 8 m clutter allowed); viewpoint = median coordinate of the cell",
+    "median_camera_heading_deg": 91.6,
+    "photos_in_cell": 9,
+    "cells_tried": [
+     {
+      "n_facing": 9,
+      "lat": 37.73853,
+      "lon": -119.57124,
+      "peak_visible": false
+     },
+     {
+      "n_facing": 9,
+      "lat": 37.74583,
+      "lon": -119.59261,
+      "peak_visible": true
+     }
+    ],
+    "distance_to_peak_m": 5138,
+    "bearing_to_peak_deg": 91.8,
+    "dem_ground_m": 1209.2,
+    "eye_height_rule": "DEM ground at the viewpoint + 1.6 m (the source gives no eye height)",
+    "sample_files": [
+     {
+      "title": "File:Yosemite National Park - 51700634719.jpg",
+      "lat": 37.746606,
+      "lon": -119.590317,
+      "heading": 87.0,
+      "url": "https://commons.wikimedia.org/wiki/File%3AYosemite_National_Park_-_51700634719.jpg"
+     },
+     {
+      "title": "File:Half Dome, Yosemite National Park - 53324601178.jpg",
+      "lat": 37.748264,
+      "lon": -119.592606,
+      "heading": 98.8,
+      "url": "https://commons.wikimedia.org/wiki/File%3AHalf_Dome%2C_Yosemite_National_Park_-_53324601178.jpg"
+     },
+     {
+      "title": "File:Half Dome, Yosemite National Park - 53324824955.jpg",
+      "lat": 37.748322,
+      "lon": -119.592736,
+      "heading": 90.1,
+      "url": "https://commons.wikimedia.org/wiki/File%3AHalf_Dome%2C_Yosemite_National_Park_-_53324824955.jpg"
+     },
+     {
+      "title": "File:2013-09-19 18 35 25 Half Dome and the Merced River in Yosemite National Park.JPG",
+      "lat": 37.7435,
+      "lon": -119.58966666667,
+      "heading": 91.6,
+      "url": "https://commons.wikimedia.org/wiki/File%3A2013-09-19_18_35_25_Half_Dome_and_the_Merced_River_in_Yosemite_National_Park.JPG"
+     },
+     {
+      "title": "File:Half Dome from the Yosemite Valley floor in mid-Spring.jpeg",
+      "lat": 37.745833333333,
+      "lon": -119.59233333333,
+      "heading": 92.0,
+      "url": "https://commons.wikimedia.org/wiki/File%3AHalf_Dome_from_the_Yosemite_Valley_floor_in_mid-Spring.jpeg"
+     },
+     {
+      "title": "File:Sentinel Bridge & Half Dome.jpg",
+      "lat": 37.743419,
+      "lon": -119.590562,
+      "heading": 86.8,
+      "url": "https://commons.wikimedia.org/wiki/File%3ASentinel_Bridge_%26_Half_Dome.jpg"
+     },
+     {
+      "title": "File:Half Dome pre Super moon 2.jpg",
+      "lat": 37.745769,
+      "lon": -119.592972,
+      "heading": 106.5,
+      "url": "https://commons.wikimedia.org/wiki/File%3AHalf_Dome_pre_Super_moon_2.jpg"
+     },
+     {
+      "title": "File:Half Dome pre Super moon.jpg",
+      "lat": 37.745747,
+      "lon": -119.593033,
+      "heading": 97.1,
+      "url": "https://commons.wikimedia.org/wiki/File%3AHalf_Dome_pre_Super_moon.jpg"
+     },
+     {
+      "title": "File:Yosemite National Park 003.jpg",
+      "lat": 37.750814,
+      "lon": -119.598664,
+      "heading": 80.1,
+      "url": "https://commons.wikimedia.org/wiki/File%3AYosemite_National_Park_003.jpg"
+     }
+    ],
+    "exif_headings": [
+     {
+      "title": "File:Yosemite National Park - 51700634719.jpg",
+      "heading": 87.0
+     },
+     {
+      "title": "File:Half Dome, Yosemite National Park - 53324601178.jpg",
+      "heading": 98.8
+     },
+     {
+      "title": "File:Half Dome, Yosemite National Park - 53324824955.jpg",
+      "heading": 90.1
+     },
+     {
+      "title": "File:2013-09-19 18 35 25 Half Dome and the Merced River in Yosemite National Park.JPG",
+      "heading": 91.6
+     },
+     {
+      "title": "File:Half Dome from the Yosemite Valley floor in mid-Spring.jpeg",
+      "heading": 92.0
+     },
+     {
+      "title": "File:Sentinel Bridge & Half Dome.jpg",
+      "heading": 86.8
+     },
+     {
+      "title": "File:Half Dome pre Super moon 2.jpg",
+      "heading": 106.5
+     },
+     {
+      "title": "File:Half Dome pre Super moon.jpg",
+      "heading": 97.1
+     },
+     {
+      "title": "File:Yosemite National Park 003.jpg",
+      "heading": 80.1
+     }
+    ],
+    "n_with_exif_heading": 9,
+    "summit_dem_m": 2669.1,
+    "summit_nominal": [
+     37.74597,
+     -119.5329
+    ]
+   }
+  },
+  {
+   "id": "amadablam",
+   "name": "Ama Dablam and the Everest massif, 4 km WSW of Tengboche near Khumjung (photo cell)",
+   "kind": "far high range behind a near spire",
+   "lat": 27.822000000000003,
+   "lon": 86.722666666667,
+   "eye_h_m": 1.6,
+   "look_at": [
+    27.8617,
+    86.86079
+   ],
+   "rmax_km": 60,
+   "floor_agl_m": 829.8232421875,
+   "s_ref_deg": 30,
+   "tz_h": 5.75,
+   "tz_name": "NPT",
+   "initial_guess_not_used": {
+    "lat": 27.8369,
+    "lon": 86.7643
+   },
+   "viewpoint_source": {
+    "status": "sourced",
+    "source": "Wikimedia Commons geosearch (namespace 6), geotagged photos",
+    "query": "geosearch ns=6 gslimit=500 gsradius=10000 around 25 centres (peak + 3 rings x 8 bearings, radii 4800-16000 m), then EXIF GPSImgDirection of every file in range via prop=imageinfo&iiprop=commonmetadata",
+    "files_found": 1398,
+    "in_range": 1143,
+    "with_exif_heading": 54,
+    "facing_the_peak": 13,
+    "pool": "photos whose camera heading is within 30 deg of the bearing to the summit",
+    "rule": "densest 1 km cell of photos 4000-16000 m from the summit whose EXIF camera heading faces the summit (within 30 deg) with the summit visible on the DEM (straight line, first 250 m ignored, 8 m clutter allowed); viewpoint = median coordinate of the cell",
+    "median_camera_heading_deg": 79.6,
+    "photos_in_cell": 2,
+    "cells_tried": [
+     {
+      "n_facing": 2,
+      "lat": 27.822,
+      "lon": 86.72267,
+      "peak_visible": true
+     }
+    ],
+    "distance_to_peak_m": 14299,
+    "bearing_to_peak_deg": 72.0,
+    "dem_ground_m": 3782.0,
+    "eye_height_rule": "DEM ground at the viewpoint + 1.6 m (the source gives no eye height)",
+    "sample_files": [
+     {
+      "title": "File:Thamserku (6).JPG",
+      "lat": 27.822666666667,
+      "lon": 86.722666666667,
+      "heading": 73.6,
+      "url": "https://commons.wikimedia.org/wiki/File%3AThamserku_%286%29.JPG"
+     },
+     {
+      "title": "File:Thamserku (7).JPG",
+      "lat": 27.821333333333,
+      "lon": 86.722666666667,
+      "heading": 85.7,
+      "url": "https://commons.wikimedia.org/wiki/File%3AThamserku_%287%29.JPG"
+     }
+    ],
+    "exif_headings": [
+     {
+      "title": "File:Thamserku (6).JPG",
+      "heading": 73.6
+     },
+     {
+      "title": "File:Thamserku (7).JPG",
+      "heading": 85.7
+     }
+    ],
+    "n_with_exif_heading": 2,
+    "summit_dem_m": 6659.6,
+    "summit_nominal": [
+     27.8617,
+     86.8614
+    ]
+   }
+  },
+  {
+   "id": "trecime",
+   "name": "Tre Cime di Lavaredo from the Dreizinnenhuette area, 2.4 km N (photo cell)",
+   "kind": "cirque wall, spires",
+   "lat": 46.636906,
+   "lon": 12.310064,
+   "eye_h_m": 1.6,
+   "look_at": [
+    46.61806,
+    12.29583
+   ],
+   "rmax_km": 40,
+   "floor_agl_m": 735.6748046875,
+   "s_ref_deg": 30,
+   "tz_h": 2,
+   "tz_name": "CEST",
+   "initial_guess_not_used": {
+    "lat": 46.5833,
+    "lon": 12.2536
+   },
+   "viewpoint_source": {
+    "status": "sourced",
+    "source": "Wikimedia Commons geosearch (namespace 6), geotagged photos",
+    "query": "geosearch ns=6 gslimit=500 gsradius=10000 around 25 centres (peak + 3 rings x 8 bearings, radii 3000-10000 m), then EXIF GPSImgDirection of every file in range via prop=imageinfo&iiprop=commonmetadata",
+    "files_found": 2028,
+    "in_range": 763,
+    "with_exif_heading": 207,
+    "facing_the_peak": 33,
+    "pool": "photos whose camera heading is within 30 deg of the bearing to the summit",
+    "rule": "densest 1 km cell of photos 1500-10000 m from the summit whose EXIF camera heading faces the summit (within 30 deg) with the summit visible on the DEM (straight line, first 250 m ignored, 8 m clutter allowed); viewpoint = median coordinate of the cell",
+    "median_camera_heading_deg": 194.6,
+    "photos_in_cell": 5,
+    "cells_tried": [
+     {
+      "n_facing": 5,
+      "lat": 46.63691,
+      "lon": 12.31006,
+      "peak_visible": true
+     }
+    ],
+    "distance_to_peak_m": 2363,
+    "bearing_to_peak_deg": 207.4,
+    "dem_ground_m": 2403.0,
+    "eye_height_rule": "DEM ground at the viewpoint + 1.6 m (the source gives no eye height)",
+    "sample_files": [
+     {
+      "title": "File:Cime e Nuvole.jpg",
+      "lat": 46.63605,
+      "lon": 12.310064,
+      "heading": 200.3,
+      "url": "https://commons.wikimedia.org/wiki/File%3ACime_e_Nuvole.jpg"
+     },
+     {
+      "title": "File:DreiZinnenP.jpg",
+      "lat": 46.636770555556,
+      "lon": 12.310305555556,
+      "heading": 180.1,
+      "url": "https://commons.wikimedia.org/wiki/File%3ADreiZinnenP.jpg"
+     },
+     {
+      "title": "File:Soffio di sguardo.jpg",
+      "lat": 46.636906,
+      "lon": 12.311142,
+      "heading": 194.6,
+      "url": "https://commons.wikimedia.org/wiki/File%3ASoffio_di_sguardo.jpg"
+     },
+     {
+      "title": "File:2405-DreizinnenH.jpg",
+      "lat": 46.637782777778,
+      "lon": 12.309966388889,
+      "heading": 178.4,
+      "url": "https://commons.wikimedia.org/wiki/File%3A2405-DreizinnenH.jpg"
+     },
+     {
+      "title": "File:Dolomiten-Fingerkraut in den Sextener Dolomiten - N\u00e4he Drei-Zinnen-H\u00fctte (9801216636).jpg",
+      "lat": 46.642352,
+      "lon": 12.30829,
+      "heading": 200.0,
+      "url": "https://commons.wikimedia.org/wiki/File%3ADolomiten-Fingerkraut_in_den_Sextener_Dolomiten_-_N%C3%A4he_Drei-Zinnen-H%C3%BCtte_%289801216636%29.jpg"
+     }
+    ],
+    "exif_headings": [
+     {
+      "title": "File:Cime e Nuvole.jpg",
+      "heading": 200.3
+     },
+     {
+      "title": "File:DreiZinnenP.jpg",
+      "heading": 180.1
+     },
+     {
+      "title": "File:Soffio di sguardo.jpg",
+      "heading": 194.6
+     },
+     {
+      "title": "File:2405-DreizinnenH.jpg",
+      "heading": 178.4
+     },
+     {
+      "title": "File:Dolomiten-Fingerkraut in den Sextener Dolomiten - N\u00e4he Drei-Zinnen-H\u00fctte (9801216636).jpg",
+      "heading": 200.0
+     }
+    ],
+    "n_with_exif_heading": 5,
+    "summit_dem_m": 2746.9,
+    "summit_nominal": [
+     46.6186,
+     12.3025
+    ]
+   }
+  }
+ ]
+}

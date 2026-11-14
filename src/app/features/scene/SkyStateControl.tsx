@@ -1,4 +1,4 @@
-import React, { MouseEventHandler, useState } from 'react';
+import React, { MouseEventHandler, useEffect, useState } from 'react';
 import {
   Box,
   config,
@@ -15,8 +15,9 @@ import FocusTrap from 'focus-trap-react';
 import { stopPropagation } from '../../utils/keyboard';
 import { useSkyState } from '../../hooks/useSkyState';
 import { SKY_STATES, setSkyState, type SkyState } from './skyState';
+import { loadManifest } from './ridge/manifest';
 import {
-  HORIZON_CREDIT,
+  terrainCredit,
   WEATHER_CREDIT,
   WEATHER_CREDIT_URL,
   WEATHER_DATASET,
@@ -51,6 +52,20 @@ export function SkyStateControl() {
   const sceneStyle: ServedSceneStyle =
     getSceneStyleOverride() ?? (configuredStyle === 'terrain' ? 'terrain' : 'ridge');
 
+  const place = backgroundScene?.place;
+  const [credit, setCredit] = useState<string>();
+  const ridgeOn = !!backgroundScene && sceneStyle === 'ridge';
+  useEffect(() => {
+    if (!ridgeOn) return undefined;
+    let live = true;
+    loadManifest(import.meta.env.BASE_URL, place).then(
+      (m) => live && setCredit(terrainCredit(m)),
+      () => live && setCredit(undefined)
+    );
+    return () => {
+      live = false;
+    };
+  }, [ridgeOn, place]);
   const open: MouseEventHandler<HTMLButtonElement> = (evt) => {
     setCords(evt.currentTarget.getBoundingClientRect());
   };
@@ -132,15 +147,17 @@ export function SkyStateControl() {
                   <Text size="L400" priority="300">
                     Data
                   </Text>
+                  {credit && (
+                    <Text size="T200" priority="300">
+                      {credit}
+                    </Text>
+                  )}
                   <Text size="T200" priority="300">
                     Datenquelle: GeoSphere Austria -{' '}
                     <a href={WEATHER_CREDIT_URL} target="_blank" rel="noreferrer noopener">
                       {WEATHER_CREDIT_URL}
                     </a>
                     . {WEATHER_DATASET}.
-                  </Text>
-                  <Text size="T200" priority="300">
-                    {HORIZON_CREDIT}
                   </Text>
                 </Box>
               )}

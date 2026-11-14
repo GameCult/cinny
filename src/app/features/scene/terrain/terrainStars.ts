@@ -48,7 +48,6 @@ export function nightColours(): SkyColours {
     top: hex(g[0]),
     mid: hex(g[Math.floor(g.length / 2)]),
     horizon: hex(g[g.length - 1]),
-    ground: [0, 0, 0],
   };
 }
 
