@@ -374,6 +374,7 @@ def test_paths_come_from_the_environment_with_no_default():
         r = subprocess.run([sys.executable, '-I', '-c', 'import sys; sys.path.insert(0, %r); import ridge' % SRC], env=e, capture_output=True, text=True); assert r.returncode and var in r.stderr and 'not set' in r.stderr, (var, r.stderr[-200:])
 
 # ---------------------------------------------------------------------------------------- planes export (export.py, ridge.relight_planes)
+_before = {k for k in globals() if k.startswith('test_')}      # the tests below are the planes/export tests tests/mutate_export.py runs against each mutant
 import export, tempfile, json, shutil
 def _three_slot_layers():
     """three blocks at 6, 20 and 50 km in the same azimuth range, each standing above the one before it in angle: three slots"""
@@ -395,13 +396,24 @@ def test_the_far_plane_over_a_flat_sky_equals_the_opaque_relight_of_its_group():
     want = ridge.win(ridge.relight(L[:1], *sun, *f, shadows=False, flat=sky)); d = np.abs(img - want) * 255
     assert d.mean() < 1.0 and d.max() < 4.0, ('the far plane over a flat sky differs from its opaque relight', d.mean(), d.max())
     assert planes['far'][0, :, 3].max() < 0.01 and planes['near'][0, :, 3].max() < 0.01, 'the top row (sky) is not transparent'
+_VIENNA = {}
+def _vienna_noon():
+    """Real Vienna bake at noon: (planes over a flat sky as an error map in 1/255 per pixel, planes), cached for the tests that read it."""
+    if not _VIENNA:
+        saved = ridge.P; ridge.configure(ridge.load_preset('vienna')); d, A, Hh, _ = ridge.stage0(False); r = ridge.sweep(d, A, Hh); ridge.set_view(r['slots']); L = ridge.bake(r['slots']); f = _statics_flat_grain()
+        sun = export.sun_set(ridge.P, ridge.P['date'])['noon']; sky = export.SHEET_SKY; planes = ridge.relight_planes(L, sun['az'], sun['el'], *f, shadows=False, ref=sky)
+        _VIENNA['err'] = np.abs(_over(planes, sky) - ridge.win(ridge.relight(L, sun['az'], sun['el'], *f, shadows=False, flat=sky))).mean(-1) * 255; _VIENNA['planes'] = planes; ridge.P = saved
+    return _VIENNA['err'], _VIENNA['planes']
 def test_stacked_planes_stay_close_to_the_opaque_relight_on_vienna_noon():
-    """Real Vienna bake at noon, three planes over a flat sky vs relight(flat=that sky): the stacking loss (a nearer group's haze veils the farther plane instead of the sky) measured 4.9/255 mean; the bound is 6, so a split
-    that loses colour or alpha shows.  The spec's 2/255 pin is not reachable with this trick (reported as a deviation)."""
-    saved = ridge.P; ridge.configure(ridge.load_preset('vienna')); d, A, Hh, _ = ridge.stage0(False); r = ridge.sweep(d, A, Hh); ridge.set_view(r['slots']); L = ridge.bake(r['slots']); f = _statics_flat_grain()
-    sun = export.sun_set(ridge.P, ridge.P['date'])['noon']; sky = export.SHEET_SKY; planes = ridge.relight_planes(L, sun['az'], sun['el'], *f, shadows=False, ref=sky)
-    err = np.abs(_over(planes, sky) - ridge.win(ridge.relight(L, sun['az'], sun['el'], *f, shadows=False, flat=sky))).mean() * 255; ridge.P = saved
-    assert err < 6.0, ('stacked planes drift from the opaque relight', err)
+    """Real Vienna bake at noon, three planes over a flat sky vs relight(flat=that sky): the stacking loss (a nearer group's haze veils the farther plane instead of the sky) measured 4.9/255 mean over the frame; the bound is 6,
+    so a split that loses colour or alpha shows.  The spec's 2/255 pin was not pursued (reported as a deviation); the loss is concentrated where planes overlap, see the next test."""
+    err, _ = _vienna_noon(); assert err.mean() < 6.0, ('stacked planes drift from the opaque relight', err.mean())
+def test_stacked_planes_error_over_the_overlap_region_is_the_measured_leak():
+    """Where a nearer plane covers a farther one (two or more planes with alpha above 1/100) the farther ridge shows through the nearer plane's haze: measured 21.8/255 mean over 22.6% of the frame on Vienna noon, bound 23.
+    Outside the overlap the planes are exact (0.004/255).  The honest figure; it is the price of independent haze-as-alpha planes."""
+    err, planes = _vienna_noon(); ov = sum((planes[n][..., 3] > 0.01).astype(int) for n in export.PLANES) >= 2
+    assert 0.15 < ov.mean() < 0.30, ('the overlap region is not the 20-ish percent the bound was measured on', ov.mean())
+    assert err[ov].mean() < 23.0, ('overlap-region error', err[ov].mean()); assert err[~ov].mean() < 0.1, ('error outside the overlap', err[~ov].mean())
 def test_plane_grouping_far_mid_near_and_refuses_fewer_than_three_slots():
     """far = slot 0, near = the last slot, mid = every slot between (the union); a 3-slot place fills all three planes; fewer than 3 slots are refused."""
     assert ridge.group_slots(3) == dict(far=[0], mid=[1], near=[2]) and ridge.group_slots(6) == dict(far=[0], mid=[1, 2, 3, 4], near=[5])
@@ -423,33 +435,53 @@ def test_straight_alpha_planes_unpremultiply_the_composite():
         got = _over({n: (pl[n] if n == name else 0 * pl[n]) for n in export.PLANES}, sky)[:top]; want = ridge.win(ridge.relight(L[i:i + 1], *sun, *f, shadows=False, flat=sky))[:top]
         body = pl[name][:top, :, 3] > 0.3; assert body.sum() > 1000 and pl[name][:top, :, 3][body].mean() < 0.97, (name, 'the fixture has no translucent body to test')
         d = np.abs(got - want) * 255; assert d.mean() < 0.5 and d.max() < 4.0, (name, 'plane over a flat sky differs from its slot relight: colour is premultiplied or the haze split is wrong', d.mean(), d.max())
-def _fixture_bake(out, n_keys=6):
+def _encode_all(planes): return {k: {n: export.encode(planes[k][n]) for n in export.PLANES} for k in export.KEYS}
+def _fixture_bake():
     r, L = _three_slot_layers(); f = _statics_flat_grain(); suns = {k: dict(az=100.0 + 20 * i, el=-10.0 + 15 * i, hour_utc=float(i)) for i, k in enumerate(export.KEYS)}
     planes = {k: ridge.relight_planes(L, suns[k]['az'], max(suns[k]['el'], 5.0) if k != 'night' else 5.0, *f, shadows=False) for k in export.KEYS}
     place = dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.1, tz_h=2, tz_name='CEST', date='2026-09-23')
     view = dict(look_az_deg=120.0, plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=ridge.PXDEG_V, horizon_row=100.0, sky_row=24.0, near_row=396.0)
-    webp = {k: {n: export.encode(planes[k][n]) for n in export.PLANES} for k in export.KEYS}; return place, view, suns, webp
+    return place, view, suns, planes
+def _sized(h, w, seed=0, noise=False):
+    """the same plane for every key and name, h rows by w columns: a soft mid-grey ramp, or white noise when noise (a plane that does not compress)"""
+    rng = np.random.default_rng(seed); a = rng.random((h, w, 4)).astype(np.float32) if noise else np.dstack([np.full((h, w), 0.5), np.linspace(0, 1, w)[None].repeat(h, 0), np.full((h, w), 0.3), np.full((h, w), 0.4)]).astype(np.float32)
+    return {k: {n: export.encode(a) for n in export.PLANES} for k in export.KEYS}
+def _refuses(out, place, view, suns, webp, why):
+    try: export.write_bake(out, place, view, suns, webp)
+    except ValueError: assert not os.path.exists(out), ('a refused bake left files', why)
+    else: assert False, why
 def test_manifest_validates_bake_id_is_deterministic_and_luma_is_recorded():
-    """Two bakes of the same input give the same bake_id and bytes; the manifest validates against the schema, planes are the window wide (<= the cap), frame pairs fit the budget, plane paths exist relative to
-    manifest.json, luma min <= max in 0..1 per frame, the index points at the dir and a rebake replaces the place's old dir."""
+    """Two encodings of the same planes give the same bytes and bake_id; the manifest validates against the schema, plane w/h are what the written files decode to, frame pairs fit the budget, luma min <= max in 0..1 per frame,
+    the index points at the dir, a rebake replaces the place's old dir, and nothing but the dir and index.json is left in the output."""
     d = tempfile.mkdtemp()
     try:
-        place, view, suns, webp = _fixture_bake(d); a = export.write_bake(d + '/a', place, view, suns, webp); b = export.write_bake(d + '/b', place, view, suns, webp)
-        assert a.name == b.name and a.name == 'synthetic-' + export.bake_id(webp), (a.name, b.name)
+        place, view, suns, planes = _fixture_bake(); webp = _encode_all(planes); assert webp == _encode_all(planes), 'encoding the same planes twice gave different bytes'
+        a = export.write_bake(d + '/a', place, view, suns, webp); b = export.write_bake(d + '/b', place, view, suns, _encode_all(planes))
+        assert a.name == b.name and a.name == 'synthetic-' + export.bake_id(webp), (a.name, b.name); assert sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name]), os.listdir(d + '/a')
         m = json.load(open(a / 'manifest.json')); export.validate(m, export.SCHEMA['$defs']['manifest']); assert m['bake_id'] == a.name.split('-')[1] and [f['key'] for f in m['frames']] == list(export.KEYS)
-        assert m['view']['plane_w'] <= export.PLANE_W_MAX and m['view']['window_deg'] == 72
+        assert m['view']['plane_w'] <= export.PLANE_W_MAX and m['view']['window_deg'] == 72 and m['view']['plane_w'] == ridge.WIN and m['view']['plane_h'] == ridge.H
         for f in m['frames']:
             assert 0 <= f['luma']['min'] <= f['luma']['max'] <= 1, f['luma']; assert f['bytes'] == sum(p['bytes'] for p in f['planes'].values())
-            for p in f['planes'].values(): assert (a / p['file']).stat().st_size == p['bytes'] and p['w'] == export.PLANE_W
+            for p in f['planes'].values():
+                assert (a / p['file']).stat().st_size == p['bytes'] and export.decode((a / p['file']).read_bytes()).shape[:2] == (p['h'], p['w']) == (ridge.H, ridge.WIN), p
         assert max(m['frames'][i]['bytes'] + m['frames'][i + 1]['bytes'] for i in range(5)) <= export.PAIR_BYTES_MAX
         idx = json.load(open(d + '/a/index.json')); export.validate(idx, export.SCHEMA['$defs']['index']); assert idx == dict(schema=1, default='synthetic', places={'synthetic': a.name})
         webp2 = {k: dict(v) for k, v in webp.items()}; webp2['noon']['far'] = export.encode(np.full((ridge.H, ridge.WIN, 4), 0.5, np.float32) * np.array([1, 1, 1, 2], np.float32)); c = export.write_bake(d + '/a', place, view, suns, webp2)
-        assert c.name != a.name and not a.exists() and json.load(open(d + '/a/index.json'))['places']['synthetic'] == c.name, 'the old dir of the place survives a rebake'
+        assert c.name != a.name and not a.exists() and json.load(open(d + '/a/index.json'))['places']['synthetic'] == c.name, 'the old dir of the place survives a rebake'; assert sorted(os.listdir(d + '/a')) == sorted(['index.json', c.name])
         bad = json.loads(json.dumps(m)); bad['frames'][0]['extra'] = 1
         try: export.validate(bad, export.SCHEMA['$defs']['manifest'])
         except ValueError: pass
         else: assert False, 'an extra key passed the schema'
         committed = json.load(open(os.path.join(SRC, 'ridge-bake.schema.json'))); assert committed == json.loads(json.dumps(export.SCHEMA)), 'ridge-bake.schema.json is stale (export.py --write-schema)'
+    finally: shutil.rmtree(d)
+def test_index_default_keeps_the_first_place_and_follows_an_explicit_default():
+    """A second place leaves the index default at the first; an explicit default names the default; a default naming no baked place falls back to the place just baked."""
+    d = tempfile.mkdtemp()
+    try:
+        place, view, suns, planes = _fixture_bake(); webp = _encode_all(planes); other = dict(place, id='other')
+        export.write_bake(d, place, view, suns, webp); export.write_bake(d, other, view, suns, webp); idx = json.load(open(d + '/index.json')); assert idx['default'] == 'synthetic' and sorted(idx['places']) == ['other', 'synthetic'], idx
+        export.write_bake(d, other, view, suns, webp, default='other'); assert json.load(open(d + '/index.json'))['default'] == 'other'
+        idx = json.load(open(d + '/index.json')); idx['default'] = 'gone'; open(d + '/index.json', 'w').write(json.dumps(idx)); export.write_bake(d, other, view, suns, webp); assert json.load(open(d + '/index.json'))['default'] == 'other'
     finally: shutil.rmtree(d)
 def test_bake_id_follows_the_plane_bytes_in_order():
     """bake_id = first 12 hex of sha256 over the plane bytes in key order, then far, mid, near: one changed byte in any plane changes it, swapping two planes changes it, and the value equals an independent hash."""
@@ -473,18 +505,93 @@ def test_budget_refuses_a_pair_above_the_cap_and_a_plane_above_the_width():
     else: assert False, 'a plane wider than the cap was accepted'
     d = tempfile.mkdtemp()
     try:
-        place, view, suns, webp = _fixture_bake(d); fat = {k: dict(v) for k, v in webp.items()}; fat['dusk']['mid'] = b'\0' * cap
-        try: export.write_bake(d + '/o', place, view, suns, fat)
-        except ValueError: assert not os.path.exists(d + '/o'), 'a refused bake left files'
-        else: assert False, 'an over-budget bake was written'
+        place, view, suns, planes = _fixture_bake(); webp = _encode_all(planes); fat = {k: dict(v) for k, v in webp.items()}
+        fat['dusk']['mid'] = export.encode(np.random.default_rng(1).random((ridge.H, ridge.WIN, 4)).astype(np.float32)); assert len(fat['dusk']['mid']) > cap // 2, 'the noise plane does not weigh enough'
+        _refuses(d + '/o', place, view, suns, fat, 'an over-budget bake was written')
     finally: shutil.rmtree(d)
-def test_luma_range_reads_a_known_solid_plane_and_ignores_translucent_pixels():
-    """Two hand-built planes: a solid mid-grey (sRGB 128 -> linear 0.2158) and a solid white (1.0); a translucent black pixel (alpha 100) is not measured.  Reads back to 1e-3."""
-    a = np.zeros((4, 4, 4), np.uint8); a[..., 3] = 0; a[:2, :, :] = (128, 128, 128, 255); a[2, 0] = (0, 0, 0, 100)
-    b = np.zeros((4, 4, 4), np.uint8); b[0, 0] = (255, 255, 255, 255)
-    lo, hi = export.luma_range([a, b]); assert abs(lo - 0.2158) < 1e-3 and abs(hi - 1.0) < 1e-3, (lo, hi)
-    z = export.decode(export.encode(np.full((8, 8, 4), 1.0, np.float32))); assert z.shape == (8, 8, 4) and (z[..., 3] == 255).all(), 'an everywhere-opaque plane must read back as RGBA'
+def test_size_refusals_read_the_written_planes_not_constants():
+    """write_bake measures the planes it was handed: a 5000 px plane is refused (cap 4096) and so are planes that disagree on size or with the view's plane_h; a frame pair decoding above 20 MB is refused (700 rows) and at 650 rows is written;
+    the manifest carries the measured w and h (1000 px planes say w=1000), never a constant."""
+    d = tempfile.mkdtemp()
+    try:
+        place, view, suns, _ = _fixture_bake(); v = lambda h: dict(view, plane_h=h)
+        _refuses(d + '/wide', place, v(100), suns, _sized(100, 5000), 'planes 5000 px wide were accepted')
+        mixed = _sized(100, 1000); mixed['noon']['mid'] = _sized(100, 900)['noon']['mid']; _refuses(d + '/mixed', place, v(100), suns, mixed, 'planes of two widths were accepted')
+        _refuses(d + '/rows', place, v(101), suns, _sized(100, 1000), 'planes whose height is not the view plane_h were accepted')
+        _refuses(d + '/heavy', place, v(700), suns, _sized(700, 1280), 'a frame pair decoding to 21.5 MB was accepted')
+        a = export.write_bake(d + '/ok', place, v(650), suns, _sized(650, 1280)); m = json.load(open(a / 'manifest.json')); assert m['view']['plane_w'] == 1280 and m['view']['plane_h'] == 650
+        b = export.write_bake(d + '/narrow', place, v(100), suns, _sized(100, 1000)); m = json.load(open(b / 'manifest.json'))
+        assert m['view']['plane_w'] == 1000 and all(p['w'] == 1000 and p['h'] == 100 for f in m['frames'] for p in f['planes'].values()), m['view']
+    finally: shutil.rmtree(d)
+def _srgb_y(c): c = np.asarray(c, float); lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); return float(lin @ np.array([0.2126, 0.7152, 0.0722]))
+def test_luma_range_is_the_far_mid_near_composite_over_a_grey_sky_where_coverage_is_at_least_half():
+    """Hand-built 1x5 planes, none opaque anywhere (haze-as-alpha): px0 far (255,0,0) alpha 128 then near (0,0,255) alpha 128 (order matters, coverage .75); px1 far white alpha 128 (coverage .50, measured);
+    px2 far black alpha 100 (coverage .39, not measured); px3 far and mid black alpha 100 each (coverage .63, measured); px4 nothing.  min and max equal the arithmetic composite over the 0.5 grey sky to 1e-6."""
+    z = lambda: np.zeros((1, 5, 4), np.uint8); far, mid, near = z(), z(), z()
+    far[0, 0] = (255, 0, 0, 128); near[0, 0] = (0, 0, 255, 128); far[0, 1] = (255, 255, 255, 128); far[0, 2] = (0, 0, 0, 100); far[0, 3] = (0, 0, 0, 100); mid[0, 3] = (0, 0, 0, 100)
+    sky = np.full(3, 0.5); a = 128 / 255; p0 = (sky * (1 - a) + np.array([1, 0, 0]) * a) * (1 - a) + np.array([0, 0, 1]) * a; p1 = sky * (1 - a) + a; b = 100 / 255; p3 = sky * (1 - b) ** 2
+    want = sorted(_srgb_y(p) for p in (p0, p1, p3)); lo, hi = export.luma_range([far, mid, near]); assert abs(lo - want[0]) < 1e-6 and abs(hi - want[-1]) < 1e-6, ((lo, hi), want)
+    try: export.luma_range([z(), z(), z()])
+    except ValueError: pass
+    else: assert False, 'a frame with no covered pixel was measured'
+    z2 = export.decode(export.encode(np.full((8, 8, 4), 1.0, np.float32))); assert z2.shape == (8, 8, 4) and (z2[..., 3] == 255).all(), 'an everywhere-opaque plane must read back as RGBA'
+def _rt_error(planes, back):
+    sky = export.SHEET_SKY; return np.abs(_over({n: planes[n] for n in export.PLANES}, sky) - _over({n: back[n].astype(np.float32) / 255 for n in export.PLANES}, sky)) * 255
+def test_encode_round_trips_the_shipped_planes_with_real_grain_and_the_default_reference():
+    """The planes as shipped (default reference haze, the real grain, WebP quality 80) decode to the float planes: composited over a flat sky the round trip costs under 1.7/255 mean and 32/255 max (measured 1.47 and 28.6 on this hard-edged fixture; quality 50 measures 1.64 and 34, quality 5 measures 2.16 and 73), straight
+    colour (not premultiplied), alpha kept, rows not flipped; the real grain multiplies the colour exactly (the ratio to a grain-free bake is win(grain))."""
+    r, L = _three_slot_layers(); paperf, grain, fmot = ridge.statics(); sun = (200.0, 40.0)
+    shipped = ridge.relight_planes(L, *sun, paperf, grain, fmot, shadows=False); flat = ridge.relight_planes(L, *sun, paperf, np.ones_like(grain), fmot, shadows=False)
+    back = {n: export.decode(export.encode(shipped[n])) for n in export.PLANES}; assert all(back[n].shape == shipped[n].shape for n in export.PLANES), 'decode changed the plane shape'
+    e = _rt_error(shipped, back); assert e.mean() < 1.7 and e.max() < 32.0, ('encode/decode round trip', e.mean(), e.max())
+    for n in export.PLANES: assert abs(back[n][..., 3].astype(float) / 255 - shipped[n][..., 3]).max() < 0.1, ('alpha lost in the round trip', n)
+    g = ridge.win(grain); ok = (flat['near'][..., 3] > 0.2) & (flat['near'][..., :3].max(-1) * 1.03 < 1)
+    assert ok.sum() > 1000 and np.abs(shipped['near'][..., :3][ok] / flat['near'][..., :3][ok] - np.broadcast_to(g, ok.shape)[ok][:, None]).max() < 1e-3, 'the grain does not multiply the plane colour'
+def test_default_reference_is_the_frames_own_haze_colour_and_shadows_darken_the_planes():
+    """With no reference given the far plane over the frame's own haze colour equals the opaque relight of its group over that colour (<1 mean, 4 max in 1/255), not over the sky's horizon colour or a grey; cast shadows reach the planes:
+    a forced shadow of 1 darkens the far-group colour, a forced 0 equals shadows off."""
+    r, L = _three_slot_layers(); paperf, grain, fmot = ridge.statics(); f1 = (paperf, np.ones_like(grain), fmot); sun = (200.0, 40.0); st = ridge.sun_state(*sun); hz = ridge.haze_colour(ridge.sky_hz(st, paperf)[1])
+    far = ridge.relight_planes(L, *sun, *f1, shadows=False)['far']; sky = ridge.win(hz[None].astype(np.float32))[0]
+    img = _over(dict(far=far, mid=0 * far, near=0 * far), sky); want = ridge.win(ridge.relight(L[:1], *sun, *f1, shadows=False, flat=hz)); d = np.abs(img - want) * 255
+    assert d.mean() < 1.0 and d.max() < 4.0, ('the default reference is not the frame haze colour', d.mean(), d.max())
+    real = ridge.cast_shadows
+    try:
+        ridge.cast_shadows = lambda layers, az, el: [np.ones((3, W)) for _ in layers]; dark = ridge.relight_planes(L, *sun, *f1)
+        ridge.cast_shadows = lambda layers, az, el: [np.zeros((3, W)) for _ in layers]; lit = ridge.relight_planes(L, *sun, *f1)
+    finally: ridge.cast_shadows = real
+    off = ridge.relight_planes(L, *sun, *f1, shadows=False); body = off['near'][..., 3] > 0.5
+    assert body.sum() > 1000 and dark['near'][..., :3][body].mean() < off['near'][..., :3][body].mean() - 0.02, 'cast shadows do not reach the planes'
+    assert all(np.abs(lit[n] - off[n]).max() < 1e-4 for n in export.PLANES), 'a zero shadow differs from shadows off'
+def test_sun_set_keys_sit_at_their_elevations_and_hours():
+    """The six keys on Vienna's preset date: noon is the day's highest sun, golden at a geometric elevation of 6.0 deg after it, dusk -2.5 deg, night -12.0 deg (the schema's night frame), dawn just above the horizon a quarter hour after sunrise, morning at 9.5 h local;
+    hours increase dawn < morning < noon < golden < dusk < night.  Elevations are re-read from sun.solar, not from the keys: the keys are geometric (solar()[2]) and the manifest's el is the apparent one (solar()[1], refraction added)."""
+    import sun; from datetime import datetime, timedelta, timezone
+    p = ridge.load_preset('vienna'); s = export.sun_set(p, p['date']); assert list(s) == list(export.KEYS)
+    day = datetime.fromisoformat(p['date']).replace(tzinfo=timezone.utc); el = lambda h: sun.solar(day + timedelta(hours=h), p['lat'], p['lon'])[1]
+    geo = lambda h: sun.solar(day + timedelta(hours=h), p['lat'], p['lon'])[2]
+    for k in s: assert abs(el(s[k]['hour_utc']) - s[k]['el']) < 1e-9, k
+    assert abs(geo(s['golden']['hour_utc']) - 6.0) < 0.01 and abs(geo(s['dusk']['hour_utc']) + 2.5) < 0.01 and abs(geo(s['night']['hour_utc']) + 12.0) < 0.01 and abs(s['night']['el'] + 12.0) < 0.01, {k: v['el'] for k, v in s.items()}
+    assert max(el(h / 100) for h in range(0, 2400, 5)) - s['noon']['el'] < 0.01 and abs(s['morning']['hour_utc'] - (9.5 - p['tz_h'])) < 1e-9
+    assert -0.833 < s['dawn']['el'] < 3.0, s['dawn']; hs = [s[k]['hour_utc'] for k in export.KEYS]; assert hs == sorted(hs), hs
+def test_bake_place_manifest_fields_on_vienna():
+    """bake_place on the real Vienna preset: altitude is the ground (km) without the eye height, horizon_row is the row where the elevation angle is 0 (inside the frame, between sky_row and near_row), px_per_deg_h is the ring's;
+    write_bake of its encoded planes gives finite luma for every frame, index default 'vienna', the full Copernicus credit line, and no temp dir left behind."""
+    saved = ridge.P
+    try:
+        place, view, suns, planes = export.bake_place('vienna', relight_keys=export.KEYS); P = ridge.P; rowang = ridge.rowang; pxv = ridge.PXDEG_V
+    finally: ridge.P = saved
+    assert abs(place['altitude_km'] * 1000 - P['ground_m']) < 1e-6 and P['eye_m'] > 0 and place['id'] == 'vienna' and place['date'] == P['date'] and place['lat'] == P['lat'] and place['lon'] == P['lon']
+    assert 0 < view['sky_row'] < view['horizon_row'] < view['near_row'] < ridge.H and abs(rowang[int(view['horizon_row'])]) <= 1.0 / pxv, (view, rowang[int(view['horizon_row'])])
+    assert view['look_az_deg'] == P['az_center'] and view['plane_h'] == ridge.H and view['px_per_deg_h'] == ridge.HPX_DEG and view['px_per_deg_v'] == pxv
+    d = tempfile.mkdtemp()
+    try:
+        dest = export.write_bake(d, place, view, suns, _encode_all(planes)); m = json.load(open(dest / 'manifest.json'))
+        assert all(math.isfinite(f['luma'][k]) and 0 <= f['luma']['min'] < f['luma']['max'] <= 1 for f in m['frames'] for k in ('min', 'max')), [f['luma'] for f in m['frames']]
+        assert json.load(open(d + '/index.json'))['default'] == 'vienna' and sorted(os.listdir(d)) == sorted(['index.json', dest.name]), os.listdir(d)
+        c = m['attribution']['credit_line']; assert c.startswith('Contains modified Copernicus data') and 'Airbus Defence and Space' in c and 'ESA' in c and m['attribution']['licence'] and m['attribution']['url'].startswith('https://'), m['attribution']
+    finally: shutil.rmtree(d)
 
+PLANES_TESTS = [v for k, v in sorted(globals().items()) if k.startswith('test_') and k not in _before]
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('test_')]
 if __name__ == '__main__':
     fails = 0

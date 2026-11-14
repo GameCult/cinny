@@ -254,7 +254,8 @@
          "max": {
           "type": "number"
          }
-        }
+        },
+        "description": "min and max WCAG relative luminance of the three planes composited far, mid, near over a flat mid-grey sky, over pixels whose composite coverage 1 - prod(1 - alpha) is at least 0.5"
        }
       }
      }

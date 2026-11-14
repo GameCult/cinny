@@ -23,7 +23,8 @@ PLANE_W_MAX = 4096
 PAIR_BYTES_MAX = 800_000               # two adjacent frames (the runtime's worst case) together; the same number is a CI constant in cut-ridge-ad-gates
 DECODE_BYTES_MAX = 20_000_000          # the six planes of a frame pair decoded (2 x 3 x w x h x 4 bytes = 18.4 MB at the full window)
 WEBP_QUALITY = 80
-SOLID = 250                            # alpha (0..255) that counts as a solid pixel for the luma probe
+LUMA_SKY = 0.5                         # the flat mid-grey sky the planes are composited over for the luma probe
+LUMA_COVER = 0.5                       # composite coverage (1 - prod(1 - alpha)) at or above which a pixel is measured
 SHEET_SKY = (0.80, 0.86, 0.94)         # the flat sky of the contact sheet
 ATTRIBUTION = dict(
     credit_line='Contains modified Copernicus data: DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.',
@@ -39,7 +40,7 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
     'manifest': _obj(schema={'const': 1}, baker_version=_int, bake_id=_str,
         place=_obj(id=_str, name=_str, lat=_num, lon=_num, altitude_km=_num, tz_h=_num, tz_name=_str, date=_str),
         view=_obj(look_az_deg=_num, window_deg={'const': WINDOW_DEG}, plane_w={'type': 'integer', 'maximum': PLANE_W_MAX}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, horizon_row=_num, sky_row=_num, near_row=_num),
-        frames={'type': 'array', 'minItems': len(KEYS), 'maxItems': len(KEYS), 'items': _obj(key={'enum': list(KEYS)}, sun=_obj(az=_num, el=_num), hour_utc=_num, planes=_obj(**{k: _plane for k in PLANES}), bytes=_int, luma=_obj(min=_num, max=_num))},
+        frames={'type': 'array', 'minItems': len(KEYS), 'maxItems': len(KEYS), 'items': _obj(key={'enum': list(KEYS)}, sun=_obj(az=_num, el=_num), hour_utc=_num, planes=_obj(**{k: _plane for k in PLANES}), bytes=_int, luma=dict(_obj(min=_num, max=_num), description='min and max WCAG relative luminance of the three planes composited far, mid, near over a flat mid-grey sky, over pixels whose composite coverage 1 - prod(1 - alpha) is at least 0.5'))},
         attribution=_obj(credit_line=_str, licence=_str, dem_source=_str, url=_str)),
     'index': _obj(schema={'const': 1}, default=_str, places={'type': 'object', 'additionalProperties': _str})}}
 
@@ -88,15 +89,15 @@ def decode(b):
     a = imagecodecs.webp_decode(b)
     return a if a.shape[-1] == 4 else np.concatenate([a, np.full(a.shape[:2] + (1,), 255, np.uint8)], -1)
 def luma_range(decoded):
-    """WCAG relative luminance (linear 0..1) of the sRGB colour of every solid pixel (alpha >= SOLID) over the planes together: (min, max)."""
-    lo, hi = 1.0, 0.0
+    """WCAG relative luminance (linear 0..1) of the sRGB composite of the planes (far, mid, near order) over a flat LUMA_SKY grey, over the pixels whose composite coverage 1 - prod(1 - alpha) is at least LUMA_COVER: (min, max).
+    The planes are haze-as-alpha (no pixel is opaque), so the measure is of the composite, never of one plane's solid pixels."""
+    img = np.full(decoded[0].shape[:2] + (3,), LUMA_SKY); clear = np.ones(img.shape[:2])
     for a in decoded:
-        m = a[..., 3] >= SOLID
-        if not m.any(): continue
-        c = a[..., :3][m].astype(np.float64) / 255.0; lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); y = lin @ np.array([0.2126, 0.7152, 0.0722])
-        lo, hi = min(lo, float(y.min())), max(hi, float(y.max()))
-    if hi < lo: raise ValueError('a frame has no solid pixel to measure')
-    return lo, hi
+        al = a[..., 3:].astype(np.float64) / 255.0; img = img * (1 - al) + a[..., :3].astype(np.float64) / 255.0 * al; clear = clear * (1 - al[..., 0])
+    m = (1 - clear) >= LUMA_COVER
+    if not m.any(): raise ValueError('a frame has no pixel at coverage >= %s to measure' % LUMA_COVER)
+    c = img[m]; lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); y = lin @ np.array([0.2126, 0.7152, 0.0722])
+    return float(y.min()), float(y.max())
 
 def check_budget(frame_bytes, plane_w, plane_h):
     """Refuse a bake the runtime could not hold: any two adjacent frames above PAIR_BYTES_MAX, or the planes of a frame pair decoding above DECODE_BYTES_MAX."""
@@ -114,15 +115,20 @@ def bake_id(frames_webp):
     return h.hexdigest()[:12]
 
 def write_bake(out, place, view, suns, frames_webp, default=None):
-    """Write out/<place>-<bake_id>/ (planes + manifest.json), rewrite out/index.json, delete the place's previous dir.  Refuses over budget before writing.  Returns the directory."""
-    sizes = {k: {n: len(frames_webp[k][n]) for n in PLANES} for k in KEYS}; check_budget([sum(sizes[k].values()) for k in KEYS], PLANE_W, view['plane_h'])
+    """Write out/<place>-<bake_id>/ (planes + manifest.json), rewrite out/index.json, delete the place's previous dir.  Refuses before writing a bake whose planes are not one size, differ from view plane_h, or exceed the budget measured on the decoded planes.  Returns the directory."""
+    sizes = {k: {n: len(frames_webp[k][n]) for n in PLANES} for k in KEYS}; dec = {k: [decode(frames_webp[k][n]) for n in PLANES] for k in KEYS}
+    shapes = {a.shape[:2] for k in KEYS for a in dec[k]}
+    if len(shapes) != 1: raise ValueError(f'the planes are not one size: {sorted(shapes)}')
+    h, w = shapes.pop()
+    if h != view['plane_h']: raise ValueError(f"the planes are {h} rows, the view says {view['plane_h']}")
+    check_budget([sum(sizes[k].values()) for k in KEYS], w, h)
     bid = bake_id(frames_webp); name = f"{place['id']}-{bid}"; out = Path(out); out.mkdir(parents=True, exist_ok=True); dest = out / name
     frames = []
     for k in KEYS:
-        dec = [decode(frames_webp[k][n]) for n in PLANES]; lo, hi = luma_range(dec)
+        lo, hi = luma_range(dec[k])
         frames.append(dict(key=k, sun=dict(az=suns[k]['az'], el=suns[k]['el']), hour_utc=suns[k]['hour_utc'],
-                           planes={n: dict(file=f'{k}-{n}.webp', bytes=sizes[k][n], w=PLANE_W, h=view['plane_h']) for n in PLANES}, bytes=sum(sizes[k].values()), luma=dict(min=lo, max=hi)))
-    manifest = dict(schema=1, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, window_deg=WINDOW_DEG, plane_w=PLANE_W), frames=frames, attribution=ATTRIBUTION)
+                           planes={n: dict(file=f'{k}-{n}.webp', bytes=sizes[k][n], w=w, h=h) for n in PLANES}, bytes=sum(sizes[k].values()), luma=dict(min=lo, max=hi)))
+    manifest = dict(schema=1, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, window_deg=WINDOW_DEG, plane_w=w), frames=frames, attribution=ATTRIBUTION)
     validate(manifest, SCHEMA['$defs']['manifest'])
     tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
     for k in KEYS:

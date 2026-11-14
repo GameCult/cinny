@@ -10,7 +10,7 @@ python3 -I scripts/ridge-bake/export.py <place-id> --tiles DIR --out public/ridg
 
 Needs Python 3 with `numpy`, `tifffile` and `imagecodecs`. `--tiles` is a directory of Copernicus GLO-30 tiles (never committed); `--work` caches the mosaic and rays (default `$TMPDIR/ridge-bake-work`); `--sheet` writes the six frames over one flat sky. `python3 -I scripts/ridge-bake/export.py --write-schema` rewrites `ridge-bake.schema.json`; `export.py` holds the one dict it comes from.
 
-Tests: `RIDGE_PY=<python> RIDGE_TILES=DIR scripts/ridge-bake/tests/run.sh [test_ridge.py|mutate.py]` (the full file takes about 9 minutes; `mutate.py` runs the mutants of taper, chains and sweep and fails if one survives).
+Tests: `RIDGE_PY=<python> RIDGE_TILES=DIR scripts/ridge-bake/tests/run.sh [test_ridge.py|mutate.py|mutate_export.py]` (the full file takes about 9 minutes; `mutate.py` runs the mutants of taper, chains and sweep and `mutate_export.py` those of the planes path and export, each failing if one survives).
 
 ## Tiles per preset (`places.json`, date 2026-09-23)
 
@@ -27,7 +27,9 @@ Files are `Copernicus_DSM_COG_10_<N|S>dd_00_<E|W>ddd_00_DEM.tif`; the list below
 
 ## Planes
 
-`relight_planes` renders every layer twice, with haze colour 0 and 1; the relight is affine in the haze colour, so the difference is each pixel's haze share. That share becomes transparency and the sky behind supplies the haze. Far is slot 0 plus the floor, near is the last slot, mid is every slot between (a place needs at least 3). Colour is exact over the frame's own haze colour; over another sky it drifts by the difference between the two. Stacked planes over a flat sky stay within 6/255 mean of the opaque frame (4.9/255 measured on Vienna noon); the spec's 2/255 is not reachable with this trick.
+`relight_planes` renders every layer twice, with haze colour 0 and 1; the relight is affine in the haze colour, so the difference is each pixel's haze share. That share becomes transparency and the sky behind supplies the haze. Far is slot 0 plus the floor, near is the last slot, mid is every slot between (a place needs at least 3). Colour is exact over the frame's own haze colour; over another sky it drifts by the difference between the two. Stacked planes leak: each plane's haze is alpha over whatever is behind it, so a nearer plane's haze veils the farther ridge instead of the sky, and the farther ridge shows through it. Over a flat sky the stack differs from the opaque frame by 4.9/255 over the whole frame (Vienna noon), but that is 21.8/255 mean over the 22.6% of pixels where two planes overlap and 0.004/255 everywhere else; the tests bound the frame at 6/255 and the overlap at 23/255. The spec's 2/255 was not pursued: it needs a different decomposition than independent haze-as-alpha planes.
+
+Manifest `luma` is the min and max relative luminance (WCAG, linear 0..1) of the three planes composited far, mid, near over a flat mid-grey sky, over the pixels whose composite coverage `1 - prod(1 - alpha)` is at least 0.5. No plane pixel is opaque (haze is alpha), so no per-plane solid set exists; the composite is what the runtime shows.
 
 ## Licence
 
