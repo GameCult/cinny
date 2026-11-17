@@ -413,7 +413,9 @@ describe('the starfield in the scene', () => {
     const { parent, canvas } = host();
     createRidgeScene({ canvas, tier: 'still', sky: night });
     expect(count('star')).toBe(N);
-    expect(parent.children).toEqual([canvas]);
+    expect(
+      parent.children.filter((c: any) => c !== canvas).map((c: any) => c.style.pointerEvents)
+    ).toEqual(['none']); // only the scrim
     expect(rafQueue).toHaveLength(0);
   });
 
@@ -467,7 +469,7 @@ describe('the starfield in the scene', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: night })!;
     runFrames(100, 100);
-    expect(parent.children).toEqual([canvas]);
+    expect(parent.children.filter((c: any) => c !== canvas)).toHaveLength(1); // the scrim stays
     expect(count('star')).toBe(N);
     expect(rafQueue).toHaveLength(0);
     s.dispose();
@@ -569,7 +571,7 @@ describe('the ridge planes in the scene', () => {
     expect(parent.children).toEqual([canvas]);
   });
 
-  it('the scrim never takes a tap or a row\'s size, and is flat and heavier when the planes are missing', () => {
+  it("the scrim never takes a tap or a row's size, and is flat and heavier when the planes are missing", () => {
     const withPlanes = host();
     createRidgeScene({ canvas: withPlanes.canvas, tier: 'full', sky: night, backdrop: NOON });
     const flat = host();
@@ -584,6 +586,22 @@ describe('the ridge planes in the scene', () => {
     expect(scrimOf(flat).style.background).not.toContain(', rgba(96,150,220,0)');
     expect(scrimOf(flat).style.background).toContain(String(SCRIM_ALPHA.flat));
     expect(SCRIM_ALPHA.flat).toBeGreaterThan(SCRIM_ALPHA.planes);
+  });
+
+  it('the settled still keeps the scrim over the canvas: gradient with planes, flat without', () => {
+    for (const [backdrop, flat] of [
+      [NOON, false],
+      [undefined, true],
+    ] as const) {
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'still', sky: night, backdrop })!;
+      const scrims = parent.children.filter((c: any) => c.style.background);
+      expect(scrims).toHaveLength(1);
+      expect(scrims[0].style.background).toBe(scrimBackground(night, !flat));
+      expect(scrims[0].style.pointerEvents).toBe('none');
+      s.dispose();
+      expect(parent.children).toEqual([canvas]);
+    }
   });
 
   it('a day sky has no scrim', () => {

@@ -5,7 +5,14 @@ import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
 import { windowFor } from './view';
 import { crossfade } from './frameChoice';
-import { activeAt, drawStars, drawTwinkle as paintTwinkle, isNight, makeStars, Star } from './stars';
+import {
+  activeAt,
+  drawStars,
+  drawTwinkle as paintTwinkle,
+  isNight,
+  makeStars,
+  Star,
+} from './stars';
 import { drawRainTile, RAIN_TILES } from './rain';
 import type { Backdrop, Planes } from './Backdrop';
 import { PLANE_NAMES } from './manifest';
@@ -29,7 +36,9 @@ export const scrimBackground = (sky: SkyColours, hasPlanes: boolean): string => 
   const [r, g, b] = sky.top;
   const a = hasPlanes ? SCRIM_ALPHA.planes : SCRIM_ALPHA.flat;
   const c = (k: number) => `rgba(${r},${g},${b},${a * k})`;
-  return hasPlanes ? `linear-gradient(to bottom, ${c(1)} 0%, ${c(1)} 55%, ${c(0)} 85%)` : `linear-gradient(${c(1)}, ${c(1)})`;
+  return hasPlanes
+    ? `linear-gradient(to bottom, ${c(1)} 0%, ${c(1)} 55%, ${c(0)} 85%)`
+    : `linear-gradient(${c(1)}, ${c(1)})`;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -323,6 +332,24 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     });
   };
 
+  /** The legibility fill, appended over whatever the parent holds so far. Over a dark sky only: a light one is not the stars' problem, and a dark fill would hurt dark text. */
+  const makeScrim = (): HTMLElement | undefined => {
+    if (!isNight(sky)) return undefined;
+    const scrim = document.createElement('div');
+    scrim.setAttribute('aria-hidden', 'true');
+    Object.assign(scrim.style, {
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
+      background: scrimBackground(sky, !!opts.backdrop),
+    });
+    parent.appendChild(scrim);
+    return scrim;
+  };
+
   /** Paint the sky, the stars and the rain. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardown();
@@ -353,22 +380,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       });
       parent.appendChild(twinkle);
     }
-    // Over a dark sky only: a light one is not the stars' problem, and a dark fill would hurt dark text.
-    let scrim: HTMLElement | undefined;
-    if (isNight(sky)) {
-      scrim = document.createElement('div');
-      scrim.setAttribute('aria-hidden', 'true');
-      Object.assign(scrim.style, {
-        position: 'absolute',
-        left: '0',
-        top: '0',
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-        background: scrimBackground(sky, !!opts.backdrop),
-      });
-      parent.appendChild(scrim);
-    }
+    const scrim = makeScrim();
     field = stars;
     built = { twinkle, scrim };
     if (opts.backdrop && !still) built.rig = startRig(opts.backdrop, w, h);
@@ -426,6 +438,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     cancelAnimationFrame(raf);
     raf = 0;
     if (opts.backdrop) paintPlanes(opts.backdrop);
+    // The planes are in the canvas now: the scrim, which fades out toward them, goes over the canvas.
+    const scrim = makeScrim();
+    built = scrim ? { scrim } : undefined;
     report(true);
   };
 

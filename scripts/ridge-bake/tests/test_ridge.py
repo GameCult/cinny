@@ -461,9 +461,9 @@ def test_near_foot_reaches_the_horizon_and_a_step_in_it_is_eased_not_cut():
     assert np.abs(np.diff(f)).max() < 8.0, np.abs(np.diff(f)).max()
     assert ridge.near_foot(np.full(400, 1.0), np.full(400, 5.0)).min() >= 5.0 * ridge.PXDEG_V / ridge.FADE_AT - 1e-6
     ok = np.zeros((60, 40, 4), np.uint8); ok[10:, :, 3] = 200; export.check_near_cover(ok, 30.0)
-    early = ok.copy(); early[25:, 30:, 3] = 0
-    try: export.check_near_cover(early, 20.0)
-    except ValueError as e: assert 'step' in str(e), str(e)
+    early = ok.copy(); early[15:, 30:, 3] = 0
+    try: export.check_near_cover(early, 12.0)
+    except ValueError as e: assert 'notch' in str(e), str(e)
     else: assert False, 'a near plane whose body ends early in a few columns was accepted'
 def test_write_bake_refuses_a_near_plane_with_a_wedge_and_lets_the_other_planes_have_empty_columns():
     """The refusal is at the writer, on the decoded near plane of every frame; the far and mid planes may have transparent columns (a place with no ridge at that distance in part of the window)."""
