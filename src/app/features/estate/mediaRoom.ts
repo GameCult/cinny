@@ -13,6 +13,9 @@ export const ROOMS_KEY = '@rooms';
 
 export const mediaAlias = (mind: string, server: string): string => `#${mind}-files:${server}`;
 
+/** The shared Commons room's alias (gamecult-ops synapse-accounts-hand-managed.py COMMONS_ALIAS). */
+export const commonsAlias = (server: string): string => `#commons:${server}`;
+
 /**
  * The room id the stewardships state names for a Mind's media room, under `@rooms.file_zones[<mind>]`.
  * The state's mind-to-repos lists are not read here.

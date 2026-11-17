@@ -5,7 +5,7 @@ import { Avatar, Box, Icon, Icons, Text } from 'folds';
 import { NavGutter, NavItem, NavItemContent, NavLink } from '../../components/nav';
 import { NAV_ROOM_ICON_REST_OPACITY, NavLabel } from '../../components/nav/styles.css';
 import { EstateRoom } from './buildEstate';
-import { COMMONS_KEY, commonsAlias, isFileZone } from '../albums/isFileZone';
+import { isFileZone } from '../albums/isFileZone';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { MINDS } from '../../components/message/pose/poses';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
@@ -15,6 +15,7 @@ import { useEstateRootId } from './useEstate';
 import {
   STEWARDSHIPS_KEY,
   MediaRow as MediaRowState,
+  commonsAlias,
   commonsRow,
   lookupMediaRoom,
   lookupZoneRoom,
@@ -111,20 +112,14 @@ export const useMindMedia = (mind: string, rooms: readonly EstateRoom[]): MediaR
 /** The shared Commons room as the navigator sees it right now: undefined means no row. Dark unless fileZoneShare.enabled. */
 export const useCommons = (): EstateRoom | undefined => {
   const mx = useMatrixClient();
-  const { rootId } = useEstateRootId();
   const joined = useAtomValue(allRoomsAtom);
   const invited = useAtomValue(allInvitesAtom);
   const enabled = !!useClientConfig().fileZoneShare?.enabled;
   const server = mx.getDomain() ?? '';
-  const carried = mediaRoomIdFromStewardships(
-    rootId
-      ? mx.getRoom(rootId)?.currentState.getStateEvents(STEWARDSHIPS_KEY, '')?.getContent()
-      : undefined,
-    COMMONS_KEY
-  );
+  // Provisioning records no id for the Commons (only per-Mind zones under @rooms.file_zones): the alias is the one way in.
   const lookup = useQuery({
-    queryKey: ['commons-room', server, carried],
-    queryFn: () => lookupZoneRoom(mx, commonsAlias(server), server, carried),
+    queryKey: ['commons-room', server],
+    queryFn: () => lookupZoneRoom(mx, commonsAlias(server), server),
     staleTime: 60_000,
     enabled,
   });

@@ -15,7 +15,6 @@ const REFRESH_MS = 30_000;
 /** True when the room is the file zone: by its create type, or listed in the client config. */
 export const useIsFileZone = (room: Room): boolean => {
   const config = useClientConfig();
-  const server = useMatrixClient().getDomain() ?? undefined;
   // Subscribes to alias changes (alt aliases live in the same event).
   useStateEvent(room, StateEvent.RoomCanonicalAlias);
   const createType = room.currentState.getStateEvents('m.room.create', '')?.getContent().type;
@@ -24,7 +23,6 @@ export const useIsFileZone = (room: Room): boolean => {
       roomId: room.roomId,
       aliases: [room.getCanonicalAlias(), ...room.getAltAliases()].filter((a): a is string => !!a),
       createType,
-      server,
     },
     config
   );

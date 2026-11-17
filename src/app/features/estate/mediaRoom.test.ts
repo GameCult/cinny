@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { commonsAlias, COMMONS_KEY } from '../albums/isFileZone';
 import {
+  commonsAlias,
   commonsRow,
   lookupMediaRoom,
   lookupZoneRoom,
@@ -149,19 +149,6 @@ describe('the Commons row', () => {
       name: 'Commons',
       state: 'joined',
     });
-  });
-
-  it('is found by a carried id under file_zones.commons, asking nobody', async () => {
-    const { mx, asked } = clientFor(async () => {
-      throw new Error('must not be asked');
-    });
-    const carried = mediaRoomIdFromStewardships(
-      { '@rooms': { file_zones: { [COMMONS_KEY]: '!c:gamecult.org' } } },
-      COMMONS_KEY
-    );
-    const lookup = await lookupZoneRoom(mx, commonsAlias('gamecult.org'), 'gamecult.org', carried);
-    expect(asked).toEqual([]);
-    expect(commonsRow(true, lookup, none)).toMatchObject({ roomId: '!c:gamecult.org' });
   });
 
   it('shows no row when the room is absent, the lookup failed or is still out', async () => {
