@@ -32,13 +32,27 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
 
 /** The fill behind nav, header and room-list rows: the sky's top colour over the stars, under the planes. With planes it fades out toward the ridge; without them (they failed to load, or none was given) it is flat and heavier, so rows stay legible over the sky alone. Never changes layout: it is one pointer-transparent layer. */
 export const SCRIM_ALPHA = { planes: 0.35, flat: 0.55 } as const;
-export const scrimBackground = (sky: SkyColours, hasPlanes: boolean): string => {
+/** The scrim's gradient, top to bottom, as [offset 0..1, colour]: the one spelling the DOM layer (`scrimBackground`) and the still's canvas fill both read. */
+export const scrimStops = (sky: SkyColours, hasPlanes: boolean): [number, string][] => {
   const [r, g, b] = sky.top;
   const a = hasPlanes ? SCRIM_ALPHA.planes : SCRIM_ALPHA.flat;
-  const c = (k: number) => `rgba(${r},${g},${b},${a * k})`;
+  const stops: [number, number][] = hasPlanes
+    ? [
+        [0, 1],
+        [0.55, 1],
+        [0.85, 0],
+      ]
+    : [
+        [0, 1],
+        [1, 1],
+      ];
+  return stops.map(([o, k]) => [o, `rgba(${r},${g},${b},${a * k})`]);
+};
+export const scrimBackground = (sky: SkyColours, hasPlanes: boolean): string => {
+  const s = scrimStops(sky, hasPlanes);
   return hasPlanes
-    ? `linear-gradient(to bottom, ${c(1)} 0%, ${c(1)} 55%, ${c(0)} 85%)`
-    : `linear-gradient(${c(1)}, ${c(1)})`;
+    ? `linear-gradient(to bottom, ${s.map(([o, c]) => `${c} ${Math.round(o * 100)}%`).join(', ')})`
+    : `linear-gradient(${s[0][1]}, ${s[1][1]})`;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -350,6 +364,17 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     return scrim;
   };
 
+  /** The still's scrim, painted into the host canvas over the sky and stars and under the planes: the rig's order, in one image. */
+  const paintScrim = (hasPlanes: boolean) => {
+    if (!isNight(sky)) return;
+    const ctx = context2d(canvas);
+    if (!ctx) return;
+    const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    scrimStops(sky, hasPlanes).forEach(([o, c]) => g.addColorStop(o, c));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
   /** Paint the sky, the stars and the rain. Returns false when a 2D context is missing or there is no area yet. */
   const build = (): boolean => {
     teardown();
@@ -437,10 +462,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     teardown();
     cancelAnimationFrame(raf);
     raf = 0;
+    // One order in every path: sky and stars, then the scrim, then the planes (the rig sits above the DOM scrim the same way).
+    paintScrim(!!opts.backdrop);
     if (opts.backdrop) paintPlanes(opts.backdrop);
-    // The planes are in the canvas now: the scrim, which fades out toward them, goes over the canvas.
-    const scrim = makeScrim();
-    built = scrim ? { scrim } : undefined;
     report(true);
   };
 

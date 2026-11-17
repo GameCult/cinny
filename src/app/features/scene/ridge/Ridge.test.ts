@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRidgeScene, SCRIM_ALPHA, scrimBackground } from './Ridge';
+import { createRidgeScene, SCRIM_ALPHA, scrimBackground, scrimStops } from './Ridge';
 import { valueNoise, hash2 } from './noise';
 import { FrameSampler, frameStats, SLOW_P95_MS, WARMUP_FRAMES, WINDOW_MS } from './probe';
 import type { SkyColours } from './skyColour';
@@ -140,11 +140,17 @@ const draws: string[] = [];
 const images: unknown[][] = [];
 /** Every RGBA grid the host canvas was painted from (the small canvas's putImageData). */
 const painted: Uint8ClampedArray[] = [];
+/** Every fillRect whose fill was a linear gradient: its stops, and how many images had been drawn before it (paint order). */
+const fills: { stops: [number, string][]; imagesBefore: number }[] = [];
 function ctx() {
   const c: any = {
-    createLinearGradient: () => ({ addColorStop: vi.fn() }),
+    createLinearGradient: () => {
+      const stops: [number, string][] = [];
+      return { stops, addColorStop: (o: number, col: string) => stops.push([o, col]) };
+    },
     fillRect() {
       draws.push('sky');
+      if (c.fillGradient?.stops) fills.push({ stops: c.fillGradient.stops, imagesBefore: images.length });
     },
     save() {},
     restore() {},
@@ -182,7 +188,9 @@ function ctx() {
     },
     globalAlpha: 1,
     globalCompositeOperation: 'source-over',
-    set fillStyle(_v: unknown) {},
+    set fillStyle(v: any) {
+      c.fillGradient = v;
+    },
   };
   return c;
 }
@@ -197,6 +205,7 @@ beforeEach(() => {
   draws.length = 0;
   images.length = 0;
   painted.length = 0;
+  fills.length = 0;
   search = '';
   motion = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   doc = Object.assign(new EventTarget(), {
@@ -413,9 +422,7 @@ describe('the starfield in the scene', () => {
     const { parent, canvas } = host();
     createRidgeScene({ canvas, tier: 'still', sky: night });
     expect(count('star')).toBe(N);
-    expect(
-      parent.children.filter((c: any) => c !== canvas).map((c: any) => c.style.pointerEvents)
-    ).toEqual(['none']); // only the scrim
+    expect(parent.children).toEqual([canvas]); // the scrim is in the canvas
     expect(rafQueue).toHaveLength(0);
   });
 
@@ -469,7 +476,7 @@ describe('the starfield in the scene', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: night })!;
     runFrames(100, 100);
-    expect(parent.children.filter((c: any) => c !== canvas)).toHaveLength(1); // the scrim stays
+    expect(parent.children).toEqual([canvas]); // the scrim moves into the canvas
     expect(count('star')).toBe(N);
     expect(rafQueue).toHaveLength(0);
     s.dispose();
@@ -588,20 +595,35 @@ describe('the ridge planes in the scene', () => {
     expect(SCRIM_ALPHA.flat).toBeGreaterThan(SCRIM_ALPHA.planes);
   });
 
-  it('the settled still keeps the scrim over the canvas: gradient with planes, flat without', () => {
-    for (const [backdrop, flat] of [
-      [NOON, false],
-      [undefined, true],
+  it('the settled still paints the scrim into the canvas under the planes, once: gradient with planes, flat without', () => {
+    for (const [backdrop, hasPlanes] of [
+      [NOON, true],
+      [undefined, false],
     ] as const) {
+      fills.length = 0;
+      images.length = 0;
       const { parent, canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'still', sky: night, backdrop })!;
-      const scrims = parent.children.filter((c: any) => c.style.background);
+      expect(parent.children).toEqual([canvas]); // nothing over the canvas dims the planes
+      const scrims = fills.filter(
+        (f) => JSON.stringify(f.stops) === JSON.stringify(scrimStops(night, hasPlanes))
+      );
       expect(scrims).toHaveLength(1);
-      expect(scrims[0].style.background).toBe(scrimBackground(night, !flat));
-      expect(scrims[0].style.pointerEvents).toBe('none');
+      const planeImages = images.filter((a) =>
+        hasPlanes ? Object.values(NOON.a).includes(a[0] as HTMLImageElement) : false
+      );
+      expect(planeImages).toHaveLength(hasPlanes ? 3 : 0);
+      if (hasPlanes) expect(scrims[0].imagesBefore).toBe(images.indexOf(planeImages[0])); // the scrim, then the planes
       s.dispose();
-      expect(parent.children).toEqual([canvas]);
     }
+  });
+
+  it('the DOM scrim and the still scrim are one gradient', () => {
+    for (const hasPlanes of [true, false]) {
+      const css = scrimBackground(night, hasPlanes);
+      scrimStops(night, hasPlanes).forEach(([, c]) => expect(css).toContain(c));
+    }
+    expect(scrimBackground(night, true)).toContain(' 55%, ');
   });
 
   it('a day sky has no scrim', () => {
