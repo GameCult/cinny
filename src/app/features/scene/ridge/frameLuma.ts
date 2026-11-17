@@ -3,14 +3,14 @@
 // Data for ridge-ad-legibility, which sizes the scrim from it and owns the 4.5:1 pass/fail; nothing here gates.
 import { baked } from '../../../../sky/baked';
 import { luminance } from '../../../../sky/skyTokens.js';
-import type { FixedSkyState } from '../skyBand';
+import type { FixedSkyState } from '../skyState';
 
 export interface FrameLuma {
   min: number;
   max: number;
 }
 
-/** The theme text ink skyBand.ts's header derives: Noonday Sky's for day and dusk, Midnight Sky's for night. */
+/** The theme text ink skyState.ts's `FixedSkyState` bands derive: Noonday Sky's for day and dusk, Midnight Sky's for night. */
 export const themeInk = (state: FixedSkyState): string =>
   (state === 'night' ? baked.midnight : baked.noonday).tokens.Surface.OnContainer;
 

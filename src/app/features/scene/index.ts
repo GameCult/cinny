@@ -68,22 +68,11 @@ async function prepare(
     },
   });
   try {
-    // Loaded here, with the scenes, so the main chunk does not carry the terrain sky or the baked tables.
-    const { loadWeather, ridgeSkyFor, terrainSkyFor } = await import('./skyForState');
+    // Loaded here, with the scenes, so the main chunk does not carry the ridge sky or the baked tables.
+    const { loadWeather, ridgeSkyFor } = await import('./skyForState');
     if (config?.style === 'raymarch') {
       const { createScene } = await import('./Scene');
       return guarded(() => createScene(options));
-    }
-    if (config?.style === 'terrain') {
-      const { createTerrainScene } = await import('./terrain/Terrain');
-      const { createTerrainSkyScene } = await import('./terrain/TerrainSky2D');
-      const sky = terrainSkyFor(state);
-      // No WebGL2 (or no usable GL): the terrain's sky alone on the same canvas, not bare ground.
-      return guarded(
-        () =>
-          createTerrainScene({ ...options, ...sky }) ??
-          createTerrainSkyScene({ ...options, ...sky })
-      );
     }
     const { createRidgeScene } = await import('./ridge/Ridge');
     const { manifest, fail } = await manifestOf(config);
@@ -125,16 +114,14 @@ async function prepare(
 
 /**
  * What a rebuild is for: the sky options the scene would be built from. A change of choice that draws the same sky
- * (Day picked while the clock says day, 'auto' to the fixed state it resolves to) is not a rebuild; the page URL steers
- * only 'auto' (`terrainSkyFor`), so there the two differ and the key says so.
+ * (Day picked while the clock says day, 'auto' to the fixed state it resolves to) is not a rebuild.
  */
 async function skyKey(
   config: BackgroundSceneConfig | undefined,
   state: SkyState
 ): Promise<string | null> {
   try {
-    const { loadWeather, ridgeSkyKey, terrainSkyFor } = await import('./skyForState');
-    if (config?.style === 'terrain') return JSON.stringify(terrainSkyFor(state));
+    const { loadWeather, ridgeSkyKey } = await import('./skyForState');
     const view = (await manifestOf(config)).manifest?.view ?? FALLBACK_VIEW;
     await loadWeather(weatherUrl(), view.place);
     return ridgeSkyKey(state, view);
@@ -147,12 +134,11 @@ async function skyKey(
 /**
  * The client's one door to the scene. When the tier resolves to 'off' nothing is imported and no
  * canvas context is requested; otherwise the scene code loads on demand, so it stays out of the
- * main chunk. `config.style` picks the scene: the ridges unless it says 'raymarch' or 'terrain' (which falls back to its
- * sky alone, `terrain/TerrainSky2D.ts`, where WebGL2 is missing). Null means
+ * main chunk. `config.style` picks the scene: the ridges unless it says 'raymarch' (any other value, an old 'terrain' included, is the ridges). Null means
  * "keep the CSS ground", including when that chunk fails to load (offline, stale deploy): the
  * failure goes to onCompileFail and nothing throws.
  *
- * The ridge and terrain scenes bake their sky once, so they follow the sky (`skyState.ts`: the choice, resolved, so 'auto' follows the clock) by
+ * The ridge scene bakes its sky once, so it follows the sky (`skyState.ts`: the choice, resolved, so 'auto' follows the clock) by
  * being rebuilt on the same canvas when it changes: the door subscribes on start and the returned
  * scene's `dispose` unsubscribes. The pull-back restarts from the tree; a later `login()` is
  * replayed on the new scene. The ray-march scene has one fixed dusk and ignores the state.

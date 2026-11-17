@@ -133,7 +133,7 @@ const NavItemBase = style({
           backgroundColor: ContainerHover,
         },
         // While the background scene runs the shell is clear (sceneShell.css.ts); a row is a faint
-        // wash of the theme's own surface: the terrain stays visible, the text stays readable.
+        // wash of the theme's own surface: the scene stays visible, the text stays readable.
         // Hover, the selected row and a press each strengthen it a step.
         ':root[data-scene] &': {
           backgroundColor: `color-mix(in srgb, ${surfaceInk} ${SCRIM_ROW}, transparent)`,

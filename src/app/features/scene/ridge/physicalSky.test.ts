@@ -4,7 +4,7 @@ import { ELSEWHERE_VIEW } from './manifest.fixture';
 import { sunForState } from './sunAt';
 import { makePhysicalSky, paintSky } from './physicalSky';
 import { skyBackdrop } from '../skyState';
-import type { FixedSkyState } from '../skyBand';
+import type { FixedSkyState } from '../skyState';
 import { windowFor } from './view';
 import type { PhysicalSky } from './physicalSky';
 
