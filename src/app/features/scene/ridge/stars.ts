@@ -17,6 +17,9 @@ export const NIGHT_LUMA = 110;
 /** The sky gradient runs from the top (0) through mid (0.5) to the horizon glow (0.78 and below). */
 export const SKY_STOPS = { mid: 0.5, horizon: 0.78 };
 export const MAX_STARS = 400;
+/** Stars live in the top of the sky only (a share of its height) and never brighter than this base alpha, so they stay quiet behind nav and header glyphs (ruling void-legibility-constraints). */
+export const STAR_BAND = 0.6;
+export const STAR_MAX_ALPHA = 0.6;
 /** Twinkling stars at any instant (fewer only if the field has fewer stars). */
 export const SLOTS = 32;
 export const TWINKLE_PERIOD = { min: 2, max: 7 } as const;
@@ -30,7 +33,7 @@ export interface Star {
   y: number;
   /** Radius in CSS px. */
   r: number;
-  /** Base alpha 0..0.9 (brightness times how dark the sky is there). */
+  /** Base alpha 0..STAR_MAX_ALPHA (brightness times how dark the sky is there). */
   alpha: number;
   /** CSS colour, white tinted blue or warm. */
   fill: string;
@@ -85,7 +88,7 @@ export const starCount = (cssW: number, cssH: number): number =>
 /**
  * Seeded placement. Each candidate draws all its random numbers whether it is kept or not, so a
  * given seed and sky always give the same field and the prefix does not shift with the count.
- * Heights are squeezed toward the zenith (y = 0.78 u^1.7) and alpha falls with the sky's luma, so
+ * Heights are squeezed toward the zenith (y = STAR_BAND u^1.7) and alpha falls with the sky's luma, so
  * the stars thin out and fade into the horizon glow. None for a day sky.
  */
 export function makeStars(sky: SkyColours, cssW: number, cssH: number): Star[] {
@@ -95,13 +98,13 @@ export function makeStars(sky: SkyColours, cssW: number, cssH: number): Star[] {
   // Every candidate draws all its numbers, kept or not, so the prefix is stable.
   const candidates = Array.from({ length: MAX_STARS }, () => ({
     x: rnd(),
-    y: SKY_STOPS.horizon * rnd() ** 1.7,
+    y: STAR_BAND * rnd() ** 1.7,
     r: 0.35 + 1.0 * rnd() ** 4,
     bright: 0.35 + 0.65 * rnd() ** 1.5,
     tint: rnd(),
   })).slice(0, n);
   return candidates.flatMap(({ x, y, r, bright, tint }) => {
-    const alpha = Math.min(0.9, bright * Math.max(0, 1 - skyLuma(sky, y) / NIGHT_LUMA));
+    const alpha = Math.min(STAR_MAX_ALPHA, bright * Math.max(0, 1 - skyLuma(sky, y) / NIGHT_LUMA));
     if (alpha < 0.05) return [];
     // White, pulled toward blue or toward warm by the tint draw.
     const to: Srgb = tint < 0.5 ? [165, 195, 255] : [255, 222, 185];

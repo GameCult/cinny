@@ -26,6 +26,8 @@ WEBP_QUALITY = 80
 LUMA_SKY = 0.5                         # the flat mid-grey sky the planes are composited over for the luma probe
 LUMA_COVER = 0.5                       # composite coverage (1 - prod(1 - alpha)) at or above which a pixel is measured
 NEAR_CREST_ALPHA = 64                  # alpha (0..255) at which a near-plane pixel counts as the ridge's body: the crest of a column is its first such row
+NEAR_BODY_ALPHA = 40                  # alpha at which a near-plane pixel still counts as body when finding where a column's body ends
+NEAR_END_STEP_PX = 24                 # the most the row where the body ends may differ between neighbouring columns: a step is where the near plane dissolves early over a few columns (Vienna had 55 px at x 1252)
 NEAR_HOLE_ALPHA = 24                   # alpha below which a pixel under the crest is a hole (the sky would show through the ground in front of the eye)
 SHEET_SKY = (0.80, 0.86, 0.94)         # the flat sky of the contact sheet
 ATTRIBUTION = dict(
@@ -102,12 +104,14 @@ def luma_range(decoded):
     return float(y.min()), float(y.max())
 
 def check_near_cover(near, horizon_row):
-    """Refuse a near plane (RGBA uint8) that does not cover the ground in front of the eye: every column must have a crest (an alpha >= NEAR_CREST_ALPHA row), and from the crest down to the horizon row no pixel may be a hole (alpha < NEAR_HOLE_ALPHA).
+    """Refuse a near plane (RGBA uint8) that does not cover the ground in front of the eye: every column must have a crest (an alpha >= NEAR_CREST_ALPHA row), and from the crest down to the horizon row no pixel may be a hole (alpha < NEAR_HOLE_ALPHA), and the row where the body ends may not step more than NEAR_END_STEP_PX between neighbouring columns.
     A transparent column, or a wedge of holes under a crest, shows the sky through the foreground; the farther planes may leave columns empty (a place with no ridge at that distance), the nearest may not."""
     a = near[..., 3]; h, w = a.shape; crest = np.argmax(a >= NEAR_CREST_ALPHA, axis=0); none = ~(a >= NEAR_CREST_ALPHA).any(0)
     if none.any(): raise ValueError(f'near plane: {int(none.sum())} fully transparent columns, first at x={int(np.argmax(none))}')
     rows = np.arange(h)[:, None]; hole = (a < NEAR_HOLE_ALPHA) & (rows >= crest[None, :]) & (rows < int(horizon_row))
     if hole.any(): x = int(np.argmax(hole.any(0))); raise ValueError(f'near plane: {int(hole.any(0).sum())} columns have a hole between the crest and the horizon, first at x={x} row {int(np.argmax(hole[:, x]))}')
+    body = a >= NEAR_BODY_ALPHA; end = h - 1 - np.argmax(body[::-1], axis=0); step = np.abs(np.diff(end))      # the body's last row, per column: the dissolve below the horizon has no edge of its own
+    if (step > NEAR_END_STEP_PX).any(): x = int(np.argmax(step > NEAR_END_STEP_PX)); raise ValueError(f'near plane: the body ends at row {int(end[x])} in column {x} and row {int(end[x + 1])} in column {x + 1}, a step over {NEAR_END_STEP_PX} px')
 
 def check_budget(frame_bytes, plane_w, plane_h):
     """Refuse a bake the runtime could not hold: any two adjacent frames (night with dawn too) above PAIR_BYTES_MAX, or the planes of a frame pair decoding above DECODE_BYTES_MAX."""

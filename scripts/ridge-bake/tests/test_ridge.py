@@ -453,6 +453,18 @@ def test_near_plane_must_cover_every_column_and_leave_no_hole_under_its_crest():
         except ValueError as e: assert why in str(e), (why, str(e))
         else: assert False, ('a near plane with a ' + why + ' was accepted')
     export.check_near_cover(ok, 30.0)
+def test_near_foot_reaches_the_horizon_and_a_step_in_it_is_eased_not_cut():
+    """The nearest layer's foot is at least the horizon distance over FADE_AT, and the widest foot within NEAR_FOOT_MARGIN_PX wins, eased: a 210 px foot beside a 100 px one (the valley jumping where the winning chain changes) leaves no column with a short foot within the margin of the long one, and no step over a few px per column; check_near_cover refuses a body that ends early over a few columns."""
+    ang = np.full(400, 3.0); foot = np.full(400, 210.0); foot[300:] = 100.0
+    f = ridge.near_foot(foot, ang)
+    assert (f >= np.maximum(foot, 3.0 * ridge.PXDEG_V / ridge.FADE_AT) - 1e-6).all() and (f[300:300 + ridge.NEAR_FOOT_MARGIN_PX // 2] > 190).all(), (f[300], f[330])
+    assert np.abs(np.diff(f)).max() < 8.0, np.abs(np.diff(f)).max()
+    assert ridge.near_foot(np.full(400, 1.0), np.full(400, 5.0)).min() >= 5.0 * ridge.PXDEG_V / ridge.FADE_AT - 1e-6
+    ok = np.zeros((60, 40, 4), np.uint8); ok[10:, :, 3] = 200; export.check_near_cover(ok, 30.0)
+    early = ok.copy(); early[25:, 30:, 3] = 0
+    try: export.check_near_cover(early, 20.0)
+    except ValueError as e: assert 'step' in str(e), str(e)
+    else: assert False, 'a near plane whose body ends early in a few columns was accepted'
 def test_write_bake_refuses_a_near_plane_with_a_wedge_and_lets_the_other_planes_have_empty_columns():
     """The refusal is at the writer, on the decoded near plane of every frame; the far and mid planes may have transparent columns (a place with no ridge at that distance in part of the window)."""
     d = tempfile.mkdtemp()

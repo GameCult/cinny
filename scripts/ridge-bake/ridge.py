@@ -305,6 +305,17 @@ def face_field(hd, hh, ang, lo, pd, ph, vd, vh):
     b_ = np.maximum(2 * COLW * Dp, 1.0); la = np.where(np.abs(a_) > 3 * b_, 0.0, np.clip((c_ - a_ * sl) / b_, -1.5, 1.5))     # neighbours at very different distances are an occlusion edge, not a surface: no tilt
     return Z.astype(np.float32), Dp, blurw(sl, 2.0).astype(np.float32), blurw(la, 2.0).astype(np.float32), f
 
+NEAR_FOOT_MARGIN_PX = 48
+def slide_max(a, m):
+    """A max filter of half-width m along the last axis; the ends repeat their edge value."""
+    pad = np.pad(a, [(0, 0)] * (a.ndim - 1) + [(m, m)], mode='edge')
+    return np.lib.stride_tricks.sliding_window_view(pad, 2 * m + 1, axis=-1).max(-1)
+
+def near_foot(foot, ang):
+    """The nearest layer's foot (px): at least reaching the horizon (the body stays opaque to it, the fade starting at FADE_AT of the foot), and the widest foot within NEAR_FOOT_MARGIN_PX eased, so a jump in the valley under the layer (where the winning chain changes) does not dissolve the body early over a few columns (Vienna x 1252-1280, 55 px)."""
+    foot = np.maximum(foot, np.clip(ang * PXDEG_V, 0, None) / FADE_AT)
+    return np.maximum(blurw(slide_max(foot, NEAR_FOOT_MARGIN_PX), NEAR_FOOT_MARGIN_PX / 2.0), foot)
+
 def bake_layer(S, rank, far, near=False):
     b = S['slot']; base = RAMP[b]; reg = int(round((rank - 2) * 1.5)); R_ = lambda v: np.roll(v, reg, axis=-1); px = 1.0 / PXDEG_V
     s_ref = P.get('s_ref_deg', 8.0)
@@ -316,7 +327,7 @@ def bake_layer(S, rank, far, near=False):
     m = np.clip(toppx / 1.6 + 0.5, 0, 1) * np.clip(blurw((wt > 0).astype(float), 1.0) * 1.5, 0, 1)[None, :]       # a layer is drawn only where a chain exists (or tapers)
     rise_px = np.clip((ang - blurw(lo, 12.0)) * PXDEG_V, 1, None)                 # foot length from a smoothed valley: no per-column curtains
     foot = np.clip(0.85 * rise_px, 28 * np.clip(wt, 0, 1), 210).clip(1)                 # a tapering end carries no 28 px curtain: the body shrinks with the chain's weight, so a chain end leaves no stub
-    if near: foot = np.maximum(foot, np.clip(ang * PXDEG_V, 0, None) / FADE_AT)     # the nearest layer is the ground in front of the eye: its body stays opaque down to the horizon, whatever the strip's own valley says; it dissolves only below that (above the horizon a dissolved body shows the sky under a crest, and the valley angle jumps where the winning chain changes, so the sky showed as a wedge with a hard edge)
+    if near: foot = near_foot(foot, ang)     # the nearest layer is the ground in front of the eye: its body stays opaque down to the horizon, whatever the strip's own valley says; it dissolves only below that (above the horizon a dissolved body shows the sky under a crest, and the valley angle jumps where the winning chain changes, so the sky showed as a wedge with a hard edge)
     depthpx = np.clip(toppx / foot[None], 0, 1)
     fade = np.clip((depthpx - FADE_AT) / (1 - FADE_AT), 0, 1); fade = fade * fade * (3 - 2 * fade); alpha = (m * (1 - fade)).astype(np.float32)      # the body dissolves at its foot: what is behind (other layers, floor, sky) shows, so a column boundary leaves no wall down the frame
     w = (depthpx ** 0.8 * 0.92).astype(np.float32)                         # weight of the foot colour (floor/haze mix, decided at relight)

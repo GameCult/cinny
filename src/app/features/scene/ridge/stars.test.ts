@@ -15,6 +15,8 @@ import {
   slotPeriod,
   starCount,
   twinkleGain,
+  STAR_BAND,
+  STAR_MAX_ALPHA,
 } from './stars';
 
 const DAY = {
@@ -69,7 +71,8 @@ describe('star placement', () => {
   it('fades with the sky: every star sits where the sky is dark, alpha within bounds', () => {
     for (const s of makeStars(NIGHT, 390, 844)) {
       expect(skyLuma(NIGHT, s.y)).toBeLessThan(NIGHT_LUMA);
-      expect(s.alpha).toBeLessThanOrEqual(0.9);
+      expect(s.alpha).toBeLessThanOrEqual(STAR_MAX_ALPHA)
+      expect(s.y).toBeLessThanOrEqual(STAR_BAND);
       expect(s.alpha).toBeGreaterThanOrEqual(0.05);
     }
   });

@@ -5,7 +5,7 @@ import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
 import { windowFor } from './view';
 import { crossfade } from './frameChoice';
-import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
+import { activeAt, drawStars, drawTwinkle as paintTwinkle, isNight, makeStars, Star } from './stars';
 import { drawRainTile, RAIN_TILES } from './rain';
 import type { Backdrop, Planes } from './Backdrop';
 import { PLANE_NAMES } from './manifest';
@@ -21,6 +21,15 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   sky?: SkyColours;
   /** The baked ridge planes, already decoded; none is the sky-only scene (`view.ts` FALLBACK_VIEW). */
   backdrop?: Backdrop;
+};
+
+/** The fill behind nav, header and room-list rows: the sky's top colour over the stars, under the planes. With planes it fades out toward the ridge; without them (they failed to load, or none was given) it is flat and heavier, so rows stay legible over the sky alone. Never changes layout: it is one pointer-transparent layer. */
+export const SCRIM_ALPHA = { planes: 0.35, flat: 0.55 } as const;
+export const scrimBackground = (sky: SkyColours, hasPlanes: boolean): string => {
+  const [r, g, b] = sky.top;
+  const a = hasPlanes ? SCRIM_ALPHA.planes : SCRIM_ALPHA.flat;
+  const c = (k: number) => `rgba(${r},${g},${b},${a * k})`;
+  return hasPlanes ? `linear-gradient(to bottom, ${c(1)} 0%, ${c(1)} 55%, ${c(0)} 85%)` : `linear-gradient(${c(1)}, ${c(1)})`;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -97,6 +106,8 @@ const clock = (): number => (typeof performance !== 'undefined' ? performance.no
 interface Built {
   /** The twinkling stars' own canvas, over the sky; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
+  /** The legibility fill, over the stars and under the planes. */
+  scrim?: HTMLElement;
   /** The ridge planes' rig, over the twinkle canvas and under the rain; absent in 'still' (the planes are drawn into the host canvas). */
   rig?: { el: HTMLElement; anims: (Animation | undefined)[] };
   /** The rain's tiles and their falling, present only when the weather rains (`rain.ts`). */
@@ -144,6 +155,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
 
   const teardown = () => {
     built?.twinkle?.remove();
+    built?.scrim?.remove();
     built?.rig?.anims.forEach((a) => a?.cancel());
     built?.rig?.el.remove();
     built?.rain?.anims.forEach((a) => a?.cancel());
@@ -341,8 +353,24 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       });
       parent.appendChild(twinkle);
     }
+    // Over a dark sky only: a light one is not the stars' problem, and a dark fill would hurt dark text.
+    let scrim: HTMLElement | undefined;
+    if (isNight(sky)) {
+      scrim = document.createElement('div');
+      scrim.setAttribute('aria-hidden', 'true');
+      Object.assign(scrim.style, {
+        position: 'absolute',
+        left: '0',
+        top: '0',
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        background: scrimBackground(sky, !!opts.backdrop),
+      });
+      parent.appendChild(scrim);
+    }
     field = stars;
-    built = { twinkle };
+    built = { twinkle, scrim };
     if (opts.backdrop && !still) built.rig = startRig(opts.backdrop, w, h);
     if (tier !== 'still' && sky.physical && sky.physical.weather.rain > 0)
       built.rain = startRain(sky.physical.weather.rain, sky.horizon, w, h, scale);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRidgeScene } from './Ridge';
+import { createRidgeScene, SCRIM_ALPHA, scrimBackground } from './Ridge';
 import { valueNoise, hash2 } from './noise';
 import { FrameSampler, frameStats, SLOW_P95_MS, WARMUP_FRAMES, WINDOW_MS } from './probe';
 import type { SkyColours } from './skyColour';
@@ -387,7 +387,7 @@ describe('the starfield in the scene', () => {
     expect(count('star')).toBe(N);
     expect(count('sky')).toBe(1);
     expect(parent.children[1].anims).toHaveLength(0); // the overlay, above the sky
-    expect(parent.children).toHaveLength(2);
+    expect(parent.children).toHaveLength(3); // canvas, overlay, scrim
     const before = baked();
     runFrames(16.7, 300); // 5 s at 60 fps; the overlay repaints at 20 fps
     expect(baked()).toBe(before);
@@ -554,18 +554,42 @@ describe('the ridge planes in the scene', () => {
   const rigOf = (parent: any) =>
     parent.children.find((c: any) => c.children.some((g: any) => g.anims.length));
 
-  it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position', () => {
+  it('stacks twinkle canvas, scrim, rig, rain in that order, with no z-index and no fixed position', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: NOON })!;
     const kinds = parent.children.map((c: any) => c.tag);
-    expect(kinds).toEqual(['canvas', 'canvas', 'div', 'div', 'div']);
-    expect(parent.children[2].children).toHaveLength(3);
+    expect(kinds).toEqual(['canvas', 'canvas', 'div', 'div', 'div', 'div']);
+    expect(parent.children[2].style.background).toBe(scrimBackground(night, true));
+    expect(parent.children[3].children).toHaveLength(3); // the rig is above the scrim: planes are never dimmed by it
     parent.children.forEach((c: any) => {
       expect(c.style.zIndex).toBeUndefined();
       expect(c.style.position).not.toBe('fixed');
     });
     s.dispose();
     expect(parent.children).toEqual([canvas]);
+  });
+
+  it('the scrim never takes a tap or a row\'s size, and is flat and heavier when the planes are missing', () => {
+    const withPlanes = host();
+    createRidgeScene({ canvas: withPlanes.canvas, tier: 'full', sky: night, backdrop: NOON });
+    const flat = host();
+    createRidgeScene({ canvas: flat.canvas, tier: 'full', sky: night });
+    const scrimOf = (p: any) => p.parent.children.find((c: any) => c.style.background);
+    [scrimOf(withPlanes), scrimOf(flat)].forEach((s: any) => {
+      expect(s.style.pointerEvents).toBe('none');
+      expect(s.style.position).toBe('absolute');
+    });
+    expect(scrimOf(withPlanes).style.background).toContain('0)'); // fades to nothing toward the ridge
+    expect(scrimOf(flat).style.background).toBe(scrimBackground(night, false));
+    expect(scrimOf(flat).style.background).not.toContain(', rgba(96,150,220,0)');
+    expect(scrimOf(flat).style.background).toContain(String(SCRIM_ALPHA.flat));
+    expect(SCRIM_ALPHA.flat).toBeGreaterThan(SCRIM_ALPHA.planes);
+  });
+
+  it('a day sky has no scrim', () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: NOON });
+    expect(parent.children.some((c: any) => c.style.background)).toBe(false);
   });
 
   it('is three groups, far to near, each placed by windowFor and drifting by its depth of driftPx', () => {
