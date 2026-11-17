@@ -5,7 +5,7 @@ import { Avatar, Box, Icon, Icons, Text } from 'folds';
 import { NavGutter, NavItem, NavItemContent, NavLink } from '../../components/nav';
 import { NAV_ROOM_ICON_REST_OPACITY, NavLabel } from '../../components/nav/styles.css';
 import { EstateRoom } from './buildEstate';
-import { isFileZone } from '../albums/isFileZone';
+import { COMMONS_KEY, commonsAlias, isFileZone } from '../albums/isFileZone';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { MINDS } from '../../components/message/pose/poses';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
@@ -15,7 +15,9 @@ import { useEstateRootId } from './useEstate';
 import {
   STEWARDSHIPS_KEY,
   MediaRow as MediaRowState,
+  commonsRow,
   lookupMediaRoom,
+  lookupZoneRoom,
   mediaRoomIdFromStewardships,
   mediaRow,
   typedMediaRoom,
@@ -44,7 +46,7 @@ export function MediaNote({ note, title }: { note: string; title?: string }) {
 }
 
 /** The joined Media row: opens the room, which shows its album view. */
-export function MediaLink({ to }: { to: string }) {
+export function MediaLink({ to, label = 'Media' }: { to: string; label?: string }) {
   return (
     <NavItem variant="Background" radii="400">
       <NavLink to={to}>
@@ -52,7 +54,7 @@ export function MediaLink({ to }: { to: string }) {
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
             <NavGutter>{mediaIcon}</NavGutter>
             <Text className={NavLabel} as="span" size="Inherit" truncate>
-              Media
+              {label}
             </Text>
           </Box>
         </NavItemContent>
@@ -104,4 +106,30 @@ export const useMindMedia = (mind: string, rooms: readonly EstateRoom[]): MediaR
   joined.forEach((id) => membership.set(id, 'join'));
   if (typed) return { kind: 'room', room: { ...typed, name: 'Media' } };
   return mediaRow(lookup.data, membership);
+};
+
+/** The shared Commons room as the navigator sees it right now: undefined means no row. Dark unless fileZoneShare.enabled. */
+export const useCommons = (): EstateRoom | undefined => {
+  const mx = useMatrixClient();
+  const { rootId } = useEstateRootId();
+  const joined = useAtomValue(allRoomsAtom);
+  const invited = useAtomValue(allInvitesAtom);
+  const enabled = !!useClientConfig().fileZoneShare?.enabled;
+  const server = mx.getDomain() ?? '';
+  const carried = mediaRoomIdFromStewardships(
+    rootId
+      ? mx.getRoom(rootId)?.currentState.getStateEvents(STEWARDSHIPS_KEY, '')?.getContent()
+      : undefined,
+    COMMONS_KEY
+  );
+  const lookup = useQuery({
+    queryKey: ['commons-room', server, carried],
+    queryFn: () => lookupZoneRoom(mx, commonsAlias(server), server, carried),
+    staleTime: 60_000,
+    enabled,
+  });
+  const membership = new Map<string, 'join' | 'invite'>();
+  invited.forEach((id) => membership.set(id, 'invite'));
+  joined.forEach((id) => membership.set(id, 'join'));
+  return commonsRow(enabled, lookup.data, membership);
 };

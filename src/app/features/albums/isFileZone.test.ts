@@ -21,4 +21,10 @@ describe('isFileZone', () => {
   it('is false when only another room is configured', () => {
     expect(isFileZone(room, { fileZoneRooms: ['!g:x', '#g:x'] })).toBe(false);
   });
+  it('is true for the Commons alias on the home server, and only there', () => {
+    const c = { roomId: '!c:x', aliases: ['#commons:x'] };
+    expect(isFileZone({ ...c, server: 'x' }, {})).toBe(true);
+    expect(isFileZone({ ...c, server: 'y' }, {})).toBe(false);
+    expect(isFileZone(c, {})).toBe(false);
+  });
 });

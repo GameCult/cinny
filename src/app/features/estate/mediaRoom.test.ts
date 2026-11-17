@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { commonsAlias, COMMONS_KEY } from '../albums/isFileZone';
 import {
+  commonsRow,
   lookupMediaRoom,
+  lookupZoneRoom,
   mediaAlias,
   mediaRoomIdFromStewardships,
   mediaRow,
+  MediaLookup,
   typedMediaRoom,
 } from './mediaRoom';
 
@@ -130,5 +134,66 @@ describe('the Media row of a Mind', () => {
     const zones = new Set(['!old-files-slug', '!unjoined']);
     expect(typedMediaRoom(rooms, (id) => zones.has(id))?.roomId).toBe('!old-files-slug');
     expect(typedMediaRoom(rooms, () => false)).toBeUndefined();
+  });
+});
+
+describe('the Commons row', () => {
+  const none = new Map<string, 'join' | 'invite'>();
+
+  it('is found by the alias #commons:<server>', async () => {
+    const { mx, asked } = clientFor(async () => ({ room_id: '!c:gamecult.org' }));
+    const lookup = await lookupZoneRoom(mx, commonsAlias('gamecult.org'), 'gamecult.org');
+    expect(asked).toEqual(['#commons:gamecult.org']);
+    expect(commonsRow(true, lookup, new Map([['!c:gamecult.org', 'join']]))).toMatchObject({
+      roomId: '!c:gamecult.org',
+      name: 'Commons',
+      state: 'joined',
+    });
+  });
+
+  it('is found by a carried id under file_zones.commons, asking nobody', async () => {
+    const { mx, asked } = clientFor(async () => {
+      throw new Error('must not be asked');
+    });
+    const carried = mediaRoomIdFromStewardships(
+      { '@rooms': { file_zones: { [COMMONS_KEY]: '!c:gamecult.org' } } },
+      COMMONS_KEY
+    );
+    const lookup = await lookupZoneRoom(mx, commonsAlias('gamecult.org'), 'gamecult.org', carried);
+    expect(asked).toEqual([]);
+    expect(commonsRow(true, lookup, none)).toMatchObject({ roomId: '!c:gamecult.org' });
+  });
+
+  it('shows no row when the room is absent, the lookup failed or is still out', async () => {
+    const missing = await lookupZoneRoom(
+      clientFor(async () => {
+        throw notFound;
+      }).mx,
+      commonsAlias('gamecult.org'),
+      'gamecult.org'
+    );
+    const failed = await lookupZoneRoom(
+      clientFor(async () => {
+        throw new Error('down');
+      }).mx,
+      commonsAlias('gamecult.org'),
+      'gamecult.org'
+    );
+    expect(commonsRow(true, missing, none)).toBeUndefined();
+    expect(commonsRow(true, failed, none)).toBeUndefined();
+    expect(commonsRow(true, undefined, none)).toBeUndefined();
+  });
+
+  it('shows no row with the flag off, even for a found room', () => {
+    const found: MediaLookup = { found: true, roomId: '!c:gamecult.org', via: ['gamecult.org'] };
+    expect(commonsRow(false, found, new Map([['!c:gamecult.org', 'join']]))).toBeUndefined();
+  });
+
+  it('offers a join to a viewer who has not joined, and an accept to an invited one', () => {
+    const found: MediaLookup = { found: true, roomId: '!c:gamecult.org', via: ['gamecult.org'] };
+    expect(commonsRow(true, found, none)?.state).toBe('joinable');
+    expect(commonsRow(true, found, new Map([['!c:gamecult.org', 'invite']]))?.state).toBe(
+      'invited'
+    );
   });
 });
