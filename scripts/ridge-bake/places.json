@@ -1,5 +1,5 @@
 {
- "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle).",
+ "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); card_split_km = the ordered list of 1 to MAX_CARDS - 1 authored seam depths in km (the seam search refines each per column; K splits make K+1 cards; required, never defaulted); prefilter_m = Gaussian sigma in metres of the height low-pass before the cards are cut (default 0).",
  "presets": [
   {
    "id": "vienna",
@@ -11,6 +11,11 @@
    "ground_override_m": 183.3,
    "az_deg": 214.0,
    "rmax_km": 95,
+   "card_split_km": [
+    6,
+    40
+   ],
+   "prefilter_m": 100,
    "viewpoint_source": {
     "status": "existing observer of the round-1 mockup (the scene camera used by the game), not photo-sourced; eye 30 m above ground as in round 1"
    }
