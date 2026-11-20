@@ -1,6 +1,5 @@
 {
- "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); floor_agl_m = authored eye height above the notional valley floor used only for the floor-plane colour gradient; s_ref_deg = front slope that counts as steep for the painter; tz_h = standard-time offset of the local clock on the sun date.",
- "date": "2026-09-23",
+ "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle).",
  "presets": [
   {
    "id": "vienna",
@@ -12,10 +11,6 @@
    "ground_override_m": 183.3,
    "az_deg": 214.0,
    "rmax_km": 95,
-   "floor_agl_m": 30,
-   "s_ref_deg": 8,
-   "tz_h": 2,
-   "tz_name": "CEST",
    "viewpoint_source": {
     "status": "existing observer of the round-1 mockup (the scene camera used by the game), not photo-sourced; eye 30 m above ground as in round 1"
    }
@@ -32,10 +27,6 @@
     7.65678
    ],
    "rmax_km": 60,
-   "floor_agl_m": 992.3298828124998,
-   "s_ref_deg": 30,
-   "tz_h": 2,
-   "tz_name": "CEST",
    "initial_guess_not_used": {
     "lat": 45.9856,
     "lon": 7.7452
@@ -165,10 +156,6 @@
     138.72731
    ],
    "rmax_km": 60,
-   "floor_agl_m": 138.6306213378906,
-   "s_ref_deg": 20,
-   "tz_h": 9,
-   "tz_name": "JST",
    "initial_guess_not_used": {
     "lat": 35.4994,
     "lon": 138.7686
@@ -315,10 +302,6 @@
     -119.53426
    ],
    "rmax_km": 40,
-   "floor_agl_m": 5.5442382812500455,
-   "s_ref_deg": 30,
-   "tz_h": -7,
-   "tz_name": "PDT",
    "initial_guess_not_used": {
     "lat": 37.7305,
     "lon": -119.5734
@@ -476,10 +459,6 @@
     86.86079
    ],
    "rmax_km": 60,
-   "floor_agl_m": 829.8232421875,
-   "s_ref_deg": 30,
-   "tz_h": 5.75,
-   "tz_name": "NPT",
    "initial_guess_not_used": {
     "lat": 27.8369,
     "lon": 86.7643
@@ -554,10 +533,6 @@
     12.29583
    ],
    "rmax_km": 40,
-   "floor_agl_m": 735.6748046875,
-   "s_ref_deg": 30,
-   "tz_h": 2,
-   "tz_name": "CEST",
    "initial_guess_not_used": {
     "lat": 46.5833,
     "lon": 12.2536

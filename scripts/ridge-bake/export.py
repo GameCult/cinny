@@ -11,22 +11,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import numpy as np, imagecodecs
-import sun
 
 BAKER_VERSION = 1
-KEYS = ('dawn', 'morning', 'noon', 'golden', 'dusk', 'night')
 PLANES = ('far', 'mid', 'near')
-NIGHT_EL = -12.0                       # the night frame: sun this far below the horizon
 WINDOW_DEG = 72
 PLANE_W = 1280                         # every plane is the whole 72 deg window
 PLANE_W_MAX = 4096
 PAIR_BYTES_MAX = 800_000               # two adjacent frames (the runtime's worst case) together; the same number is a CI constant in cut-ridge-ad-gates
 DECODE_BYTES_MAX = 20_000_000          # the six planes of a frame pair decoded (2 x 3 x w x h x 4 bytes = 18.4 MB at the full window)
 WEBP_QUALITY = 80
-LUMA_SKY = 0.5                         # the flat mid-grey sky the planes are composited over for the luma probe
-LUMA_COVER = 0.5                       # composite coverage (1 - prod(1 - alpha)) at or above which a pixel is measured
-NEAR_CREST_ALPHA = 64                  # alpha (0..255) at which a near-plane pixel counts as the ridge's body: the crest of a column is its first such row
-NEAR_HOLE_ALPHA = 24                   # alpha below which a pixel under the crest is a hole (the sky would show through the ground in front of the eye)
 SHEET_SKY = (0.80, 0.86, 0.94)         # the flat sky of the contact sheet
 ATTRIBUTION = dict(
     credit_line='Contains modified Copernicus data: DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.',
@@ -66,22 +59,6 @@ def validate(x, s, path='$'):
             elif extra is False: raise ValueError(f'{path}: extra key {k}')
             elif isinstance(extra, dict): validate(v, extra, f'{path}.{k}')
 
-# ------------------------------------------------------------------------------------ sun keys
-def sun_set(p, date):
-    """The five day keys from the preset date (copied from the mockup's run2.sun_set) plus the night key at NIGHT_EL: key -> {az, el, hour_utc}."""
-    day = datetime.fromisoformat(date).replace(tzinfo=timezone.utc); lat, lon, tz = p['lat'], p['lon'], p['tz_h']
-    geo = lambda t: sun.solar(day + timedelta(hours=t), lat, lon)[2]
-    def find(target, a, b):
-        fa = geo(a) - target
-        for _ in range(50):
-            m = (a + b) / 2; fm = geo(m) - target
-            if (fa < 0) == (fm < 0): a, fa = m, fm
-            else: b = m
-        return (a + b) / 2
-    noon = max((12 - lon / 15.0 - 1 + x / 600 for x in range(0, 1200)), key=lambda t: sun.solar(day + timedelta(hours=t), lat, lon)[1])
-    rise = find(-0.833, noon - 9, noon)
-    hours = dict(dawn=rise + 0.25, morning=9.5 - tz, noon=noon, golden=find(6.0, noon, noon + 9), dusk=find(-2.5, noon, noon + 9), night=find(NIGHT_EL, noon, noon + 14))
-    return {k: dict(az=sun.solar(day + timedelta(hours=h), lat, lon)[0], el=sun.solar(day + timedelta(hours=h), lat, lon)[1], hour_utc=h) for k, h in hours.items()}
 
 # ------------------------------------------------------------------------------------ planes -> bytes
 def u8(plane): return np.clip(np.rint(plane * 255.0), 0, 255).astype(np.uint8)
@@ -90,24 +67,6 @@ def decode(b):
     """A plane's bytes as RGBA uint8; the codec returns RGB for a plane that is opaque everywhere, which is solid."""
     a = imagecodecs.webp_decode(b)
     return a if a.shape[-1] == 4 else np.concatenate([a, np.full(a.shape[:2] + (1,), 255, np.uint8)], -1)
-def luma_range(decoded):
-    """WCAG relative luminance (linear 0..1) of the sRGB composite of the planes (far, mid, near order) over a flat LUMA_SKY grey, over the pixels whose composite coverage 1 - prod(1 - alpha) is at least LUMA_COVER: (min, max).
-    The planes are haze-as-alpha (no pixel is opaque), so the measure is of the composite, never of one plane's solid pixels."""
-    img = np.full(decoded[0].shape[:2] + (3,), LUMA_SKY); clear = np.ones(img.shape[:2])
-    for a in decoded:
-        al = a[..., 3:].astype(np.float64) / 255.0; img = img * (1 - al) + a[..., :3].astype(np.float64) / 255.0 * al; clear = clear * (1 - al[..., 0])
-    m = (1 - clear) >= LUMA_COVER
-    if not m.any(): raise ValueError('a frame has no pixel at coverage >= %s to measure' % LUMA_COVER)
-    c = img[m]; lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4); y = lin @ np.array([0.2126, 0.7152, 0.0722])
-    return float(y.min()), float(y.max())
-
-def check_near_cover(near, horizon_row):
-    """Refuse a near plane (RGBA uint8) that does not cover the ground in front of the eye: every column must have a crest (an alpha >= NEAR_CREST_ALPHA row), and from the crest down to the horizon row no pixel may be a hole (alpha < NEAR_HOLE_ALPHA).
-    A transparent column, or a wedge of holes under a crest, shows the sky through the foreground; the farther planes may leave columns empty (a place with no ridge at that distance), the nearest may not."""
-    a = near[..., 3]; h, w = a.shape; crest = np.argmax(a >= NEAR_CREST_ALPHA, axis=0); none = ~(a >= NEAR_CREST_ALPHA).any(0)
-    if none.any(): raise ValueError(f'near plane: {int(none.sum())} fully transparent columns, first at x={int(np.argmax(none))}')
-    rows = np.arange(h)[:, None]; hole = (a < NEAR_HOLE_ALPHA) & (rows >= crest[None, :]) & (rows < int(horizon_row))
-    if hole.any(): x = int(np.argmax(hole.any(0))); raise ValueError(f'near plane: {int(hole.any(0).sum())} columns have a hole between the crest and the horizon, first at x={x} row {int(np.argmax(hole[:, x]))}')
 
 def check_budget(frame_bytes, plane_w, plane_h):
     """Refuse a bake the runtime could not hold: any two adjacent frames (night with dawn too) above PAIR_BYTES_MAX, or the planes of a frame pair decoding above DECODE_BYTES_MAX."""
