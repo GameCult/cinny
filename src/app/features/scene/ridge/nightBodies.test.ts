@@ -127,3 +127,26 @@ describe('painting', () => {
     expect(calls.filter((c) => c === 'arc').length).toBeGreaterThanOrEqual(nb.stars.length + 2);
   });
 });
+
+describe('the stars under the figures', () => {
+  it('carry every constellation-line vertex in the sky strip, even under a full moon, at the app framing', async () => {
+    const { windowFor } = await import('./view');
+    const { linesAt } = await import('./starCatalogue');
+    const cam = windowFor(FALLBACK_VIEW, 1100, 619).camera;
+    const t = new Date('2026-11-25T00:00:00Z'); // full moon, high in the south
+    const p = makePhysicalSky('night', t, 0, FALLBACK_VIEW, sunAt(P, t));
+    const nb = nightBodies(p, paintSky(p, 1100, 619, cam), false);
+    let vertices = 0;
+    let carried = 0;
+    linesAt(t, P.lat, P.lon).forEach((chain) =>
+      chain.forEach((q) => {
+        const a = onScreen(cam, q.azimuth, q.elevation);
+        if (a.x < 0 || a.x > 1 || a.y < 0 || a.y > 0.8) return;
+        vertices += 1;
+        if (nb.stars.some((s) => Math.hypot((s.x - a.x) * 1100, (s.y - a.y) * 619) < 4)) carried += 1;
+      })
+    );
+    expect(vertices).toBeGreaterThan(20);
+    expect(carried / vertices).toBeGreaterThan(0.9);
+  });
+});
