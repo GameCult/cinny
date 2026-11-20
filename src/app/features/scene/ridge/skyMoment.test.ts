@@ -6,6 +6,7 @@ import {
   localMinutes,
   momentFor,
   momentKey,
+  seedFree,
   skyBand,
   zonedInstant,
 } from './skyMoment';
@@ -18,7 +19,13 @@ const PLACES: Record<string, Place> = {
   matterhorn: { id: 'matterhorn', lat: 45.98, lon: 7.78, altitudeKm: 3.1, tz: 'Europe/Zurich' },
   fuji: { id: 'fuji', lat: 35.31, lon: 138.63, altitudeKm: 0.4, tz: 'Asia/Tokyo' },
   amadablam: { id: 'amadablam', lat: 27.9, lon: 86.9, altitudeKm: 4.2, tz: 'Asia/Kathmandu' },
-  halfdome: { id: 'halfdome', lat: 37.73, lon: -119.55, altitudeKm: 1.2, tz: 'America/Los_Angeles' },
+  halfdome: {
+    id: 'halfdome',
+    lat: 37.73,
+    lon: -119.55,
+    altitudeKm: 1.2,
+    tz: 'America/Los_Angeles',
+  },
 };
 const DAYS = ['2026-06-21', '2026-12-21', '2026-03-20'];
 const MIN = 60_000;
@@ -31,17 +38,20 @@ const el = (p: Place, t: Date): number => sunAt(p, t).elevation;
 
 describe('the named moments', () => {
   describe.each(Object.entries(PLACES))('%s', (_name, p) => {
-    it.each(DAYS)('%s: dawn < morning < noon < golden < dusk inside the local day, night after noon', (date) => {
-      const t = Object.fromEntries(MOMENT_IDS.map((id) => [id, at(id, p, date).getTime()]));
-      expect(t.dawn).toBeLessThan(t.morning);
-      expect(t.morning).toBeLessThan(t.noon);
-      expect(t.noon).toBeLessThan(t.golden);
-      expect(t.golden).toBeLessThan(t.dusk);
-      expect(t.night).toBeGreaterThan(t.noon);
-      (['dawn', 'morning', 'noon', 'golden', 'dusk'] as const).forEach((id) =>
-        expect(localDate(new Date(t[id]), p.tz)).toBe(date)
-      );
-    });
+    it.each(DAYS)(
+      '%s: dawn < morning < noon < golden < dusk inside the local day, night after noon',
+      (date) => {
+        const t = Object.fromEntries(MOMENT_IDS.map((id) => [id, at(id, p, date).getTime()]));
+        expect(t.dawn).toBeLessThan(t.morning);
+        expect(t.morning).toBeLessThan(t.noon);
+        expect(t.noon).toBeLessThan(t.golden);
+        expect(t.golden).toBeLessThan(t.dusk);
+        expect(t.night).toBeGreaterThan(t.noon);
+        (['dawn', 'morning', 'noon', 'golden', 'dusk'] as const).forEach((id) =>
+          expect(localDate(new Date(t[id]), p.tz)).toBe(date)
+        );
+      }
+    );
 
     it.each(DAYS)('%s: each crossing is at its table elevation, within 0.05 degrees', (date) => {
       const noonEl = el(p, at('noon', p, date));
@@ -51,18 +61,21 @@ describe('the named moments', () => {
       expect(el(p, at('dusk', p, date))).toBeCloseTo(-3, 1);
     });
 
-    it.each(DAYS)('%s: noon is the day maximum and night the lowest of the 24 h after it', (date) => {
-      const noon = at('noon', p, date);
-      const night = at('night', p, date);
-      for (let m = 0; m < 24 * 60; m += 5) {
-        const t = new Date(noon.getTime() + m * MIN);
-        expect(el(p, t)).toBeGreaterThanOrEqual(el(p, night) - 1e-3);
+    it.each(DAYS)(
+      '%s: noon is the day maximum and night the lowest of the 24 h after it',
+      (date) => {
+        const noon = at('noon', p, date);
+        const night = at('night', p, date);
+        for (let m = 0; m < 24 * 60; m += 5) {
+          const t = new Date(noon.getTime() + m * MIN);
+          expect(el(p, t)).toBeGreaterThanOrEqual(el(p, night) - 1e-3);
+        }
+        const dayStart = zonedInstant(date, 0, p.tz).getTime();
+        for (let m = 0; m < 24 * 60; m += 5) {
+          expect(el(p, new Date(dayStart + m * MIN))).toBeLessThanOrEqual(el(p, noon) + 1e-3);
+        }
       }
-      const dayStart = zonedInstant(date, 0, p.tz).getTime();
-      for (let m = 0; m < 24 * 60; m += 5) {
-        expect(el(p, new Date(dayStart + m * MIN))).toBeLessThanOrEqual(el(p, noon) + 1e-3);
-      }
-    });
+    );
   });
 
   it('morning is half the noon elevation at Vienna in December (the 15 degree rule would never be met)', () => {
@@ -111,14 +124,22 @@ describe('zones', () => {
   );
 
   it('Kathmandu is UTC+5:45 and Phoenix has no daylight saving', () => {
-    expect(zonedInstant('2026-12-21', 720, 'Asia/Kathmandu').toISOString()).toBe('2026-12-21T06:15:00.000Z');
-    expect(zonedInstant('2026-07-01', 720, 'America/Phoenix').toISOString()).toBe('2026-07-01T19:00:00.000Z');
+    expect(zonedInstant('2026-12-21', 720, 'Asia/Kathmandu').toISOString()).toBe(
+      '2026-12-21T06:15:00.000Z'
+    );
+    expect(zonedInstant('2026-07-01', 720, 'America/Phoenix').toISOString()).toBe(
+      '2026-07-01T19:00:00.000Z'
+    );
   });
 
   it('a wall time in the spring-forward gap lands after it; one that happens twice is the first', () => {
     // Vienna, 2026-03-29: 02:00 became 03:00 (01:00Z). 2026-10-25: 03:00 became 02:00 (01:00Z).
-    expect(zonedInstant('2026-03-29', 150, 'Europe/Vienna').toISOString()).toBe('2026-03-29T01:30:00.000Z');
-    expect(zonedInstant('2026-10-25', 150, 'Europe/Vienna').toISOString()).toBe('2026-10-25T00:30:00.000Z');
+    expect(zonedInstant('2026-03-29', 150, 'Europe/Vienna').toISOString()).toBe(
+      '2026-03-29T01:30:00.000Z'
+    );
+    expect(zonedInstant('2026-10-25', 150, 'Europe/Vienna').toISOString()).toBe(
+      '2026-10-25T00:30:00.000Z'
+    );
   });
 
   it('the place decides, not the zone of the client', () => {
@@ -175,8 +196,12 @@ describe('purity and bands', () => {
     const t = momentFor({ kind: 'free', date: '2026-12-21', minutes: 400 }, p, new Date());
     expect(localDate(t, p.tz)).toBe('2026-12-21');
     expect(localMinutes(t, p.tz)).toBe(400);
-    expect(localDate(momentFor({ kind: 'free', date: '1800-01-01', minutes: 0 }, p, new Date()), p.tz)).toBe('1900-01-01');
-    expect(localDate(momentFor({ kind: 'free', date: '2999-05-05', minutes: 0 }, p, new Date()), p.tz)).toBe('2100-12-31');
+    expect(
+      localDate(momentFor({ kind: 'free', date: '1800-01-01', minutes: 0 }, p, new Date()), p.tz)
+    ).toBe('1900-01-01');
+    expect(
+      localDate(momentFor({ kind: 'free', date: '2999-05-05', minutes: 0 }, p, new Date()), p.tz)
+    ).toBe('2100-12-31');
   });
 
   it('skyBand: day at 6.0, night at -6.0, dusk between', () => {
@@ -192,10 +217,32 @@ describe('purity and bands', () => {
   it('the key of a moment follows its local date and id, or its date and minutes', () => {
     const p = PLACES.vienna;
     const n = { kind: 'named', id: 'noon' } as const;
-    expect(momentKey(n, p, new Date('2026-06-21T10:00:00Z'))).toBe(momentKey(n, p, new Date('2026-06-21T20:00:00Z')));
-    expect(momentKey(n, p, new Date('2026-06-21T10:00:00Z'))).not.toBe(momentKey(n, p, new Date('2026-06-22T10:00:00Z')));
+    expect(momentKey(n, p, new Date('2026-06-21T10:00:00Z'))).toBe(
+      momentKey(n, p, new Date('2026-06-21T20:00:00Z'))
+    );
+    expect(momentKey(n, p, new Date('2026-06-21T10:00:00Z'))).not.toBe(
+      momentKey(n, p, new Date('2026-06-22T10:00:00Z'))
+    );
     expect(momentKey({ kind: 'free', date: '2026-06-21', minutes: 5 }, p, new Date())).not.toBe(
       momentKey({ kind: 'free', date: '2026-06-21', minutes: 10 }, p, new Date())
     );
+  });
+});
+
+describe('the picker seed', () => {
+  it('opens from the moment Auto or a named choice is drawing, in the place zone, to the 5 minutes the slider steps', () => {
+    const p = PLACES.fuji;
+    const now = new Date('2026-12-21T04:03:00Z'); // 13:03 at Fuji
+    expect(seedFree({ kind: 'auto' }, p, now)).toEqual({
+      kind: 'free',
+      date: '2026-12-21',
+      minutes: 13 * 60,
+    });
+    const noon = seedFree({ kind: 'named', id: 'noon' }, p, now);
+    expect(noon.date).toBe('2026-12-21');
+    expect(Math.abs(noon.minutes - 11 * 60 - 45)).toBeLessThanOrEqual(15); // solar noon at 138.6 E is about 11:45 JST
+    expect(noon.minutes % 5).toBe(0);
+    const free = { kind: 'free', date: '2026-07-15', minutes: 330 } as const;
+    expect(seedFree(free, p, now)).toBe(free);
   });
 });

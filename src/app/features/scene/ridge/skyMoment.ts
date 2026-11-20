@@ -21,7 +21,7 @@ export const skyBand = (elevationDeg: number): FixedSkyState =>
   elevationDeg >= DAY_FROM ? 'day' : elevationDeg <= -DAY_FROM ? 'night' : 'dusk';
 
 export const MOMENT_IDS = ['dawn', 'morning', 'noon', 'golden', 'dusk', 'night'] as const;
-export type MomentId = (typeof MOMENT_IDS)[number];
+export type MomentId = typeof MOMENT_IDS[number];
 
 /** What the viewer picked: the live sky, a named moment of today at the place, or a place-local date and minute of the day. */
 export type SkyChoice =
@@ -67,8 +67,7 @@ const wallAsUtc = (t: number, tz: string): number => {
     });
   return Date.UTC(v.year, v.month - 1, v.day, v.hour, v.minute, v.second);
 };
-const offsetAt = (t: number, tz: string): number =>
-  wallAsUtc(t, tz) - Math.floor(t / 1000) * 1000;
+const offsetAt = (t: number, tz: string): number => wallAsUtc(t, tz) - Math.floor(t / 1000) * 1000;
 
 const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
 const dateOf = (utcMs: number): string => {
@@ -109,6 +108,12 @@ export function zonedInstant(date: string, minutes: number, tz: string): Date {
     .sort((a, b) => a - b);
   return new Date(valid.length ? valid[0] : guess - before);
 }
+
+/** The short name of the zone at that instant ('CET', 'GMT+5:45'): what the picker shows beside a place-local time. */
+export const zoneName = (at: Date, tz: string): string =>
+  new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(at)
+    .find((p) => p.type === 'timeZoneName')?.value ?? tz;
 
 // ---------------------------------------------------------------------------------------------------------------- the named moments
 
@@ -231,8 +236,8 @@ const clampDate = (date: string): string =>
   !isDate(date) || date < FREE_DATE_MIN
     ? FREE_DATE_MIN
     : date > FREE_DATE_MAX
-      ? FREE_DATE_MAX
-      : date;
+    ? FREE_DATE_MAX
+    : date;
 const clampMinutes = (m: number): number => Math.min(1439, Math.max(0, Math.floor(m) || 0));
 
 /** The instant the sky is drawn at for a choice at a place: auto is `now`; a named moment is today's at the place; a free moment is its own. */
@@ -240,6 +245,21 @@ export function momentFor(choice: SkyChoice, place: Place, now: Date): Date {
   if (choice.kind === 'auto') return now;
   if (choice.kind === 'named') return namedInstant(choice.id, place, localDate(now, place.tz));
   return zonedInstant(clampDate(choice.date), clampMinutes(choice.minutes), place.tz);
+}
+
+/** The free moment (place-local date, minute to the 5 the slider steps) a choice is drawing now: where the picker opens from. */
+export function seedFree(
+  choice: SkyChoice,
+  place: Place,
+  now: Date
+): Extract<SkyChoice, { kind: 'free' }> {
+  if (choice.kind === 'free') return choice;
+  const at = momentFor(choice, place, now);
+  return {
+    kind: 'free',
+    date: localDate(at, place.tz),
+    minutes: Math.floor(localMinutes(at, place.tz) / 5) * 5,
+  };
 }
 
 /** What a rebuild is for, of the moment: live for auto, the id and place-local date for a named one, the date and minutes for a free one. */

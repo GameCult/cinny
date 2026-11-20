@@ -62,7 +62,7 @@ describe('sceneThemeId, the theme the page wears', () => {
     vi.useFakeTimers();
     let hour = 12;
     setSkyClock(() => atSolarTime(hour, 10));
-    const seen: string[] = [];
+    const seen: Array<string | undefined> = [];
     const off = subscribeSky((s) => seen.push(s));
     expect(getResolvedSkyState()).toBe('day');
     hour = 0;

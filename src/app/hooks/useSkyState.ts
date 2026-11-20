@@ -1,5 +1,11 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { getResolvedSkyState, getSkyChoice, subscribe } from '../features/scene/skyState';
+import {
+  getResolvedSkyState,
+  getSkyChoice,
+  getSkyPlace,
+  subscribe,
+} from '../features/scene/skyState';
+import type { Place } from '../features/scene/ridge/view';
 import type { FixedSkyState, SkyChoice } from '../features/scene/ridge/skyMoment';
 import { ensureSkyPlace } from '../features/scene/skyPlace';
 import { getSceneDrawn, subscribeSceneDrawn } from '../features/scene/sceneDrawn';
@@ -11,6 +17,9 @@ export const useSkyChoice = (): SkyChoice => useSyncExternalStore(subscribe, get
 /** The sky being drawn: day, dusk or night, or undefined until the place is known. Unlike the choice it changes as the clock crosses under Auto, so it re-renders. */
 export const useResolvedSkyState = (): FixedSkyState | undefined =>
   useSyncExternalStore(subscribe, getResolvedSkyState);
+
+/** The place the sky is over, or undefined until the manifest is loaded. */
+export const useDrawnPlace = (): Place | undefined => useSyncExternalStore(subscribe, getSkyPlace);
 
 /** Make the configured place the sky's (skyPlace.ts). Mounted once by each theme manager; the load is shared and idempotent. */
 export const useSkyPlace = (): void => {
