@@ -171,7 +171,9 @@ function ctx() {
     },
     beginPath() {},
     moveTo() {},
-    stroke() {},
+    stroke() {
+      draws.push('line');
+    },
     createRadialGradient: () => ({ addColorStop: vi.fn() }),
     lineTo() {},
     closePath() {},
@@ -189,6 +191,7 @@ function ctx() {
       else draws.push('fill');
     },
     drawImage(...a: unknown[]) {
+      draws.push('image');
       images.push(
         Object.assign(a, { alpha: c.globalAlpha, op: c.globalCompositeOperation, t: c.t, k: c.k })
       );
@@ -561,6 +564,34 @@ describe('the ridge cards in the scene', () => {
     parent.children.find((c: any) => c.children.some((g: any) => g.anims.length));
   const win = windowFor(manifest.view, 400, 800);
   const motion400 = cardMotion(manifest, win);
+
+  it('lays the night bodies (lines, stars, moon) in the sky before any card, so the cards occlude them', () => {
+    const { canvas } = host();
+    createRidgeScene({
+      canvas,
+      tier: 'still',
+      sky: { ...night },
+      backdrop: litCards(),
+      lines: true,
+    });
+    const bodies = draws.map((d, i) => (d === 'line' || d === 'star' ? i : -1)).filter((i) => i >= 0);
+    const images = draws.map((d, i) => (d === 'image' ? i : -1)).filter((i) => i >= 0);
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(draws).toContain('line'); // the lines are drawn (the sky is a night one)
+    const cards = images.slice(-3); // the sky's upscale first, then the three cards, farthest first
+    expect(cards).toHaveLength(3);
+    expect(Math.max(...bodies)).toBeLessThan(Math.min(...cards));
+  });
+
+  it('keeps the live sky canvas, with every body baked into it, under the twinkle canvas and the rig', () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'full', sky: { ...night }, backdrop: litCards(), lines: true });
+    const rig = rigOf(parent);
+    const twinkle = parent.children.findIndex((c: any) => c.tag === 'canvas');
+    expect(twinkle).toBeGreaterThanOrEqual(0);
+    expect(parent.children.indexOf(rig)).toBeGreaterThan(twinkle);
+    expect(draws.filter((d) => d === 'image')).toHaveLength(1); // only the sky's own upscale is in the host canvas: the cards are DOM above it
+  });
 
   it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position', () => {
     const { parent, canvas } = host();
