@@ -216,6 +216,28 @@ describe('the look reaches the shader', () => {
     expect(u.uInkKeep[0]).toBe(1);
   });
 
+  it('carries the art-pass axes: relief, fixed light, tint, tone, ink scale, noise', () => {
+    const u = run({
+      reliefWeight: 0.15,
+      reliefLight: { mix: 1, azimuthDeg: 0, elevationDeg: 90 },
+      hazeTint: [0, 0.1, 0.3],
+      nearWarm: 0.5,
+      contrastByDistance: 1.5,
+      cardToneStep: 0.2,
+      cardGradient: 0.3,
+      inkScale: 0,
+      groundNoise: 0.4,
+      cloudShadows: 0.6,
+    });
+    expect(u.uRelief).toEqual([0.15, 1]);
+    expect(u.uFixedLight[2]).toBeCloseTo(1, 12); // a light straight up
+    expect(u.uHazeTint).toEqual([0, 0.1, 0.3]);
+    expect(u.uDist).toEqual([0.5, 1.5]);
+    expect(u.uCard).toEqual([1, 0.3]); // a single card sits at the centre of the tone steps
+    expect(u.uInkScale).toEqual([0]);
+    expect(u.uGround).toEqual([0.4, 0.6]);
+  });
+
   it('scales the haze optical depth and the ambient light, and moves the sun cut-off', () => {
     const base = run();
     const look = run({ hazeScale: 2, ambientScale: 0.5 });

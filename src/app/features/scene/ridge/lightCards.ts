@@ -50,6 +50,26 @@ export interface RidgeLook {
   hazeScale: number;
   /** Multiplies the ambient irradiance the terrain is lit by. */
   ambientScale: number;
+  /** 0 = no normal shading (the flat card tone, as a horizontal surface), 1 = shaded by the normals. */
+  reliefWeight: number;
+  /** The relief light: `mix` 0 is the sun, 1 a fixed light; `azimuthDeg` is clockwise of the view ray (-45 = upper left, behind the ridge), `elevationDeg` above the horizon. */
+  reliefLight: { mix: number; azimuthDeg: number; elevationDeg: number };
+  /** Added to the sky radiance used for the haze, rgb in units of that radiance's own luminance (so it holds at every sky): positive blue = cool far. */
+  hazeTint: readonly [number, number, number];
+  /** Strength (0..1) of a warm tint on the near, fading out with the log-distance across the baked range. */
+  nearWarm: number;
+  /** The relief's contrast about the pixel's flat tone scales by exp(c (1 - 2 d)), d the log-distance across the baked range: c > 0 near contrasty, far flat. */
+  contrastByDistance: number;
+  /** Value of each card multiplies by 1 + step (index - centre); the nearest card is index 0, so a positive step makes near darkest. */
+  cardToneStep: number;
+  /** Value ramp inside each card: 1 + g (y - 1/2), y the fraction down the card; positive lightens toward the foot. */
+  cardGradient: number;
+  /** Multiplies each ink's darkening: 0 = no lines. */
+  inkScale: number;
+  /** Procedural albedo variation (a stand-in for land cover we do not bake): fbm in metres on the ground, so its screen frequency follows distance. 0 = none. */
+  groundNoise: number;
+  /** Low-frequency noise darkening of the direct sun (static). 0 = none. */
+  cloudShadows: number;
 }
 
 export const DEFAULT_LOOK: RidgeLook = {
@@ -59,6 +79,16 @@ export const DEFAULT_LOOK: RidgeLook = {
   sunCutoffDeg: -1,
   hazeScale: 1,
   ambientScale: 1,
+  reliefWeight: 1,
+  reliefLight: { mix: 0, azimuthDeg: -45, elevationDeg: 40 },
+  hazeTint: [0, 0, 0],
+  nearWarm: 0,
+  contrastByDistance: 0,
+  cardToneStep: 0,
+  cardGradient: 0,
+  inkScale: 1,
+  groundNoise: 0,
+  cloudShadows: 0,
 };
 
 const RAD = Math.PI / 180;
@@ -105,6 +135,8 @@ export interface Lighting {
   lift: number;
 }
 
+const scale3 = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
+
 export function lightingOf(
   manifest: RidgeManifest,
   sky: PhysicalSky,
@@ -119,11 +151,9 @@ export function lightingOf(
     planeH: manifest.view.planeH,
     logDMin: manifest.encoding.logDMin,
     logDSpan: manifest.encoding.logDMax - manifest.encoding.logDMin,
-    extinction: extinctionAt(sky.atm.observerKm, sky.atm.mieScale).map(
-      (e) => e * look.hazeScale
-    ) as Vec3,
+    extinction: scale3(extinctionAt(sky.atm.observerKm, sky.atm.mieScale), look.hazeScale),
     sunTransmittance: lit ? [trans[0], trans[1], trans[2]] : [0, 0, 0],
-    ambient: sky.atm.irradiance.ambient.map((a) => a * look.ambientScale) as Vec3,
+    ambient: scale3(sky.atm.irradiance.ambient, look.ambientScale),
     exposure: sky.fit.display.exposure,
     lift: sky.fit.display.lift,
   };
@@ -179,9 +209,19 @@ uniform vec3 uAmbient;
 uniform vec2 uDisplay;
 uniform vec2 uInkGeometry; // occludeLogD, creaseCos
 uniform vec3 uInkKeep; // edge, occlude, crease
+uniform float uInkScale;
+uniform vec2 uRelief; // weight, mix toward the fixed light
+uniform vec3 uFixedLight; // in the column frame
+uniform vec3 uHazeTint;
+uniform vec2 uDist; // nearWarm, contrastByDistance
+uniform vec2 uCard; // value of this card, gradient
+uniform vec2 uGround; // groundNoise, cloudShadows
+uniform float uRadPerPx; // radians of azimuth per plane pixel
 out vec4 outColor;
 
 const float PI = 3.14159265358979;
+const vec3 NEAR_WARM = vec3(1.0, 0.82, 0.62);
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 const float WALL_RT2 = ${glsl(WALL_RT2)};
 ${[0, 1, 2]
   .map((i) => `const vec3 IN_R${i} = vec3(${ACES_IN[i].map(glsl).join(', ')});`)
@@ -218,6 +258,24 @@ vec3 skyAt(vec2 uv) {
   return mix(a, c, t.y);
 }
 
+float hash2(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), f.x), mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float a = 0.5;
+  float sum = 0.0;
+  for (int i = 0; i < 4; i++) { sum += a * vnoise(p); p *= 2.03; a *= 0.5; }
+  return sum / 0.9375;
+}
+
 struct Geo { vec3 n; float logD; bool wall; };
 Geo geoAt(ivec2 p) {
   vec4 g = texelFetch(uGeo, p, 0);
@@ -237,10 +295,26 @@ void main() {
   Geo g = geoAt(p);
 
   vec3 s = texelFetch(uSun, ivec2(p.x, 0), 0).xyz;
-  vec3 radiance = toLinear(c.rgb) * (uTSun * max(dot(g.n, s), 0.0) + uAmbient) / PI;
-  vec3 T = exp(-uExt * (exp(g.logD) / 1000.0));
+  if (uRelief.y > 0.0) s = normalize(mix(s, uFixedLight, uRelief.y));
+  float dist = exp(g.logD);
+  vec2 world = vec2(float(p.x) * uRadPerPx, 1.0) * dist;
+  vec3 albedo = toLinear(c.rgb);
+  if (uGround.x > 0.0) albedo *= max(1.0 + uGround.x * (2.0 * fbm(world / 250.0) - 1.0), 0.0);
+  float cloud = uGround.y > 0.0 ? 1.0 - uGround.y * smoothstep(0.5, 0.72, fbm(world / 4000.0 + 17.0)) : 1.0;
+  float ndl = mix(max(s.z, 0.0), max(dot(g.n, s), 0.0), uRelief.x);
+  vec3 radiance = albedo * (uTSun * ndl * cloud + uAmbient) / PI;
+  float dn = clamp((g.logD - uLogD.x) / uLogD.y, 0.0, 1.0);
+  if (uDist.y != 0.0) {
+    vec3 flatTone = albedo * (uTSun * max(s.z, 0.0) * cloud + uAmbient) / PI;
+    radiance = flatTone + (radiance - flatTone) * exp(uDist.y * (1.0 - 2.0 * dn));
+  }
+  radiance *= mix(vec3(1.0), NEAR_WARM, uDist.x * (1.0 - dn));
+  vec3 T = exp(-uExt * (dist / 1000.0));
   vec2 uv = vec2((float(p.x) + 0.5) / uPlane.x, (float(uTop + p.y) + 0.5) / uPlane.y);
-  radiance = radiance * T + skyAt(uv) * (1.0 - T);
+  vec3 haze = skyAt(uv);
+  haze += uHazeTint * dot(haze, LUMA);
+  radiance = radiance * T + haze * (1.0 - T);
+  radiance *= max(uCard.x * (1.0 + uCard.y * ((float(p.y) + 0.5) / float(uSize.y) - 0.5)), 0.0);
 
   float keep = 1.0;
   ivec2 dirs[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
@@ -253,7 +327,7 @@ void main() {
     else if (an >= 0.5 && gn.logD - g.logD > uInkGeometry.x) keep = min(keep, uInkKeep.y);
     else if (an >= 0.5 && !g.wall && !gn.wall && dot(g.n, gn.n) < uInkGeometry.y) keep = min(keep, uInkKeep.z);
   }
-  radiance *= keep;
+  radiance *= 1.0 - (1.0 - keep) * uInkScale;
 
   vec3 lin = aces(radiance * uDisplay.x);
   vec3 rgb = toSrgb(uDisplay.y + (1.0 - uDisplay.y) * lin);
@@ -355,6 +429,19 @@ export function lightCards(
     gl.uniform2f(u('uDisplay'), lit.exposure, lit.lift);
     gl.uniform2f(u('uInkGeometry'), look.occludeLogD, look.creaseCos);
     gl.uniform3f(u('uInkKeep'), look.inkKeep.edge, look.inkKeep.occlude, look.inkKeep.crease);
+    gl.uniform1f(u('uInkScale'), look.inkScale);
+    gl.uniform2f(u('uRelief'), look.reliefWeight, look.reliefLight.mix);
+    const fl = look.reliefLight;
+    gl.uniform3f(
+      u('uFixedLight'),
+      Math.cos(fl.elevationDeg * RAD) * Math.cos(fl.azimuthDeg * RAD),
+      Math.cos(fl.elevationDeg * RAD) * Math.sin(fl.azimuthDeg * RAD),
+      Math.sin(fl.elevationDeg * RAD)
+    );
+    gl.uniform3f(u('uHazeTint'), ...look.hazeTint);
+    gl.uniform2f(u('uDist'), look.nearWarm, look.contrastByDistance);
+    gl.uniform2f(u('uGround'), look.groundNoise, look.cloudShadows);
+    gl.uniform1f(u('uRadPerPx'), (manifest.view.windowDeg * RAD) / lit.planeW);
     gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
     const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, sky.sun));
     const skyTex = floatTexture(
@@ -373,6 +460,11 @@ export function lightCards(
       const geoTex = bitmapTexture(gl, 1, geometry);
       gl.uniform2i(u('uSize'), colour.width, colour.height);
       gl.uniform1i(u('uTop'), card.top);
+      gl.uniform2f(
+        u('uCard'),
+        1 + look.cardToneStep * (i - (manifest.cards.length - 1) / 2),
+        look.cardGradient
+      );
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);

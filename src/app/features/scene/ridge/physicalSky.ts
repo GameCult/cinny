@@ -53,10 +53,12 @@ export function makePhysicalSky(
   state: FixedSkyState,
   now: Date,
   weatherValue: number,
-  view: View
+  view: View,
+  /** A sun to draw instead of the state's own (the look sheet's grid of elevations); `state` still picks the display budget. */
+  sunOverride?: SunSample
 ): PhysicalSky {
   const t0 = clock();
-  const sun = sunForState(view.place, state, now);
+  const sun = sunOverride ?? sunForState(view.place, state, now);
   const weather = weatherOf(weatherValue);
   const atm = bakeAtmosphere({
     sunElevationDeg: sun.elevation,
