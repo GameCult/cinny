@@ -15,7 +15,10 @@ import { useEstateRootId } from './useEstate';
 import {
   STEWARDSHIPS_KEY,
   MediaRow as MediaRowState,
+  commonsAlias,
+  commonsRow,
   lookupMediaRoom,
+  lookupZoneRoom,
   mediaRoomIdFromStewardships,
   mediaRow,
   typedMediaRoom,
@@ -44,7 +47,7 @@ export function MediaNote({ note, title }: { note: string; title?: string }) {
 }
 
 /** The joined Media row: opens the room, which shows its album view. */
-export function MediaLink({ to }: { to: string }) {
+export function MediaLink({ to, label = 'Media' }: { to: string; label?: string }) {
   return (
     <NavItem variant="Background" radii="400">
       <NavLink to={to}>
@@ -52,7 +55,7 @@ export function MediaLink({ to }: { to: string }) {
           <Box as="span" grow="Yes" alignItems="Center" gap="200">
             <NavGutter>{mediaIcon}</NavGutter>
             <Text className={NavLabel} as="span" size="Inherit" truncate>
-              Media
+              {label}
             </Text>
           </Box>
         </NavItemContent>
@@ -104,4 +107,24 @@ export const useMindMedia = (mind: string, rooms: readonly EstateRoom[]): MediaR
   joined.forEach((id) => membership.set(id, 'join'));
   if (typed) return { kind: 'room', room: { ...typed, name: 'Media' } };
   return mediaRow(lookup.data, membership);
+};
+
+/** The shared Commons room as the navigator sees it right now: undefined means no row. Dark unless fileZoneShare.enabled. */
+export const useCommons = (): EstateRoom | undefined => {
+  const mx = useMatrixClient();
+  const joined = useAtomValue(allRoomsAtom);
+  const invited = useAtomValue(allInvitesAtom);
+  const enabled = !!useClientConfig().fileZoneShare?.enabled;
+  const server = mx.getDomain() ?? '';
+  // Provisioning records no id for the Commons (only per-Mind zones under @rooms.file_zones): the alias is the one way in.
+  const lookup = useQuery({
+    queryKey: ['commons-room', server],
+    queryFn: () => lookupZoneRoom(mx, commonsAlias(server), server),
+    staleTime: 60_000,
+    enabled,
+  });
+  const membership = new Map<string, 'join' | 'invite'>();
+  invited.forEach((id) => membership.set(id, 'invite'));
+  joined.forEach((id) => membership.set(id, 'join'));
+  return commonsRow(enabled, lookup.data, membership);
 };

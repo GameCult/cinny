@@ -4,7 +4,6 @@
 // text colours can be checked against it. 'auto' is a choice, not a sky: it resolves from the
 // clock to day, dusk or night (`resolveSkyState`), and every sky drawn is one of those three.
 import { sunElevation } from '../../../sky/sun.js';
-import type { FixedSkyState } from './skyBand';
 
 export type SkyState = 'auto' | 'day' | 'dusk' | 'night';
 
@@ -22,7 +21,13 @@ function load(): SkyState {
   }
 }
 
-export type { FixedSkyState };
+/**
+ * The three skies ever drawn. Each has the luminance band its theme ink needs against bare sky (WCAG relative luminance,
+ * the `luminance` of src/sky/skyTokens.js): day, at least 0.2983 (the dark text ink #342d25); dusk, at least 0.4554 (the link
+ * #2a4f27); night, at most 0.0931 (the light text ink #aeccff). The ridge scene's display budgets (ridge/toneMap.ts `BUDGET`)
+ * sit inside them.
+ */
+export type FixedSkyState = 'day' | 'dusk' | 'night';
 
 /** Where the clock puts the sun: the latitude the skies are baked for (src/sky/skyTokens.js MOMENTS), the longitude of this timezone. */
 const LAT = 45;
@@ -125,13 +130,9 @@ export interface SkyBackdrop {
   readonly lightest: number;
 }
 
-// The union of every sky a scene draws for the state: the ridge sky and the terrain sky, each from
-// the function its scene uses (`ridgeDrawn`, `terrainDrawn` in skyForState.ts). The ridge sky is the physical sky over Vienna, its
-// display fitted to the state's budget (ridge/toneMap.ts `BUDGET`): the budget is its extreme, whatever the sun's elevation. Held as constants so
-// this module, which the main chunk loads, does not pull in the terrain sky and the baked scattering
-// tables with it; skyForState.test.ts fails when they drift from the computed union. The ridge sky counts
-// over its whole range, the terrain sky over what its frozen camera reaches (TERRAIN_REACH_DEG, skyForState.ts).
-// Night's lightest also covers a sky the page URL steers (shaped to the band ceiling, skyBand.ts).
+// What the ridge sky can show behind the page in each state (its display budget, ridge/toneMap.ts `BUDGET`, holds whatever the
+// sun's elevation; physicalSky.test.ts sweeps the sun's year against these). Held as constants so this module, which the main chunk
+// loads, does not pull in the sky generator. The bounds are at least as wide as the budgets: the login text was checked against them.
 // Bounds what the 8-bit screen shows too (one step each way for rounding and dither), rounded outward to six places.
 const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
   day: { darkest: 0.461063, lightest: 1 },

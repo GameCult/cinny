@@ -13,6 +13,9 @@ export const ROOMS_KEY = '@rooms';
 
 export const mediaAlias = (mind: string, server: string): string => `#${mind}-files:${server}`;
 
+/** The shared Commons room's alias (gamecult-ops synapse-accounts-hand-managed.py COMMONS_ALIAS). */
+export const commonsAlias = (server: string): string => `#commons:${server}`;
+
 /**
  * The room id the stewardships state names for a Mind's media room, under `@rooms.file_zones[<mind>]`.
  * The state's mind-to-repos lists are not read here.
@@ -46,16 +49,16 @@ export type MediaLookup =
   | { found: true; roomId: string; via: string[] }
   | { found: false; reason: 'unset' | 'error'; message?: string };
 
-/** Resolve a Mind's media room: a carried id if there is one, else the alias. A 404 means it is not set up. */
-export const lookupMediaRoom = async (
+/** Resolve a file-zone room (a Mind's media room, or Commons): a carried id if there is one, else the alias. A 404 means it is not set up. */
+export const lookupZoneRoom = async (
   mx: MediaClient,
-  mind: string,
+  alias: string,
   server: string,
   carriedId?: string
 ): Promise<MediaLookup> => {
   if (carriedId) return { found: true, roomId: carriedId, via: [server] };
   try {
-    const r = await mx.getRoomIdForAlias(mediaAlias(mind, server));
+    const r = await mx.getRoomIdForAlias(alias);
     return { found: true, roomId: r.room_id, via: r.servers?.length ? r.servers : [server] };
   } catch (e) {
     const err = e as {
@@ -75,6 +78,14 @@ export const lookupMediaRoom = async (
   }
 };
 
+/** Resolve a Mind's media room. */
+export const lookupMediaRoom = (
+  mx: MediaClient,
+  mind: string,
+  server: string,
+  carriedId?: string
+): Promise<MediaLookup> => lookupZoneRoom(mx, mediaAlias(mind, server), server, carriedId);
+
 export type MediaRow =
   | { kind: 'checking' }
   | { kind: 'unset' }
@@ -86,7 +97,8 @@ const MEMBERSHIP_STATE = { join: 'joined', invite: 'invited', none: 'joinable' }
 /** What the Media row shows: the lookup result joined to the user's own membership. */
 export const mediaRow = (
   lookup: MediaLookup | undefined,
-  membership: ReadonlyMap<string, 'join' | 'invite'>
+  membership: ReadonlyMap<string, 'join' | 'invite'>,
+  name = 'Media'
 ): MediaRow => {
   if (!lookup) return { kind: 'checking' };
   if (!lookup.found) {
@@ -99,11 +111,26 @@ export const mediaRow = (
     kind: 'room',
     room: {
       roomId: lookup.roomId,
-      name: 'Media',
+      name,
       state: MEMBERSHIP_STATE[m ?? 'none'],
       via: lookup.via,
       parentId: null,
       direct: false,
     },
   };
+};
+
+/**
+ * The Commons row: the shared room, or nothing. Off with the share flag; not set up, still looking and a failed lookup
+ * show no row (the room is shared furniture, not a per-Mind promise like Media). A found room is joined, invited or
+ * joinable, as for Media.
+ */
+export const commonsRow = (
+  enabled: boolean,
+  lookup: MediaLookup | undefined,
+  membership: ReadonlyMap<string, 'join' | 'invite'>
+): EstateRoom | undefined => {
+  if (!enabled) return undefined;
+  const row = mediaRow(lookup, membership, 'Commons');
+  return row.kind === 'room' ? row.room : undefined;
 };

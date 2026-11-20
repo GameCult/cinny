@@ -113,9 +113,10 @@ Hard-refresh to clear `sw.js`. Do not delete the failed release; leave it for di
 
 ## Open
 
-- The served config (checked 2026-11-12) is not the repo's: it says `backgroundScene.style`
-  `terrain` where the repo says `ridge` (#106, Meta 2026-11-11), lacks the repo's `dings`,
-  `fileZoneShare` and `registration` blocks (all off in the repo), and has no trailing newline.
-  The new keys default off or inert when absent, so only the style is a decision. Meta says which
-  style ships. Until the served file is replaced, every handoff build stops at the live check
-  unless `ALLOW_CONFIG_DRIFT=1` is set (section 1).
+- Until the release that drops the terrain style (Meta 2026-11-17, ruling
+  `ratatoskr:ruling:ridge-only-scene-terrain-cut`), the served config said
+  `backgroundScene.style: terrain` and lacked the repo's `dings`, `fileZoneShare` and
+  `registration` blocks. That release replaces the carried file with the production config; a
+  `terrain` value left anywhere now falls to the ridge default. Until the carried file and the
+  build pin are equal again, every handoff build stops at the live check unless
+  `ALLOW_CONFIG_DRIFT=1` is set (section 1).

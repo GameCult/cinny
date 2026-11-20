@@ -17,9 +17,9 @@ export interface Capabilities {
 
 /**
  * 'ridge': baked parallax ridges, no WebGL (default). 'raymarch': the sphere-traced world with its tree and
- * clouds. 'terrain': a baked height map on a displaced grid, lit and hazed by the baked sky (WebGL2).
+ * clouds.
  */
-export type SceneStyle = 'ridge' | 'raymarch' | 'terrain';
+export type SceneStyle = 'ridge' | 'raymarch';
 
 export interface BackgroundSceneConfig {
   tier?: SceneTier;

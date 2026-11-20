@@ -26,4 +26,14 @@ describe('Media row', () => {
     expect(text(html)).toBe('Media');
     expect(html).toContain('href="/home/%23void-files%3Agamecult.org/"');
   });
+
+  it('the Commons link reads "Commons" and opens the room', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <MediaLink to="/home/%23commons%3Agamecult.org/" label="Commons" />
+      </MemoryRouter>
+    );
+    expect(text(html)).toBe('Commons');
+    expect(html).toContain('href="/home/%23commons%3Agamecult.org/"');
+  });
 });

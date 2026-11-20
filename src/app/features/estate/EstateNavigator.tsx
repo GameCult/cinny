@@ -37,7 +37,7 @@ import { searchModalAtom } from '../../state/searchModal';
 import { getCanonicalAliasOrRoomId } from '../../utils/matrix';
 import { useMatrixClient } from '../../hooks/useMatrixClient';
 import { MINDS } from '../../components/message/pose/poses';
-import { MediaLink, MediaNote, useMindMedia } from './MediaRow';
+import { MediaLink, MediaNote, useCommons, useMindMedia } from './MediaRow';
 import { MediaRow as MediaRowState } from './mediaRoom';
 import { useSelectedRoom } from '../../hooks/router/useSelectedRoom';
 import { useCallEmbed } from '../../hooks/useCallEmbed';
@@ -194,6 +194,15 @@ function MindMedia({ media }: { media: MediaRowState }) {
   return <JoinRow room={media.room} icon={Icons.Photo} />;
 }
 
+/** The shared Commons room above the tiers: a link when joined, a join row otherwise, nothing when there is none. */
+function CommonsEntry() {
+  const mx = useMatrixClient();
+  const room = useCommons();
+  if (!room) return null;
+  if (room.state === 'joined') return <MediaLink to={estateRoomPath(mx, room)} label="Commons" />;
+  return <JoinRow room={room} icon={Icons.Photo} />;
+}
+
 function GroupSection({ tierId, group }: { tierId: string; group: EstateGroup }) {
   const media = useMindMedia(group.mind, group.rooms);
   const hasMedia = MINDS.includes(group.mind);
@@ -345,6 +354,7 @@ function EstateTiers({ rootId }: { rootId: string }) {
 
   return (
     <>
+      <CommonsEntry />
       {tiers.map((tier) => (
         <Tier key={tier.id} tier={tier} />
       ))}

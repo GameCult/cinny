@@ -3,7 +3,7 @@
 // fixed sky state. The ridge sky is the physical atmosphere (`earthAtmosphere.ts`) lit from this sun.
 import { sunPosition } from '../../../../sky/sun.js';
 import { DAY_FROM } from '../skyState';
-import type { FixedSkyState } from '../skyBand';
+import type { FixedSkyState } from '../skyState';
 import type { Place } from './view';
 
 export interface SunSample {
