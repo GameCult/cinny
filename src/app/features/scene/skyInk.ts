@@ -10,7 +10,7 @@
 // not a GPU; ratatoskr-sidebar-contrast-20261110/results.md, T3). These are the scene's own patches, not
 // the bare sky: the terrain under the timeline is what the ink sits on, and at night its snow (0.103, phone 0.149) is
 // lighter than the sky was when these were measured (0.0816).
-// Only a person whose theme is the sky's (no explicit theme of their own, sceneThemeId) wears this ink.
+// The page wears this ink whenever the drawn sky decides its theme (a scene is on, sceneThemeId).
 import chroma from 'chroma-js';
 import { AA, luminance } from '../../../sky/skyTokens.js';
 import { baked } from '../../../sky/baked';
@@ -25,8 +25,8 @@ export interface SkyInk {
 }
 
 /**
- * The ink in force: only while the page wears the sky's theme (`themeId`, from sceneThemeId, so a person's explicit
- * theme, which that function lets win over 'auto', keeps its own ink) and a scene runs behind it. Otherwise undefined.
+ * The ink in force: only while the page wears the sky's theme (`themeId`, from sceneThemeId, defined only while a
+ * scene is on) and a scene runs behind it. With no scene the person's theme and its own ink stand: undefined.
  */
 export const sceneInk = (
   themeId: SkyThemeId | undefined,

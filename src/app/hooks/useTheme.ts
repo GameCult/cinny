@@ -10,11 +10,11 @@ import {
 } from '../../colors.css';
 import '../../gamecult.css';
 import '../../sky.css';
-import { defaultThemeId, settingsAtom } from '../state/settings';
+import { settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
 import { sceneThemeId } from '../features/scene/skyTheme';
 import { sceneInk, type SkyInk } from '../features/scene/skyInk';
-import { useResolvedSkyState, useSceneOn, useSkyState } from './useSkyState';
+import { useResolvedSkyState, useSceneOn } from './useSkyState';
 import { ScreenSize, useScreenSizeContext } from './useScreenSize';
 
 export enum ThemeKind {
@@ -107,28 +107,13 @@ export const useSystemThemeKind = (): ThemeKind => {
 const toTheme = (id: ReturnType<typeof sceneThemeId>): Theme | undefined =>
   id === NoondaySkyTheme.id ? NoondaySkyTheme : id && MidnightSkyTheme;
 
-/**
- * A theme the person chose: the system scheme, any pick made in the theme menu (`themeChosen`, which also covers
- * Midnight Sky, the default), or a saved id other than the default (picks from before the flag existed).
- */
-export const chosenTheme = (useSystemTheme: boolean, themeId?: string, themeChosen?: boolean) =>
-  useSystemTheme || themeChosen === true || (themeId !== undefined && themeId !== defaultThemeId);
-
-/** The theme the sky asks for on a page with no theme of its own (signed out), or undefined for none. */
+/** The theme the drawn sky asks for while a scene is on, or undefined for none (signed-out pages then wear Midnight Sky). */
 export const useSkyTheme = (): Theme | undefined =>
-  toTheme(sceneThemeId(useSkyState(), useResolvedSkyState(), useSceneOn(), false));
+  toTheme(sceneThemeId(useResolvedSkyState(), useSceneOn()));
 
-/** The sky theme the signed-in page wears, or undefined when the person's own theme wins. */
-const useSceneSkyThemeId = (): ReturnType<typeof sceneThemeId> => {
-  const sky = useSkyState();
-  const resolved = useResolvedSkyState();
-  const sceneOn = useSceneOn();
-  const [systemTheme] = useSetting(settingsAtom, 'useSystemTheme');
-  const [themeId] = useSetting(settingsAtom, 'themeId');
-  const [themeChosen] = useSetting(settingsAtom, 'themeChosen');
-  // A person's own theme wins over the sky, fixed or 'auto'.
-  return sceneThemeId(sky, resolved, sceneOn, chosenTheme(systemTheme, themeId, themeChosen));
-};
+/** The sky theme the page wears while a scene is on, or undefined when the person's own theme stands. */
+const useSceneSkyThemeId = (): ReturnType<typeof sceneThemeId> =>
+  sceneThemeId(useResolvedSkyState(), useSceneOn());
 
 /** The ink the page wears over the scene (`sceneInk`, skyInk.ts), or undefined when the theme's own ink stands. */
 export const useSceneInk = (): SkyInk | undefined => {
