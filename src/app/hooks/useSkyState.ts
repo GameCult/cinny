@@ -3,9 +3,9 @@ import {
   getResolvedSkyState,
   getSkyState,
   subscribe,
+  type FixedSkyState,
   type SkyState,
 } from '../features/scene/skyState';
-import type { FixedSkyState } from '../features/scene/skyBand';
 import { readCapabilities, resolveTier } from '../features/scene/tier';
 import { useClientConfig } from './useClientConfig';
 

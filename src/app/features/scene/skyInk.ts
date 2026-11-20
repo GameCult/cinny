@@ -15,7 +15,7 @@ import chroma from 'chroma-js';
 import { AA, luminance } from '../../../sky/skyTokens.js';
 import { baked } from '../../../sky/baked';
 import { indexColorMXID } from '../../../util/colorMXID';
-import type { FixedSkyState } from './skyBand';
+import type { FixedSkyState } from './skyState';
 import type { SkyThemeId } from './skyTheme';
 
 export interface SkyInk {

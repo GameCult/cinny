@@ -6,7 +6,7 @@
 // Exposure is chosen per sky state (`exposureFor`): the sky is physical radiance, so brightness is the camera's, not a
 // shaping of the result. Day and dusk expose to the sky's own luminance (adaptation, as an eye or auto-exposure does) so the
 // darkest of the sky stays where the state's dark ink needs a backdrop; night is fixed, the physical dark.
-import type { FixedSkyState } from '../skyBand';
+import type { FixedSkyState } from '../skyState';
 
 type Rgb = readonly [number, number, number];
 
@@ -49,7 +49,7 @@ export function toneMap8(r: number, g: number, b: number, exposure: number, out:
 export const displayLuma = (c: ArrayLike<number>): number =>
   0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
-/** What a sky state needs of its backdrop's display luminance, from the ink it wears (skyBand.ts, skyInk.ts). */
+/** What a sky state needs of its backdrop's display luminance, from the ink it wears (skyState.ts, skyInk.ts). */
 export interface Budget {
   /** The darkest texel may not be darker than this (dark ink needs a light backdrop). 0: no floor. */
   floor: number;

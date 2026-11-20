@@ -13,7 +13,7 @@ export const SKY_PLATE_FALLBACK = {
  * footer line. The footer is a blurred, tinted band with soft edges, not a plate: the scene shows through it. The
  * footer ink is the plate's, so the tint has to bring the scene behind it to where that ink clears 4.5:1. The browser
  * mixes in sRGB, so the test does too (skyTheme.test.ts): over pure black 0.80 gives 4.36 and 0.82 gives 4.55. The
- * terrain is not black: in the shots at 390x844 (terrain scene, tier low) the darkest pixel in the footer's region is
+ * background is not black: in the shots at 390x844 (taken on the earlier terrain scene, tier low; not re-measured on the ridges) the darkest pixel in the footer's region is
  * 0.0203 at Dusk, 0.0936 at Day (dark ink) and 0.0052 at Night (light ink). Measured on the drawn pixels with the band
  * on, the worst link contrast is 5.0 at Dusk, 5.7 at Day and 11.2 at Night.
  */

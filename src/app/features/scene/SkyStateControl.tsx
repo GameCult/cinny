@@ -23,15 +23,7 @@ import {
   WEATHER_DATASET,
 } from './ridge/credits';
 import { useClientConfig } from '../../hooks/useClientConfig';
-import {
-  getSceneStyleOverride,
-  SERVED_SCENE_STYLES,
-  setSceneStyle,
-  type ServedSceneStyle,
-} from './sceneStyle';
 import { PhoneHit } from '../../styles/PhoneHit.css';
-
-const STYLE_LABEL: Record<ServedSceneStyle, string> = { terrain: 'Terrain', ridge: 'Ridges' };
 
 const LABEL: Record<SkyState, string> = {
   auto: 'Auto',
@@ -48,13 +40,10 @@ export function SkyStateControl() {
   const state = useSkyState();
   const [cords, setCords] = useState<RectCords>();
   const backgroundScene = useClientConfig().backgroundScene;
-  const configuredStyle = backgroundScene?.style;
-  const sceneStyle: ServedSceneStyle =
-    getSceneStyleOverride() ?? (configuredStyle === 'terrain' ? 'terrain' : 'ridge');
 
   const place = backgroundScene?.place;
   const [credit, setCredit] = useState<string>();
-  const ridgeOn = !!backgroundScene && sceneStyle === 'ridge';
+  const ridgeOn = !!backgroundScene && backgroundScene.style !== 'raymarch';
   useEffect(() => {
     if (!ridgeOn) return undefined;
     let live = true;
@@ -108,37 +97,7 @@ export function SkyStateControl() {
                   </Box>
                 </MenuItem>
               ))}
-              {backgroundScene && (
-                <>
-                  <Text
-                    size="L400"
-                    priority="300"
-                    style={{ padding: `${config.space.S200} ${config.space.S200} 0` }}
-                  >
-                    Background
-                  </Text>
-                  {SERVED_SCENE_STYLES.map((st) => (
-                    <MenuItem
-                      key={st}
-                      size="300"
-                      variant="Surface"
-                      radii="300"
-                      role="menuitemradio"
-                      aria-checked={sceneStyle === st}
-                      onClick={() => {
-                        setCords(undefined);
-                        if (st !== sceneStyle) setSceneStyle(st);
-                      }}
-                      after={sceneStyle === st ? <Icon size="100" src={Icons.Check} /> : undefined}
-                    >
-                      <Box grow="Yes">
-                        <Text size="T300">{STYLE_LABEL[st]}</Text>
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </>
-              )}
-              {backgroundScene && sceneStyle === 'ridge' && (
+              {ridgeOn && (
                 <Box
                   direction="Column"
                   gap="100"

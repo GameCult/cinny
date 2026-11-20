@@ -1,7 +1,7 @@
 // The ridge scene's sky: the View's place's sun on the real clock, the atmosphere baked from it, a camera, and the display that makes it
 // pixels. `makePhysicalSky` does the one expensive thing (the LUT bake, tens of ms) and fits the display from a fixed 16:9
 // grid, so resizing the window repaints the same sky. `paintSky` is per-texel lookups only.
-import type { FixedSkyState } from '../skyBand';
+import type { FixedSkyState } from '../skyState';
 import { bakeAtmosphere } from './earthAtmosphere';
 import type { Atmosphere } from './earthAtmosphere';
 import { domeSize, renderDome, SUN_RADIUS, sunOnScreen } from './skyDome';
