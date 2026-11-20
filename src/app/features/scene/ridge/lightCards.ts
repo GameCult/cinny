@@ -73,9 +73,19 @@ export interface RidgeLook {
   cloudShadows: number;
   /** Night's moonlight on the ground: the radiance of a white card in it (rgb, at the night exposure, before the curve); added only in the night state, where the atmosphere gives the ground none. A dim cool value. */
   nightAmbient: readonly [number, number, number];
+  /** Cel shading: the lit side of the relief (n.s) in this many flat bands instead of Lambert's ramp (0 = Lambert; at most `CEL_MAX`). */
+  celBands: number;
+  /** Width of each band edge in n.s units (0 = hard). */
+  celSoftness: number;
+  /** The level of each band, 0..1, darkest first (default: evenly from 0 to 1). Length `celBands`. */
+  celBandLevels?: readonly number[];
+  /** The ambient is coarse too: surfaces facing the sky (the normal's up component past `celAmbientEdge`) keep it whole, the rest keep this fraction (1 = no step). */
+  celAmbientAway: number;
+  celAmbientEdge: number;
 }
 
-export const DEFAULT_LOOK: RidgeLook = {
+/** The first art pass's look: Lambert relief, no procedural variation, the sky's own haze, full ink. Kept for comparison in the look sheet. */
+export const PHYSICAL_LOOK: RidgeLook = {
   occludeLogD: 0.35,
   creaseCos: 0.85,
   inkKeep: { edge: 0.45, occlude: 0.55, crease: 0.8 },
@@ -93,7 +103,57 @@ export const DEFAULT_LOOK: RidgeLook = {
   groundNoise: 0,
   cloudShadows: 0,
   nightAmbient: [0.5, 0.66, 1.1],
+  celBands: 0,
+  celSoftness: 0,
+  celAmbientAway: 1,
+  celAmbientEdge: 0.7,
 };
+
+/** The default: painterly (ground variation, cloud shadows, warm near, moderate haze, light ink) with cel-shaded relief. */
+export const DEFAULT_LOOK: RidgeLook = {
+  ...PHYSICAL_LOOK,
+  groundNoise: 0.35,
+  cloudShadows: 0.5,
+  nearWarm: 0.6,
+  hazeScale: 2,
+  inkScale: 0.4,
+  celBands: 3,
+  celSoftness: 0.05,
+  celAmbientAway: 0.7,
+};
+
+/** Most bands the shader's uniform holds. */
+export const CEL_MAX = 6;
+
+/** The level of each of `bands` cel bands, darkest first: `custom` where given, else evenly 0..1 (one band is fully lit). Padded to `CEL_MAX`. */
+export function celLevels(bands: number, custom?: readonly number[]): number[] {
+  const n = Math.min(CEL_MAX, Math.max(1, Math.round(bands)));
+  return Array.from({ length: CEL_MAX }, (_, i) => {
+    const k = Math.min(i, n - 1);
+    return custom?.[k] ?? (n === 1 ? 1 : k / (n - 1));
+  });
+}
+
+const smooth = (a: number, b: number, v: number): number => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * The cel ramp: the light of a surface whose normal makes `ndl` with the sun, in `bands` flat bands, edges at i / bands (i = 1..bands-1), each
+ * edge `softness` wide. The lowest band holds the unlit side too (its level is what ambient light alone leaves). The shader writes the same.
+ */
+export function celShade(ndl: number, bands: number, softness: number, levels?: readonly number[]): number {
+  const n = Math.min(CEL_MAX, Math.max(1, Math.round(bands)));
+  const lv = celLevels(n, levels);
+  let out = lv[0];
+  for (let i = 1; i < n; i += 1) {
+    const e = i / n;
+    const w = softness / 2;
+    out += (lv[i] - lv[i - 1]) * (w > 0 ? smooth(e - w, e + w, ndl) : ndl >= e ? 1 : 0);
+  }
+  return out;
+}
 
 const RAD = Math.PI / 180;
 
@@ -228,6 +288,8 @@ uniform vec3 uHazeTint;
 uniform vec2 uDist; // nearWarm, contrastByDistance
 uniform vec2 uCard; // value of this card, gradient
 uniform vec2 uGround; // groundNoise, cloudShadows
+uniform vec4 uCel; // bands (0 = Lambert), softness, ambientAway, ambientEdge
+uniform float uBandLevels[${CEL_MAX}];
 uniform float uRadPerPx; // radians of azimuth per plane pixel
 out vec4 outColor;
 
@@ -272,6 +334,19 @@ float curve1(float v) {
     + (-2.0 * t3 + 3.0 * t2) * uCy[k + 1] + (t3 - t2) * h * uCm[k + 1];
 }
 vec3 curve(vec3 c) { return vec3(curve1(c.r), curve1(c.g), curve1(c.b)); }
+
+// lightCards.ts celShade: flat bands of n.s, edges at i / bands.
+float cel(float x) {
+  int n = int(uCel.x);
+  float w = uCel.y * 0.5;
+  float l = uBandLevels[0];
+  for (int i = 1; i < ${CEL_MAX}; i++) {
+    if (i >= n) break;
+    float e = float(i) / float(n);
+    l += (uBandLevels[i] - uBandLevels[i - 1]) * (w > 0.0 ? smoothstep(e - w, e + w, x) : step(e, x));
+  }
+  return l;
+}
 
 vec3 skyAt(vec2 uv) {
   vec2 f = uv * vec2(uSkySize) - 0.5;
@@ -327,8 +402,10 @@ void main() {
   vec3 albedo = toLinear(c.rgb);
   if (uGround.x > 0.0) albedo *= max(1.0 + uGround.x * (2.0 * fbm(world / 250.0) - 1.0), 0.0);
   float cloud = uGround.y > 0.0 ? 1.0 - uGround.y * smoothstep(0.5, 0.72, fbm(world / 4000.0 + 17.0)) : 1.0;
-  float ndl = mix(max(s.z, 0.0), max(dot(g.n, s), 0.0), uRelief.x);
-  vec3 radiance = albedo * (uTSun * ndl * cloud + uAmbient) / PI;
+  float lit = uCel.x > 0.5 ? cel(dot(g.n, s)) : max(dot(g.n, s), 0.0);
+  float ndl = mix(max(s.z, 0.0), lit, uRelief.x);
+  float ambStep = uCel.x > 0.5 ? mix(uCel.z, 1.0, smoothstep(uCel.w - uCel.y * 0.5, uCel.w + uCel.y * 0.5 + 1e-4, g.n.z)) : 1.0;
+  vec3 radiance = albedo * (uTSun * ndl * cloud + uAmbient * mix(1.0, ambStep, uRelief.x)) / PI;
   float dn = clamp((g.logD - uLogD.x) / uLogD.y, 0.0, 1.0);
   if (uDist.y != 0.0) {
     vec3 flatTone = albedo * (uTSun * max(s.z, 0.0) * cloud + uAmbient) / PI;
@@ -469,6 +546,8 @@ export function lightCards(
     gl.uniform3f(u('uHazeTint'), ...look.hazeTint);
     gl.uniform2f(u('uDist'), look.nearWarm, look.contrastByDistance);
     gl.uniform2f(u('uGround'), look.groundNoise, look.cloudShadows);
+    gl.uniform4f(u('uCel'), look.celBands, look.celSoftness, look.celAmbientAway, look.celAmbientEdge);
+    gl.uniform1fv(u('uBandLevels'), celLevels(look.celBands, look.celBandLevels));
     gl.uniform1f(u('uRadPerPx'), (manifest.view.windowDeg * RAD) / lit.planeW);
     gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
     const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, sky.sun));

@@ -36,11 +36,12 @@ behind a cell is the app's own (`makePhysicalSky` + `paintSky`, upscaled), witho
 `looks=` is a url-encoded or base64 JSON array of `{label, ...partial RidgeLook}` and replaces the preset rows (`inkKeep` and `reliefLight` merge by key).
 A cell costs one WebGL2 context and a card decode, so the full sheet takes tens of seconds (much longer in a background tab).
 
-Presets (`PRESETS` in `ridgeSheet.ts`; every key not named is `DEFAULT_LOOK`), chosen by reasoning, not by eye, for Self to tune:
+Presets (`PRESETS` in `ridgeSheet.ts`; swiss and poster take every key not named from `PHYSICAL_LOOK`, the rest from `DEFAULT_LOOK`, the painterly cel look), chosen by reasoning, not by eye, for Self to tune:
 
 | preset | values |
 | --- | --- |
-| physical | DEFAULT_LOOK |
+| physical | PHYSICAL_LOOK (Lambert, no noise, sky haze, full ink) |
 | swiss | reliefLight {mix 0.7, azimuthDeg -45, elevationDeg 40}, contrastByDistance 0.9, hazeScale 6, hazeTint [0, 0.05, 0.25], nearWarm 0.5, inkScale 0.6 |
 | poster | reliefWeight 0.15, cardToneStep 0.25, cardGradient 0.5, inkKeep {edge 0.25, occlude 0.9, crease 1}, hazeScale 4 |
-| painterly | groundNoise 0.35, cloudShadows 0.5, nearWarm 0.6, hazeScale 2, inkScale 0.4 |
+| painterly | DEFAULT_LOOK: groundNoise 0.35, cloudShadows 0.5, nearWarm 0.6, hazeScale 2, inkScale 0.4, celBands 3, celSoftness 0.05, celAmbientAway 0.7, nightAmbient [0.5, 0.66, 1.1] |
+| painterly-cel-2 / -3 / -4 | painterly with celBands 2 / 3 / 4 |

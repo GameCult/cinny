@@ -1,8 +1,8 @@
 // Look sheet for the lit ridge cards: the Vienna bake lit for a grid of sky states x looks, each cell a small canvas at heading 0. Not shipped.
-// `?preset=all|physical|swiss|poster|painterly` (default all: the four rows); `?looks=<JSON array, url-encoded or base64>` replaces the rows with
+// `?preset=all|physical|swiss|poster|painterly|painterly-cel-2|painterly-cel-3|painterly-cel-4` (default all: one row each; painterly is DEFAULT_LOOK); `?looks=<JSON array, url-encoded or base64>` replaces the rows with
 // the given `{label, ...partial RidgeLook}` entries (inkKeep and reliefLight merge by key). `?w=480` sets the cell width (16:9).
 // The sky behind a cell is the app's own: `makePhysicalSky` + `paintSky` upscaled smoothly, without the sun disc, stars or clouds.
-import { DEFAULT_LOOK, lightCards } from '../../src/app/features/scene/ridge/lightCards';
+import { DEFAULT_LOOK, PHYSICAL_LOOK, lightCards } from '../../src/app/features/scene/ridge/lightCards';
 import type { RidgeLook } from '../../src/app/features/scene/ridge/lightCards';
 import { parseManifest } from '../../src/app/features/scene/ridge/manifest';
 import { makePhysicalSky, paintSky } from '../../src/app/features/scene/ridge/physicalSky';
@@ -14,6 +14,8 @@ const DIR = '/public/ridge/vienna-6815bb9dca99/';
 
 type Override = Partial<Omit<RidgeLook, 'inkKeep' | 'reliefLight'>> & {
   label: string;
+  /** The look the unnamed keys come from (DEFAULT_LOOK, the painterly cel look, if absent). */
+  base?: 'physical';
   inkKeep?: Partial<RidgeLook['inkKeep']>;
   reliefLight?: Partial<RidgeLook['reliefLight']>;
 };
@@ -30,9 +32,10 @@ const SKIES = [
 
 /** The art directions, chosen by reasoning, not by eye: Self tunes them (values listed in harness/scene/README.md). */
 const PRESETS: Record<string, Override> = {
-  physical: { label: 'physical' },
+  physical: { label: 'physical', base: 'physical' },
   swiss: {
     label: 'swiss',
+    base: 'physical',
     reliefLight: { mix: 0.7, azimuthDeg: -45, elevationDeg: 40 },
     contrastByDistance: 0.9,
     hazeScale: 6,
@@ -42,31 +45,29 @@ const PRESETS: Record<string, Override> = {
   },
   poster: {
     label: 'poster',
+    base: 'physical',
     reliefWeight: 0.15,
     cardToneStep: 0.25,
     cardGradient: 0.5,
     inkKeep: { edge: 0.25, occlude: 0.9, crease: 1 },
     hazeScale: 4,
   },
-  painterly: {
-    label: 'painterly',
-    groundNoise: 0.35,
-    cloudShadows: 0.5,
-    nearWarm: 0.6,
-    hazeScale: 2,
-    inkScale: 0.4,
-  },
+  painterly: { label: 'painterly (default, cel 3)' },
+  'painterly-cel-2': { label: 'painterly-cel-2', celBands: 2 },
+  'painterly-cel-3': { label: 'painterly-cel-3', celBands: 3 },
+  'painterly-cel-4': { label: 'painterly-cel-4', celBands: 4 },
 };
 
 const merge = (o: Override): { label: string; look: RidgeLook } => {
-  const { label, inkKeep, reliefLight, ...rest } = o;
+  const { label, base: baseName, inkKeep, reliefLight, ...rest } = o;
+  const base = baseName === 'physical' ? PHYSICAL_LOOK : DEFAULT_LOOK;
   return {
     label,
     look: {
-      ...DEFAULT_LOOK,
+      ...base,
       ...rest,
-      inkKeep: { ...DEFAULT_LOOK.inkKeep, ...inkKeep },
-      reliefLight: { ...DEFAULT_LOOK.reliefLight, ...reliefLight },
+      inkKeep: { ...base.inkKeep, ...inkKeep },
+      reliefLight: { ...base.reliefLight, ...reliefLight },
     },
   };
 };

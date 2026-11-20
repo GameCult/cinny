@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   decodeNormal,
   DEFAULT_LOOK,
+  PHYSICAL_LOOK,
+  celShade,
+  celLevels,
   FRAGMENT,
   lightCards,
   lightingOf,
@@ -240,7 +243,7 @@ describe('the look reaches the shader', () => {
 
   it('scales the haze optical depth and the ambient light, and moves the sun cut-off', () => {
     const base = run();
-    const look = run({ hazeScale: 2, ambientScale: 0.5 });
+    const look = run({ hazeScale: 2 * DEFAULT_LOOK.hazeScale, ambientScale: 0.5 });
     look.uExt.forEach((e, k) => expect(e).toBeCloseTo(2 * base.uExt[k], 12));
     expect(look.uAmbient[2]).toBeCloseTo(0.15, 12);
     expect(
@@ -289,5 +292,46 @@ describe('night ambient', () => {
     expect(n.ambient[2] - base[2]).toBeGreaterThan(n.ambient[0] - base[0]);
     expect(night('dusk').ambient).toEqual(base);
     expect(DEFAULT_LOOK.nightAmbient.every((c) => c > 0)).toBe(true);
+  });
+});
+
+describe('cel shading', () => {
+  const sweep = (bands: number, softness: number, levels?: number[]) => {
+    const out = new Set<number>();
+    for (let i = -20; i <= 100; i += 1) {
+      const x = i / 100;
+      // away from the band edges (i / bands), where a softened edge is between two levels
+      if (Array.from({ length: bands }, (_, k) => k / bands).some((e) => e > 0 && Math.abs(x - e) <= softness / 2 + 1e-9)) continue;
+      out.add(Math.round(celShade(x, bands, softness, levels) * 1e9));
+    }
+    return out;
+  };
+  it.each([1, 2, 3, 4, 6])('quantizes a normal sweep to exactly %i levels away from the edges', (n) => {
+    expect(sweep(n, 0.05).size).toBe(n);
+    expect(sweep(n, 0).size).toBe(n);
+  });
+  it('is monotone in n.s, from the lowest level to the highest, and softens an edge without a jump', () => {
+    let prev = -1;
+    let maxStep = 0;
+    for (let i = -20; i <= 100; i += 1) {
+      const v = celShade(i / 100, 3, 0.1);
+      expect(v).toBeGreaterThanOrEqual(prev - 1e-12);
+      if (prev >= 0) maxStep = Math.max(maxStep, v - prev);
+      prev = v;
+    }
+    expect(maxStep).toBeLessThan(0.3);
+    expect(celShade(-0.5, 3, 0)).toBe(0);
+    expect(celShade(1, 3, 0)).toBe(1);
+  });
+  it('takes the band levels it is given', () => {
+    expect(celLevels(3, [0.2, 0.5, 0.9]).slice(0, 3)).toEqual([0.2, 0.5, 0.9]);
+    expect(celShade(0.9, 3, 0, [0.2, 0.5, 0.9])).toBe(0.9);
+    expect(celShade(-1, 3, 0, [0.2, 0.5, 0.9])).toBe(0.2);
+  });
+  it('is on in the default look and off in the physical one; the shader carries the ramp', () => {
+    expect(DEFAULT_LOOK.celBands).toBeGreaterThan(0);
+    expect(PHYSICAL_LOOK.celBands).toBe(0);
+    expect(FRAGMENT).toContain('float cel(float x)');
+    expect(FRAGMENT).toContain('uBandLevels[6]');
   });
 });
