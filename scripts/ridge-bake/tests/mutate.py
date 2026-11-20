@@ -29,7 +29,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'cards: nothing is cut for the slide': ("if slide_px is not None and solid:", "if False:"),
  'cards: the cut ignores the slide width (erosion 0)': ("lost = _erode(cnt > 0, slide_px)", "lost = _erode(cnt > 0, 0)"),
  'cards: the cut ignores a single card sliding (one covering card is enough)': ("& ((cnt >= 2) | alone)", ""),
- 'cards: the cut counts pixels the frame edge leaves unheld as held': ("ok = (lo >= 0) & (hi <= n)", "ok = np.ones(n, bool)"),
+ 'cards: the cut treats what lies beyond the frame edge as held': ("ok[None, :] & ((c[:, np.clip(hi, 0, n)] - c[:, np.clip(lo, 0, n)]) == 2 * m + 1)", "((c[:, np.clip(hi, 0, n)] - c[:, np.clip(lo, 0, n)]) == np.clip(hi, 0, n) - np.clip(lo, 0, n))[:, :]"),
  'export: the slide bound is floored, not ceiled': ("-(-(w * SLIDE_PCT) // 100)", "(w * SLIDE_PCT) // 100"),
  'export: the manifest slide bound is zero': ("max_slide_px=max_slide_px(w), curvature", "max_slide_px=0, curvature"),
  'export: an empty card is not refused': ("if c['alpha'].shape[0] == 0: raise", "if False: raise"),

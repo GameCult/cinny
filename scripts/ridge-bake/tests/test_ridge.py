@@ -269,17 +269,24 @@ def _over(cs, shifts):
         rgb = rgb * (1 - al[..., None]) + col * al[..., None]; cov = 1 - (1 - cov) * (1 - al)
     return rgb, cov
 OVERLAP = terrain(block(10, 40, 3000, 3600, 350), block(0, 60, 20000, 21500, 1800), block(0, 359.99, 70000, 72000, 7000))
+SLIDE_SCENES = {                  # name -> (terrain, splits km): what stands behind what, side by side, overlapping, or across the whole window
+    'ridge in front of a ridge': (OVERLAP, [6, 40]),
+    'two nearer ridges side by side in front of a far one': (terrain(block(10, 25, 3000, 3600, 350), block(25, 40, 10000, 10600, 1000), block(0, 72, 40000, 41000, 4600)), [6, 20]),
+    'two nearer ridges overlapping at the edge of their union': (terrain(block(10, 40, 3000, 3600, 350), block(10, 25, 10000, 10600, 1000), block(0, 72, 40000, 41000, 4600)), [6, 20]),
+    'nearer ridges across the whole window': (terrain(block(0, 72, 3000, 3600, 350), block(0, 72, 10000, 10600, 1000), block(0, 72, 40000, 41000, 4600)), [6, 20]),
+}
 def test_no_slide_within_the_bound_reveals_a_cut_pixel():
     """Cards cut with the slide bound lose pixels (the farther cards hold less than the uncut reference), the composite at rest is unchanged, and sliding any one card by up to MAX_SLIDE_PX columns either way shows exactly what the uncut cards show: nothing that was cut
-    is ever revealed.  A card cut for a smaller slide fails the same check at the full slide, so the test can tell."""
-    M = export.max_slide_px(WIN); assert M == 64
-    full = _bake(OVERLAP, [6, 40], slide=None)['cards']; cut = _bake(OVERLAP, [6, 40], slide=M)['cards']; small = _bake(OVERLAP, [6, 40], slide=M // 4)['cards']
-    n = lambda cs: [int((_canvas(c) > 0).sum()) for c in cs]; assert n(cut)[0] == n(full)[0] and n(cut)[1] < 0.9 * n(full)[1] and n(cut)[2] < 0.9 * n(full)[2], (n(full), n(cut))
-    worst = 0.0; worst_small = 0.0
-    for j in range(3):
-        for sft in (0, -M, -M // 2, -1, 1, M // 2, M):
-            sh = {j: sft}; r0, c0 = _over(full, sh); r1, c1 = _over(cut, sh); r2, c2 = _over(small, sh); worst = max(worst, float(np.abs(r0 - r1).max()), float(np.abs(c0 - c1).max())); worst_small = max(worst_small, float(np.abs(r0 - r2).max()))
-    assert worst < 1e-5, ('a slide within the bound reveals what was cut', worst); assert worst_small > 0.05, 'a card cut for a quarter of the slide survives the full slide: the check cannot tell'
+    is ever revealed (a nearer ridge beside another, overlapping it at the edge of their union, or reaching the frame edge: each of those is a place a lazier rule reveals something).  A card cut for a quarter of the slide fails the same check at the full slide."""
+    M = export.max_slide_px(WIN); assert M == 64; worst_small = 0.0
+    for name, (hf, sp) in SLIDE_SCENES.items():
+        full = _bake(hf, sp, slide=None)['cards']; cut = _bake(hf, sp, slide=M)['cards']; small = _bake(hf, sp, slide=M // 4)['cards']
+        n = lambda cs: [int((_canvas(c) > 0).sum()) for c in cs]; assert n(cut)[0] == n(full)[0] and all(a <= b for a, b in zip(n(cut), n(full))) and n(cut)[-1] < 0.95 * n(full)[-1], (name, n(full), n(cut)); worst = 0.0
+        for j in range(len(cut)):
+            for sft in (0, -M, -M // 2, -1, 1, M // 2, M):
+                sh = {j: sft}; r0, c0 = _over(full, sh); r1, c1 = _over(cut, sh); r2, c2 = _over(small, sh); worst = max(worst, float(np.abs(r0 - r1).max()), float(np.abs(c0 - c1).max())); worst_small = max(worst_small, float(np.abs(r0 - r2).max()), float(np.abs(c0 - c2).max()))
+        assert worst < 1e-5, ('a slide within the bound reveals what was cut', name, worst)
+    assert worst_small > 0.05, 'a card cut for a quarter of the slide survives the full slide: the check cannot tell'
 def test_the_slide_bound_is_in_the_manifest_and_follows_the_card_width():
     """max_slide_px is ceil(5% of the card width) in whole pixels (64 at 1280, 55 at 1100, 1 at 20) and the manifest says it."""
     assert [export.max_slide_px(w) for w in (1280, 1100, 20, 1)] == [64, 55, 1, 1]
