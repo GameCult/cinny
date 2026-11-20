@@ -1,20 +1,21 @@
 // The ridge backdrop's one JSON boundary: a static asset between the offline Python baker (scripts/ridge-bake/export.py, whose SCHEMA is the
 // contract) and the page; no daemon state. Main-chunk safe: types, a parser and fetch only. Wire names are snake_case; the parsed manifest is
-// camelCase and its `view` is the View (`view.ts`) the sky and the planes share.
+// camelCase and its `view` is the View (`view.ts`) the sky and the cards share. Schema 2: K G-buffer cards, nearest first.
 import type { View } from './view';
 
-export const FRAME_KEYS = ['dawn', 'morning', 'noon', 'golden', 'dusk', 'night'] as const;
-export type FrameKey = typeof FRAME_KEYS[number];
-export const PLANE_NAMES = ['far', 'mid', 'near'] as const;
-export type PlaneName = typeof PLANE_NAMES[number];
 export const PLANE_W_MAX = 4096;
+/** As export.py MAX_CARDS: the decode budget holds this many. */
+export const MAX_CARDS = 6;
 
-export interface Frame {
-  key: FrameKey;
-  /** The sun this frame was lit by: degrees. */
-  sun: { az: number; el: number };
-  /** File names inside the manifest's directory. */
-  planes: Record<PlaneName, string>;
+/** One G-buffer card: its rows of the plane, how large it sits against the bake, and its two files (names inside the manifest's directory). */
+export interface CardEntry {
+  /** First row of the card in the plane, and its height in rows. */
+  top: number;
+  h: number;
+  /** The card's pan rate per unit of heading and its static size, as the baker derived them from the camera and the card's distance (ruling ridge-camera-on-circle). */
+  scale: number;
+  colour: string;
+  geometry: string;
 }
 
 export interface RidgeManifest {
@@ -24,8 +25,12 @@ export interface RidgeManifest {
   /** Display name of the place. */
   name: string;
   view: View;
-  /** In `FRAME_KEYS` order. */
-  frames: Frame[];
+  /** How the geometry card's blue channel maps to ln metres: `logD = logDMin + b x (logDMax - logDMin)`, b in 0..1. The red and green channels are the 'rt8' normal. */
+  encoding: { logDMin: number; logDMax: number };
+  /** The widest heading either side of the look azimuth the baked cards allow, degrees. */
+  camera: { headingMaxDeg: number };
+  /** Nearest first. */
+  cards: CardEntry[];
   attribution: { creditLine: string; licence: string; demSource: string; url: string };
 }
 
@@ -57,31 +62,39 @@ export function parseIndex(raw: unknown): RidgeIndex {
   return { default: str(r.default, 'index.default'), places: out };
 }
 
-/** `dir` is the URL of the directory the manifest was read from; the planes are read relative to it. */
+/** `dir` is the URL of the directory the manifest was read from; the cards are read relative to it. */
 export function parseManifest(raw: unknown, dir: string): RidgeManifest {
   const r = rec(raw, 'manifest');
-  if (r.schema !== 1) fail('schema', 'must be 1');
+  if (r.schema !== 2) fail('schema', 'must be 2');
   const p = rec(r.place, 'place');
   const v = rec(r.view, 'view');
   const planeW = num(v.plane_w, 'view.plane_w');
   if (planeW > PLANE_W_MAX) fail('view.plane_w', `above ${PLANE_W_MAX}`);
-  if (!Array.isArray(r.frames) || r.frames.length < FRAME_KEYS.length)
-    fail('frames', `fewer than ${FRAME_KEYS.length}`);
-  const frames = FRAME_KEYS.map((key) => {
-    const f = (r.frames as unknown[])
-      .map((x, i) => rec(x, `frames[${i}]`))
-      .find((x) => x.key === key);
-    if (!f) return fail('frames', `no ${key} frame`);
-    const sun = rec(f.sun, `frames.${key}.sun`);
-    const planes = rec(f.planes, `frames.${key}.planes`);
-    const file = (n: PlaneName) =>
-      str(rec(planes[n], `frames.${key}.planes.${n}`).file, `frames.${key}.planes.${n}.file`);
+  const planeH = num(v.plane_h, 'view.plane_h');
+  if (!Array.isArray(r.cards) || r.cards.length < 1) fail('cards', 'none');
+  if ((r.cards as unknown[]).length > MAX_CARDS) fail('cards', `more than ${MAX_CARDS}`);
+  const cards = (r.cards as unknown[]).map((x, i): CardEntry => {
+    const c = rec(x, `cards[${i}]`);
+    const top = num(c.top, `cards[${i}].top`);
+    const h = num(c.h, `cards[${i}].h`);
+    if (top < 0 || h < 1 || top + h > planeH) fail(`cards[${i}]`, 'outside the plane rows');
+    const scale = num(c.scale, `cards[${i}].scale`);
+    if (!(scale > 0)) fail(`cards[${i}].scale`, 'not above 0');
     return {
-      key,
-      sun: { az: num(sun.az, `frames.${key}.sun.az`), el: num(sun.el, `frames.${key}.sun.el`) },
-      planes: { far: file('far'), mid: file('mid'), near: file('near') },
+      top,
+      h,
+      scale,
+      colour: str(rec(c.colour, `cards[${i}].colour`).file, `cards[${i}].colour.file`),
+      geometry: str(rec(c.geometry, `cards[${i}].geometry`).file, `cards[${i}].geometry.file`),
     };
   });
+  const e = rec(r.encoding, 'encoding');
+  if (e.normal !== 'rt8') fail('encoding.normal', "must be 'rt8'");
+  const logDMin = num(e.log_d_min, 'encoding.log_d_min');
+  const logDMax = num(e.log_d_max, 'encoding.log_d_max');
+  if (!(logDMax > logDMin)) fail('encoding', 'log_d_max not above log_d_min');
+  const headingMaxDeg = num(rec(r.camera, 'camera').heading_max_deg, 'camera.heading_max_deg');
+  if (!(headingMaxDeg > 0)) fail('camera.heading_max_deg', 'not above 0');
   const a = rec(r.attribution, 'attribution');
   const id = str(p.id, 'place.id');
   return {
@@ -98,11 +111,14 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
       lookAzDeg: num(v.look_az_deg, 'view.look_az_deg'),
       windowDeg: num(v.window_deg, 'view.window_deg'),
       planeW,
-      planeH: num(v.plane_h, 'view.plane_h'),
+      planeH,
       pxPerDegH: num(v.px_per_deg_h, 'view.px_per_deg_h'),
+      pxPerDegV: num(v.px_per_deg_v, 'view.px_per_deg_v'),
       horizonRow: num(v.horizon_row, 'view.horizon_row'),
     },
-    frames,
+    encoding: { logDMin, logDMax },
+    camera: { headingMaxDeg },
+    cards,
     attribution: {
       creditLine: str(a.credit_line, 'attribution.credit_line'),
       licence: str(a.licence, 'attribution.licence'),

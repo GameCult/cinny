@@ -1,54 +1,50 @@
 // The committed baked set under public/ridge: what the baker wrote is what ships, within the budget the baker itself refuses on
-// (export.py PAIR_BYTES_MAX, DECODE_BYTES_MAX). Reads with node fs. The gate reads each plane's own bytes, not the manifest's claims about
-// them: the WebP container is walked and its stated dimensions (VP8X canvas, VP8 / VP8L frame header) must equal the manifest's w and h,
-// which the decode budget is computed from; and the bake id is re-derived from the plane bytes, as the baker derives it, so any
-// corruption of a plane, same length or not, fails. No pixel decoder is in the tree; the baker's own check decodes pixels.
+// (export.py MAX_CARDS, TOTAL_BYTES_MAX, DECODE_BYTES_MAX). Reads with node fs. The gate reads each card file's own bytes, not the manifest's
+// claims about them: the WebP container is walked and its stated dimensions (VP8X canvas, VP8 / VP8L frame header) must equal the card's
+// width and band height, which the decode budget is computed from; and the bake id is re-derived from the card bytes as the baker derives it,
+// so any corruption of a card, same length or not, fails. No pixel decoder is in the tree; the baker's own check decodes pixels.
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FRAME_KEYS, PLANE_NAMES, parseIndex, parseManifest } from './manifest';
+import { MAX_CARDS, parseIndex, parseManifest } from './manifest';
 
-/** The same two constants as scripts/ridge-bake/export.py: two adjacent frames, fetched and decoded. */
-export const PAIR_BYTES_MAX = 800_000;
+/** The same constants as scripts/ridge-bake/export.py: every card file of a place, and the cards decoded (2 textures x w x band rows x 4 bytes each). */
+export const TOTAL_BYTES_MAX = 1_500_000;
 export const DECODE_BYTES_MAX = 20_000_000;
 
-interface WirePlane {
+interface WireFile {
   file: string;
   bytes: number;
-  w: number;
-  h: number;
 }
-interface WireFrame {
-  key: string;
-  planes: Record<string, WirePlane>;
-  luma: { min: number; max: number };
+interface WireCard {
+  top: number;
+  h: number;
+  scale: number;
+  colour: WireFile;
+  geometry: WireFile;
 }
 export interface WireManifest {
   bake_id: string;
-  frames: WireFrame[];
+  w: number;
+  cards: WireCard[];
+  camera?: { heading_max_deg?: number };
 }
 
-const planes = (f: WireFrame): WirePlane[] => PLANE_NAMES.map((n) => f.planes[n]);
+const files = (c: WireCard): WireFile[] => [c.colour, c.geometry];
 
-/** Why a manifest breaks the size gate, or undefined. Frames are taken in FRAME_KEYS order; the pairs are neighbours, and night meets dawn. */
+/** Why a manifest breaks the size gate, or undefined: too many cards, too many bytes, or too many decoded bytes. */
 export function sizeGate(m: WireManifest): string | undefined {
-  const byKey = FRAME_KEYS.map((k) => m.frames.find((f) => f.key === k) as WireFrame);
-  for (let i = 0; i < byKey.length; i += 1) {
-    const pair = [byKey[i], byKey[(i + 1) % byKey.length]];
-    const ps = pair.flatMap(planes);
-    const fetched = ps.reduce((a, p) => a + p.bytes, 0);
-    const decoded = ps.reduce((a, p) => a + p.w * p.h * 4, 0);
-    if (fetched > PAIR_BYTES_MAX) return `${pair[0].key}+${pair[1].key} fetches ${fetched}`;
-    if (decoded > DECODE_BYTES_MAX) return `${pair[0].key}+${pair[1].key} decodes ${decoded}`;
-  }
-  return undefined;
+  if (m.cards.length > MAX_CARDS) return `${m.cards.length} cards, above ${MAX_CARDS}`;
+  const bytes = m.cards.flatMap(files).reduce((a, f) => a + f.bytes, 0);
+  if (bytes > TOTAL_BYTES_MAX) return `the cards are ${bytes} bytes, above ${TOTAL_BYTES_MAX}`;
+  const decoded = m.cards.reduce((a, c) => a + 2 * m.w * c.h * 4, 0);
+  return decoded > DECODE_BYTES_MAX
+    ? `the cards decode to ${decoded} bytes, above ${DECODE_BYTES_MAX}`
+    : undefined;
 }
 
-/**
- * Why a buffer is not a well-formed WebP of `w` x `h`, or undefined. Checks the RIFF envelope (its size is the file's), that the chunks tile
- * the file exactly, and the dimensions the container and the bitstream header each state.
- */
+/** Why `b` is not the WebP of `w` x `h` pixels, or undefined: the RIFF container is walked, so a cut or padded file and a changed frame header fail. */
 export function webpFault(b: Uint8Array, w: number, h: number): string | undefined {
   const u32 = (o: number) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
   const u24 = (o: number) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16);
@@ -89,10 +85,16 @@ export function webpFault(b: Uint8Array, w: number, h: number): string | undefin
   return bad ? `states ${bad}, the manifest ${w}x${h}` : undefined;
 }
 
-/** The baker's bake id (export.py `bake_id`): first 12 hex of sha256 over the plane bytes, frames in FRAME_KEYS order, planes far, mid, near. */
-export function bakeIdOf(planeBytes: (frame: string, plane: string) => Uint8Array): string {
+/** The baker's bake id (export.py `bake_id`): first 12 hex of sha256 over the card files in index order, colour then geometry. */
+export function bakeIdOf(
+  cardBytes: (card: number, kind: 'colour' | 'geometry') => Uint8Array,
+  n: number
+): string {
   const h = createHash('sha256');
-  FRAME_KEYS.forEach((k) => PLANE_NAMES.forEach((n) => h.update(planeBytes(k, n))));
+  for (let i = 0; i < n; i += 1) {
+    h.update(cardBytes(i, 'colour'));
+    h.update(cardBytes(i, 'geometry'));
+  }
   return h.digest('hex').slice(0, 12);
 }
 
@@ -109,121 +111,132 @@ describe('the committed ridge assets', () => {
 
   dirs.forEach(([id, dir]) => {
     describe(`${id} (${dir})`, () => {
-      const raw = readJson(join(ROOT, dir, 'manifest.json')) as WireManifest;
+      const raw = readJson(join(ROOT, dir, 'manifest.json')) as WireManifest & { schema: number };
+      const read = (f: WireFile) => readFileSync(join(ROOT, dir, f.file));
 
-      it('parses, and its directory ends in its bake id', () => {
+      it('is schema 2, parses, and its directory ends in its bake id', () => {
+        expect(raw.schema).toBe(2);
         expect(() => parseManifest(raw, `${dir}/`)).not.toThrow();
         expect(dir.endsWith(`-${raw.bake_id}`)).toBe(true);
       });
 
-      it('has every plane file, at the length the manifest states', () => {
-        raw.frames.flatMap(planes).forEach((p) => {
-          expect(statSync(join(ROOT, dir, p.file)).size, p.file).toBe(p.bytes);
+      it('has every card file, at the length the manifest states', () => {
+        raw.cards.flatMap(files).forEach((f) => {
+          expect(statSync(join(ROOT, dir, f.file)).size, f.file).toBe(f.bytes);
         });
       });
 
-      it('decodes every plane as the WebP of the size the manifest states', () => {
-        raw.frames.flatMap(planes).forEach((p) => {
-          expect(
-            webpFault(readFileSync(join(ROOT, dir, p.file)), p.w, p.h),
-            p.file
-          ).toBeUndefined();
-        });
+      it('decodes every card file as the WebP of the width and band height the manifest states', () => {
+        raw.cards.forEach((c) =>
+          files(c).forEach((f) => {
+            expect(webpFault(read(f), raw.w, c.h), f.file).toBeUndefined();
+          })
+        );
       });
 
       it('holds the bytes its bake id was made from', () => {
-        const bytes = (frame: string, plane: string) =>
-          readFileSync(
-            join(
-              ROOT,
-              dir,
-              (raw.frames.find((f) => f.key === frame) as WireFrame).planes[plane].file
-            )
-          );
-        expect(bakeIdOf(bytes)).toBe(raw.bake_id);
+        const bytes = (i: number, kind: 'colour' | 'geometry') => read(raw.cards[i][kind]);
+        expect(bakeIdOf(bytes, raw.cards.length)).toBe(raw.bake_id);
       });
 
-      it('keeps every adjacent pair of frames inside the fetch and decode budget', () => {
+      it('keeps the place inside the card, byte and decode budget', () => {
         expect(sizeGate(raw)).toBeUndefined();
       });
 
-      it('records a finite luma for every frame', () => {
-        expect(raw.frames).toHaveLength(FRAME_KEYS.length);
-        raw.frames.forEach((f) => {
-          expect(Number.isFinite(f.luma.min) && Number.isFinite(f.luma.max), f.key).toBe(true);
-          expect(f.luma.min, f.key).toBeLessThanOrEqual(f.luma.max);
-        });
+      it('carries its camera and a scale for every card', () => {
+        expect(Number.isFinite(raw.camera?.heading_max_deg)).toBe(true);
+        raw.cards.forEach((c) => expect(Number.isFinite(c.scale) && c.scale > 0).toBe(true));
       });
     });
+  });
+
+  it('shows Vienna from a camera pushed forward: no card is smaller than its bake', () => {
+    const vienna = index.places.vienna;
+    expect(vienna).toBeDefined();
+    const m = readJson(join(ROOT, vienna, 'manifest.json')) as WireManifest;
+    m.cards.forEach((c) => expect(c.scale).toBeGreaterThanOrEqual(1));
   });
 
   it('holds no file a manifest does not name', () => {
     const named = new Set<string>(['index.json']);
     dirs.forEach(([, dir]) => {
       named.add(`${dir}/manifest.json`);
-      (readJson(join(ROOT, dir, 'manifest.json')) as WireManifest).frames
-        .flatMap(planes)
-        .forEach((p) => named.add(`${dir}/${p.file}`));
+      (readJson(join(ROOT, dir, 'manifest.json')) as WireManifest).cards
+        .flatMap(files)
+        .forEach((f) => named.add(`${dir}/${f.file}`));
     });
     const onDisk = readdirSync(ROOT, { recursive: true, withFileTypes: true })
       .filter((e) => e.isFile())
-      .map((e) => join(e.parentPath, e.name).slice(ROOT.length + 1));
+      .map((e) =>
+        join(e.parentPath, e.name)
+          .slice(ROOT.length + 1)
+          .split(sep)
+          .join('/')
+      );
     expect(onDisk.filter((f) => !named.has(f))).toEqual([]);
     expect([...named].filter((f) => !existsSync(join(ROOT, f)))).toEqual([]);
   });
 });
 
-describe('the plane gates refuse a plane that is not what the manifest says', () => {
-  const real = readFileSync(join(ROOT, Object.values(index.places)[0], 'noon-mid.webp'));
-  const manifest = readJson(
-    join(ROOT, Object.values(index.places)[0], 'manifest.json')
-  ) as WireManifest;
-  const { w, h } = manifest.frames[2].planes.mid;
-  const id = (b: Uint8Array) => bakeIdOf(() => b);
+describe('the card gates refuse a card that is not what the manifest says', () => {
+  const dir = Object.values(index.places)[0];
+  const manifest = readJson(join(ROOT, dir, 'manifest.json')) as WireManifest;
+  const real = readFileSync(join(ROOT, dir, manifest.cards[1].geometry.file));
+  const { h } = manifest.cards[1];
+  const w = manifest.w;
+  const id = (b: Uint8Array) => bakeIdOf(() => b, 1);
 
-  it('accepts the real plane at its size', () => {
+  it('accepts the real card at its size', () => {
     expect(webpFault(real, w, h)).toBeUndefined();
   });
-  it("refuses a manifest that lies about the plane's size, and a file cut short or padded", () => {
+  it("refuses a manifest that lies about the card's size, and a file cut short or padded", () => {
     expect(webpFault(real, w, h + 1)).toMatch(/states/);
     expect(webpFault(real.subarray(0, real.length - 1), w, h)).toBeDefined();
     expect(webpFault(Buffer.concat([real, Buffer.from([0])]), w, h)).toBeDefined();
   });
-  it('refuses a frame header whose dimensions are changed, and bytes that are not a WebP', () => {
-    const vp8 = Buffer.from(real);
-    const at = vp8.indexOf('VP8 ') + 8 + 6;
-    vp8[at] ^= 0x01;
-    expect(webpFault(vp8, w, h)).toMatch(/states/);
+  it('refuses bytes that are not a WebP', () => {
     expect(webpFault(Buffer.from('not a webp, but long enough to try'), w, h)).toMatch(/RIFF/);
   });
-  it('re-derives a different bake id from a plane with the same length and 8 bytes overwritten', () => {
+  it('re-derives a different bake id from a card with the same length and 8 bytes overwritten', () => {
     const bad = Buffer.from(real);
     bad.fill(0xab, 100, 108);
     expect(bad.length).toBe(real.length);
     expect(id(bad)).not.toBe(id(real));
   });
+  it('derives the id from colour then geometry, in card order', () => {
+    const a = Buffer.from('a-colour');
+    const b = Buffer.from('b-geometry');
+    const order = (c: number, k: 'colour' | 'geometry') => (c === 0 && k === 'colour' ? a : b);
+    const swapped = (c: number, k: 'colour' | 'geometry') => (c === 0 && k === 'colour' ? b : a);
+    const want = createHash('sha256').update(a).update(b).update(b).update(b);
+    expect(bakeIdOf(order, 2)).toBe(want.digest('hex').slice(0, 12));
+    expect(bakeIdOf(swapped, 2)).not.toBe(bakeIdOf(order, 2));
+  });
 });
 
 describe('sizeGate', () => {
-  const plane = (bytes: number): WirePlane => ({ file: 'x.webp', bytes, w: 1280, h: 600 });
-  const frame = (key: string, bytes: number): WireFrame => ({
-    key,
-    planes: { far: plane(bytes), mid: plane(bytes), near: plane(bytes) },
-    luma: { min: 0, max: 1 },
+  const card = (bytes: number, h: number): WireCard => ({
+    top: 0,
+    h,
+    scale: 1,
+    colour: { file: 'c.webp', bytes },
+    geometry: { file: 'g.webp', bytes },
   });
-  const set = (bytes: number): WireManifest => ({
+  const set = (n: number, bytes: number, h: number): WireManifest => ({
     bake_id: 'x',
-    frames: FRAME_KEYS.map((k) => frame(k, bytes)),
+    w: 1280,
+    cards: Array.from({ length: n }, () => card(bytes, h)),
   });
 
-  it('passes a pair at the budget and fails a 900 KB pair', () => {
-    expect(sizeGate(set(133_333))).toBeUndefined();
-    expect(sizeGate(set(150_000))).toMatch(/fetches 900000/);
+  it('passes a place at the byte budget and fails one a byte over', () => {
+    expect(sizeGate(set(3, 250_000, 100))).toBeUndefined();
+    expect(sizeGate(set(3, 250_001, 100))).toMatch(/1500006 bytes/);
   });
 
-  it('fails a pair that decodes past the budget', () => {
-    const m = set(1);
-    m.frames[2].planes.far = { file: 'x.webp', bytes: 1, w: 4096, h: 1000 };
-    expect(sizeGate(m)).toMatch(/decodes/);
+  it('fails a seventh card, and cards that decode past the budget', () => {
+    expect(sizeGate(set(6, 1, 150))).toBeUndefined();
+    expect(sizeGate(set(7, 1, 150))).toMatch(/7 cards/);
+    expect(sizeGate(set(2, 1, 600))).toBeUndefined();
+    expect(sizeGate(set(4, 1, 600))).toMatch(/decode/);
   });
 });

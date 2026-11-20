@@ -10,18 +10,20 @@ import type { FixedSkyState } from '../skyState';
 
 type Rgb = readonly [number, number, number];
 
-const IN: readonly Rgb[] = [
+export const ACES_IN: readonly Rgb[] = [
   [0.59719, 0.35458, 0.04823],
   [0.076, 0.90834, 0.01566],
   [0.0284, 0.13383, 0.83777],
 ];
-const OUT: readonly Rgb[] = [
+export const ACES_OUT: readonly Rgb[] = [
   [1.60475, -0.53108, -0.07367],
   [-0.10208, 1.10813, -0.00605],
   [-0.00327, -0.07276, 1.07602],
 ];
+/** Hill's rational fit, `(v (v + a) - b) / (v (c v + d) + e)`: the display the lit cards share (`lightCards.ts` writes the same into its shader). */
+export const ACES_FIT = [0.0245786, 0.000090537, 0.983729, 0.432951, 0.238081] as const;
 const fit = (v: number): number =>
-  (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.432951) + 0.238081);
+  (v * (v + ACES_FIT[0]) - ACES_FIT[1]) / (v * (ACES_FIT[2] * v + ACES_FIT[3]) + ACES_FIT[4]);
 const encode = (l: number): number => {
   const c = Math.min(1, Math.max(0, l));
   return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
@@ -32,9 +34,14 @@ export function acesLinear(r: number, g: number, b: number, exposure: number, ou
   const x = r * exposure;
   const y = g * exposure;
   const z = b * exposure;
-  const p = [0, 1, 2].map((i) => fit(Math.max(0, IN[i][0] * x + IN[i][1] * y + IN[i][2] * z)));
+  const p = [0, 1, 2].map((i) =>
+    fit(Math.max(0, ACES_IN[i][0] * x + ACES_IN[i][1] * y + ACES_IN[i][2] * z))
+  );
   for (let i = 0; i < 3; i += 1)
-    out[i] = Math.min(1, Math.max(0, OUT[i][0] * p[0] + OUT[i][1] * p[1] + OUT[i][2] * p[2]));
+    out[i] = Math.min(
+      1,
+      Math.max(0, ACES_OUT[i][0] * p[0] + ACES_OUT[i][1] * p[1] + ACES_OUT[i][2] * p[2])
+    );
 }
 
 /** The 8-bit sRGB of linear radiance, exposed and tone-mapped. */

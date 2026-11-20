@@ -51,12 +51,16 @@ def _bake(hfun, splits_km, sigma=0.0):
     nrm = tuple(ridge.win(x) for x in ridge.normals(D, h)); aw, hw = ridge.win(a), ridge.win(h); cov = ridge.coverage(D, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], D)
     place = dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE)
     view = dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H)
-    meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])))
+    meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), camera=dict(r_m=export.CAMERA_R_M, heading_max_deg=17.0))
     return dict(place=place, view=view, meta=meta, cards=ridge.cards(D, aw, hw, sm, nrm, ), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(D), a=aw, h=hw, v=v)
 def _canvas(card, key='alpha'):
     out = np.zeros((H, WIN) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
 def _row(deg): return int(np.argmin(np.abs(ridge.rowang - deg)))
 THREE = terrain(block(0, 359.99, 3000, 3600, 350), block(0, 359.99, 20000, 21500, 1800), block(0, 359.99, 70000, 72000, 7000))       # ridges at 3, 20 and 70 km, each taller in angle than the one before
+WIDE3 = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 40000, 2000), block(0, 359.99, 70000, 72000, 3000))       # low near hills, then ridges at 39 and 71 km: the frame reaches below the ground at the seams (so cards have wall rows) and the horizon is inside it
+WALLED = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 40000, 2000))
+NEARHILL = terrain(block(0, 359.99, 0, 4000, 150), block(0, 359.99, 38000, 40000, 2000))       # ground above the eye from the first sample on: every row of card 0 lies below its first sample
+def _ramp(dk, az): return np.maximum(GROUND, np.where(dk > 12000, (dk - 12000) * 0.045 + 50.0, 0.0))       # a slope the first sample of card 1 stands on: n_up about 0.9, so the material would be rock if the face counted
 
 def test_seams_fall_in_depth_gaps():
     """Three ridges at 3, 20 and 70 km: targets [6, 40] give a seam in (3, 20) and one in (20, 70) in EVERY column, ordered with at least 0.4 nat between; targets [6] give one seam in (3, 20)."""
@@ -153,8 +157,10 @@ def test_vienna_k1_k2_k3():
 def test_bake_place_manifest_fields_on_vienna():
     """bake_place on the real Vienna preset: three cards, the place carries the ground (km) and the eye, horizon_row is the row where the elevation angle is 0, px_per_deg_h is the ring's; write_bake of its packed cards validates, index default 'vienna', and no temp dir is left."""
     saved = ridge.P
+    load = ridge.load_preset; ridge.load_preset = lambda pid, *a: dict(load(pid, *a), camera_r_m=123.0)           # a preset's camera_r_m is the bake's camera
     try: b = export.bake_place('vienna'); P = ridge.P; rowang = ridge.rowang; pxv = ridge.PXDEG_V
-    finally: ridge.P = saved
+    finally: ridge.P = saved; ridge.load_preset = load
+    assert b['meta']['camera'] == dict(r_m=123.0, heading_max_deg=export.HEADING_MAX_DEG), b['meta']['camera']
     pl, view = b['place'], b['view']; assert abs(pl['altitude_km'] * 1000 - P['ground_m']) < 1e-6 and abs(pl['eye_m'] - P['eye_m']) < 1e-9 and pl['id'] == 'vienna' and len(b['cards']) == 3
     assert 0 < view['sky_row'] < view['horizon_row'] < view['near_row'] < H and abs(rowang[int(view['horizon_row'])]) <= 1.0 / pxv, (view, rowang[int(view['horizon_row'])]); assert view['px_per_deg_h'] == ridge.HPX_DEG and abs(view['exaggeration'] - pxv / ridge.HPX_DEG) < 1e-9
     d = tempfile.mkdtemp()
@@ -165,7 +171,7 @@ def test_bake_place_manifest_fields_on_vienna():
 
 # ---------------------------------------------------------------------------------------- export: manifest v2, budget, cover
 def _packed(b=None):
-    b = b or _bake(THREE, [6, 40]); return b, export.pack(b)
+    b = b or _bake(WIDE3, [20, 55]); return b, export.pack(b)
 def _refuses(out, b, packed, why, **kw):
     args = dict(place=b['place'], view=b['view'], meta=b['meta'], cards=packed, opaque=b['opaque']); args.update(kw)
     try: export.write_bake(out, **args)
@@ -176,9 +182,10 @@ def test_manifest_v2_writer():
     the old dir, the committed schema is current, and the Copernicus attribution is the four pinned strings."""
     d = tempfile.mkdtemp()
     try:
-        b, pk = _packed(); b2, pk2 = _packed(_bake(THREE, [6, 40])); assert [(c['colour'], c['geometry']) for c in pk] == [(c['colour'], c['geometry']) for c in pk2], 'two independent bakes gave different bytes'
+        b, pk = _packed(); b2, pk2 = _packed(_bake(WIDE3, [20, 55])); assert [(c['colour'], c['geometry']) for c in pk] == [(c['colour'], c['geometry']) for c in pk2], 'two independent bakes gave different bytes'
         a = export.write_bake(d + '/a', b['place'], b['view'], b['meta'], pk, b['opaque']); assert a.name == 'synthetic-' + export.bake_id([(c['colour'], c['geometry']) for c in pk]); assert sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name])
         m = json.load(open(a / 'manifest.json')); export.validate(m, export.SCHEMA['$defs']['manifest']); assert m['schema'] == 2 and m['baker_version'] == export.BAKER_VERSION and len(m['cards']) == 3 and m['w'] == WIN and m['h'] == H
+        assert m['camera'] == dict(r_m=export.CAMERA_R_M, heading_max_deg=17.0) and all(c['scale'] == c['distance_m'] / (c['distance_m'] - export.CAMERA_R_M) and c['distance_m'] == c['median_m'] for c in m['cards']), m['camera']
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and m['cards'][0]['median_m'] < m['cards'][1]['median_m'] < m['cards'][2]['median_m']
         for c in m['cards']:
             for kind in ('colour', 'geometry'): f = a / c[kind]['file']; assert f.stat().st_size == c[kind]['bytes'] and export.decode(f.read_bytes()).shape[:2] == (c['h'], WIN), c
@@ -212,7 +219,7 @@ def test_cover_and_size_refusals_write_nothing():
     finally: shutil.rmtree(d)
 def _flat_card(top, h, w=WIN, seed=0, noise=False):
     rng = np.random.default_rng(seed); alpha = np.ones((h, w), np.float32); rgb = rng.random((h, w, 3)).astype(np.float32) if noise else np.full((h, w, 3), 0.5, np.float32); geo = rng.random((h, w)).astype(np.float32) if noise else np.full((h, w), 0.5, np.float32)
-    enc = dict(log_d_min=0.0, log_d_max=1.0); return dict(top=top, colour=export.encode_colour(rgb, alpha), geometry=export.encode_geometry(geo, geo, geo, enc), near_m=None, far_m=None, median_m=1.0)
+    enc = dict(log_d_min=0.0, log_d_max=1.0); return dict(top=top, colour=export.encode_colour(rgb, alpha), geometry=export.encode_geometry(geo, geo, geo, enc), near_m=None, far_m=None, median_m=1.0, distance_m=1.0, scale=1.0)
 def test_card_cap_refusals():
     """A preset with 6 splits, or splits not increasing, is refused by load_preset before any march; write_bake refuses 4 full-frame 1280x600 cards (24.6 MB decoded) and writes nothing; 6 cards whose bands fit the budget are written; the card count and bytes are capped."""
     d = tempfile.mkdtemp()
@@ -227,7 +234,7 @@ def test_card_cap_refusals():
         except ValueError: pass
         else: assert False, 'a preset without card_split_km was defaulted'
         json.dump(dict(presets=[dict(id='x', card_split_km=[1, 2, 3, 4, 5])]), open(os.path.join(d, 'r.json'), 'w')); assert ridge.load_preset('x', os.path.join(d, 'r.json'))['card_split_km'] == [1, 2, 3, 4, 5]
-        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
+        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0), camera=dict(r_m=0.0, heading_max_deg=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
         full = np.ones((H, WIN))
         _refuses(d + '/four', dict(place=place, view=view, meta=meta, opaque=full), [_flat_card(0, H) for _ in range(4)], 'four full-frame cards (24.6 MB decoded) were written')
         ok = [_flat_card(0, H)] + [_flat_card(0, 150, seed=i) for i in range(1, 6)]; dest = export.write_bake(d + '/six', place, view, meta, ok, full); assert len(json.load(open(dest / 'manifest.json'))['cards']) == 6
@@ -255,7 +262,7 @@ def test_cards_are_cropped_to_their_band():
 
 def test_an_empty_card_is_refused_before_writing_naming_the_split():
     """A card with no rows (its splits leave it no terrain) stops pack with a message that names the splits, instead of dying inside the codec."""
-    b = _bake(THREE, [6, 40]); b['cards'][1] = dict(top=0, alpha=np.zeros((0, WIN), np.float32), albedo=np.zeros((0, WIN, 3), np.float32), n_r=np.zeros((0, WIN), np.float32), n_t=np.zeros((0, WIN), np.float32), logd=np.zeros((0, WIN), np.float32))
+    b = _bake(THREE, [6, 40]); b['cards'][1] = dict(top=0, alpha=np.zeros((0, WIN), np.float32), albedo=np.zeros((0, WIN, 3), np.float32), n_r=np.zeros((0, WIN), np.float32), n_t=np.zeros((0, WIN), np.float32), logd=np.zeros((0, WIN), np.float32), wall=np.zeros((0, WIN), bool))
     try: export.pack(b)
     except ValueError as e: assert 'card 1 is empty' in str(e) and '6 km' in str(e) and '40 km' in str(e), str(e)
     else: assert False, 'an empty card was packed'
@@ -274,15 +281,74 @@ def test_written_cards_decode_to_the_cards_in_memory():
     try:
         dest = export.write_bake(d, b['place'], b['view'], b['meta'], export.pack(b), b['opaque']); m = json.load(open(dest / 'manifest.json')); enc = m['encoding']; span = enc['log_d_max'] - enc['log_d_min']; partial_seen = 0
         for c, rec in zip(b['cards'], m['cards']):
-            col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; solid = al > 0; part = (al > 0.05) & (al < 0.95); partial_seen += int(part.sum())
+            col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; wall = c['wall']; solid = (al > 0) & ~wall; part = (al > 0.05) & (al < 0.95) & ~wall; partial_seen += int(part.sum())
             assert (col[..., 3] == np.rint(al * 255)).all(), 'alpha is not exact'; e = np.abs(col[..., :3] / 255.0 - c['albedo']).max(-1)
             assert e[solid].mean() < 0.02 and np.percentile(e[solid], 99) < 0.08, ('albedo is off', e[solid].mean(), np.percentile(e[solid], 99)); assert part.sum() == 0 or e[part].mean() < 0.1, ('albedo at partial alpha is off: premultiplied?', e[part].mean())
-            assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6
+            assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6; assert (((geo[..., 0] == 255) & (geo[..., 1] == 255)) == wall).all(), 'the wall code is not R = G = 255 on exactly the wall pixels'
             assert np.abs(geo[..., 0] / 255.0 * 2 - 1 - c['n_r'])[solid].max() < 2 * q and np.abs(geo[..., 1] / 255.0 * 2 - 1 - c['n_t'])[solid].max() < 2 * q, 'a normal channel is off or swapped'
             assert np.abs(enc['log_d_min'] + geo[..., 2] / 255.0 * span - c['logd'])[solid].max() < span * q, 'the log-distance is off or not over the encoding range'
             assert np.abs(c['n_r'][solid]).mean() > 0.05 and np.abs(c['n_t'][solid]).mean() > 0.01 and np.abs(c['n_r'][solid].mean() - c['n_t'][solid].mean()) > 0.0, 'the fixture does not tell the channels apart'
             assert col[..., :3][solid].mean() > 20, 'albedo is zeroed'
         assert partial_seen > 0, 'the fixture has no partial alpha'
+    finally: shutil.rmtree(d)
+
+# ---------------------------------------------------------------------------------------- wall rows and the camera
+def _first_sample_angle(b, i):
+    """Per column, the angle of the first sample card i (> 0) reads: the first sample at or beyond its near seam, less the cross-fade half-width."""
+    k0 = np.array([np.searchsorted(D, b['seams'][i - 1][x] * math.exp(-ridge.XF)) for x in range(WIN)]); return k0, b['a'][k0, np.arange(WIN)]
+def test_wall_rows_flagged():
+    """Card i > 0 flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at), card 0 none; the wall carries R = G = 255 in the geometry file and no other pixel has r2 + t2 above 1.02; wall pixels keep that sample's
+    distance and their albedo is the ground material of the sample's height with the face up (so a steep face is not rock), constant down the column."""
+    steep = 0
+    for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6]), lambda: _bake(_ramp, [20])):
+        b = make(); assert not b['cards'][0]['wall'].any(), 'card 0 has a wall'; lo = ridge.rowang - 0.5 / ridge.PXDEG_V; seen = 0
+        for i, c in enumerate(b['cards']):
+            if i == 0: continue
+            k0, a0 = _first_sample_angle(b, i); want = (lo[:, None] < a0[None, :])[c['top']:c['top'] + c['alpha'].shape[0]]; assert (c['wall'] == want).all(), ('wall rows are not the rows below the first sample', i, int((c['wall'] != want).sum())); seen += int(want.sum())
+            geo = export.decode(export.encode_geometry(c['n_r'], c['n_t'], c['logd'], b['meta']['encoding'], c['wall'])); r, t = geo[..., 0] / 255.0 * 2 - 1, geo[..., 1] / 255.0 * 2 - 1; code = (geo[..., 0] == 255) & (geo[..., 1] == 255)
+            assert (code == c['wall']).all() and (r[~code] ** 2 + t[~code] ** 2 <= 1.02).all(), 'the wall code is not on exactly the wall pixels, or a real normal reaches it'
+            for x in np.flatnonzero(c['wall'].any(0)):
+                rows = np.flatnonzero(c['wall'][:, x]); ld = c['logd'][rows, x]; assert np.ptp(ld) < 1e-5 and abs(math.exp(ld[0]) - D[k0[x]]) < 1e-3 * D[k0[x]] + 60, ('a wall keeps its sample distance', x)
+                want_alb = ridge.albedo(np.array([b['h'][k0[x], x]]), np.array([1.0]))[0]; assert np.abs(c['albedo'][rows, x] - want_alb).max() < 1e-5, ('wall albedo is not the ground material with the face up', x)
+        assert seen > 1000, 'the fixture has no wall'
+        for i in range(1, len(b['cards'])):
+            c = b['cards'][i]; steep += int((np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1))[c['wall']] < 0.93).sum())
+    assert steep > 1000, 'no wall pixel has a steep face under it: a wall lit by its own normal would pass'
+    b = _bake(NEARHILL, [20]); c0 = b['cards'][0]; lo = ridge.rowang - 0.5 / ridge.PXDEG_V; below = (lo[:, None] < b['a'][0][None, :])[c0['top']:c0['top'] + c0['alpha'].shape[0]]
+    assert below.sum() > 1000 and not c0['wall'].any(), ('card 0 has no wall, though rows lie below its first sample', int(below.sum()))
+def test_the_sheet_lights_a_wall_with_the_face_up():
+    """The contact sheet shades a wall pixel as an up-facing one whatever normal the card carries there, and a non-wall pixel by its normal."""
+    n = 4; c = dict(albedo=np.ones((n, n, 3), np.float32), alpha=np.ones((n, n), np.float32), n_r=np.full((n, n), 0.9, np.float32), n_t=np.zeros((n, n), np.float32), wall=np.zeros((n, n), bool)); c['wall'][:, :2] = True
+    rgb, _ = export.lit(c); L = np.array(export.SHEET_LIGHT) / np.linalg.norm(export.SHEET_LIGHT); up = 0.35 + 0.65 * L[2]; tilted = 0.35 + 0.65 * np.clip(0.9 * L[0] + np.sqrt(1 - 0.81) * L[2], 0, 1)
+    assert np.allclose(rgb[:, :2], up) and np.allclose(rgb[:, 2:], tilted) and abs(up - tilted) > 0.05, (rgb[0, 0], rgb[0, 3])
+def test_camera_contract():
+    """scale_i = d_i / (d_i - r) for r = +200 and r = -100 (a function of r, not a constant or a clamp); a card's distance excludes its wall rows; |r| at half the nearest distance is refused; an r that lifts the nearest card off the frame bottom (backward) is
+    refused and writes nothing; a card shrunk below what a 16:9 viewport needs is refused; one card works."""
+    ds = [1000.0, 12000.0, 40000.0]
+    for r in (200.0, -100.0, 0.0): assert export.card_scales(ds, r) == [d / (d - r) for d in ds], r
+    assert export.card_scales(ds, 200.0)[0] > 1.2 and export.card_scales(ds, -100.0)[0] < 0.92 and export.card_scales(ds, 0.0) == [1.0, 1.0, 1.0]
+    for bad in (500.0, -500.0, 800.0):
+        try: export.card_scales(ds, bad)
+        except ValueError: pass
+        else: assert False, ('an offset of', bad, 'was accepted')
+    export.card_scales(ds, 499.0); export.card_scales(ds, -499.0)
+    b = _bake(WIDE3, [20, 55]); c1 = b['cards'][1]; solid = c1['alpha'] >= 0.5; c1['wall'] = np.zeros_like(c1['wall']); c1['wall'][:c1['alpha'].shape[0] * 3 // 4] = True; c1['logd'] = np.where(c1['wall'], c1['logd'] + 3.0, c1['logd'])      # three quarters of the card is wall, far off the rest
+    want = float(np.exp(np.median(c1['logd'][solid & ~c1['wall']]))); with_wall = float(np.exp(np.median(c1['logd'][solid]))); assert abs(with_wall - want) > 0.05 * want, ('the fixture cannot tell the median with walls from the one without', with_wall, want)
+    pk = export.pack(b); assert abs(pk[1]['distance_m'] - want) < 1e-6 * want and pk[1]['median_m'] == pk[1]['distance_m'], ('the distance counted wall rows', pk[1]['distance_m'], want)
+    assert [p['scale'] for p in pk] == [p['distance_m'] / (p['distance_m'] - export.CAMERA_R_M) for p in pk]
+    d = tempfile.mkdtemp()
+    try:
+        back = dict(b['meta'], camera=dict(r_m=-100.0, heading_max_deg=23.0)); pkb = export.pack(dict(b, meta=back)); assert all(p['scale'] < 1 for p in pkb)
+        _refuses(d + '/back', b, pkb, 'a backward camera that lifts the nearest card off the frame bottom was written', meta=back)
+        try: export.pack(dict(b, meta=dict(b['meta'], camera=dict(r_m=0.5 * pk[0]['distance_m'], heading_max_deg=23.0))))
+        except ValueError: pass
+        else: assert False, 'an offset of half the nearest distance was packed'
+        view = b['view']; tops = [c['top'] for c in b['cards']]; bands = [c['alpha'].shape[0] for c in b['cards']]; export.check_camera([1.0, 1.0, 1.0], tops, bands, view)
+        try: export.check_camera([1.0, 1.0, 0.8], tops, bands, view)
+        except ValueError as e: assert '16:9' in str(e), str(e)
+        else: assert False, 'a card too small for a 16:9 viewport at rest was accepted'
+        one, pk1 = _packed(_bake(WALLED, [])); assert len(pk1) == 1 and pk1[0]['scale'] == pk1[0]['distance_m'] / (pk1[0]['distance_m'] - export.CAMERA_R_M); dest = export.write_bake(d + '/one', one['place'], one['view'], one['meta'], pk1, one['opaque'])
+        assert len(json.load(open(dest / 'manifest.json'))['cards']) == 1
     finally: shutil.rmtree(d)
 
 # ---------------------------------------------------------------------------------------- rules that no other test touched

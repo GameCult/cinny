@@ -1,0 +1,157 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  decodeNormal,
+  FRAGMENT,
+  lightingOf,
+  skyLut,
+  SKY_LUT,
+  SUN_CUTOFF_DEG,
+  sunColumns,
+  sunInColumn,
+  WALL_RT2,
+} from './lightCards';
+import { parseManifest } from './manifest';
+import { wireManifest } from './manifest.fixture';
+import type { PhysicalSky } from './physicalSky';
+import { ACES_FIT, ACES_IN, ACES_OUT } from './toneMap';
+
+const manifest = parseManifest(wireManifest(), '/d/');
+const RAD = Math.PI / 180;
+const dot = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+describe("the sun in a column's frame", () => {
+  it.each([5, 30, 60, 89])(
+    'at elevation %i it lights an up-facing normal by sin e and a normal facing it by 1',
+    (e) => {
+      const s = sunInColumn({ azimuth: 130, elevation: e }, 130);
+      expect(dot([0, 0, 1], s)).toBeCloseTo(Math.sin(e * RAD), 12);
+      expect(dot([Math.cos(e * RAD), 0, Math.sin(e * RAD)], s)).toBeCloseTo(1, 12);
+      expect(Math.hypot(...s)).toBeCloseTo(1, 12);
+    }
+  );
+
+  it('turns with the column: a sun 90 degrees clockwise of the ray lights the across axis, one behind lights the back', () => {
+    const across = sunInColumn({ azimuth: 100, elevation: 0 }, 10);
+    expect(across[0]).toBeCloseTo(0, 12);
+    expect(across[1]).toBeCloseTo(1, 12);
+    expect(sunInColumn({ azimuth: 190, elevation: 0 }, 10)[0]).toBeCloseTo(-1, 12);
+    expect(sunInColumn({ azimuth: 10, elevation: 0 }, 100)[1]).toBeCloseTo(-1, 12);
+  });
+
+  it('is computed for every column of the window, from its own azimuth', () => {
+    const view = manifest.view;
+    const cols = sunColumns(view, { azimuth: 214, elevation: 20 });
+    expect(cols).toHaveLength(view.planeW * 4);
+    const at = (x: number) => Array.from(cols.slice(x * 4, x * 4 + 3));
+    const mid = at(view.planeW / 2);
+    expect(mid[0]).toBeCloseTo(Math.cos(20 * RAD), 3); // the middle column looks near the sun's azimuth
+    expect(at(0)[1]).toBeGreaterThan(0.1); // the left edge has the sun to its right
+    expect(at(view.planeW - 1)[1]).toBeLessThan(-0.1);
+  });
+});
+
+describe('the wall code', () => {
+  it('reads R = G = 255 as a wall and a real normal as a normal', () => {
+    expect(decodeNormal(255, 255)).toEqual({ wall: true });
+    const flat = decodeNormal(128, 128);
+    expect(flat.wall).toBe(false);
+    if (!flat.wall) expect(flat.n[2]).toBeGreaterThan(0.99);
+    // The steepest real normal of the Vienna bake (r2 + t2 = 0.998) still decodes as terrain.
+    const r8 = Math.round(((Math.sqrt(0.998) + 1) / 2) * 255);
+    const steep = decodeNormal(r8, 128);
+    expect(steep.wall).toBe(false);
+    if (!steep.wall) expect(Math.hypot(...steep.n)).toBeCloseTo(1, 1);
+    expect(0.998).toBeLessThan(WALL_RT2);
+    expect(2).toBeGreaterThan(WALL_RT2);
+  });
+
+  it('the shader carries the same threshold', () => {
+    expect(FRAGMENT).toContain(`const float WALL_RT2 = ${WALL_RT2};`);
+  });
+});
+
+describe('the lighting inputs', () => {
+  const atm = (sinLog: number[] = []) => ({
+    observerKm: 0.183,
+    mieScale: 1,
+    transmittanceToSpace: (mu: number, out: number[]) => {
+      sinLog.push(mu);
+      out[0] = 0.9 * mu;
+      out[1] = 0.8 * mu;
+      out[2] = 0.7 * mu;
+    },
+    irradiance: { direct: [0, 0, 0], ambient: [0.1, 0.2, 0.3] },
+    radiance: vi.fn((vz: number, cosSun: number, out: number[]) => {
+      out[0] = vz;
+      out[1] = cosSun;
+      out[2] = 1;
+    }),
+  });
+  const sky = (elevation: number, a = atm()): PhysicalSky =>
+    ({
+      sun: { azimuth: 214, elevation },
+      atm: a,
+      fit: { display: { exposure: 12, lift: 0.01 } },
+      view: manifest.view,
+    } as unknown as PhysicalSky);
+
+  it("takes the display of the sky's own fit, so terrain and sky share one exposure", () => {
+    const l = lightingOf(manifest, sky(30));
+    expect([l.exposure, l.lift]).toEqual([12, 0.01]);
+    expect(l.ambient).toEqual([0.1, 0.2, 0.3]);
+    expect(l.logDMin).toBe(4.6);
+    expect(l.logDSpan).toBeCloseTo(11.5 - 4.6, 12);
+  });
+
+  it("gives the ground the sun's transmittance at its elevation, and none with the sun below the atmosphere's cut-off", () => {
+    const l = lightingOf(manifest, sky(30));
+    expect(l.sunTransmittance[0]).toBeCloseTo(0.9 * Math.sin(30 * RAD), 12);
+    expect(l.sunTransmittance[2]).toBeCloseTo(0.7 * Math.sin(30 * RAD), 12);
+    expect(lightingOf(manifest, sky(SUN_CUTOFF_DEG - 1)).sunTransmittance).toEqual([0, 0, 0]);
+    expect(
+      lightingOf(manifest, sky(SUN_CUTOFF_DEG + 0.5)).sunTransmittance[0]
+    ).toBeGreaterThanOrEqual(0);
+  });
+
+  it("takes the haze's extinction from the atmosphere at the observer: more aerosol, more extinction", () => {
+    const clear = lightingOf(manifest, sky(30, { ...atm(), mieScale: 1 }));
+    const hazy = lightingOf(manifest, sky(30, { ...atm(), mieScale: 4 }));
+    expect(clear.extinction.every((e) => e > 0)).toBe(true);
+    hazy.extinction.forEach((e, k) => expect(e).toBeGreaterThan(clear.extinction[k]));
+  });
+
+  it("builds the haze lookup from the view direction of each texel, the horizon's below it", () => {
+    const a = atm();
+    const lut = skyLut(sky(30, a), manifest.view, SKY_LUT.w, SKY_LUT.h);
+    expect(lut).toHaveLength(SKY_LUT.w * SKY_LUT.h * 4);
+    const texel = (i: number, j: number) =>
+      Array.from(lut.slice((j * SKY_LUT.w + i) * 4, (j * SKY_LUT.w + i) * 4 + 3));
+    const { horizonRow, planeH, pxPerDegV } = manifest.view;
+    const rowAt = (j: number) => ((j + 0.5) / SKY_LUT.h) * planeH;
+    // A row above the horizon asks the sky for the sine of its elevation; a row below it asks for the horizon.
+    const above = Math.floor((horizonRow / planeH) * SKY_LUT.h) - 6;
+    expect(texel(0, above)[0]).toBeCloseTo(
+      Math.sin(((horizonRow - rowAt(above)) / pxPerDegV) * RAD),
+      9
+    );
+    expect(texel(0, SKY_LUT.h - 1)[0]).toBe(0);
+    // The sun lies at 214 degrees, the middle of the window: the cosine from the sun is 1 there and falls to the sides.
+    const mid = texel(SKY_LUT.w / 2, above)[1];
+    expect(mid).toBeGreaterThan(0.999);
+    expect(texel(0, above)[1]).toBeLessThan(mid);
+  });
+});
+
+describe('the display of the shader', () => {
+  const g = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
+  it("writes toneMap.ts's ACES matrices and fit into the source", () => {
+    ACES_IN.forEach((row, i) =>
+      expect(FRAGMENT).toContain(`const vec3 IN_R${i} = vec3(${row.map(g).join(', ')});`)
+    );
+    ACES_OUT.forEach((row, i) =>
+      expect(FRAGMENT).toContain(`const vec3 OUT_R${i} = vec3(${row.map(g).join(', ')});`)
+    );
+    expect(FRAGMENT).toContain(`vec3(${g(ACES_FIT[0])}, ${g(ACES_FIT[1])}, 0.0)`);
+    expect(FRAGMENT).toContain(`vec3(${g(ACES_FIT[2])}, ${g(ACES_FIT[3])}, ${g(ACES_FIT[4])})`);
+  });
+});

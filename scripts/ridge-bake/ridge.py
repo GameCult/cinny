@@ -239,11 +239,12 @@ def cards(d, a, h, seams, nrm=None):
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
-    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for a window cut from the ring).  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n))."""
+    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for a window cut from the ring).  Rows of a card i > 0 below the angle of its first sample (hit and idx == 0) are the extruded wall of the ridge the card starts at: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
+    and `wall` flags them (card 0 has no wall: its rows below the first sample are the ground).  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
     n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p
     ks0 = [np.searchsorted(d, seams[i - 1] * math.exp(-XF)) for i in range(1, nc)]; ks1 = [np.searchsorted(d, seams[i] * math.exp(XF)) for i in range(nc - 1)]
-    F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n))           # coverage, far fade, then (logd, h, n_r, n_t, n_u)
+    F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n)); Wl = np.zeros((nc, H, n), bool)           # coverage, far fade, then (logd, h, n_r, n_t, n_u); wall rows
     for x in range(n):
         for i in range(nc):
             k0 = 0 if i == 0 else int(ks0[i - 1][x]); k1 = nk if i == nc - 1 else int(ks1[i][x])
@@ -254,12 +255,13 @@ def cards(d, a, h, seams, nrm=None):
             t = np.where(idx > 0, np.clip((rowang - prev) / np.maximum(rm[idx] - prev, 1e-9), 0, 1), 1.0); mix = lambda arr: arr[kp, x] + t * (arr[kk, x] - arr[kp, x])
             F[i, :, x] = np.where(hit, np.clip((rm[-1] - lo) / p, 0, 1), 0); lh = mix(ld)
             G[i, :, :, x] = np.where(hit, np.stack([lh, mix(h), mix(n_r), mix(n_t), mix(n_u)]), 0)
+            if i: Wl[i, :, x] = hit & (idx == 0)           # rows below the card's first sample: the extruded wall (card 0's are the ground)
             if i < nc - 1: s = np.clip((lh - (math.log(seams[i, x]) - XF)) / (2 * XF), 0, 1); X[i, :, x] = 1 - s * s * (3 - 2 * s)
     out = []; A = np.zeros((H, n))
     for i in range(nc):
         part = np.where(F[i] < 1, np.clip((np.maximum(A, F[i]) - A) / np.maximum(1 - A, 1e-6), 0, 1), F[i]); al = np.where(np.rint(X[i] * part * 255) > 0, X[i] * part, 0.0); A = 1 - (1 - A) * (1 - al)
         rows = np.flatnonzero(al.max(1) > 0)
-        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32))); continue
+        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
-        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], g[4] / nz).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32)))
+        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy()))
     return out

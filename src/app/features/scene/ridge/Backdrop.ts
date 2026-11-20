@@ -1,44 +1,55 @@
-// The decoded planes the scene composes: only the frames the choice needs. Failure is a value (null), never a throw.
-import type { FrameChoice } from './frameChoice';
-import type { Frame, PlaneName, RidgeManifest } from './manifest';
-import { PLANE_NAMES } from './manifest';
-
-export type Planes = Record<PlaneName, HTMLImageElement>;
+// The ridge cards the scene composes, lit: every card's two files fetched and decoded exactly as the baker wrote them, then lit once for the sky
+// (`lightCards.ts`). Failure is a value (null), never a throw.
+import type { RidgeManifest } from './manifest';
+import type { PhysicalSky } from './physicalSky';
+import { lightCards } from './lightCards';
+import type { CardBitmaps, LitCard } from './lightCards';
 
 export interface Backdrop {
   manifest: RidgeManifest;
-  choice: FrameChoice;
-  /** Decoded planes of frame a, and of frame b when the choice has one. */
-  a: Planes;
-  b: Planes | null;
+  /** Nearest first, as the manifest lists them. */
+  cards: LitCard[];
 }
 
-export type ImageLoader = (url: string) => Promise<HTMLImageElement>;
+export interface BackdropDeps {
+  fetchBlob: (url: string) => Promise<Blob>;
+  light: (manifest: RidgeManifest, bitmaps: CardBitmaps[], sky: PhysicalSky) => LitCard[];
+}
 
-/** The browser's decoder: an <img> that has decoded, so the first paint does not wait on it. */
-export const loadImage: ImageLoader = async (url) => {
-  const img = new Image();
-  img.decoding = 'async';
-  img.src = url;
-  await img.decode();
-  return img;
+const fetchBlob = async (url: string): Promise<Blob> => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`ridge: ${url} answered ${res.status}`);
+  return res.blob();
 };
+
+/** Straight alpha and the file's own values: the colour card's alpha is coverage and the geometry card's channels are data, so neither may be premultiplied or colour-managed. */
+const decode = (blob: Blob): Promise<ImageBitmap> =>
+  createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 
 export async function loadBackdrop(
   manifest: RidgeManifest,
-  choice: FrameChoice,
-  load: ImageLoader = loadImage
+  sky: PhysicalSky,
+  deps: Partial<BackdropDeps> = {}
 ): Promise<Backdrop | null> {
-  const planes = async (f: Frame): Promise<Planes> => {
-    const [far, mid, near] = await Promise.all(
-      PLANE_NAMES.map((n) => load(`${manifest.dir}${f.planes[n]}`))
-    );
-    return { far, mid, near };
-  };
+  const get = deps.fetchBlob ?? fetchBlob;
+  const light = deps.light ?? lightCards;
+  const open: ImageBitmap[] = [];
   try {
-    const [a, b] = await Promise.all([planes(choice.a), choice.b ? planes(choice.b) : null]);
-    return { manifest, choice, a, b };
+    const files = manifest.cards.flatMap((c) => [c.colour, c.geometry]);
+    const settled = await Promise.allSettled(
+      files.map(async (f) => decode(await get(`${manifest.dir}${f}`)))
+    );
+    settled.forEach((s) => s.status === 'fulfilled' && open.push(s.value));
+    const failed = settled.find((s) => s.status === 'rejected');
+    if (failed) throw (failed as PromiseRejectedResult).reason;
+    const bitmaps = manifest.cards.map((_, i) => ({
+      colour: open[2 * i],
+      geometry: open[2 * i + 1],
+    }));
+    return { manifest, cards: light(manifest, bitmaps, sky) };
   } catch {
     return null;
+  } finally {
+    open.forEach((b) => b.close?.());
   }
 }

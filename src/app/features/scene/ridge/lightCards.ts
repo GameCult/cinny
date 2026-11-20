@@ -1,0 +1,372 @@
+// The one lighting pass of the ridge cards (ruling ridge-cards-runtime-lit): each baked G-buffer card (colour with straight alpha, geometry with the
+// 'rt8' normal and log-distance, `scripts/ridge-bake/export.py`) is lit once, for the sky this scene build was made for, in one WebGL2 context on a
+// canvas of its own, and copied into a 2D canvas of the card's size. After the last card the context is released: there is no per-frame WebGL, and the
+// host canvas stays 2D (`Ridge.ts`). A sky change rebuilds the scene and lights again; nothing patches the lit canvases.
+//
+// Per pixel: the normal from the geometry card in the column's frame (r along the ray, t across it, up), the sun brought into that frame per column;
+// radiance = albedo x (sun transmittance x max(n.s, 0) + ambient irradiance) / pi; aerial perspective L T(d) + Lsky (1 - T(d)) with d from the
+// geometry's log-distance and the sky's own extinction at the ground; contours; then the sky's own display (exposure, ACES with `toneMap.ts`'s
+// constants written into the shader, black lift, sRGB), so terrain and sky share one exposure. Wall pixels (R = G = 255 in the geometry file, a code
+// no real normal reaches) are the extruded face under a ridge: they are lit with the face up and wear no crease ink.
+import { extinctionAt } from './earthAtmosphere';
+import type { Vec3 } from './earthAtmosphere';
+import type { RidgeManifest } from './manifest';
+import type { PhysicalSky } from './physicalSky';
+import { ACES_FIT, ACES_IN, ACES_OUT } from './toneMap';
+import type { View } from './view';
+
+export interface CardBitmaps {
+  colour: ImageBitmap;
+  geometry: ImageBitmap;
+}
+
+/** A lit card: its pixels, premultiplied by the card's alpha, at the card's own size, and where the card sits in the plane. */
+export interface LitCard {
+  canvas: HTMLCanvasElement;
+  top: number;
+  h: number;
+  scale: number;
+}
+
+// Constants of the look, named for the art pass (ratatoskr:follow_up:ridge-art-quality-rework). None of them is a rule of the machine.
+/** A real normal has r2 + t2 at most 0.998 (probe on the Vienna bake); the wall code is 2. */
+export const WALL_RT2 = 1.02;
+/** A neighbour farther by more than this many nats of distance draws occluding ink on this pixel. */
+export const OCCLUDE_LOGD = 0.35;
+/** A normal turning past this cosine between two non-wall pixels draws crease ink. */
+export const CREASE_COS = 0.85;
+/** How much each ink keeps of the radiance it falls on (1 = no ink). */
+export const INK_KEEP = { edge: 0.45, occlude: 0.55, crease: 0.8 } as const;
+/** The lookup of the sky's radiance for the haze: azimuth columns by plane rows, filtered in the shader. */
+export const SKY_LUT = { w: 64, h: 64 } as const;
+/** Below this sun elevation (degrees) no direct sun reaches the ground (the atmosphere's own cut-off, `earthAtmosphere.ts` irradiance). */
+export const SUN_CUTOFF_DEG = -1;
+
+const RAD = Math.PI / 180;
+
+/** The sun in the frame of a column looking at azimuth `columnAzDeg`: along the ray, across it (clockwise, +90 degrees), up. Unit length. */
+export function sunInColumn(
+  sun: { azimuth: number; elevation: number },
+  columnAzDeg: number
+): [number, number, number] {
+  const el = sun.elevation * RAD;
+  const d = (sun.azimuth - columnAzDeg) * RAD;
+  return [Math.cos(el) * Math.cos(d), Math.cos(el) * Math.sin(d), Math.sin(el)];
+}
+
+/** The azimuth of plane column `x` of `w` (the card is the whole baked window wide). */
+export const columnAzimuth = (view: View, x: number, w: number): number =>
+  view.lookAzDeg + ((x + 0.5) / w - 0.5) * view.windowDeg;
+
+/** A geometry texel's red and green bytes as the shader reads them: a wall, or the unit normal (along the ray, across it, up). */
+export function decodeNormal(
+  r8: number,
+  g8: number
+): { wall: true } | { wall: false; n: [number, number, number] } {
+  const r = (r8 / 255) * 2 - 1;
+  const t = (g8 / 255) * 2 - 1;
+  const rt2 = r * r + t * t;
+  return rt2 > WALL_RT2
+    ? { wall: true }
+    : { wall: false, n: [r, t, Math.sqrt(Math.max(0, 1 - rt2))] };
+}
+
+/** Everything the lighting reads of the sky and the manifest, as the numbers the shader's uniforms hold. */
+export interface Lighting {
+  planeW: number;
+  planeH: number;
+  logDMin: number;
+  logDSpan: number;
+  /** Per km of horizontal path, per channel. */
+  extinction: Vec3;
+  /** The sun's transmittance to the ground, per channel; zero with the sun below the atmosphere's cut-off. */
+  sunTransmittance: Vec3;
+  ambient: Vec3;
+  exposure: number;
+  lift: number;
+}
+
+export function lightingOf(manifest: RidgeManifest, sky: PhysicalSky): Lighting {
+  const trans = [0, 0, 0];
+  const sinEl = Math.sin(sky.sun.elevation * RAD);
+  sky.atm.transmittanceToSpace(Math.max(sinEl, 0), trans);
+  const lit = sky.sun.elevation > SUN_CUTOFF_DEG;
+  return {
+    planeW: manifest.view.planeW,
+    planeH: manifest.view.planeH,
+    logDMin: manifest.encoding.logDMin,
+    logDSpan: manifest.encoding.logDMax - manifest.encoding.logDMin,
+    extinction: extinctionAt(sky.atm.observerKm, sky.atm.mieScale),
+    sunTransmittance: lit ? [trans[0], trans[1], trans[2]] : [0, 0, 0],
+    ambient: sky.atm.irradiance.ambient,
+    exposure: sky.fit.display.exposure,
+    lift: sky.fit.display.lift,
+  };
+}
+
+/** The sun in every column's frame, RGBA32F texels (a, b, c, 0), one row of `planeW`. */
+export function sunColumns(view: View, sun: { azimuth: number; elevation: number }): Float32Array {
+  const out = new Float32Array(view.planeW * 4);
+  for (let x = 0; x < view.planeW; x += 1) {
+    const [r, t, u] = sunInColumn(sun, columnAzimuth(view, x, view.planeW));
+    out.set([r, t, u, 0], x * 4);
+  }
+  return out;
+}
+
+/**
+ * The sky's radiance (per unit of sun irradiance) as the haze needs it: a small grid over the window's azimuths and the plane's rows, the view
+ * direction of each texel's centre. Rows below the horizon take the horizon's radiance (the haze in front of a ridge is the air at its foot).
+ */
+export function skyLut(sky: PhysicalSky, view: View, w: number, h: number): Float32Array {
+  const out = new Float32Array(w * h * 4);
+  const rgb = [0, 0, 0];
+  for (let j = 0; j < h; j += 1) {
+    const elDeg = Math.max(0, (view.horizonRow - ((j + 0.5) / h) * view.planeH) / view.pxPerDegV);
+    for (let i = 0; i < w; i += 1) {
+      const az = columnAzimuth(view, ((i + 0.5) / w) * view.planeW - 0.5, view.planeW);
+      sky.atm.radiance(Math.sin(elDeg * RAD), Math.cos((az - sky.sun.azimuth) * RAD), rgb);
+      out.set([rgb[0], rgb[1], rgb[2], 0], (j * w + i) * 4);
+    }
+  }
+  return out;
+}
+
+const glsl = (n: number): string => (Number.isInteger(n) ? `${n}.0` : String(n));
+
+/** The fragment shader. `ACES_IN` and `ACES_OUT` are written as rows and applied with `dot`, so no transposition is in play. */
+export const FRAGMENT = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+uniform sampler2D uColour;
+uniform sampler2D uGeo;
+uniform sampler2D uSun;
+uniform sampler2D uSky;
+uniform ivec2 uSize;
+uniform ivec2 uSkySize;
+uniform int uTop;
+uniform vec2 uPlane;
+uniform vec2 uLogD;
+uniform vec3 uExt;
+uniform vec3 uTSun;
+uniform vec3 uAmbient;
+uniform vec2 uDisplay;
+out vec4 outColor;
+
+const float PI = 3.14159265358979;
+const float WALL_RT2 = ${glsl(WALL_RT2)};
+const float OCCLUDE_LOGD = ${glsl(OCCLUDE_LOGD)};
+const float CREASE_COS = ${glsl(CREASE_COS)};
+const vec3 INK_KEEP = vec3(${glsl(INK_KEEP.edge)}, ${glsl(INK_KEEP.occlude)}, ${glsl(
+  INK_KEEP.crease
+)});
+${[0, 1, 2]
+  .map((i) => `const vec3 IN_R${i} = vec3(${ACES_IN[i].map(glsl).join(', ')});`)
+  .join('\n')}
+${[0, 1, 2]
+  .map((i) => `const vec3 OUT_R${i} = vec3(${ACES_OUT[i].map(glsl).join(', ')});`)
+  .join('\n')}
+const vec3 FIT_AB = vec3(${glsl(ACES_FIT[0])}, ${glsl(ACES_FIT[1])}, 0.0);
+const vec3 FIT_CDE = vec3(${glsl(ACES_FIT[2])}, ${glsl(ACES_FIT[3])}, ${glsl(ACES_FIT[4])});
+
+vec3 toLinear(vec3 c) {
+  return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+}
+vec3 toSrgb(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+vec3 fit(vec3 v) {
+  return (v * (v + FIT_AB.x) - FIT_AB.y) / (v * (FIT_CDE.x * v + FIT_CDE.y) + FIT_CDE.z);
+}
+vec3 aces(vec3 x) {
+  vec3 p = fit(max(vec3(dot(IN_R0, x), dot(IN_R1, x), dot(IN_R2, x)), 0.0));
+  return clamp(vec3(dot(OUT_R0, p), dot(OUT_R1, p), dot(OUT_R2, p)), 0.0, 1.0);
+}
+
+vec3 skyAt(vec2 uv) {
+  vec2 f = uv * vec2(uSkySize) - 0.5;
+  vec2 b = floor(f);
+  vec2 t = f - b;
+  ivec2 lo = clamp(ivec2(b), ivec2(0), uSkySize - 1);
+  ivec2 hi = clamp(ivec2(b) + 1, ivec2(0), uSkySize - 1);
+  vec3 a = mix(texelFetch(uSky, ivec2(lo.x, lo.y), 0).rgb, texelFetch(uSky, ivec2(hi.x, lo.y), 0).rgb, t.x);
+  vec3 c = mix(texelFetch(uSky, ivec2(lo.x, hi.y), 0).rgb, texelFetch(uSky, ivec2(hi.x, hi.y), 0).rgb, t.x);
+  return mix(a, c, t.y);
+}
+
+struct Geo { vec3 n; float logD; bool wall; };
+Geo geoAt(ivec2 p) {
+  vec4 g = texelFetch(uGeo, p, 0);
+  vec2 rt = g.rg * 2.0 - 1.0;
+  float rt2 = dot(rt, rt);
+  Geo o;
+  o.wall = rt2 > WALL_RT2;
+  o.logD = uLogD.x + g.b * uLogD.y;
+  o.n = o.wall ? vec3(0.0, 0.0, 1.0) : vec3(rt, sqrt(max(0.0, 1.0 - rt2)));
+  return o;
+}
+
+void main() {
+  ivec2 p = ivec2(int(gl_FragCoord.x), uSize.y - 1 - int(gl_FragCoord.y));
+  vec4 c = texelFetch(uColour, p, 0);
+  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
+  Geo g = geoAt(p);
+
+  vec3 s = texelFetch(uSun, ivec2(p.x, 0), 0).xyz;
+  vec3 radiance = toLinear(c.rgb) * (uTSun * max(dot(g.n, s), 0.0) + uAmbient) / PI;
+  vec3 T = exp(-uExt * (exp(g.logD) / 1000.0));
+  vec2 uv = vec2((float(p.x) + 0.5) / uPlane.x, (float(uTop + p.y) + 0.5) / uPlane.y);
+  radiance = radiance * T + skyAt(uv) * (1.0 - T);
+
+  float keep = 1.0;
+  ivec2 dirs[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+  for (int k = 0; k < 4; k++) {
+    ivec2 q = p + dirs[k];
+    if (q.x < 0 || q.y < 0 || q.x >= uSize.x || q.y >= uSize.y) continue;
+    float an = texelFetch(uColour, q, 0).a;
+    Geo gn = geoAt(q);
+    if (c.a >= 0.5 && an < 0.5) keep = min(keep, INK_KEEP.x);
+    else if (an >= 0.5 && gn.logD - g.logD > OCCLUDE_LOGD) keep = min(keep, INK_KEEP.y);
+    else if (an >= 0.5 && !g.wall && !gn.wall && dot(g.n, gn.n) < CREASE_COS) keep = min(keep, INK_KEEP.z);
+  }
+  radiance *= keep;
+
+  vec3 lin = aces(radiance * uDisplay.x);
+  vec3 rgb = toSrgb(uDisplay.y + (1.0 - uDisplay.y) * lin);
+  outColor = vec4(rgb * c.a, c.a);
+}
+`;
+
+const VERTEX = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
+  const sh = gl.createShader(type);
+  if (!sh) throw new Error('ridge: no shader');
+  gl.shaderSource(sh, source);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+    throw new Error(`ridge: shader did not compile: ${gl.getShaderInfoLog(sh) ?? ''}`);
+  return sh;
+}
+
+function program(gl: WebGL2RenderingContext): WebGLProgram {
+  const p = gl.createProgram();
+  if (!p) throw new Error('ridge: no program');
+  gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, VERTEX));
+  gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(`ridge: shader did not link: ${gl.getProgramInfoLog(p) ?? ''}`);
+  return p;
+}
+
+function texture(gl: WebGL2RenderingContext, unit: number): WebGLTexture {
+  const t = gl.createTexture();
+  if (!t) throw new Error('ridge: no texture');
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+
+function floatTexture(
+  gl: WebGL2RenderingContext,
+  unit: number,
+  w: number,
+  h: number,
+  data: Float32Array
+): WebGLTexture {
+  const t = texture(gl, unit);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, data);
+  return t;
+}
+
+function bitmapTexture(gl: WebGL2RenderingContext, unit: number, bmp: ImageBitmap): WebGLTexture {
+  const t = texture(gl, unit);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+  return t;
+}
+
+/**
+ * Light the cards of `manifest` for `sky`, nearest first, as the manifest lists them. Throws without WebGL2 or when the shader will not link;
+ * the caller (`loadBackdrop`) turns any throw into the sky alone. Closes the bitmaps, and releases the context after the last card.
+ */
+export function lightCards(
+  manifest: RidgeManifest,
+  bitmaps: CardBitmaps[],
+  sky: PhysicalSky
+): LitCard[] {
+  const glCanvas = document.createElement('canvas');
+  const gl = glCanvas.getContext('webgl2', {
+    alpha: true,
+    premultipliedAlpha: true,
+    antialias: false,
+    depth: false,
+    stencil: false,
+  });
+  if (!gl) throw new Error('ridge: no WebGL2');
+  try {
+    const lit = lightingOf(manifest, sky);
+    const prog = program(gl);
+    gl.useProgram(prog);
+    const u = (name: string) => gl.getUniformLocation(prog, name);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    ['uColour', 'uGeo', 'uSun', 'uSky'].forEach((n, i) => gl.uniform1i(u(n), i));
+    gl.uniform2f(u('uPlane'), lit.planeW, lit.planeH);
+    gl.uniform2f(u('uLogD'), lit.logDMin, lit.logDSpan);
+    gl.uniform3f(u('uExt'), ...lit.extinction);
+    gl.uniform3f(u('uTSun'), ...lit.sunTransmittance);
+    gl.uniform3f(u('uAmbient'), ...lit.ambient);
+    gl.uniform2f(u('uDisplay'), lit.exposure, lit.lift);
+    gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
+    const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, sky.sun));
+    const skyTex = floatTexture(
+      gl,
+      3,
+      SKY_LUT.w,
+      SKY_LUT.h,
+      skyLut(sky, manifest.view, SKY_LUT.w, SKY_LUT.h)
+    );
+    const out = manifest.cards.map((card, i): LitCard => {
+      const { colour, geometry } = bitmaps[i];
+      glCanvas.width = colour.width;
+      glCanvas.height = colour.height;
+      gl.viewport(0, 0, colour.width, colour.height);
+      const colourTex = bitmapTexture(gl, 0, colour);
+      const geoTex = bitmapTexture(gl, 1, geometry);
+      gl.uniform2i(u('uSize'), colour.width, colour.height);
+      gl.uniform1i(u('uTop'), card.top);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      const canvas = document.createElement('canvas');
+      canvas.width = colour.width;
+      canvas.height = colour.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('ridge: no 2D context for a lit card');
+      ctx.drawImage(glCanvas, 0, 0);
+      gl.deleteTexture(colourTex);
+      gl.deleteTexture(geoTex);
+      colour.close();
+      geometry.close();
+      return { canvas, top: card.top, h: card.h, scale: card.scale };
+    });
+    gl.deleteTexture(sunTex);
+    gl.deleteTexture(skyTex);
+    return out;
+  } finally {
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+}
