@@ -97,6 +97,11 @@ function sampleMedium(altKm: number, mieScale: number): Medium {
   };
 }
 
+/** The air's extinction per km (per channel) at a height above sea level: a horizontal path of d km keeps exp(-extinction x d) of the light. */
+export function extinctionAt(altKm: number, mieScale: number): Vec3 {
+  return sampleMedium(altKm, mieScale).extinction;
+}
+
 /** Nearest positive hit of a unit-direction ray with a sphere at the origin: its distance, or -1. */
 function raySphere(
   ox: number,
