@@ -6,14 +6,16 @@
 //   `?moments=2026-11-24T22:00Z,2026-12-09T20:00Z`  explicit UTC moments: the sun, moon and stars are those of the moment, the state follows the sun's elevation
 //   `?night=1`  the night set: the next new moon, first quarter and full moon from today (or from `?from=YYYY-MM-DD`), each at four night hours
 //               (`?hours=18,21,0,4` UTC), plus deep dusk (sun at -10 degrees) of the evening of the full moon
+//   `?labels=1` DEBUG: label each constellation chain in frame with its d3-celestial abbreviation (fetched from the source repository at run time; not shipped)
 //   `?lines=1`  constellation lines over the stars, as the Sky menu's hidden toggle does (night cells only)
 import { DEFAULT_LOOK, PHYSICAL_LOOK, lightCards } from '../../src/app/features/scene/ridge/lightCards';
 import type { RidgeLook } from '../../src/app/features/scene/ridge/lightCards';
 import { parseManifest } from '../../src/app/features/scene/ridge/manifest';
 import { makePhysicalSky, paintSky } from '../../src/app/features/scene/ridge/physicalSky';
 import { windowFor } from '../../src/app/features/scene/ridge/view';
-import { nightBodies, paintNightBodies } from '../../src/app/features/scene/ridge/nightBodies';
+import { nightBodies, onScreen, paintNightBodies } from '../../src/app/features/scene/ridge/nightBodies';
 import { sunAt } from '../../src/app/features/scene/ridge/sunAt';
+import { linesAt } from '../../src/app/features/scene/ridge/starCatalogue';
 import { moonPhase } from '../../src/sky/moon.js';
 import { DAY_FROM } from '../../src/app/features/scene/skyState';
 import type { FixedSkyState } from '../../src/app/features/scene/skyState';
@@ -164,6 +166,12 @@ const rows = (q.get('looks')
   : Object.values(PRESETS)
 ).map(merge);
 const withLines = q.get('lines') === '1';
+const LINES_JSON = 'https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/constellations.lines.json';
+/** Debug: the constellation id of each packed chain, in the generator's order (feature by feature, chain by chain). */
+async function chainIds(): Promise<string[]> {
+  const gj = await (await fetch(LINES_JSON)).json();
+  return gj.features.flatMap((f: { id: string; geometry: { coordinates: unknown[] } }) => f.geometry.coordinates.map(() => f.id));
+}
 const W = Number(q.get('w') ?? 480);
 const H = Math.round((W * 9) / 16);
 const root = document.getElementById('sheet') as HTMLElement;
@@ -185,6 +193,7 @@ async function main() {
   const win = windowFor(view, W, H);
   const now = new Date();
   const columns = momentsFrom(q, view.place) ?? SKIES;
+  const ids = q.get('labels') === '1' ? await chainIds() : undefined;
 
   const table = document.createElement('table');
   table.style.borderSpacing = '4px';
@@ -230,6 +239,18 @@ async function main() {
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(small, 0, 0, W, H);
       paintNightBodies(ctx, bodies, W, H, 1);
+      if (ids) {
+        // Debug labels: each chain's id at the mean of its vertices that lie in the frame.
+        ctx.font = '11px monospace';
+        ctx.fillStyle = '#ffd24a';
+        linesAt(physical.sun.time, view.place.lat, view.place.lon).forEach((chain, i) => {
+          const pts = chain.map((p) => onScreen(win.camera, p.azimuth, p.elevation)).filter((a) => a.x >= 0 && a.x <= 1 && a.y >= 0 && a.y <= 1);
+          if (!pts.length) return;
+          const mx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+          const my = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+          ctx.fillText(`${ids[i]} ${pts.length}/${chain.length}`, mx * W, my * H);
+        });
+      }
       // As Ridge.ts paintCards at heading 0: farthest first, each card at its own scale about the horizon row of the plane.
       const s = win.plane.scale;
       const x0 = (W - win.plane.w) / 2;
