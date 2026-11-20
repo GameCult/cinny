@@ -67,6 +67,12 @@ def _recede(d0, d1, thick=300.0, hgt=1500.0):
     """A ridge `thick` m thick whose distance runs from d0 m at azimuth 0 to d1 m at azimuth 72."""
     return terrain(lambda dk, az: np.where((az <= 72) & (np.abs(dk - (d0 + (d1 - d0) * np.clip(az / 72.0, 0, 1))) < thick / 2), hgt, 0.0))
 def _receding(dk, az): return _recede(4000.0, 15000.0)(dk, az)
+def test_the_swept_rows_term_keeps_the_seam_from_hopping_under_a_stronger_pull():
+    """With the authored depth pulling harder (0.1 instead of 0.02) the 4 to 15 km ridge's seam still follows the ridge: only the cost of the visible rows it would sweep holds it back (with that term out of the cost it hops between two columns)."""
+    old = ridge.SEAM_PRIOR; ridge.SEAM_PRIOR = 0.1
+    try: j0, j1, cover = _alpha_jumps(4, 15, 6)
+    finally: ridge.SEAM_PRIOR = old
+    assert j0 < 0.35 and j1 < 0.35 and cover > 0.999, ('the seam hopped across the ridge', j0, j1)
 RECEDING = [(4, 15, 6), (3, 12, 6), (5, 30, 12), (8, 40, 15), (4, 15, 10), (6, 14, 9)]        # km at azimuth 0, km at azimuth 72, authored split km
 def _alpha_jumps(d0, d1, split):
     """The two cards' alpha on the ridge body (crest + 4 rows), column to column: the largest step of each.  Unmasked cards: this is about where the seam goes, not what the slide may reveal."""
@@ -249,9 +255,10 @@ def test_cards_are_cropped_to_their_band():
 
 # ---------------------------------------------------------------------------------------- reveal-bounded cards: what the slide may show is kept, the rest is cut
 def _shift(a, s):
+    """a slid s columns to the right (the last axis), zero where nothing comes in."""
     out = np.zeros_like(a)
-    if s > 0: out[:, s:] = a[:, :-s]
-    elif s < 0: out[:, :s] = a[:, -s:]
+    if s > 0: out[..., s:] = a[..., :-s]
+    elif s < 0: out[..., :s] = a[..., -s:]
     else: out[:] = a
     return out
 def _over(cs, shifts):
