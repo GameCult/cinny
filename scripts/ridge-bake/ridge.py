@@ -10,6 +10,7 @@ Offline baker for the ridge backdrop (scripts/ridge-bake); export.py drives it.
 Vertical exaggeration is AUTHORED and derived per view by set_view (printed on the page).  The client owns lighting, haze and ink (ruling ridge-cards-runtime-lit)."""
 import sys, time, math, json
 import os, hashlib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np, tifffile
@@ -31,11 +32,15 @@ P = {}                                 # configured preset
 rowang = np.zeros(H); PXDEG_V = 100.0; TOP_DEG = 2.6; BOTTOM_DEG = -3.4
 
 def load_preset(pid, path=Path(__file__).resolve().parent / 'places.json'):
-    """The preset dict.  card_split_km is the ordered list of authored seam depths (km): required, strictly increasing, at most export.MAX_CARDS - 1 (the cap is export's, which owns the budget); refused here, before any march."""
+    """The preset dict.  tz is required, an IANA zone the system knows (the runtime draws named sky moments in the place's local day).  card_split_km is the ordered list of authored seam depths (km): required, strictly increasing, at most export.MAX_CARDS - 1 (the cap is export's, which owns the budget); refused here, before any march."""
     d = json.load(open(path)); p = dict(next(x for x in d['presets'] if x['id'] == pid)); sp = p.get('card_split_km')
     from export import MAX_CARDS
     if not sp: raise ValueError(f"preset {pid}: card_split_km is required (an ordered list of 1 to {MAX_CARDS - 1} depths in km)")
     if len(sp) > MAX_CARDS - 1 or any(b <= a for a, b in zip(sp, sp[1:])): raise ValueError(f"preset {pid}: card_split_km {sp} must be strictly increasing with at most {MAX_CARDS - 1} entries")
+    tz = p.get('tz')
+    if not isinstance(tz, str) or not tz: raise ValueError(f"preset {pid}: tz is required (an IANA time zone name such as Europe/Vienna)")
+    try: ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError, OSError): raise ValueError(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
     return p
 
 # ====================================================================== configuration, DEM

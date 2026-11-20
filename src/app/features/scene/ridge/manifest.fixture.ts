@@ -18,6 +18,7 @@ export const wireManifest = (
     lat: 48.19,
     lon: 16.35,
     altitude_km: 0.183,
+    tz: 'Europe/Vienna',
     eye_m: 1.7,
   },
   view: {
@@ -66,7 +67,7 @@ export const wireIndex = {
 
 /** A View that differs from FALLBACK_VIEW in every field the sky reads (place, altitude, look azimuth, window, horizon row), so a test can tell the two apart. */
 export const ELSEWHERE_VIEW: View = {
-  place: { id: 'elsewhere', lat: -33.9, lon: 151.2, altitudeKm: 1.5 },
+  place: { id: 'elsewhere', lat: -33.9, lon: 151.2, altitudeKm: 1.5, tz: 'Australia/Sydney' },
   lookAzDeg: 20,
   windowDeg: 90,
   planeW: 1600,

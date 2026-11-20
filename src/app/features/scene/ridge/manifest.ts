@@ -52,6 +52,17 @@ const num = (x: unknown, path: string): number =>
 const str = (x: unknown, path: string): string =>
   typeof x === 'string' ? x : fail(path, 'not a string');
 
+/** An IANA zone name Intl knows (the one place besides skyMoment.ts that touches Intl.DateTimeFormat). */
+const zone = (x: unknown, path: string): string => {
+  const tz = str(x, path);
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+  } catch {
+    fail(path, `unknown time zone ${tz}`);
+  }
+  return tz;
+};
+
 export function parseIndex(raw: unknown): RidgeIndex {
   const r = rec(raw, 'index');
   if (r.schema !== 1) fail('index.schema', 'must be 1');
@@ -107,6 +118,7 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
         lat: num(p.lat, 'place.lat'),
         lon: num(p.lon, 'place.lon'),
         altitudeKm: num(p.altitude_km, 'place.altitude_km'),
+        tz: zone(p.tz, 'place.tz'),
       },
       lookAzDeg: num(v.look_az_deg, 'view.look_az_deg'),
       windowDeg: num(v.window_deg, 'view.window_deg'),

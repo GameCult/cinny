@@ -38,7 +38,8 @@
       "lat",
       "lon",
       "altitude_km",
-      "eye_m"
+      "eye_m",
+      "tz"
      ],
      "additionalProperties": false,
      "properties": {
@@ -59,6 +60,9 @@
       },
       "eye_m": {
        "type": "number"
+      },
+      "tz": {
+       "type": "string"
       }
      }
     },

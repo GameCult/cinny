@@ -11,7 +11,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import numpy as np, imagecodecs
 
-BAKER_VERSION = 2
+BAKER_VERSION = 3
 WINDOW_DEG = 72
 PLANE_W = 1280                         # every card is the whole 72 deg window wide
 PLANE_W_MAX = 4096
@@ -39,7 +39,7 @@ def _obj(**props): return {'type': 'object', 'required': list(props), 'additiona
 _file = _obj(file=_str, bytes=_int)
 SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'ridge-bake manifest v2 and index v1', '$defs': {
     'manifest': _obj(schema={'const': 2}, baker_version=_int, bake_id=_str,
-        place=_obj(id=_str, name=_str, lat=_num, lon=_num, altitude_km=_num, eye_m=_num),
+        place=_obj(id=_str, name=_str, lat=_num, lon=_num, altitude_km=_num, eye_m=_num, tz=_str),
         view=_obj(look_az_deg=_num, window_deg={'const': WINDOW_DEG}, plane_w={'type': 'integer', 'maximum': PLANE_W_MAX}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
@@ -153,7 +153,7 @@ def bake_place(pid):
     assert ridge.WIN == PLANE_W and ridge.H > 0
     p = ridge.configure(ridge.load_preset(pid)); ridge.mosaic(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0))
     nrm = tuple(ridge.win(x) for x in ridge.normals(d, h)); aw, hw = ridge.win(a), ridge.win(h); cov = ridge.coverage(d, aw); sm = ridge.seams(cov, [k * 1000.0 for k in p['card_split_km']], d)
-    place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'])
+    place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'], tz=p['tz'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])), camera=dict(r_m=float(p.get('camera_r_m', CAMERA_R_M)), heading_max_deg=HEADING_MAX_DEG))
     return dict(place=place, view=view, meta=meta, cards=ridge.cards(d, aw, hw, sm, nrm), splits_km=list(p['card_split_km']), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(d))

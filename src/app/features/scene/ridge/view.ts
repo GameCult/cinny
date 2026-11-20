@@ -9,6 +9,8 @@ export interface Place {
   lat: number;
   lon: number;
   altitudeKm: number;
+  /** The place's IANA time zone (the baker writes it): the one owner of place-local time is skyMoment.ts. */
+  tz: string;
 }
 
 /** The manifest's `view`: the baked window of the sky the planes cover. Angles are degrees, planes are in plane pixels. */
@@ -45,7 +47,7 @@ export interface Camera {
 
 /** The sky of a scene with no planes (a failed load): Vienna facing south-west, with the numbers of the Vienna bake. */
 export const FALLBACK_VIEW: View = {
-  place: { id: 'vienna', lat: 48.1929826, lon: 16.3534237, altitudeKm: 0.183 },
+  place: { id: 'vienna', lat: 48.1929826, lon: 16.3534237, altitudeKm: 0.183, tz: 'Europe/Vienna' },
   lookAzDeg: 214,
   windowDeg: 72,
   planeW: 1280,
