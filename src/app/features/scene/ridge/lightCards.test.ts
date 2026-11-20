@@ -18,11 +18,17 @@ import type { RidgeLook } from './lightCards';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import type { PhysicalSky } from './physicalSky';
-import { ACES_FIT, ACES_IN, ACES_OUT, LIFT_ONLY } from './toneMap';
+import { ACES_FIT, ACES_IN, ACES_OUT, BLACK_LIFT, makeCurve } from './toneMap';
 
 const manifest = parseManifest(wireManifest(), '/d/');
 const RAD = Math.PI / 180;
 const dot = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/** A display curve that is the straight line from the black lift to white: a fixture, the cards only need some curve to carry. */
+const FLAT_CURVE = makeCurve(
+  [0, 0.25, 0.5, 0.75, 1],
+  [0, 0.25, 0.5, 0.75, 1].map((v) => BLACK_LIFT + (1 - BLACK_LIFT) * v)
+);
 
 describe("the sun in a column's frame", () => {
   it.each([5, 30, 60, 89])(
@@ -96,13 +102,13 @@ describe('the lighting inputs', () => {
     ({
       sun: { azimuth: 214, elevation },
       atm: a,
-      fit: { display: { exposure: 12, curve: LIFT_ONLY } },
+      fit: { display: { exposure: 12, curve: FLAT_CURVE } },
       view: manifest.view,
     } as unknown as PhysicalSky);
 
   it("takes the display of the sky's own fit, so terrain and sky share one exposure", () => {
     const l = lightingOf(manifest, sky(30));
-    expect([l.exposure, l.curve]).toEqual([12, LIFT_ONLY]);
+    expect([l.exposure, l.curve]).toEqual([12, FLAT_CURVE]);
     [0.1, 0.2, 0.3].forEach((a, i) => expect(l.key.ambient[i]).toBeCloseTo(a, 6)); // plus the airglow's
     expect(l.logDMin).toBe(4.6);
     expect(l.logDSpan).toBeCloseTo(11.5 - 4.6, 12);
@@ -196,7 +202,7 @@ describe('the look reaches the shader', () => {
         irradiance: { direct: [0, 0, 0], ambient: [0.1, 0.2, 0.3] },
         radiance: (_a: number, _b: number, o: number[]) => o.fill(0),
       },
-      fit: { display: { exposure: 1, curve: LIFT_ONLY } },
+      fit: { display: { exposure: 1, curve: FLAT_CURVE } },
       view: manifest.view,
     } as unknown as PhysicalSky;
     const one = { ...manifest, cards: manifest.cards.slice(0, 1) };
@@ -261,7 +267,7 @@ function sky30(): PhysicalSky {
       transmittanceToSpace: (_m: number, o: number[]) => o.fill(1),
       irradiance: { direct: [0, 0, 0], ambient: [0, 0, 0] },
     },
-    fit: { display: { exposure: 1, curve: LIFT_ONLY } },
+    fit: { display: { exposure: 1, curve: FLAT_CURVE } },
   } as unknown as PhysicalSky;
 }
 
@@ -283,7 +289,7 @@ describe('night key light', () => {
           ? {}
           : { moon: { azimuth: 150, elevation: moonEl, ratio: 2.5e-6, atm: atmOf([0.4, 0.5, 0.8]) } },
       atm: atmOf([0.001, 0.001, 0.002]),
-      fit: { display: { exposure: 1, curve: LIFT_ONLY } },
+      fit: { display: { exposure: 1, curve: FLAT_CURVE } },
       view: manifest.view,
     } as unknown as PhysicalSky);
 

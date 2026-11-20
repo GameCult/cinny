@@ -129,7 +129,7 @@ describe('painting', () => {
 });
 
 describe('the stars under the figures', () => {
-  it('carry every constellation-line vertex in the sky strip, even under a full moon, at the app framing', async () => {
+  it('carry every constellation-line vertex in the sky strip that the moon does not cover, even under a full moon, at the app framing', async () => {
     const { windowFor } = await import('./view');
     const { linesAt } = await import('./starCatalogue');
     const cam = windowFor(FALLBACK_VIEW, 1100, 619).camera;
@@ -142,13 +142,14 @@ describe('the stars under the figures', () => {
       chain.forEach((q) => {
         const a = onScreen(cam, q.azimuth, q.elevation);
         if (a.x < 0 || a.x > 1 || a.y < 0 || a.y > 0.8) return;
+        // The moon is drawn over the stars, and a star inside its disc is not placed.
+        if (nb.moon && Math.hypot((nb.moon.x - a.x) * 1100, (nb.moon.y - a.y) * 619) < Math.max(2, nb.moon.radius * 619)) return;
         vertices += 1;
-        // Visible: the star's centre is at least 20 of 255 lighter than the sky behind it in some channel.
-        const lift = (c: string, d: string) => Math.max(...c.match(/\d+/g)!.map((v, i) => Number(v) - Number(d.match(/\d+/g)![i])));
-        if (nb.stars.some((s) => Math.hypot((s.x - a.x) * 1100, (s.y - a.y) * 619) < 4 && lift(s.fill, s.cover) >= 20)) carried += 1;
+        // Placement only: a catalogue star is drawn within a few px of the vertex. How bright it is is the look's.
+        if (nb.stars.some((s) => Math.hypot((s.x - a.x) * 1100, (s.y - a.y) * 619) < 4)) carried += 1;
       })
     );
     expect(vertices).toBeGreaterThan(20);
-    expect(carried / vertices).toBeGreaterThan(0.8); // a regression guard on the starting star values, not a look gate: low vertices sit in the moonlit haze (0.85 at HORIZON_AT 0.85)
+    expect(carried).toBe(vertices);
   });
 });

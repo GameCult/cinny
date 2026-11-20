@@ -8,8 +8,8 @@
 // until it clears 4.5:1 (WCAG) against the LIGHTEST 24x12 patch of terrain under the timeline in that state
 // and viewport. Measured 2026-11-10 on the demo's terrain scene at 1920x1080 and 390x844 (Chrome, SwiftShader,
 // not a GPU; ratatoskr-sidebar-contrast-20261110/results.md, T3). These are the scene's own patches, not
-// `skyBackdrop` (skyState.ts): that is the bare sky's extreme (day 0.90, dusk 0.97), which the terrain under the
-// timeline never shows, and at night the terrain's snow (0.103, phone 0.149) is lighter than the sky (0.0816).
+// the bare sky: the terrain under the timeline is what the ink sits on, and at night its snow (0.103, phone 0.149) is
+// lighter than the sky was when these were measured (0.0816).
 // Only a person whose theme is the sky's (no explicit theme of their own, sceneThemeId) wears this ink.
 import chroma from 'chroma-js';
 import { AA, luminance } from '../../../sky/skyTokens.js';

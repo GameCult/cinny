@@ -9,7 +9,7 @@ import { windowFor } from './view';
 import type { PhysicalSky } from './physicalSky';
 
 // The Aqua method on tonemapped pixels: paint the sky the way the host canvas does and measure the WCAG luminance of every 8-bit
-// texel, against the bounds the page text was checked against (`skyBackdrop`, 4.5:1). Over the weather, the day of the year, and
+// texel, against the display range the sky was fitted to (`ridgeDrawn`). Over the weather, the day of the year, and
 // viewports of different shape (the fit is made on one 16:9 grid and the paint on another).
 const lin = (v: number): number => {
   const c = v / 255;
@@ -35,7 +35,7 @@ const VIEWPORTS: [number, number][] = [
 ];
 
 describe.each(['day', 'dusk', 'night'] as FixedSkyState[])(
-  'the %s sky stays inside its backdrop bounds',
+  'the %s sky stays inside its fitted display range',
   (state) => {
     it('over weather, season and viewport shape', () => {
       const b = ridgeDrawn(state);
@@ -89,23 +89,6 @@ describe('weather in the sky', () => {
 });
 
 describe('the sun disc', () => {
-  it('keeps the display floor the dark link was fitted to, at every hour it is drawn', () => {
-    const lin = (c: number) =>
-      c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4;
-    let drawn = 0;
-    for (const state of ['day', 'dusk'] as FixedSkyState[]) {
-      for (let m = 0; m < 24 * 60; m += 10) {
-        const sky = makePhysicalSky(state, new Date(Date.UTC(2026, 10, 11, 0, m)), 0, FALLBACK_VIEW);
-        const d = paintSky(sky, 1280, 720, facingSun(sky, 1280, 720)).sunDisc;
-        if (!d) continue;
-        drawn += 1;
-        expect(
-          0.2126 * lin(d.rgb[0]) + 0.7152 * lin(d.rgb[1]) + 0.0722 * lin(d.rgb[2])
-        ).toBeGreaterThanOrEqual(0.4744);
-      }
-    }
-    expect(drawn).toBeGreaterThan(0);
-  });
   const disc = (sky: PhysicalSky) => paintSky(sky, 1280, 720, facingSun(sky, 1280, 720));
   const noon = new Date('2026-12-21T11:00:00Z'); // about 18 degrees: higher suns are above the top of the window
   it('is drawn by the host, in a clear sky by day, white with the sun high', () => {

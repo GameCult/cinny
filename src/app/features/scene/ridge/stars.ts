@@ -114,22 +114,6 @@ export function activeAt(stars: number, t: number): Twinkling[] {
 
 // ---- Drawing --------------------------------------------------------------------------------
 
-/** Bake `stars` into `ctx` (canvas `w` x `h` device px, `scale` device px per CSS px) at base brightness. */
-export function drawStars(
-  ctx: CanvasRenderingContext2D,
-  stars: readonly Star[],
-  w: number,
-  h: number,
-  scale: number
-) {
-  stars.forEach((s) => {
-    ctx.fillStyle = s.fill;
-    ctx.beginPath();
-    ctx.arc(s.x * w, s.y * h, s.r * scale, 0, 2 * Math.PI);
-    ctx.fill();
-  });
-}
-
 /**
  * The overlay pass: clear, then for each active star whose gain is off base, cover the baked star with the sky behind it and draw it again
  * at the gain. A star at base draws nothing.

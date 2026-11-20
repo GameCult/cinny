@@ -1,8 +1,7 @@
 // Which sky the signed-out page is drawn against. The choice is one value, kept in one
-// localStorage key; whoever draws the sky (the scene, the title bar's control) reads it here, and
-// `skyBackdrop` says how light or dark the sky behind the login text can be in each state, so the
-// text colours can be checked against it. 'auto' is a choice, not a sky: it resolves from the
-// clock to day, dusk or night (`resolveSkyState`), and every sky drawn is one of those three.
+// localStorage key; whoever draws the sky (the scene, the title bar's control) reads it here.
+// 'auto' is a choice, not a sky: it resolves from the clock to day, dusk or night
+// (`resolveSkyState`), and every sky drawn is one of those three.
 import { sunElevation } from '../../../sky/sun.js';
 
 export type SkyState = 'auto' | 'day' | 'dusk' | 'night';
@@ -153,25 +152,3 @@ export function subscribe(cb: (s: FixedSkyState) => void): () => void {
     sync();
   };
 }
-
-/**
- * Relative luminance (WCAG, 0..1) of the lightest and darkest sky the state can show behind the
- * page. Light ink is worst against `lightest`, dark ink against `darkest`. 'auto' is the band of
- * the sky it resolves to now.
- */
-export interface SkyBackdrop {
-  readonly darkest: number;
-  readonly lightest: number;
-}
-
-// What the ridge sky can show behind the page in each state (its display budget, ridge/toneMap.ts `BUDGET`, holds whatever the
-// sun's elevation; physicalSky.test.ts sweeps the sun's year against these). Held as constants so this module, which the main chunk
-// loads, does not pull in the sky generator. The bounds are at least as wide as the budgets: the login text was checked against them.
-// Bounds what the 8-bit screen shows too (one step each way for rounding and dither), rounded outward to six places.
-const BACKDROPS: Record<FixedSkyState, SkyBackdrop> = {
-  day: { darkest: 0.461063, lightest: 1 },
-  dusk: { darkest: 0.460352, lightest: 1 },
-  night: { darkest: 0, lightest: 0.081642 },
-};
-
-export const skyBackdrop = (state: SkyState): SkyBackdrop => BACKDROPS[resolveSkyState(state)];

@@ -121,8 +121,6 @@ export interface Budget {
   /** The most the curve may steepen the sky's own spread about its median (display luminance per unit of ACES output): a nearly flat overcast sky is not blown up into a gradient. */
   maxGain: number;
 }
-
-/** Display luminance slack for the 8-bit rounding and the smooth upscale of the baked grid. */
 export const MARGIN = 0.004;
 
 /** The one absolute lift of day and dusk: what black is drawn as, display-linear. The rest of the range is made by the curve. */
@@ -206,12 +204,6 @@ export function applyCurve(c: Curve, v: number): number {
     (t3 - t2) * h * c.m[k + 1]
   );
 }
-
-/** The straight line from the black lift to white: what a display with no fitted curve does. */
-export const LIFT_ONLY: Curve = makeCurve(
-  [0, 0.25, 0.5, 0.75, 1],
-  [0, 0.25, 0.5, 0.75, 1].map((v) => BLACK_LIFT + (1 - BLACK_LIFT) * v)
-);
 
 /** The display transform of a sky: exposure, then ACES, then the fitted curve in display-linear. */
 export interface Display {

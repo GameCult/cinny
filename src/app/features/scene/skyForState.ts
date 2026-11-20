@@ -1,7 +1,6 @@
 // What the ridge scene is told for a sky state. 'auto' is a choice, not a sky: it draws the sky it
 // resolves to (`resolveSkyState`, the clock), so the scene paints one of day, dusk or night, fitted to that
-// state's luminance budget (ridge/toneMap.ts). `skyBackdrop` bounds what comes out, and the login text was
-// checked against that bound.
+// state's luminance budget (ridge/toneMap.ts).
 import type { SkyColours } from './ridge/skyColour';
 import { makePhysicalSky } from './ridge/physicalSky';
 import type { Place, View } from './ridge/view';

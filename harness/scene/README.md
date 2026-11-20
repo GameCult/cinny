@@ -43,7 +43,7 @@ Presets (`PRESETS` in `ridgeSheet.ts`; swiss and poster take every key not named
 | physical | PHYSICAL_LOOK (Lambert, no noise, sky haze, full ink) |
 | swiss | reliefLight {mix 0.7, azimuthDeg -45, elevationDeg 40}, contrastByDistance 0.9, hazeScale 6, hazeTint [0, 0.05, 0.25], nearWarm 0.5, inkScale 0.6 |
 | poster | reliefWeight 0.15, cardToneStep 0.25, cardGradient 0.5, inkKeep {edge 0.25, occlude 0.9, crease 1}, hazeScale 4 |
-| painterly | DEFAULT_LOOK: groundNoise 0.35, cloudShadows 0.5, nearWarm 0.6, hazeScale 2, inkScale 0.4, celBands 3, celSoftness 0.05, celAmbientAway 0.7, nightAmbient [0.5, 0.66, 1.1] |
+| painterly | DEFAULT_LOOK: groundNoise 0.35, cloudShadows 0.5, nearWarm 0.6, hazeScale 2, inkScale 0.4, celBands 3, celSoftness 0.05, celAmbientAway 0.7 |
 | painterly-cel-2 / -3 / -4 | painterly with celBands 2 / 3 / 4 |
 
 Night sets (`ridgeSheet.html`): `?moments=2026-11-24T22:00Z,2026-12-09T20:00Z` pins explicit UTC moments (the sun, moon and stars are those of the moment); `?night=1` renders the next new moon, first quarter and full moon from today (`&from=YYYY-MM-DD`) at four hours each (`&hours=18,21,0,4`, UTC) plus deep dusk of the full-moon evening; `&lines=1` draws the constellation lines (the Sky menu's hidden toggle). Use `&w=300` for the 13-column set. The night look's knobs: `NIGHT_LOOK` in `ridge/nightSky.ts` (star point spread, contrast exponents, moon size, earthshine, line opacity), `NIGHT_CEILING` and `SCOTOPIC` in `ridge/toneMap.ts`, the night `Budget` (key, targets, partial adaptation).

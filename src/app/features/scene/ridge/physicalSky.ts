@@ -7,7 +7,7 @@ import type { Atmosphere } from './earthAtmosphere';
 import { domeSize, renderDome, SUN_RADIUS, sunOnScreen } from './skyDome';
 import type { Dome } from './skyDome';
 import type { Srgb } from './skyColour';
-import { display8, fitDisplay, MARGIN } from './toneMap';
+import { display8, fitDisplay } from './toneMap';
 import type { Display, Fit } from './toneMap';
 import { moonAt } from './nightSky';
 import type { MoonSample, NightLight } from './nightSky';
@@ -136,8 +136,6 @@ export function paintSky(p: PhysicalSky, cssW: number, cssH: number, camera: Cam
   return { w, h, data, dome, camera, sunDisc: sunDisc(p, camera) };
 }
 
-/** The luma the disc must keep: the day/dusk floor of toneMap's budget. */
-const DISC_FLOOR = 0.4744 + MARGIN;
 const smooth01 = (a: number, b: number, v: number): number => {
   const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -155,13 +153,6 @@ function sunDisc(p: PhysicalSky, camera: Camera): SkyPixels['sunDisc'] {
   p.atm.transmittanceToSpace(Math.max(Math.sin((p.sun.elevation * Math.PI) / 180), 0), trans);
   const top = Math.max(...trans, 1e-9);
   const rgb = trans.map((t) => Math.round(255 * (t / top) ** 0.6));
-  // The disc sits on the sky, so it keeps the display floor the dark link was fitted to: mix toward white until it does.
-  const lin = (c: number): number =>
-    c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4;
-  const luma = (c: number[]): number =>
-    0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
-  for (let m = 0; luma(rgb) < DISC_FLOOR && m < 40; m += 1)
-    for (let i = 0; i < 3; i += 1) rgb[i] = Math.round(rgb[i] + (255 - rgb[i]) * 0.1);
   return {
     ...at,
     rgb: rgb as unknown as Srgb,

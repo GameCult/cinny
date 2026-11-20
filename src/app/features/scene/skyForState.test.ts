@@ -2,42 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FALLBACK_VIEW } from './ridge/view';
 import { ELSEWHERE_VIEW } from './ridge/manifest.fixture';
 import { atStandardTime } from './standardTime.testkit';
-import { baked } from '../../../sky/baked';
-import { AA, luminance } from '../../../sky/skyTokens.js';
 import { ridgeDrawn, ridgeSkyFor, ridgeSkyKey, loadWeather } from './skyForState';
-import { DAY_FROM, setSkyClock, skyBackdrop } from './skyState';
-import type { FixedSkyState } from './skyState';
-import { skyThemeId } from './skyTheme';
+import { DAY_FROM, setSkyClock } from './skyState';
 import { BUDGET } from './ridge/toneMap';
 
 const STATES = ['day', 'dusk', 'night'] as const;
-const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
-
-/**
- * The band each state needs, from the ink itself: dark ink needs a backdrop of at least
- * AA * (L + 0.05) - 0.05, light ink at most (L + 0.05) / AA - 0.05. Day 0.2983, night 0.0931; dusk is bound by its
- * link (0.4554), the darker ink to clear, whose floor also holds the text.
- */
-const needs = (state: FixedSkyState) => {
-  const sky = SKY[skyThemeId(state)];
-  const l = luminance(sky.tokens.Background.OnContainer);
-  const link = luminance(sky.link);
-  return state === 'night'
-    ? { floor: 0, ceiling: (l + 0.05) / AA - 0.05 }
-    : { floor: AA * ((state === 'dusk' ? link : l) + 0.05) - 0.05, ceiling: 1 };
-};
 
 afterEach(() => {
   setSkyClock();
   vi.unstubAllGlobals();
-});
-
-describe('the bands the text ink needs', () => {
-  it('are the numbers the shaping was set from', () => {
-    expect(needs('day').floor).toBeCloseTo(0.2983, 3);
-    expect(needs('dusk').floor).toBeCloseTo(0.4554, 3);
-    expect(needs('night').ceiling).toBeCloseTo(0.0931, 3);
-  });
 });
 
 describe('ridgeSkyFor', () => {
@@ -92,21 +65,14 @@ describe('ridgeSkyFor', () => {
     expect(ridgeSkyKey('day', FALLBACK_VIEW, 0.3)).not.toBe(ridgeSkyKey('night', FALLBACK_VIEW, 0.3));
   });
 
-  // Night has no ink ceiling: its display top is a tunable (NIGHT_CEILING, ruling ridge-night-real-sky: the operator tunes it by eye),
-  // because the moon and the stars are drawn through the same display.
+  // Each state's ceiling is its budget's (night's is a tunable, NIGHT_CEILING: the operator tunes it by eye).
   it.each(STATES)('%s: the display is the curve of its budget: black lift at the floor, and its ceiling', (state) => {
     const r = ridgeDrawn(state);
     expect(r.darkest).toBe(BUDGET[state].floor);
-    if (state !== 'night') expect(r.lightest).toBeLessThanOrEqual(needs(state).ceiling);
+    expect(r.lightest).toBeLessThanOrEqual(BUDGET[state].ceiling);
     const fit = ridgeSkyFor(state, FALLBACK_VIEW, 0.3).physical?.fit;
     expect(fit?.lo).toBeGreaterThanOrEqual(r.darkest - 1e-9);
     expect(fit?.hi).toBeLessThanOrEqual(r.lightest + 1e-9);
-  });
-});
-
-describe('skyBackdrop holds the ridge sky', () => {
-  it.each(['day', 'dusk'] as const)('%s: the backdrop bound contains the ridge display ceiling', (state) => {
-    expect(skyBackdrop(state).lightest).toBeGreaterThanOrEqual(ridgeDrawn(state).lightest);
   });
 });
 

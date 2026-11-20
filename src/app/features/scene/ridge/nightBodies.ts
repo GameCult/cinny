@@ -125,10 +125,43 @@ export function nightBodies(p: PhysicalSky, px: SkyPixels, withLines: boolean): 
   const add = [0, 0, 0];
   const tot = [0, 0, 0];
   const out = [0, 0, 0];
+  let moon: MoonDraw | undefined;
+  const mo = p.moon;
+  const mAt = onScreen(camera, mo.azimuth, mo.elevation);
+  if (mo.elevation > -1 && mAt.x > -0.05 && mAt.x < 1.05 && mAt.y > -0.05 && mAt.y < 1.05) {
+    domeAt(dome, mAt.x, mAt.y, bg);
+    const trans = [0, 0, 0];
+    p.atm.transmittanceToSpace(Math.max(Math.sin(mo.elevation * RAD), 0), trans);
+    const top = Math.max(...trans, 1e-9);
+    const tint = [1, 0.96, 0.88];
+    const surface = moonSurface(mo);
+    for (let i = 0; i < 3; i += 1) add[i] = surface * tint[i] * (trans[i] / top) ** 0.6;
+    composite(bg, add, NIGHT_LOOK.moonContrastExp, tot);
+    display8(tot[0], tot[1], tot[2], display, out);
+    const lit = css(out);
+    // Earthshine: a fraction of the full moon's surface, the more the thinner the crescent.
+    const full = moonSurface({ ...mo, ratio: mo.ratio / Math.max(mo.illuminated, 0.02), illuminated: 1 });
+    for (let i = 0; i < 3; i += 1) add[i] = NIGHT_LOOK.earthshine * full * (1.1 - mo.illuminated) * [0.9, 1, 1.15][i];
+    composite(bg, add, NIGHT_LOOK.moonContrastExp, tot);
+    display8(tot[0], tot[1], tot[2], display, out);
+    moon = {
+      x: mAt.x,
+      y: mAt.y,
+      radius: ((mo.radius / RAD) * NIGHT_LOOK.moonScale) / camera.vfovDeg,
+      illuminated: mo.illuminated,
+      phaseAngle: mo.phaseAngleDeg * RAD,
+      limb: limbAngle(mo, p.sun),
+      lit,
+      dark: css(out),
+    };
+  }
+
   const stars: Star[] = [];
   for (const s of starsAt(p.sun.time, place.lat, place.lon, MAG_LIMIT, -0.5)) {
     const at = onScreen(camera, s.azimuth, s.elevation);
     if (at.x < -0.02 || at.x > 1.02 || at.y < -0.02 || at.y > 1.02) continue;
+    // The moon is painted over the stars: one inside its disc is never seen, and its twinkle would be painted over the moon.
+    if (moon && Math.hypot((at.x - moon.x) * px.w, (at.y - moon.y) * px.h) < Math.max(2, moon.radius * px.h)) continue;
     const back = [0, 0, 0];
     domeAt(dome, at.x, at.y, back);
     const m = extinguished(s.mag, s.elevation);
@@ -159,37 +192,6 @@ export function nightBodies(p: PhysicalSky, px: SkyPixels, withLines: boolean): 
         return css(o);
       },
     });
-  }
-
-  let moon: MoonDraw | undefined;
-  const mo = p.moon;
-  const mAt = onScreen(camera, mo.azimuth, mo.elevation);
-  if (mo.elevation > -1 && mAt.x > -0.05 && mAt.x < 1.05 && mAt.y > -0.05 && mAt.y < 1.05) {
-    domeAt(dome, mAt.x, mAt.y, bg);
-    const trans = [0, 0, 0];
-    p.atm.transmittanceToSpace(Math.max(Math.sin(mo.elevation * RAD), 0), trans);
-    const top = Math.max(...trans, 1e-9);
-    const tint = [1, 0.96, 0.88];
-    const surface = moonSurface(mo);
-    for (let i = 0; i < 3; i += 1) add[i] = surface * tint[i] * (trans[i] / top) ** 0.6;
-    composite(bg, add, NIGHT_LOOK.moonContrastExp, tot);
-    display8(tot[0], tot[1], tot[2], display, out);
-    const lit = css(out);
-    // Earthshine: a fraction of the full moon's surface, the more the thinner the crescent.
-    const full = moonSurface({ ...mo, ratio: mo.ratio / Math.max(mo.illuminated, 0.02), illuminated: 1 });
-    for (let i = 0; i < 3; i += 1) add[i] = NIGHT_LOOK.earthshine * full * (1.1 - mo.illuminated) * [0.9, 1, 1.15][i];
-    composite(bg, add, NIGHT_LOOK.moonContrastExp, tot);
-    display8(tot[0], tot[1], tot[2], display, out);
-    moon = {
-      x: mAt.x,
-      y: mAt.y,
-      radius: ((mo.radius / RAD) * NIGHT_LOOK.moonScale) / camera.vfovDeg,
-      illuminated: mo.illuminated,
-      phaseAngle: mo.phaseAngleDeg * RAD,
-      limb: limbAngle(mo, p.sun),
-      lit,
-      dark: css(out),
-    };
   }
 
   const lines: LineDraw[] = [];
