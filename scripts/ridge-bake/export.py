@@ -18,6 +18,7 @@ PLANE_W_MAX = 4096
 MAX_CARDS = 6                          # per place; a full-frame card decodes to 2 textures x 1280 x 600 x 4 B = 6.1 MB, the decode budget below holds 3 of them and cropping to the row band is what lets a livelier place have more
 TOTAL_BYTES_MAX = 1_500_000            # every card file of a place together
 DECODE_BYTES_MAX = 20_000_000          # the cards decoded: sum over cards of 2 textures x w x band h x 4 bytes
+SLIDE_PCT = 5                          # the runtime's DRIFT_FRAC (src/app/features/scene/ridge/view.ts) in percent of the card width: the most one card may slide against another
 COVER_TOL = 0.02                       # the composite of the cards may differ from the opaque view by this much of a pixel, nowhere more
 WEBP_QUALITY = 80
 SHEET_SKY = (0.80, 0.86, 0.94)         # the flat sky of the contact sheet
@@ -37,6 +38,7 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
     'manifest': _obj(schema={'const': 2}, baker_version=_int, bake_id=_str,
         place=_obj(id=_str, name=_str, lat=_num, lon=_num, altitude_km=_num, eye_m=_num),
         view=_obj(look_az_deg=_num, window_deg={'const': WINDOW_DEG}, plane_w={'type': 'integer', 'maximum': PLANE_W_MAX}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
+        max_slide_px=dict(_int, description='the largest slide of one card against another the runtime may use, in card pixels; a card holds no pixel that the nearer cards hide at every offset within it'),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
         cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': dict(_obj(top=_int, h=_int, near_m=_numnull, far_m=_numnull, median_m=_num, colour=_file, geometry=_file),
@@ -96,6 +98,10 @@ def check_budget(card_bytes, w, bands):
     decoded = sum(2 * w * h * 4 for h in bands)
     if decoded > DECODE_BYTES_MAX: raise ValueError(f'the cards decode to {decoded} bytes, above {DECODE_BYTES_MAX}')
 
+def max_slide_px(w):
+    """MAX_SLIDE_PX: ceil(SLIDE_PCT / 100 x card width) in whole pixels (64 at 1280); the baker cuts from each card what the nearer cards hide at every offset within it."""
+    return -(-(w * SLIDE_PCT) // 100)
+
 def bake_id(cards):
     """First 12 hex of sha256 over the card files in index order, colour then geometry.  cards: [(colour bytes, geometry bytes)]."""
     h = hashlib.sha256()
@@ -114,7 +120,7 @@ def write_bake(out, place, view, meta, cards, opaque, default=None):
     sizes = [len(c['colour']) + len(c['geometry']) for c in cards]; check_budget(sizes, w, bands)
     check_cover([(c['top'], col[..., 3] / 255.0) for c, (col, _) in zip(cards, dec)], opaque)
     bid = bake_id([(c['colour'], c['geometry']) for c in cards]); name = f"{place['id']}-{bid}"; out = Path(out); dest = out / name
-    manifest = dict(schema=2, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, window_deg=WINDOW_DEG, plane_w=w), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'),
+    manifest = dict(schema=2, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, window_deg=WINDOW_DEG, plane_w=w), max_slide_px=max_slide_px(w), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'),
                     cards=[dict(top=c['top'], h=band, near_m=c['near_m'], far_m=c['far_m'], median_m=c['median_m'], colour=dict(file=f'card-{i}-colour.webp', bytes=len(c['colour'])), geometry=dict(file=f'card-{i}-geometry.webp', bytes=len(c['geometry'])))
                            for i, (c, band) in enumerate(zip(cards, bands))], w=w, h=h, bytes=sum(sizes), attribution=ATTRIBUTION)
     validate(manifest, SCHEMA['$defs']['manifest']); out.mkdir(parents=True, exist_ok=True); tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
@@ -138,11 +144,13 @@ def bake_place(pid):
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])))
-    return dict(place=place, view=view, meta=meta, cards=ridge.cards(d, aw, hw, sm, nrm), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(d))
+    return dict(place=place, view=view, meta=meta, cards=ridge.cards(d, aw, hw, sm, nrm, slide_px=max_slide_px(ridge.WIN)), splits_km=list(p['card_split_km']), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(d))
 
 def pack(bake):
     """The cards of a bake as bytes plus their manifest facts: median seam depths either side, median distance of the card's solid pixels."""
-    enc = bake['meta']['encoding']; sm = bake['seams']; out = []
+    enc = bake['meta']['encoding']; sm = bake['seams']; out = []; sp = bake['splits_km']
+    for i, c in enumerate(bake['cards']):
+        if c['alpha'].shape[0] == 0: raise ValueError(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
     for i, c in enumerate(bake['cards']):
         solid = c['alpha'] >= 0.5; out.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc),
             near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None, median_m=float(np.exp(np.median(c['logd'][solid]))) if solid.any() else 0.0))

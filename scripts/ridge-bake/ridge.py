@@ -189,7 +189,7 @@ def set_view(skyline, sky_row=0.04, near_row=0.66):
 COV_BINS = 160                         # log-distance bins between the first and the last sample
 SIG_B = 1.5                            # blur of the coverage along depth (bins): seams settle in gaps
 SEAM_LAM, SEAM_UNARY = 2.0, 0.25       # forward energy: a seam that moves a bin between neighbouring columns pays SEAM_LAM per bin plus every visible row it sweeps; one that sits in visible terrain pays SEAM_UNARY x those rows (cross-fadable)
-SEAM_PRIOR = 0.1                       # the authored depth is a weak pull, rows per nat^2: a stronger one makes a seam hop across a ridge it cannot follow (2.0 hopped a 4 to 15 km ridge between two columns, a tear); a weaker one lets a seam without the swept term follow it (the test pins both sides)
+SEAM_PRIOR = 0.02                      # the authored depth is a faint pull, rows per nat^2 (the test pins the window: six synthetic receding ridges tear at 0.1, and without the swept-rows term at 0.02 they tear again)
 SEAM_SEP = 0.4                         # seams at least this far apart in log-distance (nat)
 XF = 0.07                              # half-width of a seam's cross-fade, nat (about two bins)
 
@@ -200,11 +200,10 @@ def opaque(a):
     p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p; return np.clip((np.asarray(a, np.float64).max(0)[None, :] - lo[:, None]) / p, 0, 1)
 
 def coverage(d, a, nb=COV_BINS):
-    """(nb, n): rows of the opaque view first revealed by the samples of each log-distance bin, per column.  The rows below the first sample (nearer than it) count in bin 0.  Needs set_view."""
+    """(nb, n): rows of the opaque view first revealed by the samples of each log-distance bin, per column.  The first sample reveals every row from the frame bottom up to its angle, so the rows below it (nearer than it) count in bin 0.  Needs set_view."""
     a = np.asarray(a, np.float64); edges = log_edges(d, nb); kb = np.clip(np.searchsorted(edges, np.log(d), 'right') - 1, 0, nb - 1)
     runmax = np.maximum.accumulate(a, axis=0); prev = np.vstack([np.full((1, a.shape[1]), BOTTOM_DEG), runmax[:-1]])
     C = np.zeros((nb, a.shape[1])); np.add.at(C, kb, np.clip(np.minimum(a, TOP_DEG) - np.maximum(prev, BOTTOM_DEG), 0, None) * PXDEG_V)
-    C[0] += np.clip(np.minimum(a[0], TOP_DEG) - BOTTOM_DEG, 0, None) * PXDEG_V
     return C
 
 def _dt(f, u):
@@ -235,11 +234,19 @@ def albedo(h, n_up):
     t = lambda a, b: np.clip((h - a) / (b - a), 0, 1)[..., None]; c = np.asarray(GRASS) + (np.asarray(FOREST) - GRASS) * t(150, 900); c = c + (np.asarray(ROCK) - c) * t(1300, 2000)
     c = c + (np.asarray(ROCK) - c) * np.clip((0.93 - n_up) / 0.25, 0, 1)[..., None]; return c + (np.asarray(SNOW) - c) * (t(1900, 2300) * np.clip((n_up - 0.55) / 0.3, 0, 1)[..., None])
 
-def cards(d, a, h, seams, nrm=None):
+def _erode(b, m):
+    """b (rows, n) bool: True where b holds at every column within +-m; a column whose window leaves the frame is not held (the slide would show what is beyond)."""
+    n = b.shape[1]; c = np.concatenate([np.zeros((b.shape[0], 1), int), np.cumsum(b, axis=1)], axis=1); x = np.arange(n); lo = x - m; hi = x + m + 1; ok = (lo >= 0) & (hi <= n)
+    return ok[None, :] & ((c[:, np.clip(hi, 0, n)] - c[:, np.clip(lo, 0, n)]) == 2 * m + 1)
+
+def cards(d, a, h, seams, nrm=None, *, slide_px):
     """K+1 cards, nearest first, from the angles a and heights h (samples, n) of n columns and the (K, n) seams (m).  Card i holds per pixel the FIRST VISIBLE hit at or beyond seam i-1 (less XF): layered depth, so a farther
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
+    Reveal-bounded: card k then loses every pixel that the opaque pixels of the nearer cards (after their own loss) hide at every horizontal offset within +-slide_px, even if any single card slides by that much (covered by at least two
+    nearer cards, or by one whose own coverage holds across the slide, and by the union of nearer cards at every offset of its own slide), so no slide the runtime may use reveals what was cut; the composite at rest is unchanged.
+    slide_px None cuts nothing (the reference for tests).
     nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for a window cut from the ring).  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n))."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
     n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p
@@ -256,9 +263,12 @@ def cards(d, a, h, seams, nrm=None):
             F[i, :, x] = np.where(hit, np.clip((rm[-1] - lo) / p, 0, 1), 0); lh = mix(ld)
             G[i, :, :, x] = np.where(hit, np.stack([lh, mix(h), mix(n_r), mix(n_t), mix(n_u)]), 0)
             if i < nc - 1: s = np.clip((lh - (math.log(seams[i, x]) - XF)) / (2 * XF), 0, 1); X[i, :, x] = 1 - s * s * (3 - 2 * s)
-    out = []; A = np.zeros((H, n))
+    out = []; A = np.zeros((H, n)); solid = []; held = []                  # solid: the nearer cards' opaque pixels (after their own loss); held: where each still holds across the slide
     for i in range(nc):
         part = np.where(F[i] < 1, np.clip((np.maximum(A, F[i]) - A) / np.maximum(1 - A, 1e-6), 0, 1), F[i]); al = np.where(np.rint(X[i] * part * 255) > 0, X[i] * part, 0.0); A = 1 - (1 - A) * (1 - al)
+        if slide_px is not None and solid:
+            cnt = np.sum(solid, axis=0); alone = np.any([s & e for s, e in zip(solid, held)], axis=0); lost = _erode(cnt > 0, slide_px) & ((cnt >= 2) | alone); al = np.where(lost, 0.0, al); G[i] = np.where(lost[None], 0.0, G[i])
+        sd = np.rint(al * 255) == 255; solid.append(sd); held.append(_erode(sd, slide_px or 0))
         rows = np.flatnonzero(al.max(1) > 0)
         if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
