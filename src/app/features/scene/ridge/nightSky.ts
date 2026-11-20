@@ -42,9 +42,9 @@ export const NIGHT_LOOK = {
 
 /** Natural night-sky radiance at the zenith without moon or town, cd/m^2 (about 22 V mag/arcsec^2: 2.5e-4). */
 export const AIRGLOW_CD = 2.5e-4;
-/** Its colour, linear, luminance 1 (a faint cool green-blue). EYEBALLED. */
-const AIRGLOW_TINT: Vec3 = [0.8, 1, 1.35];
-const AIRGLOW_NORM = 0.2126 * 0.8 + 0.7152 + 0.0722 * 1.35;
+/** Its colour, linear, luminance 1 (a faint cool grey). EYEBALLED. */
+const AIRGLOW_TINT: Vec3 = [0.95, 1, 1.1];
+const AIRGLOW_NORM = 0.2126 * 0.95 + 0.7152 + 0.0722 * 1.1;
 
 /** The airglow floor, per unit of sun irradiance, at view elevation sine `vz` (brighter toward the horizon, van Rhijn). */
 export function airglow(vz: number, out: number[]): void {

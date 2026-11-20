@@ -150,7 +150,9 @@ export const BUDGET: Record<FixedSkyState, Budget> = {
     floor: NIGHT_LIFT - 0.001,
     lift: NIGHT_LIFT,
     ceiling: NIGHT_CEILING,
-    key: 0.45,
+    // The key sits at the targets (not day's 0.45): the sky is exposed to where the curve wants it, so the curve is near the identity over it and
+    // the per-channel curve does not blow a small colour difference (the scotopic blue shift) up into a saturated sky.
+    key: 0.03,
     min: 4,
     max: 1e13,
     targets: [0.012, 0.03, 0.07],

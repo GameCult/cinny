@@ -79,7 +79,7 @@ describe('the night display', () => {
   });
 
   it('reads the new-moon night darker than the full-moon night (partial adaptation), by the level of the budget', () => {
-    const med = (p: ReturnType<typeof night>) => applyCurve(p.fit.display.curve, 0.5);
+    const med = (p: ReturnType<typeof night>) => applyCurve(p.fit.display.curve, p.fit.display.curve.x[2]); // the median of the sky
     expect(med(newMoon)).toBeLessThan(0.6 * med(fullMoon));
   });
 
