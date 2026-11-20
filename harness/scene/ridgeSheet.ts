@@ -1,6 +1,6 @@
 // Look sheet for the lit ridge cards: the Vienna bake lit for a grid of sky states (or pinned moments) x looks, each cell a small canvas at heading 0. Not shipped.
 // `?preset=all|physical|swiss|poster|painterly|painterly-cel-2|painterly-cel-3|painterly-cel-4` (default all: one row each; painterly is DEFAULT_LOOK); `?looks=<JSON array, url-encoded or base64>` replaces the rows with
-// the given `{label, ...partial RidgeLook}` entries (inkKeep and reliefLight merge by key). `?w=480` sets the cell width (16:9).
+// the given `{label, ...partial RidgeLook}` entries (inkKeep and reliefLight merge by key). `?w=480` sets the cell width, 16:9 unless `?h=` gives the height (`?w=375&h=812` is a phone).
 // The sky behind a cell is the app's own: `makePhysicalSky` + `paintSky` upscaled smoothly, with the real stars and the moon (`nightBodies`),
 // without the sun disc or clouds. Columns are the SKIES below (a sun elevation each, the stars and moon of the moment the sheet was opened), or:
 //   `?moments=2026-11-24T22:00Z,2026-12-09T20:00Z`  explicit UTC moments: the sun, moon and stars are those of the moment, the state follows the sun's elevation
@@ -173,7 +173,7 @@ async function chainIds(): Promise<string[]> {
   return gj.features.flatMap((f: { id: string; geometry: { coordinates: unknown[] } }) => f.geometry.coordinates.map(() => f.id));
 }
 const W = Number(q.get('w') ?? 480);
-const H = Math.round((W * 9) / 16);
+const H = q.get('h') ? Number(q.get('h')) : Math.round((W * 9) / 16);
 const root = document.getElementById('sheet') as HTMLElement;
 
 const stateOf = (el: number): FixedSkyState =>
@@ -254,7 +254,7 @@ async function main() {
       // As Ridge.ts paintCards at heading 0: farthest first, each card at its own scale about the horizon row of the plane.
       const s = win.plane.scale;
       const x0 = (W - win.plane.w) / 2;
-      const planeTop = H - win.plane.h;
+      const planeTop = H - (win.plane.h + win.plane.bottom);
       const ox = x0 + win.plane.w / 2;
       const oy = planeTop + view.horizonRow * s;
       for (let k = cards.length - 1; k >= 0; k -= 1) {
