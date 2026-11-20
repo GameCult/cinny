@@ -3,7 +3,7 @@
   python3 -I scripts/ridge-bake/export.py <place-id> --tiles DIR --out public/ridge/ [--work DIR] [--sheet contact.png]
   python3 -I scripts/ridge-bake/export.py --write-schema          (rewrites ridge-bake.schema.json from SCHEMA below)
 
-The runtime reads manifest.json (SCHEMA is its contract) and nothing else about the bake; it lights the cards itself (ruling ridge-cards-runtime-lit).  The pure parts (budget, bake_id, manifest, index, schema check)
+The runtime reads manifest.json (SCHEMA is its contract) and nothing else about the bake; the camera (ruling ridge-camera-on-circle) is the baker's, so per-card scale and the heading range ride the manifest; it lights the cards itself (ruling ridge-cards-runtime-lit).  The pure parts (budget, bake_id, manifest, index, schema check)
 import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work)."""
 import os, sys, json, math, shutil, hashlib, argparse, tempfile
 from pathlib import Path
@@ -19,6 +19,10 @@ MAX_CARDS = 6                          # per place; a full-frame card decodes to
 TOTAL_BYTES_MAX = 1_500_000            # every card file of a place together
 DECODE_BYTES_MAX = 20_000_000          # the cards decoded: sum over cards of 2 textures x w x band h x 4 bytes
 COVER_TOL = 0.02                       # the composite of the cards may differ from the opaque view by this much of a pixel, nowhere more
+CAMERA_R_M = 200.0                     # ruling ridge-camera-on-circle: the camera sits on a circle of this radius round the bake centre, signed, + forward along its heading and - backward; places.json may set camera_r_m per place.  The steward's calibration for feel, tuned in the art pass
+HEADING_MAX_DEG = 23.0                 # the drift's heading range each side of look_az: today's phone sweep, 409 card px (the runtime caps it by what a viewport can cover)
+R_FRAC_MAX = 0.5                       # |r| stays under this share of the nearest card's distance: the offset must stay well inside the nearest cylinder
+REST_SCALE_MIN = 1 / 1.1               # a 16:9 viewport is width-bound and the runtime's plane is 1.1 viewport widths wide (view.ts windowFor, DRIFT_FRAC 0.05 a side): a card scaled below this leaves the viewport's edge bare at rest
 WEBP_QUALITY = 80
 SHEET_SKY = (0.80, 0.86, 0.94)         # the flat sky of the contact sheet
 SHEET_LIGHT = (-0.35, 0.55, 0.76)      # the fixed light of the contact sheet in (along ray, across ray, up); the sheet is a look at the cards, the client lights the real thing
@@ -39,8 +43,9 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
         view=_obj(look_az_deg=_num, window_deg={'const': WINDOW_DEG}, plane_w={'type': 'integer', 'maximum': PLANE_W_MAX}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
-        cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': dict(_obj(top=_int, h=_int, near_m=_numnull, far_m=_numnull, median_m=_num, colour=_file, geometry=_file),
-            description='nearest first; the runtime paints the list last to first. top and h place the card back at its rows of the frame; near_m and far_m are the median seam depths, null at the ends.')},
+        camera=_obj(r_m=_num, heading_max_deg=_num),
+        cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': dict(_obj(top=_int, h=_int, near_m=_numnull, far_m=_numnull, median_m=_num, distance_m=_num, scale=_num, colour=_file, geometry=_file),
+            description="nearest first; the runtime paints the list last to first. top and h place the card back at its rows of the frame; near_m and far_m are the median seam depths, null at the ends; median_m and distance_m are the median distance of the card's solid pixels that are not wall; scale = distance_m / (distance_m - camera.r_m) is the card's pan rate per unit of heading and its static size.")},
         w=_int, h=_int, bytes=_int,
         attribution=_obj(credit_line=_str, licence=_str, dem_source=_str, url=_str)),
     'index': _obj(schema={'const': 1}, default=_str, places={'type': 'object', 'additionalProperties': _str})}}
@@ -70,9 +75,12 @@ def u8(a): return np.clip(np.rint(np.asarray(a) * 255.0), 0, 255).astype(np.uint
 def encode_colour(albedo, alpha):
     """Lossy RGB albedo with lossless alpha coverage, straight (not premultiplied); the colour under a zero alpha is zeroed."""
     a = u8(alpha); rgb = u8(albedo) * (a[..., None] > 0); return bytes(imagecodecs.webp_encode(np.dstack([rgb, a]), level=WEBP_QUALITY, lossless=False))
-def encode_geometry(n_r, n_t, logd, enc):
-    """Lossless, opaque RGB: R, G = (n_r + 1) / 2, (n_t + 1) / 2 ('rt8'), B = the log-distance normalised between enc log_d_min and log_d_max."""
-    b = (np.asarray(logd) - enc['log_d_min']) / (enc['log_d_max'] - enc['log_d_min']); return bytes(imagecodecs.webp_encode(np.dstack([u8((np.asarray(n_r) + 1) / 2), u8((np.asarray(n_t) + 1) / 2), u8(b)]), lossless=True))
+def encode_geometry(n_r, n_t, logd, enc, wall=None):
+    """Lossless, opaque RGB: R, G = (n_r + 1) / 2, (n_t + 1) / 2 ('rt8'), B = the log-distance normalised between enc log_d_min and log_d_max.  Wall pixels (the extruded face under a ridge; wall (h, w) bool) write R = G = 255: a code outside the unit disc
+    that no real normal reaches (real r2 + t2 peaks at 0.998), which the runtime reads as 'normal up, no crease'."""
+    b = (np.asarray(logd) - enc['log_d_min']) / (enc['log_d_max'] - enc['log_d_min']); r, t = u8((np.asarray(n_r) + 1) / 2), u8((np.asarray(n_t) + 1) / 2)
+    if wall is not None: m = np.asarray(wall, bool); r, t = np.where(m, 255, r).astype(np.uint8), np.where(m, 255, t).astype(np.uint8)
+    return bytes(imagecodecs.webp_encode(np.dstack([r, t, u8(b)]), lossless=True))
 def decode(b):
     """A WebP's bytes as RGBA uint8; the codec returns RGB for an image that is opaque everywhere, which is solid."""
     a = imagecodecs.webp_decode(b)
@@ -96,6 +104,16 @@ def check_budget(card_bytes, w, bands):
     decoded = sum(2 * w * h * 4 for h in bands)
     if decoded > DECODE_BYTES_MAX: raise ValueError(f'the cards decode to {decoded} bytes, above {DECODE_BYTES_MAX}')
 
+def card_scales(distances, r_m):
+    """scale_i = d_i / (d_i - r) for the cards' distances (m), nearest first: the card's pan rate per unit of heading and its static size seen from a camera r metres along its heading (ruling ridge-camera-on-circle; + forward, - backward).  Refuses |r| >= R_FRAC_MAX x the nearest distance."""
+    if abs(r_m) >= R_FRAC_MAX * min(distances): raise ValueError(f"the camera offset {r_m:g} m is not under {R_FRAC_MAX} x the nearest card's distance {min(distances):g} m")
+    return [d / (d - r_m) for d in distances]
+def check_camera(scales, tops, bands, view):
+    """Refuse a camera whose scaled cards leave the frame uncovered: the nearest card, scaled about the horizon row, must still reach the frame bottom (a backward camera shrinks it away), and no card may be smaller than REST_SCALE_MIN (a 16:9 viewport's edge)."""
+    hr = view['horizon_row']; bottom = hr + (tops[0] + bands[0] - hr) * scales[0]
+    if bottom < view['plane_h'] - 1e-6: raise ValueError(f"the camera lifts the nearest card to row {bottom:.1f}, off the frame bottom (row {view['plane_h']})")
+    if min(scales) < REST_SCALE_MIN: raise ValueError(f'a card scaled {min(scales):.3f} cannot cover a 16:9 viewport at rest (below {REST_SCALE_MIN:.3f})')
+
 def bake_id(cards):
     """First 12 hex of sha256 over the card files in index order, colour then geometry.  cards: [(colour bytes, geometry bytes)]."""
     h = hashlib.sha256()
@@ -103,8 +121,8 @@ def bake_id(cards):
     return h.hexdigest()[:12]
 
 def write_bake(out, place, view, meta, cards, opaque, default=None):
-    """Write out/<place>-<bake_id>/ (card WebPs + manifest.json), rewrite out/index.json, delete the place's previous dir.  cards: [dict(top, colour bytes, geometry bytes, near_m, far_m, median_m)], nearest first; opaque (h, w) is
-    the opaque view's coverage.  Refuses before writing a bake whose files decode to different sizes, leave the frame or the view's plane_h, break the budget or composite away from the opaque view.  meta: dict(curvature, encoding).  Returns the directory."""
+    """Write out/<place>-<bake_id>/ (card WebPs + manifest.json), rewrite out/index.json, delete the place's previous dir.  cards: [dict(top, colour bytes, geometry bytes, near_m, far_m, median_m, distance_m, scale)], nearest first; opaque (h, w) is
+    the opaque view's coverage.  Refuses before writing a bake whose files decode to different sizes, leave the frame or the view's plane_h, break the budget or composite away from the opaque view.  meta: dict(curvature, encoding, camera dict(r_m, heading_max_deg)).  Returns the directory."""
     dec = [(decode(c['colour']), decode(c['geometry'])) for c in cards]; shapes = {a.shape[:2] for pair in dec for a in pair}; bands = [a.shape[0] for a, _ in dec]
     if any(c.shape[:2] != g.shape[:2] for c, g in dec): raise ValueError('a card colour and geometry are not one size')
     if len({a.shape[1] for pair in dec for a in pair}) != 1: raise ValueError(f'the cards are not one width: {sorted(shapes)}')
@@ -112,10 +130,10 @@ def write_bake(out, place, view, meta, cards, opaque, default=None):
     if any(band < 1 or c['top'] < 0 or c['top'] + band > h for c, band in zip(cards, bands)): raise ValueError(f'a card leaves the {h} rows of the frame')
     if opaque.shape != (h, w): raise ValueError(f'the opaque view is {opaque.shape}, the frame {(h, w)}')
     sizes = [len(c['colour']) + len(c['geometry']) for c in cards]; check_budget(sizes, w, bands)
-    check_cover([(c['top'], col[..., 3] / 255.0) for c, (col, _) in zip(cards, dec)], opaque)
+    check_cover([(c['top'], col[..., 3] / 255.0) for c, (col, _) in zip(cards, dec)], opaque); check_camera([c['scale'] for c in cards], [c['top'] for c in cards], bands, view)
     bid = bake_id([(c['colour'], c['geometry']) for c in cards]); name = f"{place['id']}-{bid}"; out = Path(out); dest = out / name
-    manifest = dict(schema=2, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, window_deg=WINDOW_DEG, plane_w=w), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'),
-                    cards=[dict(top=c['top'], h=band, near_m=c['near_m'], far_m=c['far_m'], median_m=c['median_m'], colour=dict(file=f'card-{i}-colour.webp', bytes=len(c['colour'])), geometry=dict(file=f'card-{i}-geometry.webp', bytes=len(c['geometry'])))
+    manifest = dict(schema=2, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, window_deg=WINDOW_DEG, plane_w=w), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'), camera=dict(r_m=meta['camera']['r_m'], heading_max_deg=meta['camera']['heading_max_deg']),
+                    cards=[dict(top=c['top'], h=band, near_m=c['near_m'], far_m=c['far_m'], median_m=c['median_m'], distance_m=c['distance_m'], scale=c['scale'], colour=dict(file=f'card-{i}-colour.webp', bytes=len(c['colour'])), geometry=dict(file=f'card-{i}-geometry.webp', bytes=len(c['geometry'])))
                            for i, (c, band) in enumerate(zip(cards, bands))], w=w, h=h, bytes=sum(sizes), attribution=ATTRIBUTION)
     validate(manifest, SCHEMA['$defs']['manifest']); out.mkdir(parents=True, exist_ok=True); tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
     for i, c in enumerate(cards): (tmp / f'card-{i}-colour.webp').write_bytes(c['colour']); (tmp / f'card-{i}-geometry.webp').write_bytes(c['geometry'])
@@ -137,22 +155,30 @@ def bake_place(pid):
     nrm = tuple(ridge.win(x) for x in ridge.normals(d, h)); aw, hw = ridge.win(a), ridge.win(h); cov = ridge.coverage(d, aw); sm = ridge.seams(cov, [k * 1000.0 for k in p['card_split_km']], d)
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
-    meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])))
+    meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])), camera=dict(r_m=float(p.get('camera_r_m', CAMERA_R_M)), heading_max_deg=HEADING_MAX_DEG))
     return dict(place=place, view=view, meta=meta, cards=ridge.cards(d, aw, hw, sm, nrm), splits_km=list(p['card_split_km']), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(d))
 
 def pack(bake):
-    """The cards of a bake as bytes plus their manifest facts: median seam depths either side, median distance of the card's solid pixels."""
-    enc = bake['meta']['encoding']; sm = bake['seams']; out = []; sp = bake['splits_km']
-    for i, c in enumerate(bake['cards']):
+    """The cards of a bake as bytes plus their manifest facts: median seam depths either side, the median distance of the card's solid pixels that are not wall (median_m = distance_m), and scale = distance_m / (distance_m - camera r).  Refuses a card
+    with no solid terrain apart from its wall rows, and a camera offset the cards cannot take (card_scales)."""
+    enc = bake['meta']['encoding']; sm = bake['seams']; out = []; sp = bake['splits_km']; cs = bake['cards']
+    for i, c in enumerate(cs):
         if c['alpha'].shape[0] == 0: raise ValueError(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
-    for i, c in enumerate(bake['cards']):
-        solid = c['alpha'] >= 0.5; out.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc),
-            near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None, median_m=float(np.exp(np.median(c['logd'][solid]))) if solid.any() else 0.0))
+    dist = []
+    for i, c in enumerate(cs):
+        ground = (c['alpha'] >= 0.5) & ~c['wall']
+        if not ground.any(): raise ValueError(f'card {i} holds no solid terrain apart from its wall rows')
+        dist.append(float(np.exp(np.median(c['logd'][ground]))))
+    scales = card_scales(dist, bake['meta']['camera']['r_m'])
+    for i, c in enumerate(cs):
+        out.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc, c['wall']),
+            near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None, median_m=dist[i], distance_m=dist[i], scale=scales[i]))
     return out
 
 def lit(c):
-    """albedo x (0.35 + 0.65 max(n.L, 0)) under the fixed sheet light, with the card's alpha: (rgb, alpha)."""
-    up = np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1)); L = np.array(SHEET_LIGHT) / np.linalg.norm(SHEET_LIGHT); nl = np.clip(c['n_r'] * L[0] + c['n_t'] * L[1] + up * L[2], 0, 1)
+    """albedo x (0.35 + 0.65 max(n.L, 0)) under the fixed sheet light, with the card's alpha: (rgb, alpha).  Wall pixels are lit with the face up, as the runtime reads their code."""
+    wall = c['wall']; n_r, n_t = np.where(wall, 0.0, c['n_r']), np.where(wall, 0.0, c['n_t'])
+    up = np.sqrt(np.clip(1 - n_r ** 2 - n_t ** 2, 0, 1)); L = np.array(SHEET_LIGHT) / np.linalg.norm(SHEET_LIGHT); nl = np.clip(n_r * L[0] + n_t * L[1] + up * L[2], 0, 1)
     return c['albedo'] * (0.35 + 0.65 * nl)[..., None], c['alpha']
 def sheet(bake):
     """Contact sheet (png bytes), stacked: the composite, every card alone, and the depth image (log-distance bins, far at the top, every seam drawn).  All lit by SHEET_LIGHT over the flat SHEET_SKY; reads the arrays the encoder writes."""
