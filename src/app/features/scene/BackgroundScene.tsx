@@ -2,12 +2,10 @@ import React, { useEffect, useRef } from 'react';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { getFallbackSession } from '../../state/sessions';
 import { mountBackgroundScene } from './host';
+import { setSceneDrawn } from './sceneDrawn';
 import { readCapabilities, resolveTier } from './tier';
 import './sceneShell.css';
 import './sceneButtons.css';
-
-/** Set on <html> while a scene runs, so signed-out screens can let it show through. */
-export const SCENE_ACTIVE_ATTRIBUTE = 'data-scene';
 
 /**
  * The one host for the background scene, mounted once at the app root. Fixed behind everything
@@ -24,17 +22,16 @@ export function BackgroundScene() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!enabled || !canvas) return undefined;
-    const root = document.documentElement;
     const dispose = mountBackgroundScene(config, readCapabilities(navigator), canvas, {
       loggedIn: !!getFallbackSession(),
-      onActive: () => root.setAttribute(SCENE_ACTIVE_ATTRIBUTE, ''),
-      onInactive: () => root.removeAttribute(SCENE_ACTIVE_ATTRIBUTE),
+      onActive: () => setSceneDrawn(true),
+      onInactive: () => setSceneDrawn(false),
       // eslint-disable-next-line no-console
       onFail: (e) => console.warn('Background scene unavailable:', e),
     });
     return () => {
       dispose();
-      root.removeAttribute(SCENE_ACTIVE_ATTRIBUTE);
+      setSceneDrawn(false);
     };
   }, [config, enabled]);
 

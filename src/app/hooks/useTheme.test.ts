@@ -1,40 +1,88 @@
-import { readFileSync } from 'fs';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// settings.ts reads localStorage when it loads, and this suite runs without a DOM.
-vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
-let chosenTheme: typeof import('./useTheme').chosenTheme;
-let defaultThemeId: string;
+// settings.ts reads localStorage when it loads; these suites run without a DOM.
+const store: Record<string, string> = {};
+vi.stubGlobal('localStorage', {
+  getItem: (k: string) => store[k] ?? null,
+  setItem: (k: string, v: string) => {
+    store[k] = v;
+  },
+});
+// Stored before settings.ts loads: a theme of the person's, and the themeChosen key old settings carry.
+store['settings'] = JSON.stringify({
+  themeId: 'dark-theme',
+  useSystemTheme: false,
+  themeChosen: true,
+});
+vi.stubGlobal('window', {
+  matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+});
+// The skyState hooks are useSyncExternalStore reads of these two sources; the server renderer needs a snapshot of
+// each, so the hooks read the same stores directly.
+vi.mock('./useSkyState', async () => {
+  const drawn = await import('../features/scene/sceneDrawn');
+  return {
+    useResolvedSkyState: () => 'night',
+    useSkyState: () => 'night',
+    useSceneOn: () => drawn.getSceneDrawn(),
+  };
+});
+// Style modules need a DOM to inject into; the class names are not what is under test.
+vi.mock('folds', () => ({ lightTheme: 'light' }));
+vi.mock('../../config.css', () => ({ onDarkFontWeight: 'dk', onLightFontWeight: 'lt' }));
+vi.mock('../../colors.css', () => ({
+  butterTheme: 'b',
+  darkTheme: 'd',
+  midnightSkyTheme: 'm',
+  noondaySkyTheme: 'n',
+  silverTheme: 's',
+}));
+vi.mock('../../gamecult.css', () => ({}));
+vi.mock('../../sky.css', () => ({}));
+vi.mock('./useScreenSize', () => ({
+  ScreenSize: { Mobile: 'm' },
+  useScreenSizeContext: () => 'd',
+}));
+
+let useActiveTheme: typeof import('./useTheme').useActiveTheme;
+let useSceneInk: typeof import('./useTheme').useSceneInk;
+let setSceneDrawn: typeof import('../features/scene/sceneDrawn').setSceneDrawn;
 beforeAll(async () => {
-  ({ chosenTheme } = await import('./useTheme'));
-  ({ defaultThemeId } = await import('../state/settings'));
+  ({ useActiveTheme, useSceneInk } = await import('./useTheme'));
+  ({ setSceneDrawn } = await import('../features/scene/sceneDrawn'));
 });
 
-describe('chosenTheme: what counts as a theme the person chose', () => {
-  it('is not a theme before anything was picked: no id saved, or the default saved', () => {
-    expect(chosenTheme(false, undefined, undefined)).toBe(false);
-    expect(chosenTheme(false, defaultThemeId, undefined)).toBe(false);
-    expect(chosenTheme(false, defaultThemeId, false)).toBe(false);
+const read = () => {
+  let out = '';
+  const Probe = () => {
+    out = `${useActiveTheme().id}|${JSON.stringify(useSceneInk() ?? null)}`;
+    return null;
+  };
+  renderToString(createElement(Probe));
+  return out;
+};
+
+describe('the drawn sky decides the theme and ink; the stored theme stands where none is drawn', () => {
+  beforeEach(() => {
+    setSceneDrawn(false);
   });
 
-  it('is a pick of Midnight Sky made in the theme menu, which sets the flag', () => {
-    expect(chosenTheme(false, defaultThemeId, true)).toBe(true);
+  it('a scene running over a stored theme wears the sky theme and ink', () => {
+    setSceneDrawn(true);
+    expect(read()).toBe('midnight-sky|{"state":"night","phone":false}');
   });
 
-  it('is a saved id other than the default, with or without the flag', () => {
-    expect(chosenTheme(false, 'dark-theme', undefined)).toBe(true);
-    expect(chosenTheme(false, 'noonday-sky', true)).toBe(true);
+  it('a scene that is not drawing (failed, or context lost) leaves the stored theme and its own ink', () => {
+    expect(read()).toBe('dark-theme|null');
   });
 
-  it('is the system scheme', () => {
-    expect(chosenTheme(true, defaultThemeId, undefined)).toBe(true);
-  });
-
-  it('the theme menu sets the flag together with the id', () => {
-    const tsx = readFileSync(
-      `${process.cwd()}/src/app/features/settings/general/General.tsx`,
-      'utf8'
-    );
-    expect(tsx).toMatch(/setThemeId\(theme\.id\);\s*setThemeChosen\(true\);/);
+  it('a restored context wears the sky again', () => {
+    setSceneDrawn(true);
+    setSceneDrawn(false);
+    expect(read()).toBe('dark-theme|null');
+    setSceneDrawn(true);
+    expect(read()).toBe('midnight-sky|{"state":"night","phone":false}');
   });
 });

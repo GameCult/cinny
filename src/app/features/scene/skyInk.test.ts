@@ -136,29 +136,18 @@ describe('userColorInk', () => {
   });
 });
 
-describe('sceneInk: an explicit theme wins over the auto ink', () => {
-  it('is the sky state and viewport only while the sky theme is worn and a scene runs', () => {
-    // auto, scene on, no theme of the person's own: the sky theme is worn.
-    expect(sceneInk(sceneThemeId('auto', 'dusk', true, false), true, 'dusk', true)).toEqual({
+describe('sceneInk: the drawn sky decides the ink', () => {
+  it('is the sky state and viewport while a scene runs, and nothing without one', () => {
+    expect(sceneInk(sceneThemeId('dusk', true), true, 'dusk', true)).toEqual({
       state: 'dusk',
       phone: true,
     });
-    // auto, but the person chose a theme: it wins, the theme's own ink stands.
-    expect(sceneInk(sceneThemeId('auto', 'dusk', true, true), true, 'dusk', true)).toBeUndefined();
-    // a fixed sky state does not override the person's theme either: the theme's own ink stands.
-    expect(
-      sceneInk(sceneThemeId('night', 'night', true, true), true, 'night', false)
-    ).toBeUndefined();
-    // a fixed sky state with no theme of the person's own: the sky theme's ink applies.
-    expect(sceneInk(sceneThemeId('night', 'night', true, false), true, 'night', false)).toEqual({
+    expect(sceneInk(sceneThemeId('night', true), true, 'night', false)).toEqual({
       state: 'night',
       phone: false,
     });
-    // no scene behind the page: nothing for the ink to be measured against.
-    expect(
-      sceneInk(sceneThemeId('auto', 'day', false, false), false, 'day', false)
-    ).toBeUndefined();
-    expect(sceneInk(sceneThemeId('day', 'day', true, false), false, 'day', false)).toBeUndefined();
+    // no scene behind the page: the person's theme and its ink stand.
+    expect(sceneInk(sceneThemeId('day', false), false, 'day', false)).toBeUndefined();
   });
 });
 

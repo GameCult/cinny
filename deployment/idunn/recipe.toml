@@ -6,14 +6,14 @@ target = "ratatoskr"
 # tarball was built from, which is not this commit.
 source_stamp_environment = "RATATOSKR_BUILD_COMMIT"
 
-# Release dist f562f8fae9a294e04354801538ed7a595133f480: the output of build-prod-dist.sh (live config check passed), packed
+# Release dist d62be29fd4b245bd1303454022ace86c4f762d02: the output of build-prod-dist.sh (live config check passed), packed
 # as dist/ at the top of one gzip tar. The tree carries the repo's own config.json; what is served is the operator's
 # carried file, which Idunn copies beside dist/ and the vhost aliases over the tree's (a vhost without that alias would
 # serve the repo config).
 [[external_inputs]]
 id = "dist-tarball"
-url = "https://eureka.gamecult.org/forge/GameCult/Ratatoskr/releases/download/dist-f562f8fa/ratatoskr-f562f8fa-dist.tar.gz"
-sha256 = "ec4f4fc3e64dfeb7ba6509b386d2a5efc318211f66de663c061e1240b1f610f0"
+url = "https://eureka.gamecult.org/forge/GameCult/Ratatoskr/releases/download/dist-d62be29f/ratatoskr-d62be29f-dist.tar.gz"
+sha256 = "dd04634f82d081004941c71545ba43b8d5c40dbf97fb5643d9f4f24940b6afe8"
 runner = "unpack"
 destination = "release/dist.tar.gz"
 
