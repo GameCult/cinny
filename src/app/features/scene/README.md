@@ -50,8 +50,22 @@ callbacks and the creature sizing rule. Nothing has drawn a creature.
 
 ## Ridge scene: Vienna and the weather
 
-The ridge sky is the physical atmosphere (`ridge/earthAtmosphere.ts`) lit by the real sun over the viewpoint, 48.1929826 N, 16.3534237 E
-(`ridge/vienna.ts`).
+The ridge sky is the physical atmosphere (`ridge/earthAtmosphere.ts`) lit by the sun over the viewpoint (Vienna's is 48.1929826 N, 16.3534237 E, from the manifest).
+
+### The sky choice
+
+The viewer's choice is Auto, one of six named moments (Dawn, Morning, Noon, Golden hour, Dusk, Night) or a free moment (a place-local date and
+minute of the day). `ridge/skyMoment.ts` is the one owner of what it draws: `momentFor(choice, place, now)` returns the instant and `skyBand(elevation)`
+turns the sun at that instant into day, dusk or night (day from 6 degrees up, night from 6 down), which the ink theme (`skyTheme.ts`, `skyInk.ts`), the
+display budget (`ridge/toneMap.ts`) and the rebuild key (`skyForState.ts`) all read. Auto is the real sun over the loaded place now. A named moment is
+today's at the place, from the sun's elevation crossings of the place-local day (`SKY_MOMENTS`, one row each: dawn and dusk at -3 degrees, golden hour at
++4, morning at the lesser of 15 degrees and half the noon elevation, noon the day's maximum, night solar midnight). Place-local time comes only from
+`place.tz`, the IANA zone the baker writes into the manifest (`scripts/ridge-bake/places.json`); the viewer's own zone decides nothing. Auto and the
+named moments draw today's weather; a free moment draws a clear sky.
+
+`skyState.ts` holds the stores (choice, place, constellation lines) and tells listeners; the choice persists in `ratatoskr.skyChoice`. The key
+of the old four-state menu is read once by `skyState.ts` (Day became Noon) and removed. `skyPlace.ts` loads the manifest of the configured place and makes its place the
+sky's, so the ink and the scene read one place; until it is known no sky is drawn for ink and the theme's own ink stands.
 
 The weather is one number (`ridge/weather.ts`), from the page URL's `?weather=`, else `weather.json` beside `config.json`, else clear.
 The browser never calls a weather service. `weather.json` is written by Eureka's refresher (gamecult-ops `docs/weather-feed.md`, a 5-minute timer; the only writer) from GeoSphere Austria's TAWES station 11035 (Wien Hohe Warte), credit
