@@ -1,6 +1,6 @@
 {
  "schema": 2,
- "baker_version": 2,
+ "baker_version": 3,
  "bake_id": "6815bb9dca99",
  "place": {
   "id": "vienna",

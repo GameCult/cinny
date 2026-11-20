@@ -191,7 +191,8 @@ interface Rule {
 
 /**
  * The named moments, one row each (tuned by eye, ruling ridge-look-tuned-by-eye-no-contrast-gates). A crossing the day does not have
- * (polar) falls to the day's noon (rising) or midnight (setting). Night is solar midnight: the sun's lowest in the 24 h after noon.
+ * (polar) falls to the day's noon (rising) or midnight (setting). Night is solar midnight, tonight's: before the day's noon the one that
+ * just passed or is coming this morning, after it the one that is coming (`momentOf`'s `before`), never one a whole day away.
  */
 export const SKY_MOMENTS: Record<MomentId, Rule> = {
   dawn: { at: 'rising', deg: () => -3 },
@@ -202,27 +203,42 @@ export const SKY_MOMENTS: Record<MomentId, Rule> = {
   night: { at: 'midnight' },
 };
 
-function momentOf(id: MomentId, d: Day): number {
+function momentOf(id: MomentId, d: Day, before: boolean): number {
   const rule = SKY_MOMENTS[id];
   const f = (t: number) => elevationAt(d.place, t);
   const midnight = () => peak(f, d.noon, d.noon + DAY, -1);
   if (rule.at === 'noon') return d.noon;
-  if (rule.at === 'midnight') return midnight();
+  if (rule.at === 'midnight') return before ? peak(f, d.noon - DAY, d.noon, -1) : midnight();
   const deg = rule.deg ? rule.deg(d.noonElevation) : 0;
   if (rule.at === 'rising') return crossing(f, deg, d.from, d.noon, true) ?? d.noon;
   return crossing(f, deg, d.noon, d.to, false) ?? midnight();
 }
 
+const days = new Map<string, Day>();
 const named = new Map<string, number>();
-/** The instant of a named moment on a place-local date at the place (memoised: the answer is a pure function of these). */
-function namedInstant(id: MomentId, place: Place, date: string): Date {
-  const key = `${id}|${date}|${place.tz}|${place.lat}|${place.lon}`;
-  let t = named.get(key);
-  if (t === undefined) {
+/** The place-local day `date` at the place (memoised: a pure function of these). */
+function dayOf(place: Place, date: string): Day {
+  const key = `${date}|${place.tz}|${place.lat}|${place.lon}`;
+  let d = days.get(key);
+  if (!d) {
     const from = zonedInstant(date, 0, place.tz).getTime();
     const to = zonedInstant(dateOf(utcOfDate(date) + DAY), 0, place.tz).getTime();
     const noon = peak((x) => elevationAt(place, x), from, to, 1);
-    t = momentOf(id, { place, from, to, noon, noonElevation: elevationAt(place, noon) });
+    d = { place, from, to, noon, noonElevation: elevationAt(place, noon) };
+    if (days.size > 256) days.clear();
+    days.set(key, d);
+  }
+  return d;
+}
+
+/** The instant of a named moment on a place-local date at the place (memoised). Only Night looks at `now`: which side of the day's noon it is. */
+function namedInstant(id: MomentId, place: Place, date: string, now: Date): Date {
+  const d = dayOf(place, date);
+  const before = now.getTime() < d.noon;
+  const key = `${id}|${date}|${before}|${place.tz}|${place.lat}|${place.lon}`;
+  let t = named.get(key);
+  if (t === undefined) {
+    t = momentOf(id, d, before);
     if (named.size > 256) named.clear();
     named.set(key, t);
   }
@@ -240,10 +256,10 @@ const clampDate = (date: string): string =>
     : date;
 const clampMinutes = (m: number): number => Math.min(1439, Math.max(0, Math.floor(m) || 0));
 
-/** The instant the sky is drawn at for a choice at a place: auto is `now`; a named moment is today's at the place; a free moment is its own. */
+/** The instant the sky is drawn at for a choice at a place: auto is `now`; a named moment is today's at the place (Night: tonight's, the nearest one); a free moment is its own. */
 export function momentFor(choice: SkyChoice, place: Place, now: Date): Date {
   if (choice.kind === 'auto') return now;
-  if (choice.kind === 'named') return namedInstant(choice.id, place, localDate(now, place.tz));
+  if (choice.kind === 'named') return namedInstant(choice.id, place, localDate(now, place.tz), now);
   return zonedInstant(clampDate(choice.date), clampMinutes(choice.minutes), place.tz);
 }
 
@@ -262,9 +278,9 @@ export function seedFree(
   };
 }
 
-/** What a rebuild is for, of the moment: live for auto, the id and place-local date for a named one, the date and minutes for a free one. */
+/** What a rebuild is for, of the moment: live for auto, the id and place-local date of the instant for a named one, the date and minutes for a free one. */
 export function momentKey(choice: SkyChoice, place: Place, now: Date): string {
   if (choice.kind === 'auto') return 'live';
-  if (choice.kind === 'named') return `${choice.id}@${localDate(now, place.tz)}`;
+  if (choice.kind === 'named') return `${choice.id}@${localDate(momentFor(choice, place, now), place.tz)}`;
   return `${clampDate(choice.date)}@${clampMinutes(choice.minutes)}`;
 }

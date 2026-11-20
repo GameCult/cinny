@@ -1,7 +1,7 @@
 // Which sky the signed-out page is drawn against: three small stores and the notice that one of them moved. The viewer's choice (Auto, a
 // named moment, a free moment), the place the sky is over, and the constellation lines. They decide nothing: which instant is drawn is
 // `momentFor` and which band it is, `skyBand` (ridge/skyMoment.ts); the resolved sky here is those two applied to the stores.
-import { MOMENT_IDS, FREE_DATE_MAX, FREE_DATE_MIN, isDate, momentFor, skyBand } from './ridge/skyMoment';
+import { MOMENT_IDS, FREE_DATE_MAX, FREE_DATE_MIN, isDate, momentFor, momentKey, skyBand } from './ridge/skyMoment';
 import type { FixedSkyState, MomentId, SkyChoice } from './ridge/skyMoment';
 import { sunAt } from './ridge/sunAt';
 import type { Place } from './ridge/view';
@@ -47,12 +47,18 @@ function load(): SkyChoice {
   try {
     const old = localStorage.getItem(OLD_KEY);
     if (old !== null) {
-      localStorage.removeItem(OLD_KEY);
       const migrated = FROM_OLD.get(old);
       if (migrated && localStorage.getItem(SKY_CHOICE_KEY) === null) {
-        localStorage.setItem(SKY_CHOICE_KEY, JSON.stringify(migrated));
+        try {
+          // The new key first: a refusal leaves the old one in place, and the pick holds for this page load.
+          localStorage.setItem(SKY_CHOICE_KEY, JSON.stringify(migrated));
+        } catch {
+          return migrated;
+        }
+        localStorage.removeItem(OLD_KEY);
         return migrated;
       }
+      localStorage.removeItem(OLD_KEY);
     }
     const stored = localStorage.getItem(SKY_CHOICE_KEY);
     return (stored !== null && parseSkyChoice(JSON.parse(stored))) || AUTO;
@@ -84,6 +90,7 @@ let place: Place | undefined;
 const listeners = new Set<(s: FixedSkyState | undefined) => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let shown: FixedSkyState | undefined;
+let shownKey: string | undefined;
 const TICK_MS = 60_000;
 
 /** The choice (what the control shows). */
@@ -102,20 +109,25 @@ export const skyNow = (): Date => clock();
 export const getResolvedSkyState = (): FixedSkyState | undefined =>
   place && skyBand(sunAt(place, momentFor(getSkyChoice(), place, skyNow())).elevation);
 
+/** What a rebuild would be for, of the moment now drawn (`momentKey`): a named moment's changes when the place-local day rolls over. */
+const drawnKey = (): string | undefined => place && momentKey(getSkyChoice(), place, skyNow());
+
 const emit = () => {
   shown = getResolvedSkyState();
+  shownKey = drawnKey();
   [...listeners].forEach((cb) => cb(shown));
 };
 
-// While anyone listens and the choice is Auto, one timer checks the clock each minute and tells
-// listeners when the resolved band changes from the one last told (`shown`, set when telling and when the
-// first listener arrives, never by a later arrival or departure). Otherwise there is no timer.
+// While anyone listens and the choice is Auto or a named moment, one timer checks the clock each minute and tells
+// listeners when the resolved band, or the moment drawn (an Auto band, a named moment's place-local day), changes from the one
+// last told (`shown` and `shownKey`, set when telling and when the first listener arrives, never by a later arrival or departure).
+// A free moment does not move with the clock, so it has no timer.
 function sync(): void {
   clearTimeout(timer);
   timer = undefined;
-  if (listeners.size === 0 || getSkyChoice().kind !== 'auto') return;
+  if (listeners.size === 0 || getSkyChoice().kind === 'free') return;
   const tick = () => {
-    if (getResolvedSkyState() !== shown) emit();
+    if (getResolvedSkyState() !== shown || drawnKey() !== shownKey) emit();
     timer = setTimeout(tick, TICK_MS);
   };
   timer = setTimeout(tick, TICK_MS);
@@ -171,9 +183,12 @@ export function pickSkyChoice(c: SkyChoice): void {
   setSkyChoice(c);
 }
 
-/** Listeners hear the resolved band: on a change of choice or place, and while Auto, when the clock crosses a boundary. */
+/** Listeners hear the resolved band: on a change of choice or place, while Auto, when the clock crosses a band, and while a named moment, when the place-local day rolls over. */
 export function subscribe(cb: (s: FixedSkyState | undefined) => void): () => void {
-  if (listeners.size === 0) shown = getResolvedSkyState();
+  if (listeners.size === 0) {
+    shown = getResolvedSkyState();
+    shownKey = drawnKey();
+  }
   listeners.add(cb);
   sync();
   return () => {

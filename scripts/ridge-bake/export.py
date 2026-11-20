@@ -7,6 +7,7 @@ The runtime reads manifest.json (SCHEMA is its contract) and nothing else about 
 import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work)."""
 import os, sys, json, math, shutil, hashlib, argparse, tempfile
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import numpy as np, imagecodecs
@@ -35,11 +36,12 @@ ATTRIBUTION = dict(
 # ------------------------------------------------------------------------------------ schema (the one dict the schema file and the validator both come from)
 _num, _int, _str = {'type': 'number'}, {'type': 'integer'}, {'type': 'string'}
 _numnull = {'type': ['number', 'null']}
+_tz = {'type': 'string', 'format': 'iana-tz'}   # an IANA zone the system knows, as ridge.load_preset requires; validate() checks it
 def _obj(**props): return {'type': 'object', 'required': list(props), 'additionalProperties': False, 'properties': props}
 _file = _obj(file=_str, bytes=_int)
 SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'ridge-bake manifest v2 and index v1', '$defs': {
     'manifest': _obj(schema={'const': 2}, baker_version=_int, bake_id=_str,
-        place=_obj(id=_str, name=_str, lat=_num, lon=_num, altitude_km=_num, eye_m=_num, tz=_str),
+        place=_obj(id=_str, name=_str, lat=_num, lon=_num, altitude_km=_num, eye_m=_num, tz=_tz),
         view=_obj(look_az_deg=_num, window_deg={'const': WINDOW_DEG}, plane_w={'type': 'integer', 'maximum': PLANE_W_MAX}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
@@ -55,6 +57,9 @@ def validate(x, s, path='$'):
     if '$ref' in s: return validate(x, SCHEMA['$defs'][s['$ref'].split('/')[-1]], path)
     tys = s.get('type'); tys = [tys] if isinstance(tys, str) else tys; py = {'object': dict, 'array': list, 'string': str, 'number': (int, float), 'integer': int, 'null': type(None)}
     if tys and not any(isinstance(x, py[t]) and not (isinstance(x, bool) and t != 'null') for t in tys): raise ValueError(f'{path}: not a {"/".join(tys)}')
+    if s.get('format') == 'iana-tz':
+        try: ZoneInfo(x)
+        except (ZoneInfoNotFoundError, ValueError, OSError): raise ValueError(f'{path}: {x!r} is not a time zone the system knows')
     if 'const' in s and x != s['const']: raise ValueError(f"{path}: must be {s['const']!r}")
     if 'enum' in s and x not in s['enum']: raise ValueError(f'{path}: not one of {s["enum"]}')
     if 'maximum' in s and x > s['maximum']: raise ValueError(f'{path}: above {s["maximum"]}')

@@ -120,6 +120,36 @@ describe('persistence', () => {
     expect(m.getSkyChoice()).toEqual(night);
   });
 
+  it('migrates an old pick even when the new key cannot be written: the pick holds for the page load, the old key stays', async () => {
+    storage.data.set(OLD_KEY, 'day');
+    vi.stubGlobal('localStorage', {
+      ...storage,
+      setItem: () => {
+        throw new Error('denied');
+      },
+    });
+    expect((await fresh()).getSkyChoice()).toEqual(noon);
+    expect(storage.data.has(OLD_KEY)).toBe(true);
+  });
+
+  it('writes the new key before it removes the old one', async () => {
+    storage.data.set(OLD_KEY, 'dusk');
+    const order: string[] = [];
+    vi.stubGlobal('localStorage', {
+      ...storage,
+      setItem: (k: string, v: string) => {
+        order.push(`set ${k}`);
+        storage.data.set(k, v);
+      },
+      removeItem: (k: string) => {
+        order.push(`remove ${k}`);
+        storage.data.delete(k);
+      },
+    });
+    expect((await fresh()).getSkyChoice()).toEqual(dusk);
+    expect(order).toEqual([`set ${SKY_CHOICE_KEY}`, `remove ${OLD_KEY}`]);
+  });
+
   it('persists a set choice under one key and reads it back after a reload', async () => {
     (await fresh()).setSkyChoice(dusk);
     expect([...storage.data.entries()]).toEqual([[SKY_CHOICE_KEY, JSON.stringify(dusk)]]);
@@ -261,16 +291,36 @@ describe('Auto follows the clock', () => {
     offLate();
   });
 
-  it('keeps no timer without listeners or when a moment is chosen', async () => {
+  it('keeps no timer without listeners or when a free moment is chosen; one timer serves Auto and a named moment', async () => {
     const m = await fresh();
     const off = m.subscribe(() => undefined);
     expect(vi.getTimerCount()).toBe(1);
-    m.setSkyChoice(night);
+    m.setSkyChoice({ kind: 'free', date: '2026-07-01', minutes: 600 });
     expect(vi.getTimerCount()).toBe(0);
+    m.setSkyChoice(night);
+    expect(vi.getTimerCount()).toBe(1);
     m.setSkyChoice(auto);
     expect(vi.getTimerCount()).toBe(1);
     off();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a named moment is told again when the place-local day rolls over, once, and not before', async () => {
+    const m = await fresh();
+    m.setSkyPlace(VIENNA);
+    m.setSkyChoice(noon);
+    let now = new Date('2026-06-21T21:30:00Z'); // 23:30 in Vienna
+    m.setSkyClock(() => now);
+    const cb = vi.fn();
+    const off = m.subscribe(cb);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(cb).not.toHaveBeenCalled();
+    now = new Date('2026-06-21T22:05:00Z'); // 00:05 on the 22nd
+    vi.advanceTimersByTime(60_000);
+    expect(cb).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(cb).toHaveBeenCalledTimes(1);
+    off();
   });
 
   it('notifies a change of choice with the resolved sky', async () => {

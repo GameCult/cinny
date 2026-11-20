@@ -3,7 +3,7 @@ import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './t
 import { debugOverlaysAllowed } from './debugOverlays';
 import { getConstellationLines, getSkyChoice, subscribe } from './skyState';
 import type { SkyChoice } from './ridge/skyMoment';
-import { ensureSkyPlace } from './skyPlace';
+import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
 import { FALLBACK_VIEW } from './ridge/view';
@@ -62,30 +62,32 @@ async function prepare(
     const { manifest, fail } = await ensureSkyPlace(config);
     await loadWeather(weatherUrl(), (manifest?.view ?? FALLBACK_VIEW).place);
     // The cards load with the scene chunk and the weather, and are lit here for this sky (once per build: a sky change comes through a rebuild, never per
-    // frame), so createRidgeScene stays synchronous. Any failure, a missing WebGL2 included, is the sky alone.
+    // frame), so createRidgeScene stays synchronous. Any failure, a missing WebGL2 included, is the sky alone, over the view the store is told of.
     let backdrop: Backdrop | null = null;
-    let sky: SkyColours | undefined;
+    let lit: SkyColours | undefined;
     let planesFail: Error | null = fail;
     if (manifest) {
       try {
         const manifestSky = ridgeSkyFor(choice, manifest.view);
-        sky = manifestSky;
         const { loadBackdrop } = await import('./ridge/Backdrop');
         backdrop = await loadBackdrop(
           manifest,
           manifestSky.physical as NonNullable<typeof manifestSky.physical>
         );
         if (!backdrop) throw new Error('ridge cards did not load');
+        lit = manifestSky;
       } catch (e) {
         backdrop = null;
-        sky = undefined;
         planesFail = e instanceof Error ? e : new Error(String(e));
       }
     }
+    const view = drawnView(backdrop ? manifest : null);
+    if (!lit) await loadWeather(weatherUrl(), view.place);
+    const sky = lit ?? ridgeSkyFor(choice, view);
     const made = guarded(() =>
       createRidgeScene({
         ...options,
-        sky: sky ?? ridgeSkyFor(choice, FALLBACK_VIEW),
+        sky,
         backdrop: backdrop ?? undefined,
         lines: getConstellationLines(),
       })
@@ -107,7 +109,7 @@ async function skyKey(
 ): Promise<string | null> {
   try {
     const { loadWeather, ridgeSkyKey } = await import('./skyForState');
-    const view = (await ensureSkyPlace(config)).manifest?.view ?? FALLBACK_VIEW;
+    const { view } = await ensureSkyPlace(config);
     await loadWeather(weatherUrl(), view.place);
     return ridgeSkyKey(choice, view);
   } catch {
@@ -144,6 +146,7 @@ export async function startBackgroundScene(
     planesFailed = planesFail !== null;
   };
   const prepared = (choice: SkyChoice) => prepare(config, { ...options, tier, debug }, choice);
+  resetSkyPlanes();
   const choice = getSkyChoice();
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, choice);
   const firstReady = await prepared(choice);

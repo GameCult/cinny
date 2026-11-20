@@ -189,6 +189,9 @@ def test_manifest_v2_writer():
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and m['cards'][0]['median_m'] < m['cards'][1]['median_m'] < m['cards'][2]['median_m']
         for c in m['cards']:
             for kind in ('colour', 'geometry'): f = a / c[kind]['file']; assert f.stat().st_size == c[kind]['bytes'] and export.decode(f.read_bytes()).shape[:2] == (c['h'], WIN), c
+        bad = json.loads(json.dumps(m)); bad['place']['tz'] = 'Mars/Olympus'
+        try: export.validate(bad, export.SCHEMA['$defs']['manifest']); raise AssertionError('a zone the system does not know validated')
+        except ValueError as e: assert 'time zone' in str(e), e
         assert m['bytes'] == sum(c[k]['bytes'] for c in m['cards'] for k in ('colour', 'geometry')) and m['encoding']['normal'] == 'rt8' and m['curvature'] == dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF)
         idx = json.load(open(d + '/a/index.json')); export.validate(idx, export.SCHEMA['$defs']['index']); assert idx == dict(schema=1, default='synthetic', places={'synthetic': a.name})
         pk3 = [dict(c) for c in pk]; pk3[1]['geometry'] = pk3[1]['geometry'] + b'x'; assert export.bake_id([(c['colour'], c['geometry']) for c in pk3]) != export.bake_id([(c['colour'], c['geometry']) for c in pk]), 'a changed byte kept the bake_id'

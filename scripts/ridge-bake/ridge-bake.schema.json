@@ -62,7 +62,8 @@
        "type": "number"
       },
       "tz": {
-       "type": "string"
+       "type": "string",
+       "format": "iana-tz"
       }
      }
     },

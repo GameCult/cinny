@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atSolarTime } from './ridge/skyTestkit';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
-import { getSkyPlace, pickSkyChoice, setSkyChoice, setSkyClock, setSkyPlace } from './skyState';
+import { getResolvedSkyState, getSkyPlace, pickSkyChoice, setSkyChoice, setSkyClock, setSkyPlace, subscribe } from './skyState';
+import { skyBand } from './ridge/skyMoment';
 import type { SkyChoice } from './ridge/skyMoment';
 import { ridgeSkyFor } from './skyForState';
 import { forgetManifests } from './ridge/manifest';
@@ -394,7 +395,7 @@ describe('the ridge planes', () => {
     expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('vienna');
   });
 
-  it("makes the manifest's place the sky's place, so the ink and the scene read one place; a failed load leaves none", async () => {
+  it("makes the manifest's place the sky's place, so the ink and the scene read one place; a failed load makes it the drawn fallback's", async () => {
     served();
     loader();
     createRidgeScene.mockReturnValue(fakeScene());
@@ -409,7 +410,72 @@ describe('the ridge planes', () => {
     );
     setSkyPlace(undefined);
     (await startBackgroundScene(config, caps, { canvas }))?.dispose();
-    expect(getSkyPlace()).toBeUndefined();
+    expect(getSkyPlace()).toEqual(FALLBACK_VIEW.place);
+  });
+
+  it('a manifest that fails to load: the ink follows the drawn fallback sky, and Auto still ticks', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }))
+    );
+    createRidgeScene.mockReturnValue(fakeScene());
+    setSkyPlace(undefined);
+    setSkyChoice(NOON);
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    try {
+      const opts = createRidgeScene.mock.calls[0][0];
+      expect(opts.sky.physical.view).toBe(FALLBACK_VIEW);
+      expect(getSkyPlace()).toEqual(FALLBACK_VIEW.place);
+      expect(getResolvedSkyState()).toBe('day');
+      expect(getResolvedSkyState()).toBe(skyBand(opts.sky.physical.sun.elevation));
+    } finally {
+      scene?.dispose();
+    }
+    // Auto crosses dusk with the place the fallback scene drew.
+    setSkyChoice(AUTO);
+    vi.useFakeTimers();
+    try {
+      let now = atSolarTime(17, 0);
+      setSkyClock(() => now);
+      const heard = vi.fn();
+      const off = subscribe(heard);
+      now = atSolarTime(18, 10);
+      vi.advanceTimersByTime(60_000);
+      expect(heard).toHaveBeenCalledWith('dusk');
+      off();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cards that fail on a place that is not the fallback: the sky and the ink are at the one place, the fallback', async () => {
+    const fuji = {
+      ...(wireManifest() as any).place,
+      id: 'fuji',
+      lat: 35.36,
+      lon: 138.73,
+      tz: 'Asia/Tokyo',
+    };
+    served({ '/public/ridge/vienna-abc123abc123/manifest.json': wireManifest({ place: fuji }) });
+    const { ctl } = loader();
+    ctl.fail = true;
+    createRidgeScene.mockReturnValue(fakeScene());
+    setSkyPlace(undefined);
+    setSkyChoice(NOON);
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    try {
+      const opts = createRidgeScene.mock.calls[0][0];
+      expect(opts.backdrop).toBeUndefined();
+      expect(opts.sky.physical.view).toBe(FALLBACK_VIEW);
+      expect(getSkyPlace()).toEqual(FALLBACK_VIEW.place);
+      expect(getResolvedSkyState()).toBe(skyBand(opts.sky.physical.sun.elevation));
+      // The next key, made before the next build, is for the view that is drawn: the place does not flip back to the manifest's.
+      setSkyChoice(DUSK);
+      await flush();
+      expect(getSkyPlace()).toEqual(FALLBACK_VIEW.place);
+    } finally {
+      scene?.dispose();
+    }
   });
 
   const skyOnly = async (onPlanesFail = vi.fn(), onCompileFail = vi.fn()) => {

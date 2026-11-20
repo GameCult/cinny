@@ -30,8 +30,8 @@ const PLACES: Record<string, Place> = {
 const DAYS = ['2026-06-21', '2026-12-21', '2026-03-20'];
 const MIN = 60_000;
 
-/** The place-local noon of `date`: any instant of that local day names it. */
-const during = (date: string, p: Place): Date => zonedInstant(date, 720, p.tz);
+/** 18:00 place-local on `date`: any instant of that local day names it, and one after the sun's noon, so Night is the coming midnight. */
+const during = (date: string, p: Place): Date => zonedInstant(date, 1080, p.tz);
 const at = (id: MomentId, p: Place, date: string): Date =>
   momentFor({ kind: 'named', id }, p, during(date, p));
 const el = (p: Place, t: Date): number => sunAt(p, t).elevation;
@@ -181,6 +181,29 @@ describe('Fuji dawn is Japanese dawn', () => {
     const vienna = momentFor({ kind: 'named', id: 'dawn' }, PLACES.vienna, now);
     expect(Math.abs(vienna.getTime() - t.getTime()) / 3_600_000).toBeGreaterThan(7);
     expect(Math.abs(vienna.getTime() - t.getTime()) / 3_600_000).toBeLessThan(9.5);
+  });
+});
+
+describe("Night is tonight's, the nearest one", () => {
+  const night = { kind: 'named', id: 'night' } as const;
+  const p = PLACES.vienna;
+  it('at 00:30 it is the midnight coming within the hour, not the one a day ahead; after noon the one coming', () => {
+    const at = Date.parse('2026-06-21T22:30:00Z'); // 00:30 on June 22, Vienna
+    const early = momentFor(night, p, new Date(at));
+    expect(localDate(early, p.tz)).toBe('2026-06-22');
+    expect(early.getTime() - at).toBeGreaterThan(0);
+    expect(early.getTime() - at).toBeLessThan(2 * 3_600_000);
+    const evening = momentFor(night, p, new Date('2026-06-22T12:00:00Z')); // 14:00 June 22
+    expect(localDate(evening, p.tz)).toBe('2026-06-23');
+    expect(evening.getTime() - early.getTime()).toBeGreaterThan(23.9 * 3_600_000);
+    expect(evening.getTime() - early.getTime()).toBeLessThan(24.1 * 3_600_000);
+    expect(momentFor(night, p, new Date('2026-06-22T18:00:00Z')).getTime()).toBe(evening.getTime());
+  });
+  it('the key follows the instant drawn: it is the same across the midnight roll and changes at the noon side', () => {
+    const k = (iso: string) => momentKey(night, p, new Date(iso));
+    expect(k('2026-06-21T22:30:00Z')).toBe(k('2026-06-21T21:30:00Z')); // 00:30 and 23:30
+    expect(k('2026-06-21T22:30:00Z')).not.toBe(k('2026-06-22T12:00:00Z'));
+    expect(k('2026-06-22T12:00:00Z')).toBe(k('2026-06-22T20:00:00Z'));
   });
 });
 
