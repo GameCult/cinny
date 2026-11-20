@@ -10,6 +10,7 @@
     "bake_id",
     "place",
     "view",
+    "max_slide_px",
     "curvature",
     "encoding",
     "cards",
@@ -109,6 +110,10 @@
        "type": "number"
       }
      }
+    },
+    "max_slide_px": {
+     "type": "integer",
+     "description": "the largest slide of one card against another the runtime may use, in card pixels; a card holds no pixel that the nearer cards hide at every offset within it"
     },
     "curvature": {
      "type": "object",
