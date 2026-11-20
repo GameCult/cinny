@@ -45,14 +45,14 @@ def test_paths_come_from_the_environment_with_no_default():
         r = subprocess.run([sys.executable, '-I', '-c', 'import sys; sys.path.insert(0, %r); import ridge' % SRC], env=e, capture_output=True, text=True); assert r.returncode and var in r.stderr and 'not set' in r.stderr, (var, r.stderr[-200:])
 
 # ---------------------------------------------------------------------------------------- synthetic bakes: the shared steps of export.bake_place on rays the fixtures make
-def _bake(hfun, splits_km, sigma=0.0):
+def _bake(hfun, splits_km, sigma=0.0, slide=export.max_slide_px(WIN)):
     """prefilter, set_view, coverage, seams, cards on synthetic rays (window = columns 0..WIN, i.e. azimuth 0..72): the dict bake_place returns."""
     A, Hh = rays(hfun); ridge.P.update(win0=0, eye_m=EYE); a, h = ridge.prefilter(D, Hh, sigma); v = ridge.set_view(a.max(0))
     nrm = tuple(ridge.win(x) for x in ridge.normals(D, h)); aw, hw = ridge.win(a), ridge.win(h); cov = ridge.coverage(D, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], D)
     place = dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE)
     view = dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])))
-    return dict(place=place, view=view, meta=meta, cards=ridge.cards(D, aw, hw, sm, nrm), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(D), a=aw, h=hw, v=v)
+    return dict(place=place, view=view, meta=meta, cards=ridge.cards(D, aw, hw, sm, nrm, slide_px=slide), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(D), a=aw, h=hw, v=v)
 def _canvas(card, key='alpha'):
     out = np.zeros((H, WIN) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
 def _row(deg): return int(np.argmin(np.abs(ridge.rowang - deg)))
@@ -63,27 +63,31 @@ def test_seams_fall_in_depth_gaps():
     b = _bake(THREE, [6, 40]); s = b['seams']; assert s.shape == (2, WIN)
     assert (s[0] > 3600).all() and (s[0] < 20000).all() and (s[1] > 21500).all() and (s[1] < 70000).all(), (s.min(1), s.max(1)); assert (np.log(s[1]) - np.log(s[0]) >= 0.4 - 1e-9).all()
     s1 = _bake(THREE, [6])['seams']; assert s1.shape == (1, WIN) and (s1[0] > 3600).all() and (s1[0] < 20000).all(), (s1.min(), s1.max())
-def _receding(dk, az):
-    """A ridge 300 m thick whose distance runs from 4 km at azimuth 0 to 15 km at azimuth 72."""
-    dr = 4000.0 + 11000.0 * np.clip(az / 72.0, 0, 1); return np.where((az <= 72) & (np.abs(dk - dr) < 150), 1500.0, 0.0)
+def _recede(d0, d1, thick=300.0, hgt=1500.0):
+    """A ridge `thick` m thick whose distance runs from d0 m at azimuth 0 to d1 m at azimuth 72."""
+    return terrain(lambda dk, az: np.where((az <= 72) & (np.abs(dk - (d0 + (d1 - d0) * np.clip(az / 72.0, 0, 1))) < thick / 2), hgt, 0.0))
+def _receding(dk, az): return _recede(4000.0, 15000.0)(dk, az)
+RECEDING = [(4, 15, 6), (3, 12, 6), (5, 30, 12), (8, 40, 15), (4, 15, 10), (6, 14, 9)]        # km at azimuth 0, km at azimuth 72, authored split km
+def _alpha_jumps(d0, d1, split):
+    """The two cards' alpha on the ridge body (crest + 4 rows), column to column: the largest step of each.  Unmasked cards: this is about where the seam goes, not what the slide may reveal."""
+    b = _bake(_recede(d0 * 1000.0, d1 * 1000.0), [split], slide=None); c0 = _canvas(b['cards'][0]); c1 = _canvas(b['cards'][1]); crest = np.argmax(b['opaque'] > 0.5, axis=0); r = np.clip(crest + 4, 0, H - 1); ok = crest > 0
+    a0 = c0[r, np.arange(WIN)]; a1 = c1[r, np.arange(WIN)]; return float(np.abs(np.diff(a0[ok])).max()), float(np.abs(np.diff(a1[ok])).max()), (a0 + (1 - a0) * a1)[ok].min()
 def test_seam_never_splits_a_receding_ridge_side_by_side():
-    """A ridge whose distance runs 4 to 15 km across azimuth, target 6 km: the nearer card's alpha on the ridge's body never jumps between neighbouring columns (a tear, one card here and the other next door); it may fade, slowly, over the cross-fade.
-    With the swept-rows term out of the seam cost the seam hops across the ridge between two columns."""
-    b = _bake(terrain(_receding), [6]); c0 = _canvas(b['cards'][0]); c1 = _canvas(b['cards'][1]); crest = np.argmax(b['opaque'] > 0.5, axis=0); r = np.clip(crest + 4, 0, H - 1)
-    a0 = c0[r, np.arange(WIN)]; a1 = c1[r, np.arange(WIN)]; ok = crest > 0
-    assert np.abs(np.diff(a0[ok])).max() < 0.35 and np.abs(np.diff(a1[ok])).max() < 0.35, ('a card appears or vanishes between neighbouring columns', np.abs(np.diff(a0[ok])).max(), np.abs(np.diff(a1[ok])).max())
-    assert ((a0 + (1 - a0) * a1)[ok] > 0.999).all(), 'the ridge body is not covered by the two cards together'
+    """Six synthetic ridges whose distance recedes across the window (4 to 15, 3 to 12, 5 to 30, 8 to 40, 4 to 15 and 6 to 14 km, targets 6, 6, 12, 15, 10, 9 km): the nearer and the farther card's alpha on the ridge's body never jumps by 0.35 between neighbouring
+    columns (a tear: one card here, the other next door; fading slowly over the cross-fade is fine) and the two cards together cover the body.  With the swept-rows term out of the seam cost the seam hops across the ridge; with the prior at 0.1 it hops on two of the six."""
+    for d0, d1, sp in RECEDING:
+        j0, j1, cover = _alpha_jumps(d0, d1, sp); assert j0 < 0.35 and j1 < 0.35, ('a card appears or vanishes between neighbouring columns', (d0, d1, sp), j0, j1); assert cover > 0.999, ('the ridge body is not covered by the two cards together', (d0, d1, sp))
 def test_far_card_keeps_terrain_hidden_behind_a_nearer_ridge():
-    """Layered depth: a far ridge (20 km) lower in angle than the near ridge (3 km) in azimuth 0..36 and higher in 36..72.  Where the near card is opaque in front of the far ridge (columns 100..500) the mid card still holds that ridge, at its distance;
+    """Layered depth (cards cut with slide_px None, the reference; the next tests pin what the slide cut leaves): a far ridge (20 km) lower in angle than the near ridge (3 km) in azimuth 0..36 and higher in 36..72.  Where the near card is opaque in front of the far ridge (columns 100..500) the mid card still holds that ridge, at its distance;
     where the far ridge shows above the near one (column 900) the near card is empty and the mid card holds it."""
-    b = _bake(terrain(block(0, 359.99, 3000, 3600, 350), block(0, 36, 20000, 21500, 1500), block(36, 359.99, 20000, 21500, 2400)), [6]); c0, c1 = _canvas(b['cards'][0]), b['cards'][1]; a1 = _canvas(c1); ld1 = _canvas(c1, 'logd'); r = _row(theta(1500, 20000) - 0.2)
+    b = _bake(terrain(block(0, 359.99, 3000, 3600, 350), block(0, 36, 20000, 21500, 1500), block(36, 359.99, 20000, 21500, 2400)), [6], slide=None); c0, c1 = _canvas(b['cards'][0]), b['cards'][1]; a1 = _canvas(c1); ld1 = _canvas(c1, 'logd'); r = _row(theta(1500, 20000) - 0.2)
     for x in (100, 300, 500):
         assert c0[r, x] > 0.99, ('the near ridge does not cover the far one here', x); assert a1[r, x] > 0.99, ('the far card lost the terrain behind the near ridge', x); assert abs(math.exp(ld1[r, x]) - 20000) < 1500, (x, math.exp(ld1[r, x]))
     r = _row(0.5 * (theta(350, 3000) + theta(2400, 20000))); assert c0[r, 900] < 0.01 and a1[r, 900] > 0.99 and abs(math.exp(ld1[r, 900]) - 20000) < 1500, (c0[r, 900], a1[r, 900])
 def test_crossfade_is_complementary():
     """A ridge across the seam (seam fixed at 6 km, the ridge's front face at 5.9 km inside the cross-fade): the nearer card is partly transparent over the window, the farther card is opaque on the ridge, and the composite stays at coverage 1 below the crest."""
     A, Hh = rays(terrain(block(0, 359.99, 5900, 6100, 900))); ridge.P.update(win0=0, eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = ridge.win(A), ridge.win(Hh)
-    cs = ridge.cards(D, aw, hw, np.full((1, WIN), 6000.0)); c0, c1 = _canvas(cs[0]), _canvas(cs[1]); crest = int(np.argmax(ridge.opaque(aw)[:, 500] > 0.5)); r = crest + 6
+    cs = ridge.cards(D, aw, hw, np.full((1, WIN), 6000.0), slide_px=None); c0, c1 = _canvas(cs[0]), _canvas(cs[1]); crest = int(np.argmax(ridge.opaque(aw)[:, 500] > 0.5)); r = crest + 6
     assert 0.2 < c0[r, 500] < 0.8, ('the near card does not fade over the window', c0[r, 500]); assert c1[r, 500] > 0.99, 'the far card is not opaque on the ridge'
     comp = 1 - (1 - c0) * (1 - c1); assert (comp[crest + 3:, :] > 0.999).all(), 'the composite dips below coverage 1 under the crest'
 def test_normals_of_a_tilted_plane():
@@ -113,7 +117,7 @@ def test_prefilter_flattens_roofs_and_keeps_hills():
     assert np.allclose(ridge.prefilter(D, Hh, 0.0)[1], Hh), 'sigma 0 changed the heights'
 def test_crest_rows_have_fractional_coverage():
     """The top row of a card's run has alpha equal to the share of its angular span under the running maximum, and the rows below it are 1 (a lower ridge in columns 0..640 so its crest is not at the frame's top edge)."""
-    A, Hh = rays(terrain(block(0, 36, 5000, 5600, 500), block(36, 359.99, 5000, 5600, 560))); ridge.P.update(win0=0, eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = ridge.win(A), ridge.win(Hh); c = ridge.cards(D, aw, hw, np.zeros((0, WIN)))[0]
+    A, Hh = rays(terrain(block(0, 36, 5000, 5600, 500), block(36, 359.99, 5000, 5600, 560))); ridge.P.update(win0=0, eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = ridge.win(A), ridge.win(Hh); c = ridge.cards(D, aw, hw, np.zeros((0, WIN)), slide_px=None)[0]
     cv = _canvas(c)[:, 300]; r = int(np.argmax(cv > 0)); top = float(aw.max(0)[300]); p = 1.0 / ridge.PXDEG_V; want = (top - (ridge.rowang[r] - 0.5 * p)) / p
     assert 0.0 < want < 1.0 and abs(cv[r] - want) < 0.01, (cv[r], want, r); assert (cv[r + 1:] > 0.999).all()
 def test_cards_composite_to_the_opaque_view():
@@ -130,7 +134,7 @@ def _vienna(splits):
     saved = ridge.P
     try:
         p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); aw = ridge.win(a); hw = ridge.win(h)
-        nrm = tuple(ridge.win(x) for x in ridge.normals(d, h)); cov = ridge.coverage(d, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits], d); return d, aw, ridge.cards(d, aw, hw, sm, nrm), sm, ridge.opaque(aw)
+        nrm = tuple(ridge.win(x) for x in ridge.normals(d, h)); cov = ridge.coverage(d, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits], d); return d, aw, ridge.cards(d, aw, hw, sm, nrm, slide_px=export.max_slide_px(WIN)), sm, ridge.opaque(aw)
     finally: ridge.P = saved
 def test_vienna_k1_k2_k3():
     """Vienna with card_split_km [6], [6, 40] and [6, 20, 40]: 2, 3 and 4 cards, seams ordered in every column, each composite equals the opaque view within 0.02; the cross-fade column count of each K is printed."""
@@ -168,7 +172,7 @@ def test_manifest_v2_writer():
     try:
         b, pk = _packed(); b2, pk2 = _packed(_bake(THREE, [6, 40])); assert [(c['colour'], c['geometry']) for c in pk] == [(c['colour'], c['geometry']) for c in pk2], 'two independent bakes gave different bytes'
         a = export.write_bake(d + '/a', b['place'], b['view'], b['meta'], pk, b['opaque']); assert a.name == 'synthetic-' + export.bake_id([(c['colour'], c['geometry']) for c in pk]); assert sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name])
-        m = json.load(open(a / 'manifest.json')); export.validate(m, export.SCHEMA['$defs']['manifest']); assert m['schema'] == 2 and m['baker_version'] == export.BAKER_VERSION and len(m['cards']) == 3 and m['w'] == WIN and m['h'] == H
+        m = json.load(open(a / 'manifest.json')); export.validate(m, export.SCHEMA['$defs']['manifest']); assert m['schema'] == 2 and m['max_slide_px'] == export.max_slide_px(WIN) and m['baker_version'] == export.BAKER_VERSION and len(m['cards']) == 3 and m['w'] == WIN and m['h'] == H
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and m['cards'][0]['median_m'] < m['cards'][1]['median_m'] < m['cards'][2]['median_m']
         for c in m['cards']:
             for kind in ('colour', 'geometry'): f = a / c[kind]['file']; assert f.stat().st_size == c[kind]['bytes'] and export.decode(f.read_bytes()).shape[:2] == (c['h'], WIN), c
@@ -242,6 +246,96 @@ def test_cards_are_cropped_to_their_band():
             col = export.decode((dest / rec['colour']['file']).read_bytes()); assert col.shape[:2] == (rec['h'], WIN) and np.abs(col[..., 3].astype(int) - np.rint(c['alpha'] * 255)).max() == 0, 'the written alpha is not the card alpha'
             assert export.decode((dest / rec['geometry']['file']).read_bytes()).shape[:2] == (rec['h'], WIN)
     finally: shutil.rmtree(d)
+
+# ---------------------------------------------------------------------------------------- reveal-bounded cards: what the slide may show is kept, the rest is cut
+def _shift(a, s):
+    out = np.zeros_like(a)
+    if s > 0: out[:, s:] = a[:, :-s]
+    elif s < 0: out[:, :s] = a[:, -s:]
+    else: out[:] = a
+    return out
+def _over(cs, shifts):
+    """Colour and coverage of the alpha-over of the cards, last to first, card j slid by shifts.get(j, 0) columns."""
+    rgb = np.zeros((H, WIN, 3)); cov = np.zeros((H, WIN))
+    for j in reversed(range(len(cs))):
+        al = _shift(_canvas(cs[j]), shifts.get(j, 0)); col = _shift(_canvas(cs[j], 'albedo').transpose(2, 0, 1), shifts.get(j, 0)).transpose(1, 2, 0)
+        rgb = rgb * (1 - al[..., None]) + col * al[..., None]; cov = 1 - (1 - cov) * (1 - al)
+    return rgb, cov
+OVERLAP = terrain(block(10, 40, 3000, 3600, 350), block(0, 60, 20000, 21500, 1800), block(0, 359.99, 70000, 72000, 7000))
+def test_no_slide_within_the_bound_reveals_a_cut_pixel():
+    """Cards cut with the slide bound lose pixels (the farther cards hold less than the uncut reference), the composite at rest is unchanged, and sliding any one card by up to MAX_SLIDE_PX columns either way shows exactly what the uncut cards show: nothing that was cut
+    is ever revealed.  A card cut for a smaller slide fails the same check at the full slide, so the test can tell."""
+    M = export.max_slide_px(WIN); assert M == 64
+    full = _bake(OVERLAP, [6, 40], slide=None)['cards']; cut = _bake(OVERLAP, [6, 40], slide=M)['cards']; small = _bake(OVERLAP, [6, 40], slide=M // 4)['cards']
+    n = lambda cs: [int((_canvas(c) > 0).sum()) for c in cs]; assert n(cut)[0] == n(full)[0] and n(cut)[1] < 0.9 * n(full)[1] and n(cut)[2] < 0.9 * n(full)[2], (n(full), n(cut))
+    worst = 0.0; worst_small = 0.0
+    for j in range(3):
+        for sft in (0, -M, -M // 2, -1, 1, M // 2, M):
+            sh = {j: sft}; r0, c0 = _over(full, sh); r1, c1 = _over(cut, sh); r2, c2 = _over(small, sh); worst = max(worst, float(np.abs(r0 - r1).max()), float(np.abs(c0 - c1).max())); worst_small = max(worst_small, float(np.abs(r0 - r2).max()))
+    assert worst < 1e-5, ('a slide within the bound reveals what was cut', worst); assert worst_small > 0.05, 'a card cut for a quarter of the slide survives the full slide: the check cannot tell'
+def test_the_slide_bound_is_in_the_manifest_and_follows_the_card_width():
+    """max_slide_px is ceil(5% of the card width) in whole pixels (64 at 1280, 55 at 1100, 1 at 20) and the manifest says it."""
+    assert [export.max_slide_px(w) for w in (1280, 1100, 20, 1)] == [64, 55, 1, 1]
+    d = tempfile.mkdtemp()
+    try:
+        b = _bake(OVERLAP, [6, 40]); dest = export.write_bake(d, b['place'], b['view'], b['meta'], export.pack(b), b['opaque']); m = json.load(open(dest / 'manifest.json')); assert m['max_slide_px'] == 64 and m['w'] == WIN
+    finally: shutil.rmtree(d)
+def test_an_empty_card_is_refused_before_writing_naming_the_split():
+    """A card with no rows (its splits leave it no terrain) stops pack with a message that names the splits, instead of dying inside the codec."""
+    b = _bake(THREE, [6, 40]); b['cards'][1] = dict(top=0, alpha=np.zeros((0, WIN), np.float32), albedo=np.zeros((0, WIN, 3), np.float32), n_r=np.zeros((0, WIN), np.float32), n_t=np.zeros((0, WIN), np.float32), logd=np.zeros((0, WIN), np.float32))
+    try: export.pack(b)
+    except ValueError as e: assert 'card 1 is empty' in str(e) and '6 km' in str(e) and '40 km' in str(e), str(e)
+    else: assert False, 'an empty card was packed'
+    b['cards'][2] = b['cards'][1]
+    try: export.pack(dict(b, cards=[b['cards'][0], _bake(THREE, [6, 40])['cards'][1], b['cards'][1]]))
+    except ValueError as e: assert 'card 2 is empty' in str(e) and '40 km' in str(e), str(e)
+    else: assert False, 'an empty last card was packed'
+
+# ---------------------------------------------------------------------------------------- the written files are the cards
+def test_written_cards_decode_to_the_cards_in_memory():
+    """Vienna's three cards, written and decoded again: alpha exactly, albedo within the lossy codec (and straight, not premultiplied, at partial alpha), the normal channels in their order (R along the ray, G across it), and the log-distance over the encoding range, within quantisation."""
+    saved = ridge.P
+    try: b = export.bake_place('vienna')
+    finally: ridge.P = saved
+    d = tempfile.mkdtemp()
+    try:
+        dest = export.write_bake(d, b['place'], b['view'], b['meta'], export.pack(b), b['opaque']); m = json.load(open(dest / 'manifest.json')); enc = m['encoding']; span = enc['log_d_max'] - enc['log_d_min']; partial_seen = 0
+        for c, rec in zip(b['cards'], m['cards']):
+            col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; solid = al > 0; part = (al > 0.05) & (al < 0.95); partial_seen += int(part.sum())
+            assert (col[..., 3] == np.rint(al * 255)).all(), 'alpha is not exact'; e = np.abs(col[..., :3] / 255.0 - c['albedo']).max(-1)
+            assert e[solid].mean() < 0.02 and np.percentile(e[solid], 99) < 0.08, ('albedo is off', e[solid].mean(), np.percentile(e[solid], 99)); assert part.sum() == 0 or e[part].mean() < 0.1, ('albedo at partial alpha is off: premultiplied?', e[part].mean())
+            assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6
+            assert np.abs(geo[..., 0] / 255.0 * 2 - 1 - c['n_r'])[solid].max() < 2 * q and np.abs(geo[..., 1] / 255.0 * 2 - 1 - c['n_t'])[solid].max() < 2 * q, 'a normal channel is off or swapped'
+            assert np.abs(enc['log_d_min'] + geo[..., 2] / 255.0 * span - c['logd'])[solid].max() < span * q, 'the log-distance is off or not over the encoding range'
+            assert np.abs(c['n_r'][solid]).mean() > 0.05 and np.abs(c['n_t'][solid]).mean() > 0.01 and np.abs(c['n_r'][solid].mean() - c['n_t'][solid].mean()) > 0.0, 'the fixture does not tell the channels apart'
+            assert col[..., :3][solid].mean() > 20, 'albedo is zeroed'
+        assert partial_seen > 0, 'the fixture has no partial alpha'
+    finally: shutil.rmtree(d)
+
+# ---------------------------------------------------------------------------------------- rules that no other test touched
+def test_seams_keep_their_separation():
+    """Two authored targets closer than SEAM_SEP (6 and 7 km, 0.15 nat): the seams still sit at least 0.4 nat apart in every column."""
+    s = _bake(THREE, [6, 7])['seams']; assert (np.log(s[1]) - np.log(s[0]) >= 0.4 - 1e-9).all(), float((np.log(s[1]) - np.log(s[0])).min())
+def test_elev_is_the_curved_refracted_angle():
+    """elev(h, d) = atan2(h - eye - d^2 / 2R x (1 - k), d): at 80 km a 3000 m summit stands 0.3 deg lower than the flat angle, and curvature False gives the flat one."""
+    ridge.P.update(eye_m=EYE); d = 80000.0; want = math.degrees(math.atan2(3000.0 - EYE - d * d / (2 * ridge.R_EARTH) * (1 - ridge.KREF), d)); flat = math.degrees(math.atan2(3000.0 - EYE, d))
+    assert abs(float(ridge.elev(3000.0, d)) - want) < 1e-9 and abs(float(ridge.elev(3000.0, d, curvature=False)) - flat) < 1e-9 and flat - want > 0.25, (want, flat)
+    assert ridge.elev(np.array([[1000.0, 1200.0]]), np.array([[d], [d / 2]])).shape == (2, 2)
+def test_coverage_counts_every_visible_row_including_the_foreground():
+    """Per column the coverage sums to the visible rows of the opaque view: (min(skyline, top) - bottom) x px per degree, the rows below the first sample included once, not twice (a ground just under the eye shows below the first sample)."""
+    for i, hf in enumerate((terrain(block(0, 359.99, 0, 20000, 91), block(0, 359.99, 20000, 21500, 600)), THREE)):
+        A, Hh = rays(hf); ridge.P.update(win0=0, eye_m=EYE); ridge.set_view(A.max(0)); aw = ridge.win(A); cov = ridge.coverage(D, aw); want = np.clip(np.minimum(aw.max(0), ridge.TOP_DEG) - ridge.BOTTOM_DEG, 0, None) * ridge.PXDEG_V
+        assert np.abs(cov.sum(0) - want).max() < 1e-6, np.abs(cov.sum(0) - want).max(); assert cov.shape == (ridge.COV_BINS, WIN)
+        if i == 0: assert (cov[0] > 100).all(), ('no foreground rows in the first bin', float(cov[0].min()))
+def test_cards_interpolate_between_samples_and_renormalise():
+    """On a ramp face every card pixel sits between two samples: its log-distance lies strictly between theirs (not on the nearer sample), and its normal is the normalised blend of theirs by that same fraction (the samples carry alternating normals, so a blend
+    that is not renormalised, or a hit that is not interpolated, differs)."""
+    A, Hh = rays(terrain(lambda dk, az: np.where(dk >= 4000, GROUND + 0.5 * (dk - 4000), 0.0) + 0 * az)); ridge.P.update(win0=0, eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = ridge.win(A), ridge.win(Hh); k = np.arange(len(D))[:, None]
+    nr = np.broadcast_to(np.where(k % 2 == 0, -0.8, 0.8), aw.shape).astype(float); nt = np.broadcast_to(np.where(k % 3 == 0, 0.3, -0.3), aw.shape).astype(float); nu = np.sqrt(1 - nr ** 2 - nt ** 2) * 0 + 0.5
+    c = ridge.cards(D, aw, hw, np.zeros((0, WIN)), nrm=(nr, nt, nu), slide_px=None)[0]; x = 300; sel = np.flatnonzero(c['alpha'][:, x] > 0.999); ld = c['logd'][sel, x].astype(np.float64); L = np.log(D); kk = np.searchsorted(L, ld, 'left'); kp = kk - 1; ok = kp >= 0
+    t = (ld - L[np.maximum(kp, 0)]) / (L[kk] - L[np.maximum(kp, 0)]); inner = ok & (t > 0.02) & (t < 0.98); assert inner.sum() > 0.3 * len(sel), ('hits sit on samples, not between them', int(inner.sum()), len(sel))
+    mix = lambda arr: arr[np.maximum(kp, 0), x] + t * (arr[kk, x] - arr[np.maximum(kp, 0), x]); m = np.sqrt(mix(nr) ** 2 + mix(nt) ** 2 + mix(nu) ** 2); er = np.abs(c['n_r'][sel, x] - mix(nr) / m)[inner]; et = np.abs(c['n_t'][sel, x] - mix(nt) / m)[inner]
+    assert er.max() < 1e-3 and et.max() < 1e-3, ('the normal is not the normalised blend of the two samples', er.max(), et.max())
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 if __name__ == '__main__':
