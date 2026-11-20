@@ -22,7 +22,7 @@
   },
   {
    "id": "matterhorn",
-   "name": "Matterhorn from the Gornergrat (photo cell, 9.7 km)",
+   "name": "Matterhorn from the Gornergrat",
    "kind": "lone horn, close, 27 deg of relief",
    "lat": 45.983139,
    "lon": 7.782466,
@@ -147,11 +147,16 @@
      45.97639,
      7.65833
     ]
-   }
+   },
+   "card_split_km": [
+    18,
+    28,
+    43
+   ]
   },
   {
    "id": "fuji",
-   "name": "Fuji from the Shiraito Falls side, 13.8 km WSW (photo cell)",
+   "name": "Fuji from Shiraito Falls",
    "kind": "lone cone, smooth",
    "lat": 35.312467222222494,
    "lon": 138.587223194445,
@@ -293,7 +298,11 @@
      35.36061,
      138.72731
     ]
-   }
+   },
+   "card_split_km": [
+    1.5,
+    16
+   ]
   },
   {
    "id": "halfdome",
@@ -454,7 +463,7 @@
   },
   {
    "id": "amadablam",
-   "name": "Ama Dablam and the Everest massif, 4 km WSW of Tengboche near Khumjung (photo cell)",
+   "name": "Ama Dablam and Everest from Khumjung",
    "kind": "far high range behind a near spire",
    "lat": 27.822000000000003,
    "lon": 86.722666666667,
@@ -524,7 +533,12 @@
      27.8617,
      86.8614
     ]
-   }
+   },
+   "card_split_km": [
+    2,
+    18,
+    34
+   ]
   },
   {
    "id": "trecime",
@@ -631,6 +645,54 @@
      46.6186,
      12.3025
     ]
+   }
+  },
+  {
+   "id": "grandcanyon",
+   "name": "Grand Canyon from the Colorado River",
+   "kind": "inner canyon from the river: walls rise above the horizon, layered strata",
+   "lat": 36.10098,
+   "lon": -112.08927,
+   "eye_h_m": 1.6,
+   "az_deg": 308,
+   "rmax_km": 30,
+   "tz": "America/Phoenix",
+   "card_split_km": [
+    1.5,
+    5,
+    12
+   ],
+   "viewpoint_source": {
+    "status": "sourced",
+    "source": "Wikimedia Commons geosearch (namespace 6), geotagged photos, EXIF GPSImgDirection",
+    "query": "geosearch ns=6 gslimit=500 gsradius=8000 around centres 36.1075,-112.0953; 36.100,-112.12; 36.10,-112.06; 690 files, 650 inside the inner-canyon box 36.07..36.14 N, -112.17..-112.03 E, 78 with a heading",
+    "chosen_cell": "Black Bridge (Kaibab Suspension Bridge), river level, looking downstream WNW",
+    "sample_files": [
+     {
+      "title": "File:Colorado River from Black Bridge downstream.JPG",
+      "lat": 36.10098,
+      "lon": -112.08927,
+      "heading": 308
+     },
+     {
+      "title": "File:Colorado river downstream from Silver Bridge.JPG",
+      "lat": 36.09696,
+      "lon": -112.09573,
+      "heading": 313,
+      "role": "corroborates the corridor"
+     }
+    ],
+    "alternatives_not_chosen": [
+     {
+      "title": "File:Another colorado river grand canyon.jpg",
+      "lat": 36.09973,
+      "lon": -112.10343,
+      "heading": 284,
+      "note": "looking west from the river bend"
+     }
+    ],
+    "eye_height_rule": "1.6 m above the DEM surface (the DSM does not carry the bridge; the 30 m cell is the river or its bank)",
+    "why": "looking WNW the dawn sun (ENE in summer, ESE in winter) stands behind the viewer's right shoulder, so the east-facing wall tiers are lit and the strata read as steps of depth"
    }
   }
  ]
