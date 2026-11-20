@@ -15,7 +15,13 @@ describe('parseManifest', () => {
       pxPerDegV: 177.8, // not px_per_deg_h: a real bake's two differ 10x
       horizonRow: 314.5,
     });
-    expect(m.view.place).toEqual({ id: 'vienna', lat: 48.19, lon: 16.35, altitudeKm: 0.183 });
+    expect(m.view.place).toEqual({
+      id: 'vienna',
+      lat: 48.19,
+      lon: 16.35,
+      altitudeKm: 0.183,
+      tz: 'Europe/Vienna',
+    });
     expect(m.encoding).toEqual({ logDMin: 4.6, logDMax: 11.5 });
     expect(m.camera).toEqual({ headingMaxDeg: 23 });
     expect(m.cards.map((c) => c.scale)).toEqual([1.2, 1.0167, 1.005]);
@@ -68,6 +74,13 @@ describe('parseManifest', () => {
       parseManifest({ ...w, encoding: { ...w.encoding, log_d_max: w.encoding.log_d_min } }, '/')
     ).toThrow(/encoding/);
     expect(() => parseManifest(null, '/')).toThrow();
+  });
+
+  it('rejects a manifest without place.tz and one naming a zone Intl does not know', () => {
+    const w = wireManifest() as any;
+    expect(() => parseManifest({ ...w, place: { ...w.place, tz: undefined } }, '/')).toThrow(/place\.tz/);
+    expect(() => parseManifest({ ...w, place: { ...w.place, tz: 'Not/AZone' } }, '/')).toThrow(/place\.tz/);
+    expect(parseManifest({ ...w, place: { ...w.place, tz: 'Asia/Kathmandu' } }, '/').view.place.tz).toBe('Asia/Kathmandu');
   });
 
   it('never echoes a value it refused', () => {

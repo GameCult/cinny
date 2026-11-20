@@ -25,7 +25,7 @@ vi.mock('./useSkyState', async () => {
   const drawn = await import('../features/scene/sceneDrawn');
   return {
     useResolvedSkyState: () => 'night',
-    useSkyState: () => 'night',
+    useSkyChoice: () => ({ kind: 'named', id: 'night' }),
     useSceneOn: () => drawn.getSceneDrawn(),
   };
 });

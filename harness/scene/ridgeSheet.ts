@@ -17,8 +17,7 @@ import { nightBodies, onScreen, paintNightBodies } from '../../src/app/features/
 import { sunAt } from '../../src/app/features/scene/ridge/sunAt';
 import { linesAt } from '../../src/app/features/scene/ridge/starCatalogue';
 import { moonPhase } from '../../src/sky/moon.js';
-import { DAY_FROM } from '../../src/app/features/scene/skyState';
-import type { FixedSkyState } from '../../src/app/features/scene/skyState';
+import { MOMENT_IDS, momentFor } from '../../src/app/features/scene/ridge/skyMoment';
 
 const DIR = '/public/ridge/vienna-6815bb9dca99/';
 
@@ -38,7 +37,7 @@ interface Column {
   time?: Date;
 }
 
-/** Sun elevation and compass azimuth of each column; the cards look at 214 +- 36. Elevation picks the display budget (day from DAY_FROM, night below its negative). */
+/** Sun elevation and compass azimuth of each column; the cards look at 214 +- 36. The band of the elevation (`skyBand`) picks the display budget. */
 const SKIES: Column[] = [
   { label: 'dawn 2 deg', elevation: 2, azimuth: 100 },
   { label: 'morning 15 deg', elevation: 15, azimuth: 135 },
@@ -138,6 +137,14 @@ function momentsFrom(params: URLSearchParams, place: Parameters<typeof sunAt>[0]
       if (Number.isNaN(time.getTime())) throw new Error(`moments=: ${iso} is not a date`);
       return { label: fmt(time), time };
     });
+  // `named=1`: the six named moments of the sky menu (`momentFor`, as the app draws them) on both solstices at the place: the look sheet the elevation table is tuned from.
+  if (params.get('named'))
+    return ['2026-12-21', '2026-06-21'].flatMap((day) =>
+      MOMENT_IDS.map((id) => {
+        const time = momentFor({ kind: 'named', id }, place, new Date(`${day}T12:00:00Z`));
+        return { label: `${id} ${day.slice(5)} ${fmt(time)}`, time };
+      })
+    );
   if (!params.get('night')) return undefined;
   const from = params.get('from') ? new Date(`${params.get('from')}T00:00:00Z`) : new Date();
   const hours = (params.get('hours') ?? '18,21,0,4').split(',').map(Number);
@@ -176,9 +183,6 @@ const W = Number(q.get('w') ?? 480);
 const H = q.get('h') ? Number(q.get('h')) : Math.round((W * 9) / 16);
 const root = document.getElementById('sheet') as HTMLElement;
 
-const stateOf = (el: number): FixedSkyState =>
-  el >= DAY_FROM ? 'day' : el <= -DAY_FROM ? 'night' : 'dusk';
-
 async function main() {
   const manifest = parseManifest(await (await fetch(`${DIR}manifest.json`)).json(), DIR);
   const blobs = await Promise.all(
@@ -213,7 +217,7 @@ async function main() {
       col.time !== undefined
         ? sunAt(view.place, col.time)
         : { elevation: col.elevation as number, azimuth: col.azimuth as number, time };
-    const physical = makePhysicalSky(stateOf(sun.elevation), time, 0, view, sun);
+    const physical = makePhysicalSky(sun, 0, view);
     const px = paintSky(physical, W, H, win.camera);
     const bodies = nightBodies(physical, px, withLines);
     const small = document.createElement('canvas');

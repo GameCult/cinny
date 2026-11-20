@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { atStandardTime } from './standardTime.testkit';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { atSolarTime } from './ridge/skyTestkit';
 import { baked } from '../../../sky/baked';
 import { AA, contrast } from '../../../sky/skyTokens.js';
 import { Editor } from '../../components/editor/Editor.css';
@@ -12,9 +12,14 @@ import { SkyPlate, plateRegions } from './skyPlate.css';
 import {
   getResolvedSkyState,
   setSkyClock,
+  setSkyPlace,
   subscribe as subscribeSky,
 } from './skyState';
 import { sceneThemeId } from './skyTheme';
+import { FALLBACK_VIEW } from './ridge/view';
+
+beforeAll(() => setSkyPlace(FALLBACK_VIEW.place));
+afterAll(() => setSkyPlace(undefined));
 
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
 const r2 = (n: number) => n.toFixed(2);
@@ -32,12 +37,19 @@ describe('sceneThemeId, the theme the page wears', () => {
 
   it('auto draws the clock sky and that sky decides', () => {
     [0, 12, 23].forEach((h) => {
-      setSkyClock(() => atStandardTime(h, 10));
+      setSkyClock(() => atSolarTime(h, 10));
       expect(sceneThemeId(getResolvedSkyState(), true)).toBe(
         h === 12 ? 'noonday-sky' : 'midnight-sky'
       );
     });
     setSkyClock();
+  });
+
+  it('with no place known there is no drawn sky to follow: the theme is not decided', () => {
+    setSkyPlace(undefined);
+    expect(getResolvedSkyState()).toBeUndefined();
+    expect(sceneThemeId(getResolvedSkyState(), true)).toBeUndefined();
+    setSkyPlace(FALLBACK_VIEW.place);
   });
 
   it('with the scene off no sky is drawn, so the person theme stands', () => {
@@ -49,12 +61,12 @@ describe('sceneThemeId, the theme the page wears', () => {
   it('the resolved sky a hook subscribes to changes as the clock crosses, so theme classes follow', () => {
     vi.useFakeTimers();
     let hour = 12;
-    setSkyClock(() => atStandardTime(hour, 10));
+    setSkyClock(() => atSolarTime(hour, 10));
     const seen: string[] = [];
     const off = subscribeSky((s) => seen.push(s));
     expect(getResolvedSkyState()).toBe('day');
     hour = 0;
-    setSkyClock(() => atStandardTime(hour, 10));
+    setSkyClock(() => atSolarTime(hour, 10));
     vi.advanceTimersByTime(61_000);
     expect(seen).toEqual(['night']);
     expect(getResolvedSkyState()).toBe('night');

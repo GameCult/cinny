@@ -6,6 +6,7 @@ import type { SkyColours } from './skyColour';
 import { nightBodies } from './nightBodies';
 import { sunAt } from './sunAt';
 import { makePhysicalSky, paintSky as paintPhysicalSky } from './physicalSky';
+import { sunOfBand } from './skyTestkit';
 import { startBackgroundScene } from '../index';
 import { parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
@@ -283,7 +284,7 @@ describe('createRidgeScene', () => {
 
   it("paints the sky through the camera of the physical sky's own View, not a default one", () => {
     const { canvas } = host();
-    const physical = makePhysicalSky('day', new Date('2026-06-21T10:40:00Z'), 0, ELSEWHERE_VIEW);
+    const physical = makePhysicalSky(sunOfBand(ELSEWHERE_VIEW.place, 'day', new Date('2026-06-21T10:40:00Z')), 0, ELSEWHERE_VIEW);
     const s = createRidgeScene({ canvas, tier: 'full', sky: { ...DAY, physical } })!;
     const want = paintPhysicalSky(physical, 400, 800, windowFor(ELSEWHERE_VIEW, 400, 800).camera);
     expect(painted).toHaveLength(1);
@@ -385,7 +386,7 @@ describe('the starfield in the scene', () => {
   const count = (kind: string) => draws.filter((d) => d === kind).length;
   // A moonless-horizon night over Vienna (the moon is 17 degrees below it): the real stars of that moment, and no moon to count as an arc.
   const t = new Date('2026-12-04T00:00:00Z');
-  const physical = makePhysicalSky('night', t, 0, FALLBACK_VIEW, sunAt(FALLBACK_VIEW.place, t));
+  const physical = makePhysicalSky(sunAt(FALLBACK_VIEW.place, t), 0, FALLBACK_VIEW);
   const night: SkyColours = { ...DAY, physical };
   const N = nightBodies(
     physical,
@@ -503,7 +504,7 @@ describe('the starfield in the scene', () => {
 describe('rain in the scene', () => {
   const rainy = (w: number): SkyColours => ({
     ...DAY,
-    physical: makePhysicalSky('day', new Date('2026-06-21T10:40:00Z'), w, FALLBACK_VIEW),
+    physical: makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', new Date('2026-06-21T10:40:00Z')), w, FALLBACK_VIEW),
   });
   const rainEls = (parent: any) => parent.children.filter((c: any) => c.tag === 'div');
 
@@ -558,7 +559,7 @@ describe('the ridge cards in the scene', () => {
     top: [10, 14, 40],
     mid: [30, 34, 80],
     horizon: [60, 50, 90],
-    physical: makePhysicalSky('night', new Date('2026-06-21T22:40:00Z'), 1, FALLBACK_VIEW),
+    physical: makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'night', new Date('2026-06-21T22:40:00Z')), 1, FALLBACK_VIEW),
   };
   const rigOf = (parent: any) =>
     parent.children.find((c: any) => c.children.some((g: any) => g.anims.length));
