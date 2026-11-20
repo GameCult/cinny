@@ -3,7 +3,8 @@ import { createRidgeScene } from './Ridge';
 import { valueNoise, hash2 } from './noise';
 import { FrameSampler, frameStats, SLOW_P95_MS, WARMUP_FRAMES, WINDOW_MS } from './probe';
 import type { SkyColours } from './skyColour';
-import { makeStars } from './stars';
+import { nightBodies } from './nightBodies';
+import { sunAt } from './sunAt';
 import { makePhysicalSky, paintSky as paintPhysicalSky } from './physicalSky';
 import { startBackgroundScene } from '../index';
 import { parseManifest } from './manifest';
@@ -158,6 +159,8 @@ function ctx() {
     },
     rect() {},
     clip() {},
+    rotate() {},
+    ellipse() {},
     createImageData: (w: number, h: number) => ({
       data: new Uint8ClampedArray(w * h * 4),
       width: w,
@@ -377,13 +380,15 @@ describe('the door', () => {
 
 describe('the starfield in the scene', () => {
   const count = (kind: string) => draws.filter((d) => d === kind).length;
-  const night = {
-    ...DAY,
-    top: [10, 14, 40],
-    mid: [30, 34, 80],
-    horizon: [60, 50, 90],
-  } as SkyColours;
-  const N = makeStars(night, 400, 800).length;
+  // A moonless-horizon night over Vienna (the moon is 17 degrees below it): the real stars of that moment, and no moon to count as an arc.
+  const t = new Date('2026-12-04T00:00:00Z');
+  const physical = makePhysicalSky('night', t, 0, FALLBACK_VIEW, sunAt(FALLBACK_VIEW.place, t));
+  const night: SkyColours = { ...DAY, physical };
+  const N = nightBodies(
+    physical,
+    paintPhysicalSky(physical, 400, 800, windowFor(FALLBACK_VIEW, 400, 800).camera),
+    false
+  ).stars.length;
   const hear = (name: string) => {
     const calls = motion.addEventListener.mock.calls.filter((c: any[]) => c[0] === name);
     return calls[calls.length - 1][1] as () => void;
@@ -395,7 +400,7 @@ describe('the starfield in the scene', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: night })!;
     expect(count('star')).toBe(N);
-    expect(count('sky')).toBe(1);
+    expect(painted).toHaveLength(1); // the physical sky's one grid
     expect(parent.children[1].anims).toHaveLength(0); // the overlay, above the sky
     expect(parent.children).toHaveLength(2);
     const before = baked();
@@ -403,8 +408,8 @@ describe('the starfield in the scene', () => {
     expect(baked()).toBe(before);
     expect(count('clear')).toBeGreaterThan(60);
     expect(count('clear')).toBeLessThanOrEqual(101);
-    // each pass paints at most SLOTS stars
-    expect(count('twinkle')).toBeLessThanOrEqual(count('clear') * 32);
+    // each pass paints at most SLOTS stars, each as its cover and the star again
+    expect(count('twinkle')).toBeLessThanOrEqual(count('clear') * 64);
     expect(count('twinkle')).toBeGreaterThan(0);
     s.dispose();
   });

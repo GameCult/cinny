@@ -4,7 +4,9 @@ import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
 import { cardMotion, windowFor } from './view';
-import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
+import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
+import { nightBodies, paintNightBodies } from './nightBodies';
+import type { NightBodies } from './nightBodies';
 import { drawRainTile, RAIN_TILES } from './rain';
 import type { Backdrop } from './Backdrop';
 
@@ -19,6 +21,8 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   sky?: SkyColours;
   /** The baked ridge cards, already lit for `sky` (`Backdrop.ts`); none is the sky-only scene (`view.ts` FALLBACK_VIEW). */
   backdrop?: Backdrop;
+  /** Draw the constellation lines over the stars (a hidden extra, `skyState.ts`); only a night sky shows them. */
+  lines?: boolean;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -55,9 +59,9 @@ function paintSky(
   cssW: number,
   cssH: number,
   makeCanvas: () => HTMLCanvasElement
-): boolean {
+): { ok: boolean; px?: ReturnType<typeof paintPhysicalSky> } {
   const ctx = context2d(canvas);
-  if (!ctx) return false;
+  if (!ctx) return { ok: false };
   if (sky.physical) {
     const px = paintPhysicalSky(
       sky.physical,
@@ -77,7 +81,7 @@ function paintSky(
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
       if (px.sunDisc) drawSun(ctx, px.sunDisc, canvas.width, canvas.height);
-      return true;
+      return { ok: true, px };
     }
   }
   const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -87,7 +91,7 @@ function paintSky(
   g.addColorStop(1, css(sky.horizon));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  return true;
+  return { ok: true };
 }
 
 const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -293,12 +297,17 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const { w, h, scale } = viewSize();
     canvas.width = Math.round(w * scale);
     canvas.height = Math.round(h * scale);
-    if (!paintSky(canvas, sky, w, h, () => document.createElement('canvas'))) return false;
-    // Every star is baked into the sky; the twinkling ones get their own canvas, which a per-frame
-    // pass clears and paints over. 'still' has no overlay.
-    const stars = makeStars(sky, w, h);
+    const painted = paintSky(canvas, sky, w, h, () => document.createElement('canvas'));
+    if (!painted.ok) return false;
+    // The real stars, the moon and (when asked) the constellation lines are baked into the sky; the twinkling stars get their own
+    // canvas, which a per-frame pass clears and paints over. 'still' has no overlay. A sky with no physical model has no bodies.
+    const bodies: NightBodies =
+      painted.px && sky.physical
+        ? nightBodies(sky.physical, painted.px, opts.lines === true)
+        : { stars: [], lines: [] };
+    const stars = bodies.stars;
     const skyCtx = context2d(canvas);
-    if (skyCtx) drawStars(skyCtx, stars, canvas.width, canvas.height, scale);
+    if (skyCtx) paintNightBodies(skyCtx, bodies, canvas.width, canvas.height, scale);
     let twinkle: HTMLCanvasElement | undefined;
     if (stars.length && tier !== 'still') {
       twinkle = document.createElement('canvas');
