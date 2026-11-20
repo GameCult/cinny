@@ -149,6 +149,6 @@ describe('the stars under the figures', () => {
       })
     );
     expect(vertices).toBeGreaterThan(20);
-    expect(carried / vertices).toBeGreaterThan(0.9);
+    expect(carried / vertices).toBeGreaterThan(0.8); // a regression guard on the starting star values, not a look gate: low vertices sit in the moonlit haze (0.85 at HORIZON_AT 0.85)
   });
 });

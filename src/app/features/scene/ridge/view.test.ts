@@ -39,11 +39,11 @@ describe('windowFor', () => {
     expect(HORIZON_AT).toBeLessThan(1);
   });
 
-  it('shows about 35 degrees of sky above the horizon in a 16:9 desktop cell', () => {
+  it('shows about 31 degrees of sky above the horizon in a 16:9 desktop cell', () => {
     const { camera } = windowFor(FALLBACK_VIEW, 1100, 619);
     const sky = camera.horizonAt * camera.vfovDeg;
-    expect(sky).toBeGreaterThan(33);
-    expect(sky).toBeLessThan(40);
+    expect(sky).toBeGreaterThan(29);
+    expect(sky).toBeLessThan(34);
   });
 
   it.each([

@@ -61,9 +61,9 @@ export const DRIFT_FRAC = 0.05;
 /**
  * Where the horizon sits down the viewport, as a fraction of its height: one constant for every sky state and every viewport (ruling
  * ridge-frame-more-sky-fixed-pitch: the camera pitch never changes between day and night). The plane extends below the viewport bottom and
- * the near plain is cropped. 0.95 shows about 35 degrees of sky above the horizon in a 16:9 cell. Authored, tunable by eye.
+ * the near plain is cropped. 0.85 (operator, 2026-11-20) shows about 31 degrees of sky above the horizon in a 16:9 cell. Authored, tunable by eye.
  */
-export const HORIZON_AT = 0.95;
+export const HORIZON_AT = 0.85;
 
 export interface Window {
   camera: Camera;
