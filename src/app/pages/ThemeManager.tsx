@@ -8,6 +8,7 @@ import {
   useSceneInk,
   useSkyTheme,
 } from '../hooks/useTheme';
+import { useSkyPlace } from '../hooks/useSkyState';
 import { useSetting } from '../state/hooks/settings';
 import { settingsAtom } from '../state/settings';
 import { labelInk } from '../features/scene/skyInk';
@@ -16,6 +17,7 @@ import { SKY_LABEL_INK } from '../features/scene/skyLabelInk';
 export function UnAuthRouteThemeManager() {
   // Signed-out pages are Midnight Sky unless the sky state picks otherwise; they ignore the
   // system scheme.
+  useSkyPlace();
   const theme = useSkyTheme() ?? MidnightSkyTheme;
 
   useEffect(() => {
@@ -28,6 +30,7 @@ export function UnAuthRouteThemeManager() {
 }
 
 export function AuthRouteThemeManager({ children }: { children: ReactNode }) {
+  useSkyPlace();
   const activeTheme = useActiveTheme();
   const [monochromeMode] = useSetting(settingsAtom, 'monochromeMode');
   const skyInk = useSceneInk();

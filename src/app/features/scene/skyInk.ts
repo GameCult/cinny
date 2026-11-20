@@ -31,9 +31,9 @@ export interface SkyInk {
 export const sceneInk = (
   themeId: SkyThemeId | undefined,
   sceneOn: boolean,
-  state: FixedSkyState,
+  state: FixedSkyState | undefined,
   phone: boolean
-): SkyInk | undefined => (themeId && sceneOn ? { state, phone } : undefined);
+): SkyInk | undefined => (themeId && sceneOn && state ? { state, phone } : undefined);
 
 /** WCAG relative luminance of the lightest 24x12 patch of terrain behind the timeline. */
 export const LIGHTEST_PATCH: Record<FixedSkyState, { desktop: number; phone: number }> = {

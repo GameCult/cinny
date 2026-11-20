@@ -1,12 +1,11 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
 import { debugOverlaysAllowed } from './debugOverlays';
-import { getConstellationLines, getSkyState, subscribe } from './skyState';
-import type { SkyState } from './skyState';
+import { getConstellationLines, getSkyChoice, subscribe } from './skyState';
+import type { SkyChoice } from './ridge/skyMoment';
+import { ensureSkyPlace } from './skyPlace';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
-import { loadManifest } from './ridge/manifest';
-import type { RidgeManifest } from './ridge/manifest';
 import { FALLBACK_VIEW } from './ridge/view';
 
 export type { Scene, SceneStats } from './Scene';
@@ -15,7 +14,7 @@ export type { SceneStyle, SceneTier } from './tier';
 export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompileFail'> & {
   /** A shader failed to compile, or the scene chunk failed to load. The host keeps its ground. */
   onCompileFail?: (e: Error) => void;
-  /** A rebuild for a new sky state made no scene: the host puts the CSS ground back (as on a lost context). */
+  /** A rebuild for a new sky made no scene: the host puts the CSS ground back (as on a lost context). */
   onInactive?: () => void;
   /** A rebuild made a scene again: the host lets it show. */
   onActive?: () => void;
@@ -28,20 +27,6 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
 /** The observation file the ridge sky reads: the page's own, beside config.json. The browser calls no weather service. */
 const weatherUrl = (): string => `${import.meta.env.BASE_URL.replace(/\/$/, '')}/weather.json`;
 
-/**
- * The baked place's manifest, or why there is none. Its View is the one owner of the sun's place and the camera for the weather, the sky,
- * the rebuild key and the planes; a scene with no manifest has FALLBACK_VIEW.
- */
-async function manifestOf(
-  config: BackgroundSceneConfig | undefined
-): Promise<{ manifest: RidgeManifest | null; fail: Error | null }> {
-  try {
-    return { manifest: await loadManifest(import.meta.env.BASE_URL, config?.place), fail: null };
-  } catch (e) {
-    return { manifest: null, fail: e instanceof Error ? e : new Error(String(e)) };
-  }
-}
-
 /** A scene made ready: every await is done, so `make` is synchronous and a rebuild can keep the old scene until the instant it swaps. */
 interface Prepared {
   make: () => Scene | null;
@@ -52,7 +37,7 @@ interface Prepared {
 async function prepare(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier; debug?: boolean },
-  state: SkyState
+  choice: SkyChoice
 ): Promise<Prepared> {
   // Whatever throws in making the scene is a compile failure, as whatever throws in loading it.
   const guarded = (make: () => Scene | null): Prepared => ({
@@ -74,7 +59,7 @@ async function prepare(
       return guarded(() => createScene(options));
     }
     const { createRidgeScene } = await import('./ridge/Ridge');
-    const { manifest, fail } = await manifestOf(config);
+    const { manifest, fail } = await ensureSkyPlace(config);
     await loadWeather(weatherUrl(), (manifest?.view ?? FALLBACK_VIEW).place);
     // The cards load with the scene chunk and the weather, and are lit here for this sky (once per build: a sky change comes through a rebuild, never per
     // frame), so createRidgeScene stays synchronous. Any failure, a missing WebGL2 included, is the sky alone.
@@ -83,7 +68,7 @@ async function prepare(
     let planesFail: Error | null = fail;
     if (manifest) {
       try {
-        const manifestSky = ridgeSkyFor(state, manifest.view);
+        const manifestSky = ridgeSkyFor(choice, manifest.view);
         sky = manifestSky;
         const { loadBackdrop } = await import('./ridge/Backdrop');
         backdrop = await loadBackdrop(
@@ -100,7 +85,7 @@ async function prepare(
     const made = guarded(() =>
       createRidgeScene({
         ...options,
-        sky: sky ?? ridgeSkyFor(state, FALLBACK_VIEW),
+        sky: sky ?? ridgeSkyFor(choice, FALLBACK_VIEW),
         backdrop: backdrop ?? undefined,
         lines: getConstellationLines(),
       })
@@ -114,17 +99,17 @@ async function prepare(
 
 /**
  * What a rebuild is for: the sky options the scene would be built from. A change of choice that draws the same sky
- * (Day picked while the clock says day, 'auto' to the fixed state it resolves to) is not a rebuild.
+ * (Auto picked as a named moment it already is drawing) is not a rebuild.
  */
 async function skyKey(
   config: BackgroundSceneConfig | undefined,
-  state: SkyState
+  choice: SkyChoice
 ): Promise<string | null> {
   try {
     const { loadWeather, ridgeSkyKey } = await import('./skyForState');
-    const view = (await manifestOf(config)).manifest?.view ?? FALLBACK_VIEW;
+    const view = (await ensureSkyPlace(config)).manifest?.view ?? FALLBACK_VIEW;
     await loadWeather(weatherUrl(), view.place);
-    return ridgeSkyKey(state, view);
+    return ridgeSkyKey(choice, view);
   } catch {
     // The chunk failed to load: no key, so every change rebuilds (and `create` reports the failure).
     return null;
@@ -138,7 +123,7 @@ async function skyKey(
  * "keep the CSS ground", including when that chunk fails to load (offline, stale deploy): the
  * failure goes to onCompileFail and nothing throws.
  *
- * The ridge scene bakes its sky once, so it follows the sky (`skyState.ts`: the choice, resolved, so 'auto' follows the clock) by
+ * The ridge scene bakes its sky once, so it follows the sky (`skyState.ts`: the choice at the place, so Auto follows the clock) by
  * being rebuilt on the same canvas when it changes: the door subscribes on start and the returned
  * scene's `dispose` unsubscribes. The pull-back restarts from the tree; a later `login()` is
  * replayed on the new scene. The ray-march scene has one fixed dusk and ignores the state.
@@ -158,10 +143,10 @@ export async function startBackgroundScene(
     if (!planesFail && planesFailed) options.onPlanesOk?.();
     planesFailed = planesFail !== null;
   };
-  const prepared = (state: SkyState) => prepare(config, { ...options, tier, debug }, state);
-  const state = getSkyState();
-  const key0 = config?.style === 'raymarch' ? null : await skyKey(config, state);
-  const firstReady = await prepared(state);
+  const prepared = (choice: SkyChoice) => prepare(config, { ...options, tier, debug }, choice);
+  const choice = getSkyChoice();
+  const key0 = config?.style === 'raymarch' ? null : await skyKey(config, choice);
+  const firstReady = await prepared(choice);
   const first = firstReady.make();
   if (!first || config?.style === 'raymarch') return first;
   announce(firstReady.planesFail);
@@ -174,9 +159,9 @@ export async function startBackgroundScene(
   // A rebuild is for a different sky ('auto' crossing a boundary, a new choice), not for a repeat of the one drawn.
   const rebuild = async () => {
     // The choice can move while the key is awaited; that change has its own rebuild, so this one stands down.
-    const next = getSkyState();
+    const next = getSkyChoice();
     const key = await skyKey(config, next);
-    if (getSkyState() !== next) return;
+    if (getSkyChoice() !== next) return;
     if ((key !== null && key === built) || disposed) return;
     generation += 1;
     const mine = generation;
