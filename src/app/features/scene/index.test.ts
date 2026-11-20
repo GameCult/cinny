@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
 import type { Scene } from './Scene';
 import { startBackgroundScene } from './index';
-import { setSkyClock, setSkyState } from './skyState';
+import { pickSkyState, setSkyClock, setSkyState } from './skyState';
 import { ridgeSkyFor } from './skyForState';
 import { forgetManifests } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
@@ -471,6 +471,25 @@ describe('the ridge cards and the live scene', () => {
     expect(ctl.calls.map((s) => s.state)).toEqual(['night', 'day']);
     expect(createRidgeScene.mock.calls[1][0].sky.physical).toBe(ctl.calls[1]);
     expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('vienna');
+    scene?.dispose();
+  });
+
+  it('rebuilds the scene with the constellation lines when Night is re-picked while Night is the choice, and again to take them off', async () => {
+    serve();
+    loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    expect(createRidgeScene.mock.calls[0][0].lines).toBe(false);
+    pickSkyState('night'); // from Auto: a choice, the same sky
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(1);
+    pickSkyState('night'); // re-picked: the lines
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(createRidgeScene.mock.calls[1][0].lines).toBe(true);
+    pickSkyState('night');
+    await flush();
+    expect(createRidgeScene.mock.calls[2][0].lines).toBe(false);
     scene?.dispose();
   });
 

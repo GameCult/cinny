@@ -1,7 +1,7 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
 import { debugOverlaysAllowed } from './debugOverlays';
-import { getSkyState, subscribe } from './skyState';
+import { getConstellationLines, getSkyState, subscribe } from './skyState';
 import type { SkyState } from './skyState';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
@@ -102,6 +102,7 @@ async function prepare(
         ...options,
         sky: sky ?? ridgeSkyFor(state, FALLBACK_VIEW),
         backdrop: backdrop ?? undefined,
+        lines: getConstellationLines(),
       })
     );
     return { ...made, planesFail };

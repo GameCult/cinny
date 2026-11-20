@@ -19,8 +19,8 @@ const luma = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 export const GRADIENT_STOPS = 7;
 export const AA = 4.5; // WCAG 2.x AA, normal text
 
-// The lightest the Night sky draws behind the page (src/app/features/scene/skyState.ts, `skyBackdrop('night')`; a test in
-// skyTheme.test.ts fails if the two drift). Midnight Sky's link also sits on bare sky, so it must clear AA against this.
+// The Night sky's luminance the Midnight Sky link was fitted against (a derivation input, not a bound the scene is held to:
+// the look is tuned by eye). The link is brightened in its own hue until it clears AA against this.
 export const NIGHT_SKY_LIGHTEST = 0.081642;
 
 // Where and when the theme is lit. Equinox, 45N on the prime meridian: noon sun at 45 degrees.

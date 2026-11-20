@@ -58,10 +58,16 @@ export const FALLBACK_VIEW: View = {
 /** The share of the viewport height the plane's height is at least scaled to, and the slack each side of the viewport kept for drift. Authored, tunable by eye. */
 export const RIDGE_BAND_FRAC = 0.6;
 export const DRIFT_FRAC = 0.05;
+/**
+ * Where the horizon sits down the viewport, as a fraction of its height: one constant for every sky state and every viewport (ruling
+ * ridge-frame-more-sky-fixed-pitch: the camera pitch never changes between day and night). The plane extends below the viewport bottom and
+ * the near plain is cropped. 0.85 (operator, 2026-11-20) shows about 31 degrees of sky above the horizon in a 16:9 cell. Authored, tunable by eye.
+ */
+export const HORIZON_AT = 0.85;
 
 export interface Window {
   camera: Camera;
-  /** The planes in viewport pixels: scaled size, anchored to the viewport's bottom edge and centred on `lookAzDeg`. */
+  /** The planes in viewport pixels: scaled size, centred on `lookAzDeg`, placed so the horizon row lands at `HORIZON_AT` of the height. `bottom` is the distance of the plane's foot above the viewport's bottom edge: negative, the plane runs on below it. */
   plane: { scale: number; w: number; h: number; bottom: number };
   /** How far the plane may slide sideways from centre and still cover the viewport. */
   driftPx: number;
@@ -78,9 +84,14 @@ export function windowFor(view: View, viewportW: number, viewportH: number): Win
       azimuthDeg: view.lookAzDeg,
       hfovDeg,
       vfovDeg: (hfovDeg * viewportH) / viewportW,
-      horizonAt: (viewportH - scale * (view.planeH - view.horizonRow)) / viewportH,
+      horizonAt: HORIZON_AT,
     },
-    plane: { scale, w: scale * view.planeW, h: scale * view.planeH, bottom: 0 },
+    plane: {
+      scale,
+      w: scale * view.planeW,
+      h: scale * view.planeH,
+      bottom: (1 - HORIZON_AT) * viewportH - scale * (view.planeH - view.horizonRow),
+    },
     driftPx: (scale * view.planeW - viewportW) / 2,
   };
 }
