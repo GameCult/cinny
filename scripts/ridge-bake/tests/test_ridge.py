@@ -59,6 +59,8 @@ def _row(deg): return int(np.argmin(np.abs(ridge.rowang - deg)))
 THREE = terrain(block(0, 359.99, 3000, 3600, 350), block(0, 359.99, 20000, 21500, 1800), block(0, 359.99, 70000, 72000, 7000))       # ridges at 3, 20 and 70 km, each taller in angle than the one before
 WIDE3 = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 40000, 2000), block(0, 359.99, 70000, 72000, 3000))       # low near hills, then ridges at 39 and 71 km: the frame reaches below the ground at the seams (so cards have wall rows) and the horizon is inside it
 WALLED = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 40000, 2000))
+NEARHILL = terrain(block(0, 359.99, 0, 4000, 150), block(0, 359.99, 38000, 40000, 2000))       # ground above the eye from the first sample on: every row of card 0 lies below its first sample
+def _ramp(dk, az): return np.maximum(GROUND, np.where(dk > 12000, (dk - 12000) * 0.045 + 50.0, 0.0))       # a slope the first sample of card 1 stands on: n_up about 0.9, so the material would be rock if the face counted
 
 def test_seams_fall_in_depth_gaps():
     """Three ridges at 3, 20 and 70 km: targets [6, 40] give a seam in (3, 20) and one in (20, 70) in EVERY column, ordered with at least 0.4 nat between; targets [6] give one seam in (3, 20)."""
@@ -297,7 +299,8 @@ def _first_sample_angle(b, i):
 def test_wall_rows_flagged():
     """Card i > 0 flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at), card 0 none; the wall carries R = G = 255 in the geometry file and no other pixel has r2 + t2 above 1.02; wall pixels keep that sample's
     distance and their albedo is the ground material of the sample's height with the face up (so a steep face is not rock), constant down the column."""
-    for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6])):
+    steep = 0
+    for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6]), lambda: _bake(_ramp, [20])):
         b = make(); assert not b['cards'][0]['wall'].any(), 'card 0 has a wall'; lo = ridge.rowang - 0.5 / ridge.PXDEG_V; seen = 0
         for i, c in enumerate(b['cards']):
             if i == 0: continue
@@ -308,6 +311,11 @@ def test_wall_rows_flagged():
                 rows = np.flatnonzero(c['wall'][:, x]); ld = c['logd'][rows, x]; assert np.ptp(ld) < 1e-5 and abs(math.exp(ld[0]) - D[k0[x]]) < 1e-3 * D[k0[x]] + 60, ('a wall keeps its sample distance', x)
                 want_alb = ridge.albedo(np.array([b['h'][k0[x], x]]), np.array([1.0]))[0]; assert np.abs(c['albedo'][rows, x] - want_alb).max() < 1e-5, ('wall albedo is not the ground material with the face up', x)
         assert seen > 1000, 'the fixture has no wall'
+        for i in range(1, len(b['cards'])):
+            c = b['cards'][i]; steep += int((np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1))[c['wall']] < 0.93).sum())
+    assert steep > 1000, 'no wall pixel has a steep face under it: a wall lit by its own normal would pass'
+    b = _bake(NEARHILL, [20]); c0 = b['cards'][0]; lo = ridge.rowang - 0.5 / ridge.PXDEG_V; below = (lo[:, None] < b['a'][0][None, :])[c0['top']:c0['top'] + c0['alpha'].shape[0]]
+    assert below.sum() > 1000 and not c0['wall'].any(), ('card 0 has no wall, though rows lie below its first sample', int(below.sum()))
 def test_the_sheet_lights_a_wall_with_the_face_up():
     """The contact sheet shades a wall pixel as an up-facing one whatever normal the card carries there, and a non-wall pixel by its normal."""
     n = 4; c = dict(albedo=np.ones((n, n, 3), np.float32), alpha=np.ones((n, n), np.float32), n_r=np.full((n, n), 0.9, np.float32), n_t=np.zeros((n, n), np.float32), wall=np.zeros((n, n), bool)); c['wall'][:, :2] = True

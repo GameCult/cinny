@@ -16,7 +16,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'check_cover accepts any composite': ("if bad.any(): y, x", "if False: y, x"),
  'check_budget ignores the cropped bands (decoded as full frames)': ("decoded = sum(2 * w * h * 4 for h in bands)", "decoded = 0"),
  'load_preset accepts splits that do not increase': ("or any(b <= a for a, b in zip(sp, sp[1:]))", ""),
- 'geometry: n_r and n_t channels swapped': ("dstack([u8((np.asarray(n_r) + 1) / 2), u8((np.asarray(n_t) + 1) / 2), u8(b)])", "dstack([u8((np.asarray(n_t) + 1) / 2), u8((np.asarray(n_r) + 1) / 2), u8(b)])"),
+ 'geometry: n_r and n_t channels swapped': ("r, t = u8((np.asarray(n_r) + 1) / 2), u8((np.asarray(n_t) + 1) / 2)", "r, t = u8((np.asarray(n_t) + 1) / 2), u8((np.asarray(n_r) + 1) / 2)"),
  'geometry: log-distance not normalised by the encoding range': ("b = (np.asarray(logd) - enc['log_d_min']) / (enc['log_d_max'] - enc['log_d_min'])", "b = np.asarray(logd) / 12.0"),
  'colour: albedo zeroed in the file': ("rgb = u8(albedo) * (a[..., None] > 0)", "rgb = u8(albedo) * 0"),
  'colour: premultiplied instead of straight': ("rgb = u8(albedo) * (a[..., None] > 0)", "rgb = u8(np.asarray(albedo) * np.asarray(alpha)[..., None])"),
