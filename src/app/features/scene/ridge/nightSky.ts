@@ -18,14 +18,14 @@ export const SUN_LUX = luxOfMagnitude(SUN_V);
 /** The look of the night's bodies. EYEBALLED knobs: the operator tunes these by eye. */
 export const NIGHT_LOOK = {
   /** Radius of the point spread a star's light is spread over, arcminutes: smaller is brighter and more of them saturate. */
-  starPsfArcmin: 2.5,
+  starPsfArcmin: 1.5,
   /** Atmospheric extinction in magnitudes per air mass (V band, a clean low site is 0.2). */
   extinctionPerAirmass: 0.2,
   /**
    * Display contrast of a star over its sky is the physical contrast to this power (1 = physical): the eye and a camera cannot show a
    * mag 0 star at the 1e4:1 it has over a dark sky. Brightest stars still saturate; the faintest keep a little.
    */
-  starContrastExp: 0.65,
+  starContrastExp: 0.8,
   /** The same for the moon's disc (physical contrast is 1e7 and more). */
   moonContrastExp: 0.3,
   /** Visible radius of a star, CSS px: `base` for the faintest, plus `perMag` for each magnitude brighter than 5.5. */

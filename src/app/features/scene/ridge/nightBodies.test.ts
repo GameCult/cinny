@@ -143,7 +143,9 @@ describe('the stars under the figures', () => {
         const a = onScreen(cam, q.azimuth, q.elevation);
         if (a.x < 0 || a.x > 1 || a.y < 0 || a.y > 0.8) return;
         vertices += 1;
-        if (nb.stars.some((s) => Math.hypot((s.x - a.x) * 1100, (s.y - a.y) * 619) < 4)) carried += 1;
+        // Visible: the star's centre is at least 20 of 255 lighter than the sky behind it in some channel.
+        const lift = (c: string, d: string) => Math.max(...c.match(/\d+/g)!.map((v, i) => Number(v) - Number(d.match(/\d+/g)![i])));
+        if (nb.stars.some((s) => Math.hypot((s.x - a.x) * 1100, (s.y - a.y) * 619) < 4 && lift(s.fill, s.cover) >= 20)) carried += 1;
       })
     );
     expect(vertices).toBeGreaterThan(20);
