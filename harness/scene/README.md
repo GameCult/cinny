@@ -20,3 +20,27 @@ directory whose ancestors hold no empty `package.json` (esbuild reads them).
 
 Timings from SwiftShader are CPU time: use them for the split between passes and for before and
 after of one change, never as a phone frame time.
+
+## Ridge look sheet
+
+Renders the Vienna cards (`public/ridge/vienna-6815bb9dca99`) lit for six sky states (dawn 2, morning 15, noon 55, golden 6, dusk -3, night -30 degrees of sun)
+by a set of looks (`RidgeLook`, `src/app/features/scene/ridge/lightCards.ts`, the one owner of look values), one 480x270 canvas per cell at heading 0. The sky
+behind a cell is the app's own (`makePhysicalSky` + `paintSky`, upscaled), without the sun disc, stars or clouds. Not shipped.
+
+    npx vite --port 5199          # from the repo root; the app's vite config serves the page and public/
+    http://localhost:5199/harness/scene/ridgeSheet.html                # four presets x six skies
+    ...ridgeSheet.html?preset=swiss                                    # one preset (physical|swiss|poster|painterly)
+    ...ridgeSheet.html?looks=%5B%7B%22label%22%3A%22no-ink%22%2C%22inkScale%22%3A0%7D%2C%7B%22label%22%3A%22hazy%22%2C%22hazeScale%22%3A8%7D%5D
+    ...?w=640                                                          # cell width
+
+`looks=` is a url-encoded or base64 JSON array of `{label, ...partial RidgeLook}` and replaces the preset rows (`inkKeep` and `reliefLight` merge by key).
+A cell costs one WebGL2 context and a card decode, so the full sheet takes tens of seconds (much longer in a background tab).
+
+Presets (`PRESETS` in `ridgeSheet.ts`; every key not named is `DEFAULT_LOOK`), chosen by reasoning, not by eye, for Self to tune:
+
+| preset | values |
+| --- | --- |
+| physical | DEFAULT_LOOK |
+| swiss | reliefLight {mix 0.7, azimuthDeg -45, elevationDeg 40}, contrastByDistance 0.9, hazeScale 6, hazeTint [0, 0.05, 0.25], nearWarm 0.5, inkScale 0.6 |
+| poster | reliefWeight 0.15, cardToneStep 0.25, cardGradient 0.5, inkKeep {edge 0.25, occlude 0.9, crease 1}, hazeScale 4 |
+| painterly | groundNoise 0.35, cloudShadows 0.5, nearWarm 0.6, hazeScale 2, inkScale 0.4 |
