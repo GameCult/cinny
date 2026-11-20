@@ -1,15 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   decodeNormal,
+  DEFAULT_LOOK,
   FRAGMENT,
+  lightCards,
   lightingOf,
   skyLut,
   SKY_LUT,
-  SUN_CUTOFF_DEG,
   sunColumns,
   sunInColumn,
   WALL_RT2,
 } from './lightCards';
+import type { RidgeLook } from './lightCards';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import type { PhysicalSky } from './physicalSky';
@@ -107,9 +109,9 @@ describe('the lighting inputs', () => {
     const l = lightingOf(manifest, sky(30));
     expect(l.sunTransmittance[0]).toBeCloseTo(0.9 * Math.sin(30 * RAD), 12);
     expect(l.sunTransmittance[2]).toBeCloseTo(0.7 * Math.sin(30 * RAD), 12);
-    expect(lightingOf(manifest, sky(SUN_CUTOFF_DEG - 1)).sunTransmittance).toEqual([0, 0, 0]);
+    expect(lightingOf(manifest, sky(DEFAULT_LOOK.sunCutoffDeg - 1)).sunTransmittance).toEqual([0, 0, 0]);
     expect(
-      lightingOf(manifest, sky(SUN_CUTOFF_DEG + 0.5)).sunTransmittance[0]
+      lightingOf(manifest, sky(DEFAULT_LOOK.sunCutoffDeg + 0.5)).sunTransmittance[0]
     ).toBeGreaterThanOrEqual(0);
   });
 
@@ -155,3 +157,85 @@ describe('the display of the shader', () => {
     expect(FRAGMENT).toContain(`vec3(${g(ACES_FIT[2])}, ${g(ACES_FIT[3])}, ${g(ACES_FIT[4])})`);
   });
 });
+
+describe('the look reaches the shader', () => {
+  // A recording WebGL2: every uniform call is kept by the name of its location, nothing is drawn.
+  const run = (look?: Partial<RidgeLook>) => {
+    const uniforms: Record<string, number[]> = {};
+    const gl = new Proxy(
+      {
+        getUniformLocation: (_p: unknown, name: string) => name,
+        uniform1i: () => undefined,
+        getShaderParameter: () => true,
+        getProgramParameter: () => true,
+        getExtension: () => null,
+      } as Record<string, unknown>,
+      {
+        get: (t, k: string) =>
+          k in t
+            ? t[k]
+            : k.startsWith('uniform')
+            ? (name: string, ...v: number[]) => {
+                uniforms[name] = v;
+              }
+            : () => ({}),
+      }
+    );
+    const el = { width: 0, height: 0, getContext: () => gl };
+    vi.stubGlobal('document', { createElement: () => el });
+    const bmp = { width: 1, height: 1, close: () => undefined } as unknown as ImageBitmap;
+    const sky = {
+      sun: { azimuth: 214, elevation: 30 },
+      atm: {
+        observerKm: 0.183,
+        mieScale: 1,
+        transmittanceToSpace: (_m: number, o: number[]) => o.fill(1),
+        irradiance: { direct: [0, 0, 0], ambient: [0.1, 0.2, 0.3] },
+        radiance: (_a: number, _b: number, o: number[]) => o.fill(0),
+      },
+      fit: { display: { exposure: 1, lift: 0 } },
+      view: manifest.view,
+    } as unknown as PhysicalSky;
+    const one = { ...manifest, cards: manifest.cards.slice(0, 1) };
+    try {
+      lightCards(one, [{ colour: bmp, geometry: bmp }], sky, look && { ...DEFAULT_LOOK, ...look });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    return uniforms;
+  };
+
+  it('defaults to DEFAULT_LOOK', () => {
+    const u = run();
+    expect(u.uInkKeep).toEqual([0.45, 0.55, 0.8]);
+    expect(u.uInkGeometry).toEqual([0.35, 0.85]);
+  });
+
+  it('carries an ink override to the uniforms: edge keep 1 removes edge ink', () => {
+    const u = run({ inkKeep: { edge: 1, occlude: 0.55, crease: 0.8 } });
+    expect(u.uInkKeep[0]).toBe(1);
+  });
+
+  it('scales the haze optical depth and the ambient light, and moves the sun cut-off', () => {
+    const base = run();
+    const look = run({ hazeScale: 2, ambientScale: 0.5 });
+    look.uExt.forEach((e, k) => expect(e).toBeCloseTo(2 * base.uExt[k], 12));
+    expect(look.uAmbient[2]).toBeCloseTo(0.15, 12);
+    expect(
+      lightingOf(manifest, sky30(), { ...DEFAULT_LOOK, sunCutoffDeg: 45 }).sunTransmittance
+    ).toEqual([0, 0, 0]);
+  });
+});
+
+function sky30(): PhysicalSky {
+  return {
+    sun: { azimuth: 214, elevation: 30 },
+    atm: {
+      observerKm: 0.183,
+      mieScale: 1,
+      transmittanceToSpace: (_m: number, o: number[]) => o.fill(1),
+      irradiance: { direct: [0, 0, 0], ambient: [0, 0, 0] },
+    },
+    fit: { display: { exposure: 1, lift: 0 } },
+  } as unknown as PhysicalSky;
+}

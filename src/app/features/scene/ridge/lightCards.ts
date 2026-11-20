@@ -28,19 +28,38 @@ export interface LitCard {
   scale: number;
 }
 
-// Constants of the look, named for the art pass (ratatoskr:follow_up:ridge-art-quality-rework). None of them is a rule of the machine.
-/** A real normal has r2 + t2 at most 0.998 (probe on the Vienna bake); the wall code is 2. */
+/** A real normal has r2 + t2 at most 0.998 (probe on the Vienna bake); the wall code is 2. A code of the data, not of the look. */
 export const WALL_RT2 = 1.02;
-/** A neighbour farther by more than this many nats of distance draws occluding ink on this pixel. */
-export const OCCLUDE_LOGD = 0.35;
-/** A normal turning past this cosine between two non-wall pixels draws crease ink. */
-export const CREASE_COS = 0.85;
-/** How much each ink keeps of the radiance it falls on (1 = no ink). */
-export const INK_KEEP = { edge: 0.45, occlude: 0.55, crease: 0.8 } as const;
 /** The lookup of the sky's radiance for the haze: azimuth columns by plane rows, filtered in the shader. */
 export const SKY_LUT = { w: 64, h: 64 } as const;
-/** Below this sun elevation (degrees) no direct sun reaches the ground (the atmosphere's own cut-off, `earthAtmosphere.ts` irradiance). */
-export const SUN_CUTOFF_DEG = -1;
+
+/**
+ * The look: every number of the art pass (ratatoskr:follow_up:ridge-art-quality-rework), the one owner of them. None is a rule of the machine.
+ * The shader reads them as uniforms, so one compiled program serves every look.
+ */
+export interface RidgeLook {
+  /** A neighbour farther by more than this many nats of distance draws occluding ink on this pixel. */
+  occludeLogD: number;
+  /** A normal turning past this cosine between two non-wall pixels draws crease ink. */
+  creaseCos: number;
+  /** How much each ink keeps of the radiance it falls on (1 = no ink). */
+  inkKeep: { edge: number; occlude: number; crease: number };
+  /** Below this sun elevation (degrees) no direct sun reaches the ground (the atmosphere's own cut-off, `earthAtmosphere.ts` irradiance). */
+  sunCutoffDeg: number;
+  /** Multiplies the optical depth of the aerial perspective: 1 is the sky's own extinction, 0 no haze. */
+  hazeScale: number;
+  /** Multiplies the ambient irradiance the terrain is lit by. */
+  ambientScale: number;
+}
+
+export const DEFAULT_LOOK: RidgeLook = {
+  occludeLogD: 0.35,
+  creaseCos: 0.85,
+  inkKeep: { edge: 0.45, occlude: 0.55, crease: 0.8 },
+  sunCutoffDeg: -1,
+  hazeScale: 1,
+  ambientScale: 1,
+};
 
 const RAD = Math.PI / 180;
 
@@ -86,19 +105,25 @@ export interface Lighting {
   lift: number;
 }
 
-export function lightingOf(manifest: RidgeManifest, sky: PhysicalSky): Lighting {
+export function lightingOf(
+  manifest: RidgeManifest,
+  sky: PhysicalSky,
+  look: RidgeLook = DEFAULT_LOOK
+): Lighting {
   const trans = [0, 0, 0];
   const sinEl = Math.sin(sky.sun.elevation * RAD);
   sky.atm.transmittanceToSpace(Math.max(sinEl, 0), trans);
-  const lit = sky.sun.elevation > SUN_CUTOFF_DEG;
+  const lit = sky.sun.elevation > look.sunCutoffDeg;
   return {
     planeW: manifest.view.planeW,
     planeH: manifest.view.planeH,
     logDMin: manifest.encoding.logDMin,
     logDSpan: manifest.encoding.logDMax - manifest.encoding.logDMin,
-    extinction: extinctionAt(sky.atm.observerKm, sky.atm.mieScale),
+    extinction: extinctionAt(sky.atm.observerKm, sky.atm.mieScale).map(
+      (e) => e * look.hazeScale
+    ) as Vec3,
     sunTransmittance: lit ? [trans[0], trans[1], trans[2]] : [0, 0, 0],
-    ambient: sky.atm.irradiance.ambient,
+    ambient: sky.atm.irradiance.ambient.map((a) => a * look.ambientScale) as Vec3,
     exposure: sky.fit.display.exposure,
     lift: sky.fit.display.lift,
   };
@@ -152,15 +177,12 @@ uniform vec3 uExt;
 uniform vec3 uTSun;
 uniform vec3 uAmbient;
 uniform vec2 uDisplay;
+uniform vec2 uInkGeometry; // occludeLogD, creaseCos
+uniform vec3 uInkKeep; // edge, occlude, crease
 out vec4 outColor;
 
 const float PI = 3.14159265358979;
 const float WALL_RT2 = ${glsl(WALL_RT2)};
-const float OCCLUDE_LOGD = ${glsl(OCCLUDE_LOGD)};
-const float CREASE_COS = ${glsl(CREASE_COS)};
-const vec3 INK_KEEP = vec3(${glsl(INK_KEEP.edge)}, ${glsl(INK_KEEP.occlude)}, ${glsl(
-  INK_KEEP.crease
-)});
 ${[0, 1, 2]
   .map((i) => `const vec3 IN_R${i} = vec3(${ACES_IN[i].map(glsl).join(', ')});`)
   .join('\n')}
@@ -227,9 +249,9 @@ void main() {
     if (q.x < 0 || q.y < 0 || q.x >= uSize.x || q.y >= uSize.y) continue;
     float an = texelFetch(uColour, q, 0).a;
     Geo gn = geoAt(q);
-    if (c.a >= 0.5 && an < 0.5) keep = min(keep, INK_KEEP.x);
-    else if (an >= 0.5 && gn.logD - g.logD > OCCLUDE_LOGD) keep = min(keep, INK_KEEP.y);
-    else if (an >= 0.5 && !g.wall && !gn.wall && dot(g.n, gn.n) < CREASE_COS) keep = min(keep, INK_KEEP.z);
+    if (c.a >= 0.5 && an < 0.5) keep = min(keep, uInkKeep.x);
+    else if (an >= 0.5 && gn.logD - g.logD > uInkGeometry.x) keep = min(keep, uInkKeep.y);
+    else if (an >= 0.5 && !g.wall && !gn.wall && dot(g.n, gn.n) < uInkGeometry.y) keep = min(keep, uInkKeep.z);
   }
   radiance *= keep;
 
@@ -304,7 +326,8 @@ function bitmapTexture(gl: WebGL2RenderingContext, unit: number, bmp: ImageBitma
 export function lightCards(
   manifest: RidgeManifest,
   bitmaps: CardBitmaps[],
-  sky: PhysicalSky
+  sky: PhysicalSky,
+  look: RidgeLook = DEFAULT_LOOK
 ): LitCard[] {
   const glCanvas = document.createElement('canvas');
   const gl = glCanvas.getContext('webgl2', {
@@ -316,7 +339,7 @@ export function lightCards(
   });
   if (!gl) throw new Error('ridge: no WebGL2');
   try {
-    const lit = lightingOf(manifest, sky);
+    const lit = lightingOf(manifest, sky, look);
     const prog = program(gl);
     gl.useProgram(prog);
     const u = (name: string) => gl.getUniformLocation(prog, name);
@@ -330,6 +353,8 @@ export function lightCards(
     gl.uniform3f(u('uTSun'), ...lit.sunTransmittance);
     gl.uniform3f(u('uAmbient'), ...lit.ambient);
     gl.uniform2f(u('uDisplay'), lit.exposure, lit.lift);
+    gl.uniform2f(u('uInkGeometry'), look.occludeLogD, look.creaseCos);
+    gl.uniform3f(u('uInkKeep'), look.inkKeep.edge, look.inkKeep.occlude, look.inkKeep.crease);
     gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
     const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, sky.sun));
     const skyTex = floatTexture(
