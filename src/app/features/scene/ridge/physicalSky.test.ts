@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { FALLBACK_VIEW } from './view';
 import { ELSEWHERE_VIEW } from './manifest.fixture';
-import { sunForState } from './sunAt';
+import { sunAt } from './sunAt';
+import { momentFor } from './skyMoment';
 import { makePhysicalSky, paintSky } from './physicalSky';
+import { sunOfBand } from './skyTestkit';
 import { ridgeDrawn } from '../skyForState';
-import type { FixedSkyState } from '../skyState';
+import type { FixedSkyState } from './skyMoment';
 import { windowFor } from './view';
 import type { PhysicalSky } from './physicalSky';
 
@@ -43,7 +45,7 @@ describe.each(['day', 'dusk', 'night'] as FixedSkyState[])(
       let hi = -1;
       for (const day of DAYS) {
         for (const w of WEATHER) {
-          const sky = makePhysicalSky(state, new Date(`${day}T10:40:00Z`), w, FALLBACK_VIEW);
+          const sky = makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, state, new Date(`${day}T10:40:00Z`)), w, FALLBACK_VIEW);
           for (const [vw, vh] of VIEWPORTS) {
             const px = paintSky(sky, vw, vh, camera(sky, vw, vh));
             for (let i = 0; i < px.w * px.h * 4; i += 4) {
@@ -64,7 +66,7 @@ describe('weather in the sky', () => {
   it('overcast is cloud: less blue and less contrast than clear air at the same sun', () => {
     const at = new Date('2026-06-21T10:40:00Z');
     const paint = (w: number) => {
-      const sky = makePhysicalSky('day', at, w, FALLBACK_VIEW);
+      const sky = makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', at), w, FALLBACK_VIEW);
       return paintSky(sky, 640, 360, camera(sky, 640, 360));
     };
     const clear = paint(0);
@@ -92,7 +94,7 @@ describe('the sun disc', () => {
   const disc = (sky: PhysicalSky) => paintSky(sky, 1280, 720, facingSun(sky, 1280, 720));
   const noon = new Date('2026-12-21T11:00:00Z'); // about 18 degrees: higher suns are above the top of the window
   it('is drawn by the host, in a clear sky by day, white with the sun high', () => {
-    const sky = makePhysicalSky('day', noon, 0, FALLBACK_VIEW);
+    const sky = makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', noon), 0, FALLBACK_VIEW);
     const d = disc(sky).sunDisc;
     expect(d).toBeDefined();
     expect(d!.x).toBeGreaterThan(0);
@@ -103,11 +105,12 @@ describe('the sun disc', () => {
     expect(Math.min(...d!.rgb)).toBeGreaterThan(150); // a warm white at 21 degrees
   });
   it('is hidden by overcast and absent at night', () => {
-    expect(disc(makePhysicalSky('day', noon, 0.7, FALLBACK_VIEW)).sunDisc).toBeUndefined();
-    expect(disc(makePhysicalSky('night', noon, 0, FALLBACK_VIEW)).sunDisc).toBeUndefined();
+    expect(disc(makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', noon), 0.7, FALLBACK_VIEW)).sunDisc).toBeUndefined();
+    expect(disc(makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'night', noon), 0, FALLBACK_VIEW)).sunDisc).toBeUndefined();
   });
-  it('is orange-tinted low in the sky', () => {
-    const d = disc(makePhysicalSky('dusk', noon, 0, FALLBACK_VIEW)).sunDisc;
+  it('is orange-tinted low in the sky (golden hour, 4 degrees up)', () => {
+    const golden = momentFor({ kind: 'named', id: 'golden' }, FALLBACK_VIEW.place, noon);
+    const d = disc(makePhysicalSky(sunAt(FALLBACK_VIEW.place, golden), 0, FALLBACK_VIEW)).sunDisc;
     expect(d).toBeDefined();
     expect(d!.rgb[0]).toBeGreaterThan(d!.rgb[2]);
   });
@@ -118,16 +121,16 @@ describe('the sky is made from the View it is given', () => {
   const sameSpotOtherCamera = { ...FALLBACK_VIEW, lookAzDeg: 30, windowDeg: 100, horizonRow: 200 };
 
   it("lights the sky from the sun over the View's place, at its altitude", () => {
-    const sky = makePhysicalSky('day', NOW, 0, ELSEWHERE_VIEW);
+    const sky = makePhysicalSky(sunOfBand(ELSEWHERE_VIEW.place, 'day', NOW), 0, ELSEWHERE_VIEW);
     expect(sky.view).toBe(ELSEWHERE_VIEW);
-    expect(sky.sun).toEqual(sunForState(ELSEWHERE_VIEW.place, 'day', NOW));
-    expect(sky.sun).not.toEqual(sunForState(FALLBACK_VIEW.place, 'day', NOW));
+    expect(sky.sun).toEqual(sunOfBand(ELSEWHERE_VIEW.place, 'day', NOW));
+    expect(sky.sun).not.toEqual(sunAt(FALLBACK_VIEW.place, sunOfBand(ELSEWHERE_VIEW.place, 'day', NOW).time));
     expect(sky.atm.observerKm).toBe(ELSEWHERE_VIEW.place.altitudeKm);
   });
 
   it("fits and samples the stops through the View's camera: the same place and sun with another look is another gradient", () => {
-    const a = makePhysicalSky('day', NOW, 0, FALLBACK_VIEW);
-    const b = makePhysicalSky('day', NOW, 0, sameSpotOtherCamera);
+    const a = makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', NOW), 0, FALLBACK_VIEW);
+    const b = makePhysicalSky(sunOfBand(sameSpotOtherCamera.place, 'day', NOW), 0, sameSpotOtherCamera);
     expect(b.sun).toEqual(a.sun);
     expect(b.stops).not.toEqual(a.stops);
   });

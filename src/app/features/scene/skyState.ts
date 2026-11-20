@@ -1,54 +1,73 @@
-// Which sky the signed-out page is drawn against. The choice is one value, kept in one
-// localStorage key; whoever draws the sky (the scene, the title bar's control) reads it here.
-// 'auto' is a choice, not a sky: it resolves from the clock to day, dusk or night
-// (`resolveSkyState`), and every sky drawn is one of those three.
-import { sunElevation } from '../../../sky/sun.js';
+// Which sky the signed-out page is drawn against: three small stores and the notice that one of them moved. The viewer's choice (Auto, a
+// named moment, a free moment), the place the sky is over, and the constellation lines. They decide nothing: which instant is drawn is
+// `momentFor` and which band it is, `skyBand` (ridge/skyMoment.ts); the resolved sky here is those two applied to the stores.
+import { MOMENT_IDS, FREE_DATE_MAX, FREE_DATE_MIN, isDate, momentFor, momentKey, skyBand } from './ridge/skyMoment';
+import type { FixedSkyState, MomentId, SkyChoice } from './ridge/skyMoment';
+import { sunAt } from './ridge/sunAt';
+import type { Place } from './ridge/view';
 
-export type SkyState = 'auto' | 'day' | 'dusk' | 'night';
+export const SKY_CHOICE_KEY = 'ratatoskr.skyChoice';
 
-export const SKY_STATES: readonly SkyState[] = ['auto', 'day', 'dusk', 'night'];
-export const SKY_STATE_KEY = 'ratatoskr.skyState';
+const AUTO: SkyChoice = { kind: 'auto' };
 
-const isSkyState = (v: unknown): v is SkyState => SKY_STATES.includes(v as SkyState);
+/** A stored value as a choice, or undefined when it is not one (wrong shape, unknown moment, a date outside 1900..2100, minutes outside 0..1439). */
+export function parseSkyChoice(raw: unknown): SkyChoice | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const c = raw as Record<string, unknown>;
+  if (c.kind === 'auto') return AUTO;
+  if (c.kind === 'named' && MOMENT_IDS.includes(c.id as MomentId)) {
+    return { kind: 'named', id: c.id as MomentId };
+  }
+  if (
+    c.kind === 'free' &&
+    isDate(c.date) &&
+    c.date >= FREE_DATE_MIN &&
+    c.date <= FREE_DATE_MAX &&
+    Number.isInteger(c.minutes) &&
+    (c.minutes as number) >= 0 &&
+    (c.minutes as number) <= 1439
+  ) {
+    return { kind: 'free', date: c.date, minutes: c.minutes as number };
+  }
+  return undefined;
+}
 
-function load(): SkyState {
+const same = (a: SkyChoice, b: SkyChoice): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+// The sky menu once held Auto, Day, Dusk and Night under another key. It is read once, here, and removed: Day became Noon.
+const OLD_KEY = 'ratatoskr.skyState';
+const FROM_OLD = new Map<string, SkyChoice>([
+  ['auto', AUTO],
+  ['day', { kind: 'named', id: 'noon' }],
+  ['dusk', { kind: 'named', id: 'dusk' }],
+  ['night', { kind: 'named', id: 'night' }],
+]);
+
+function load(): SkyChoice {
   try {
-    const stored = localStorage.getItem(SKY_STATE_KEY);
-    return isSkyState(stored) ? stored : 'auto';
+    const old = localStorage.getItem(OLD_KEY);
+    if (old !== null) {
+      const migrated = FROM_OLD.get(old);
+      if (migrated && localStorage.getItem(SKY_CHOICE_KEY) === null) {
+        try {
+          // The new key first: a refusal leaves the old one in place, and the pick holds for this page load.
+          localStorage.setItem(SKY_CHOICE_KEY, JSON.stringify(migrated));
+        } catch {
+          return migrated;
+        }
+        localStorage.removeItem(OLD_KEY);
+        return migrated;
+      }
+      localStorage.removeItem(OLD_KEY);
+    }
+    const stored = localStorage.getItem(SKY_CHOICE_KEY);
+    return (stored !== null && parseSkyChoice(JSON.parse(stored))) || AUTO;
   } catch {
-    return 'auto';
+    return AUTO;
   }
 }
 
-/**
- * The three skies ever drawn. Each has the luminance band its theme ink needs against bare sky (WCAG relative luminance,
- * the `luminance` of src/sky/skyTokens.js): day, at least 0.2983 (the dark text ink #342d25); dusk, at least 0.4554 (the link
- * #2a4f27); night, at most 0.0931 (the light text ink #aeccff). The ridge scene's display budgets (ridge/toneMap.ts `BUDGET`)
- * sit inside them.
- */
-export type FixedSkyState = 'day' | 'dusk' | 'night';
-
-/** Where the clock puts the sun: the latitude the skies are baked for (src/sky/skyTokens.js MOMENTS), the longitude of this timezone. */
-const LAT = 45;
-/** Sun elevation (degrees) from which it is day, and below the negative of which it is night; between, dusk (dawn included). */
-export const DAY_FROM = 6;
-
 let clock: () => Date = () => new Date();
-/** Minutes west of UTC of this timezone's standard time (the larger of its January and July offsets), so daylight saving does not move the sun. */
-export const standardOffsetMinutes = (now: Date): number =>
-  Math.max(
-    new Date(now.getFullYear(), 0, 1).getTimezoneOffset(),
-    new Date(now.getFullYear(), 6, 1).getTimezoneOffset()
-  );
-
-/** The fixed sky a choice draws now: itself, or for 'auto' the sky the sun's elevation here calls for. */
-export function resolveSkyState(s: SkyState, now: Date = clock()): FixedSkyState {
-  if (s !== 'auto') return s;
-  const lon = -standardOffsetMinutes(now) / 4;
-  const el = sunElevation(now, LAT, lon) as number;
-  if (el >= DAY_FROM) return 'day';
-  return el <= -DAY_FROM ? 'night' : 'dusk';
-}
 
 /** The constellation lines (a hidden extra, ruling ridge-constellation-lines-hidden-extra): on or off, per viewer, off by default. */
 export const SKY_LINES_KEY = 'ratatoskr.skyLines';
@@ -66,42 +85,53 @@ export const getConstellationLines = (): boolean => {
   return lines;
 };
 
-let current: SkyState | undefined;
-const listeners = new Set<(s: FixedSkyState) => void>();
+let current: SkyChoice | undefined;
+let place: Place | undefined;
+const listeners = new Set<(s: FixedSkyState | undefined) => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let shown: FixedSkyState | undefined;
+let shownKey: string | undefined;
 const TICK_MS = 60_000;
 
 /** The choice (what the control shows). */
-export const getSkyState = (): SkyState => {
+export const getSkyChoice = (): SkyChoice => {
   current ??= load();
   return current;
 };
 
-/** The sky being drawn: the choice, resolved. */
-export const getResolvedSkyState = (): FixedSkyState => resolveSkyState(getSkyState());
+/** The place the sky is over: the loaded manifest's, set by skyPlace.ts; undefined until one is known. */
+export const getSkyPlace = (): Place | undefined => place;
+
+/** The moment the sky is drawn for: the real time, or the test clock. */
+export const skyNow = (): Date => clock();
+
+/** The band being drawn: the choice at the place, through `momentFor` and `skyBand`; undefined until a place is known (no sky is drawn for ink). */
+export const getResolvedSkyState = (): FixedSkyState | undefined =>
+  place && skyBand(sunAt(place, momentFor(getSkyChoice(), place, skyNow())).elevation);
+
+/** What a rebuild would be for, of the moment now drawn (`momentKey`): a named moment's changes when the place-local day rolls over. */
+const drawnKey = (): string | undefined => place && momentKey(getSkyChoice(), place, skyNow());
 
 const emit = () => {
   shown = getResolvedSkyState();
-  [...listeners].forEach((cb) => cb(shown as FixedSkyState));
+  shownKey = drawnKey();
+  [...listeners].forEach((cb) => cb(shown));
 };
 
-// While anyone listens and the choice is 'auto', one timer checks the clock each minute and tells
-// listeners when the resolved sky changes from the one last told (`shown`, set when telling and when the
-// first listener arrives, never by a later arrival or departure). Otherwise there is no timer.
+// While anyone listens and the choice is Auto or a named moment, one timer checks the clock each minute and tells
+// listeners when the resolved band, or the moment drawn (an Auto band, a named moment's place-local day), changes from the one
+// last told (`shown` and `shownKey`, set when telling and when the first listener arrives, never by a later arrival or departure).
+// A free moment does not move with the clock, so it has no timer.
 function sync(): void {
   clearTimeout(timer);
   timer = undefined;
-  if (listeners.size === 0 || getSkyState() !== 'auto') return;
+  if (listeners.size === 0 || getSkyChoice().kind === 'free') return;
   const tick = () => {
-    if (getResolvedSkyState() !== shown) emit();
+    if (getResolvedSkyState() !== shown || drawnKey() !== shownKey) emit();
     timer = setTimeout(tick, TICK_MS);
   };
   timer = setTimeout(tick, TICK_MS);
 }
-
-/** The moment the sky is drawn for: the real time, or the test clock. */
-export const skyNow = (): Date => clock();
 
 /** Replace the clock (tests); no argument restores the real one. */
 export function setSkyClock(now?: () => Date): void {
@@ -109,12 +139,13 @@ export function setSkyClock(now?: () => Date): void {
   sync();
 }
 
-export function setSkyState(s: SkyState): void {
-  if (!isSkyState(s)) return;
-  const changed = s !== getSkyState();
-  current = s;
+export function setSkyChoice(c: SkyChoice): void {
+  const next = parseSkyChoice(c);
+  if (!next) return;
+  const changed = !same(next, getSkyChoice());
+  current = next;
   try {
-    localStorage.setItem(SKY_STATE_KEY, s);
+    localStorage.setItem(SKY_CHOICE_KEY, JSON.stringify(next));
   } catch {
     // Storage is refused (private mode, quota): the choice holds for this page load only.
   }
@@ -124,12 +155,22 @@ export function setSkyState(s: SkyState): void {
   }
 }
 
+/** The place the sky is over (skyPlace.ts, once the manifest is loaded). Listeners hear it, since the band depends on it. */
+export function setSkyPlace(p: Place | undefined): void {
+  if (p?.id === place?.id && p?.tz === place?.tz && p?.lat === place?.lat && p?.lon === place?.lon) {
+    return;
+  }
+  place = p;
+  emit();
+}
+
 /**
- * A pick in the sky menu. Picking a state sets it; picking Night while the choice already is Night toggles the constellation lines, which
+ * A pick in the sky menu. Picking a choice sets it; picking Night while the choice already is Night toggles the constellation lines, which
  * listeners hear as a sky change (the scene is rebuilt for it: `ridgeSkyKey` carries the flag).
  */
-export function pickSkyState(s: SkyState): void {
-  if (s === 'night' && getSkyState() === 'night') {
+export function pickSkyChoice(c: SkyChoice): void {
+  const now = getSkyChoice();
+  if (c.kind === 'named' && c.id === 'night' && now.kind === 'named' && now.id === 'night') {
     lines = !getConstellationLines();
     try {
       localStorage.setItem(SKY_LINES_KEY, lines ? 'on' : 'off');
@@ -139,12 +180,15 @@ export function pickSkyState(s: SkyState): void {
     emit();
     return;
   }
-  setSkyState(s);
+  setSkyChoice(c);
 }
 
-/** Listeners hear the resolved sky: on a change of choice, and while 'auto', when the clock crosses a boundary. */
-export function subscribe(cb: (s: FixedSkyState) => void): () => void {
-  if (listeners.size === 0) shown = getResolvedSkyState();
+/** Listeners hear the resolved band: on a change of choice or place, while Auto, when the clock crosses a band, and while a named moment, when the place-local day rolls over. */
+export function subscribe(cb: (s: FixedSkyState | undefined) => void): () => void {
+  if (listeners.size === 0) {
+    shown = getResolvedSkyState();
+    shownKey = drawnKey();
+  }
   listeners.add(cb);
   sync();
   return () => {

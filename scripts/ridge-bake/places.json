@@ -1,8 +1,9 @@
 {
- "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); card_split_km = the ordered list of 1 to MAX_CARDS - 1 authored seam depths in km (the seam search refines each per column; K splits make K+1 cards; required, never defaulted); prefilter_m = Gaussian sigma in metres of the height low-pass before the cards are cut (default 0).",
+ "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing centres the 72 deg window (or az_deg); tz = the place's IANA time zone (required, never defaulted: the runtime draws named sky moments in the place's local day); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); card_split_km = the ordered list of 1 to MAX_CARDS - 1 authored seam depths in km (the seam search refines each per column; K splits make K+1 cards; required, never defaulted); prefilter_m = Gaussian sigma in metres of the height low-pass before the cards are cut (default 0).",
  "presets": [
   {
    "id": "vienna",
+   "tz": "Europe/Vienna",
    "name": "Vienna, looking SW to Rax/Schneeberg",
    "kind": "far range over a flat foreground",
    "lat": 48.1929826,
@@ -22,6 +23,7 @@
   },
   {
    "id": "matterhorn",
+   "tz": "Europe/Zurich",
    "name": "Matterhorn from the Gornergrat (photo cell, 9.7 km)",
    "kind": "lone horn, close, 27 deg of relief",
    "lat": 45.983139,
@@ -151,6 +153,7 @@
   },
   {
    "id": "fuji",
+   "tz": "Asia/Tokyo",
    "name": "Fuji from the Shiraito Falls side, 13.8 km WSW (photo cell)",
    "kind": "lone cone, smooth",
    "lat": 35.312467222222494,
@@ -297,6 +300,7 @@
   },
   {
    "id": "halfdome",
+   "tz": "America/Los_Angeles",
    "name": "Half Dome from the Yosemite Valley floor (Sentinel Bridge photo cell)",
    "kind": "granite wall across a valley",
    "lat": 37.745833333333,
@@ -454,6 +458,7 @@
   },
   {
    "id": "amadablam",
+   "tz": "Asia/Kathmandu",
    "name": "Ama Dablam and the Everest massif, 4 km WSW of Tengboche near Khumjung (photo cell)",
    "kind": "far high range behind a near spire",
    "lat": 27.822000000000003,
@@ -528,6 +533,7 @@
   },
   {
    "id": "trecime",
+   "tz": "Europe/Rome",
    "name": "Tre Cime di Lavaredo from the Dreizinnenhuette area, 2.4 km N (photo cell)",
    "kind": "cirque wall, spires",
    "lat": 46.636906,

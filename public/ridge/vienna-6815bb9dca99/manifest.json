@@ -1,6 +1,6 @@
 {
  "schema": 2,
- "baker_version": 2,
+ "baker_version": 3,
  "bake_id": "6815bb9dca99",
  "place": {
   "id": "vienna",
@@ -8,7 +8,8 @@
   "lat": 48.1929826,
   "lon": 16.3534237,
   "altitude_km": 0.18330000000000002,
-  "eye_m": 213.3
+  "eye_m": 213.3,
+  "tz": "Europe/Vienna"
  },
  "view": {
   "look_az_deg": 214.0,

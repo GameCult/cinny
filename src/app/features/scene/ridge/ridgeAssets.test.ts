@@ -120,6 +120,12 @@ describe('the committed ridge assets', () => {
         expect(dir.endsWith(`-${raw.bake_id}`)).toBe(true);
       });
 
+      it('names a time zone Intl knows (the sky draws its named moments in the place local day)', () => {
+        const tz = (raw as unknown as { place: { tz?: unknown } }).place.tz;
+        expect(typeof tz).toBe('string');
+        expect(() => new Intl.DateTimeFormat('en-US', { timeZone: tz as string })).not.toThrow();
+      });
+
       it('has every card file, at the length the manifest states', () => {
         raw.cards.flatMap(files).forEach((f) => {
           expect(statSync(join(ROOT, dir, f.file)).size, f.file).toBe(f.bytes);

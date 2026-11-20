@@ -13,7 +13,7 @@ const camera: Camera = { azimuthDeg: 180, hfovDeg: 340, vfovDeg: 170, horizonAt:
 
 const sky = (iso: string, state: 'day' | 'dusk' | 'night' = 'night') => {
   const t = new Date(iso);
-  return makePhysicalSky(state, t, 0, FALLBACK_VIEW, sunAt(P, t));
+  return makePhysicalSky(sunAt(P, t), 0, FALLBACK_VIEW);
 };
 const bodies = (iso: string, state: 'day' | 'dusk' | 'night' = 'night', lines = false) => {
   const p = sky(iso, state);
@@ -134,7 +134,7 @@ describe('the stars under the figures', () => {
     const { linesAt } = await import('./starCatalogue');
     const cam = windowFor(FALLBACK_VIEW, 1100, 619).camera;
     const t = new Date('2026-11-25T00:00:00Z'); // full moon, high in the south
-    const p = makePhysicalSky('night', t, 0, FALLBACK_VIEW, sunAt(P, t));
+    const p = makePhysicalSky(sunAt(P, t), 0, FALLBACK_VIEW);
     const nb = nightBodies(p, paintSky(p, 1100, 619, cam), false);
     let vertices = 0;
     let carried = 0;

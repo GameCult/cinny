@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { FALLBACK_VIEW } from './view';
 import { makePhysicalSky } from './physicalSky';
+import { sunOfBand } from './skyTestkit';
 import { renderDome } from './skyDome';
 import { windowFor } from './view';
 import { applyCurve, BLACK_LIFT, BUDGET, NIGHT_CEILING, NIGHT_LIFT, SCOTOPIC, displayLumaOf, fitDisplay, makeCurve, scotopic, scotopicWeight } from './toneMap';
 import { sunAt } from './sunAt';
-import type { FixedSkyState } from '../skyState';
+import type { FixedSkyState } from './skyMoment';
 
 const sweep = (c: ReturnType<typeof makeCurve>) =>
   Array.from({ length: 401 }, (_, i) => applyCurve(c, i / 400));
@@ -28,7 +29,7 @@ describe('the tone curve', () => {
 });
 
 describe.each(['day', 'dusk', 'night'] as FixedSkyState[])('the %s curve fitted to a sky', (state) => {
-  const sky = makePhysicalSky(state, new Date('2026-06-21T10:40:00Z'), 0, FALLBACK_VIEW);
+  const sky = makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, state, new Date('2026-06-21T10:40:00Z')), 0, FALLBACK_VIEW);
   const { camera } = windowFor(sky.view, 64, 36);
   const dome = renderDome(sky.atm, sky.sun, camera, 64, 36, sky.weather.cover, sky.night);
   const b = BUDGET[state];
@@ -67,7 +68,7 @@ describe.each(['day', 'dusk', 'night'] as FixedSkyState[])('the %s curve fitted 
 describe('the night display', () => {
   const night = (iso: string) => {
     const t = new Date(iso);
-    return makePhysicalSky('night', t, 0, FALLBACK_VIEW, sunAt(FALLBACK_VIEW.place, t));
+    return makePhysicalSky(sunAt(FALLBACK_VIEW.place, t), 0, FALLBACK_VIEW);
   };
   const fullMoon = night('2026-11-24T22:00:00Z');
   const newMoon = night('2026-12-09T20:00:00Z');
@@ -86,7 +87,7 @@ describe('the night display', () => {
   it('grades toward the rods at night and not by day', () => {
     expect(fullMoon.fit.display.grade).toBeGreaterThan(0.8);
     expect(newMoon.fit.display.grade).toBeGreaterThan(0.99);
-    expect(makePhysicalSky('day', new Date('2026-06-21T10:40:00Z'), 0, FALLBACK_VIEW).fit.display.grade ?? 0).toBe(0);
+    expect(makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', new Date('2026-06-21T10:40:00Z')), 0, FALLBACK_VIEW).fit.display.grade ?? 0).toBe(0);
   });
 
   it('has no fixed night ceiling: the curve tops out at NIGHT_CEILING', () => {

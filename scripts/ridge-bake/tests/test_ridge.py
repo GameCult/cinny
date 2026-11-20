@@ -49,7 +49,7 @@ def _bake(hfun, splits_km, sigma=0.0):
     """prefilter, set_view, coverage, seams, cards on synthetic rays (window = columns 0..WIN, i.e. azimuth 0..72): the dict bake_place returns."""
     A, Hh = rays(hfun); ridge.P.update(win0=0, eye_m=EYE); a, h = ridge.prefilter(D, Hh, sigma); v = ridge.set_view(a.max(0))
     nrm = tuple(ridge.win(x) for x in ridge.normals(D, h)); aw, hw = ridge.win(a), ridge.win(h); cov = ridge.coverage(D, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], D)
-    place = dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE)
+    place = dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE, tz='Europe/Vienna')
     view = dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), camera=dict(r_m=export.CAMERA_R_M, heading_max_deg=17.0))
     return dict(place=place, view=view, meta=meta, cards=ridge.cards(D, aw, hw, sm, nrm, ), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(D), a=aw, h=hw, v=v)
@@ -189,6 +189,9 @@ def test_manifest_v2_writer():
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and m['cards'][0]['median_m'] < m['cards'][1]['median_m'] < m['cards'][2]['median_m']
         for c in m['cards']:
             for kind in ('colour', 'geometry'): f = a / c[kind]['file']; assert f.stat().st_size == c[kind]['bytes'] and export.decode(f.read_bytes()).shape[:2] == (c['h'], WIN), c
+        bad = json.loads(json.dumps(m)); bad['place']['tz'] = 'Mars/Olympus'
+        try: export.validate(bad, export.SCHEMA['$defs']['manifest']); raise AssertionError('a zone the system does not know validated')
+        except ValueError as e: assert 'time zone' in str(e), e
         assert m['bytes'] == sum(c[k]['bytes'] for c in m['cards'] for k in ('colour', 'geometry')) and m['encoding']['normal'] == 'rt8' and m['curvature'] == dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF)
         idx = json.load(open(d + '/a/index.json')); export.validate(idx, export.SCHEMA['$defs']['index']); assert idx == dict(schema=1, default='synthetic', places={'synthetic': a.name})
         pk3 = [dict(c) for c in pk]; pk3[1]['geometry'] = pk3[1]['geometry'] + b'x'; assert export.bake_id([(c['colour'], c['geometry']) for c in pk3]) != export.bake_id([(c['colour'], c['geometry']) for c in pk]), 'a changed byte kept the bake_id'
@@ -233,8 +236,13 @@ def test_card_cap_refusals():
         try: ridge.load_preset('x', os.path.join(d, 'q.json'))
         except ValueError: pass
         else: assert False, 'a preset without card_split_km was defaulted'
-        json.dump(dict(presets=[dict(id='x', card_split_km=[1, 2, 3, 4, 5])]), open(os.path.join(d, 'r.json'), 'w')); assert ridge.load_preset('x', os.path.join(d, 'r.json'))['card_split_km'] == [1, 2, 3, 4, 5]
-        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0), camera=dict(r_m=0.0, heading_max_deg=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
+        json.dump(dict(presets=[dict(id='x', tz='Europe/Vienna', card_split_km=[1, 2, 3, 4, 5])]), open(os.path.join(d, 'r.json'), 'w')); assert ridge.load_preset('x', os.path.join(d, 'r.json'))['card_split_km'] == [1, 2, 3, 4, 5]
+        for bad_tz in (None, '', 'Not/AZone'):
+            p = os.path.join(d, 'tz.json'); json.dump(dict(presets=[dict(id='x', card_split_km=[6], **({} if bad_tz is None else dict(tz=bad_tz)))]), open(p, 'w'))
+            try: ridge.load_preset('x', p)
+            except ValueError: pass
+            else: assert False, ('a preset with tz', bad_tz, 'was accepted')
+        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0), camera=dict(r_m=0.0, heading_max_deg=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
         full = np.ones((H, WIN))
         _refuses(d + '/four', dict(place=place, view=view, meta=meta, opaque=full), [_flat_card(0, H) for _ in range(4)], 'four full-frame cards (24.6 MB decoded) were written')
         ok = [_flat_card(0, H)] + [_flat_card(0, 150, seed=i) for i in range(1, 6)]; dest = export.write_bake(d + '/six', place, view, meta, ok, full); assert len(json.load(open(dest / 'manifest.json'))['cards']) == 6

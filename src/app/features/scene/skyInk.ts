@@ -15,7 +15,7 @@ import chroma from 'chroma-js';
 import { AA, luminance } from '../../../sky/skyTokens.js';
 import { baked } from '../../../sky/baked';
 import { indexColorMXID } from '../../../util/colorMXID';
-import type { FixedSkyState } from './skyState';
+import type { FixedSkyState } from './ridge/skyMoment';
 import type { SkyThemeId } from './skyTheme';
 
 export interface SkyInk {
@@ -31,9 +31,9 @@ export interface SkyInk {
 export const sceneInk = (
   themeId: SkyThemeId | undefined,
   sceneOn: boolean,
-  state: FixedSkyState,
+  state: FixedSkyState | undefined,
   phone: boolean
-): SkyInk | undefined => (themeId && sceneOn ? { state, phone } : undefined);
+): SkyInk | undefined => (themeId && sceneOn && state ? { state, phone } : undefined);
 
 /** WCAG relative luminance of the lightest 24x12 patch of terrain behind the timeline. */
 export const LIGHTEST_PATCH: Record<FixedSkyState, { desktop: number; phone: number }> = {
