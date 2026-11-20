@@ -3,12 +3,12 @@ import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
-import { windowFor } from './view';
-import { crossfade } from './frameChoice';
-import { activeAt, drawStars, drawTwinkle as paintTwinkle, makeStars, Star } from './stars';
+import { cardMotion, windowFor } from './view';
+import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
+import { nightBodies, paintNightBodies } from './nightBodies';
+import type { NightBodies } from './nightBodies';
 import { drawRainTile, RAIN_TILES } from './rain';
-import type { Backdrop, Planes } from './Backdrop';
-import { PLANE_NAMES } from './manifest';
+import type { Backdrop } from './Backdrop';
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`, where `debug` allows it. */
@@ -19,8 +19,10 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
   sky?: SkyColours;
-  /** The baked ridge planes, already decoded; none is the sky-only scene (`view.ts` FALLBACK_VIEW). */
+  /** The baked ridge cards, already lit for `sky` (`Backdrop.ts`); none is the sky-only scene (`view.ts` FALLBACK_VIEW). */
   backdrop?: Backdrop;
+  /** Draw the constellation lines over the stars (a hidden extra, `skyState.ts`); only a night sky shows them. */
+  lines?: boolean;
 };
 
 const css = (c: Srgb): string => `rgb(${c[0]},${c[1]},${c[2]})`;
@@ -57,9 +59,9 @@ function paintSky(
   cssW: number,
   cssH: number,
   makeCanvas: () => HTMLCanvasElement
-): boolean {
+): { ok: boolean; px?: ReturnType<typeof paintPhysicalSky> } {
   const ctx = context2d(canvas);
-  if (!ctx) return false;
+  if (!ctx) return { ok: false };
   if (sky.physical) {
     const px = paintPhysicalSky(
       sky.physical,
@@ -79,7 +81,7 @@ function paintSky(
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(small, 0, 0, canvas.width, canvas.height);
       if (px.sunDisc) drawSun(ctx, px.sunDisc, canvas.width, canvas.height);
-      return true;
+      return { ok: true, px };
     }
   }
   const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -89,7 +91,7 @@ function paintSky(
   g.addColorStop(1, css(sky.horizon));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  return true;
+  return { ok: true };
 }
 
 const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -97,7 +99,7 @@ const clock = (): number => (typeof performance !== 'undefined' ? performance.no
 interface Built {
   /** The twinkling stars' own canvas, over the sky; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
-  /** The ridge planes' rig, over the twinkle canvas and under the rain; absent in 'still' (the planes are drawn into the host canvas). */
+  /** The ridge cards' rig, over the twinkle canvas and under the rain; absent in 'still' (the cards are drawn into the host canvas). */
   rig?: { el: HTMLElement; anims: (Animation | undefined)[] };
   /** The rain's tiles and their falling, present only when the weather rains (`rain.ts`). */
   rain?: { els: HTMLElement[]; anims: (Animation | undefined)[] };
@@ -106,13 +108,13 @@ interface Built {
 /** The twinkle overlay redraws at most this often: the swings are 2 to 7 s, no need for 60 fps. */
 const TWINKLE_FRAME_MS = 50;
 
-/** Far, mid and near slide this share of the drift room (`windowFor` driftPx); one leg of the back-and-forth takes DRIFT_LEG_S, so the loop is 150 s. Authored, tunable by eye. */
-const DRIFT_DEPTH = [0.35, 0.7, 1] as const;
+/** One leg of the back-and-forth drift, a turn of the heading from one end of its range to the other, takes DRIFT_LEG_S, so the loop is 150 s. Authored, tunable by eye. */
 const DRIFT_LEG_S = 75;
 
 /**
  * The ridge scene: same contract as `createScene` ({ login, dispose }, null for "keep the CSS
- * ground"), no WebGL. It draws the sky, the stars, the baked ridge planes when given a `backdrop` (none: the sky alone) and the rain. The host canvas holds the baked sky; it and
+ * ground"). It draws the sky, the stars, the lit ridge cards when given a `backdrop` (none: the sky alone) and the rain. The scene itself
+ * requests no WebGL: the cards arrive lit (`lightCards.ts`, once per scene build) and only 2D contexts are asked of the host canvas. The host canvas holds the baked sky; it and
  * its parent must be positioned, and the canvas should fill the parent.
  */
 export function createRidgeScene(opts: RidgeOptions): Scene | null {
@@ -210,12 +212,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   /**
-   * The ridge over the sky: one div holding a group per plane (far, mid, near: DOM order is paint order, stacking is by order alone), each the frame's
-   * image and, when the choice blends two frames, the second over it at the blend weight. A group slides sideways on the compositor by
-   * `driftPx` times its depth; the baker's pixels are never touched.
+   * The ridge over the sky: one element per lit card, farthest first (DOM order is paint order, stacking is by order alone), placed at the card's rows
+   * of the plane and scaled about the horizon's centre by the baker's `scale` (`view.ts` `cardMotion` owns every offset and scale). The camera
+   * turns through its heading range and back on the compositor: card i pans `scale` x heading, so a nearer card leads the far range.
    */
   const startRig = (bd: Backdrop, w: number, h: number): NonNullable<Built['rig']> => {
-    const win = windowFor(bd.manifest.view, w, h);
+    const { view } = bd.manifest;
+    const win = windowFor(view, w, h);
+    const motion = cardMotion(bd.manifest, win);
     const el = document.createElement('div');
     el.setAttribute('aria-hidden', 'true');
     Object.assign(el.style, {
@@ -228,41 +232,26 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       pointerEvents: 'none',
     });
     const anims: (Animation | undefined)[] = [];
-    PLANE_NAMES.forEach((name, k) => {
-      const group = document.createElement('div');
-      Object.assign(group.style, {
+    const planeTop = h - win.plane.bottom - win.plane.h;
+    for (let k = bd.cards.length - 1; k >= 0; k -= 1) {
+      const card = bd.cards[k];
+      const { scale, reachPx } = motion.cards[k];
+      const node = card.canvas;
+      Object.assign(node.style, {
         position: 'absolute',
         left: `${(w - win.plane.w) / 2}px`,
-        bottom: `${win.plane.bottom}px`,
+        top: `${planeTop + card.top * win.plane.scale}px`,
         width: `${win.plane.w}px`,
-        height: `${win.plane.h}px`,
+        height: `${card.h * win.plane.scale}px`,
+        transformOrigin: `${win.plane.w / 2}px ${(view.horizonRow - card.top) * win.plane.scale}px`,
         willChange: 'transform',
       });
-      const layer = (planes: Planes, opacity: number, blend?: string) => {
-        const img = planes[name].cloneNode() as HTMLImageElement;
-        Object.assign(img.style, {
-          position: 'absolute',
-          left: '0',
-          top: '0',
-          width: '100%',
-          height: '100%',
-          opacity: String(opacity),
-        });
-        if (blend) img.style.mixBlendMode = blend;
-        group.appendChild(img);
-      };
-      // One rule (`crossfade`): a at 1 - w, b added to it at w; the group is its own isolated backdrop, so the sum meets the sky once.
-      const fade = crossfade(bd.choice);
-      group.style.isolation = 'isolate';
-      layer(bd.a, fade.a);
-      if (bd.b) layer(bd.b, fade.b, 'plus-lighter');
-      el.appendChild(group);
-      const reach = win.driftPx * DRIFT_DEPTH[k];
+      el.appendChild(node);
       anims.push(
-        group.animate?.(
+        node.animate?.(
           [
-            { transform: `translate3d(${-reach}px,0,0)` },
-            { transform: `translate3d(${reach}px,0,0)` },
+            { transform: `translate3d(${-reachPx}px,0,0) scale(${scale})` },
+            { transform: `translate3d(${reachPx}px,0,0) scale(${scale})` },
           ],
           {
             duration: DRIFT_LEG_S * 1000,
@@ -272,43 +261,32 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
           }
         )
       );
-    });
+    }
     parent.appendChild(el);
     return { el, anims };
   };
 
-  /** Paint the ridge planes into the host canvas, a and b crossfaded, far to near: the still scene's one image. */
-  const paintPlanes = (bd: Backdrop) => {
+  /** Paint the lit cards into the host canvas, farthest first, each at its scale about the same origin as the rig, at heading 0: the still scene's one image. */
+  const paintCards = (bd: Backdrop) => {
     const ctx = context2d(canvas);
     if (!ctx) return;
+    const { view } = bd.manifest;
     const { w, h, scale } = viewSize();
-    const win = windowFor(bd.manifest.view, w, h);
+    const win = windowFor(view, w, h);
+    const s = win.plane.scale * scale;
     const dw = win.plane.w * scale;
-    const dh = win.plane.h * scale;
-    const x = (canvas.width - dw) / 2;
-    const y = canvas.height - dh - win.plane.bottom * scale;
-    const fade = crossfade(bd.choice);
-    // A blend is summed in an offscreen of its own, as the rig sums it in an isolated group: 'lighter' on the host canvas would add to the sky.
-    const sum = bd.b ? document.createElement('canvas') : null;
-    if (sum) {
-      sum.width = dw;
-      sum.height = dh;
+    const x0 = (canvas.width - dw) / 2;
+    const planeTop = canvas.height - (win.plane.h + win.plane.bottom) * scale;
+    const ox = x0 + dw / 2;
+    const oy = planeTop + view.horizonRow * s;
+    for (let k = bd.cards.length - 1; k >= 0; k -= 1) {
+      const card = bd.cards[k];
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.scale(card.scale, card.scale);
+      ctx.drawImage(card.canvas, x0 - ox, planeTop + card.top * s - oy, dw, card.h * s);
+      ctx.restore();
     }
-    const sctx = sum ? context2d(sum) : null;
-    PLANE_NAMES.forEach((name) => {
-      if (!bd.b || !sum || !sctx) {
-        ctx.drawImage(bd.a[name], x, y, dw, dh);
-        return;
-      }
-      sctx.clearRect(0, 0, dw, dh);
-      sctx.globalCompositeOperation = 'source-over';
-      sctx.globalAlpha = fade.a;
-      sctx.drawImage(bd.a[name], 0, 0, dw, dh);
-      sctx.globalCompositeOperation = 'lighter';
-      sctx.globalAlpha = fade.b;
-      sctx.drawImage(bd.b[name], 0, 0, dw, dh);
-      ctx.drawImage(sum, x, y, dw, dh);
-    });
   };
 
   /** Paint the sky, the stars and the rain. Returns false when a 2D context is missing or there is no area yet. */
@@ -319,12 +297,17 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const { w, h, scale } = viewSize();
     canvas.width = Math.round(w * scale);
     canvas.height = Math.round(h * scale);
-    if (!paintSky(canvas, sky, w, h, () => document.createElement('canvas'))) return false;
-    // Every star is baked into the sky; the twinkling ones get their own canvas, which a per-frame
-    // pass clears and paints over. 'still' has no overlay.
-    const stars = makeStars(sky, w, h);
+    const painted = paintSky(canvas, sky, w, h, () => document.createElement('canvas'));
+    if (!painted.ok) return false;
+    // The real stars, the moon and (when asked) the constellation lines are baked into the sky; the twinkling stars get their own
+    // canvas, which a per-frame pass clears and paints over. 'still' has no overlay. A sky with no physical model has no bodies.
+    const bodies: NightBodies =
+      painted.px && sky.physical
+        ? nightBodies(sky.physical, painted.px, opts.lines === true)
+        : { stars: [], lines: [] };
+    const stars = bodies.stars;
     const skyCtx = context2d(canvas);
-    if (skyCtx) drawStars(skyCtx, stars, canvas.width, canvas.height, scale);
+    if (skyCtx) paintNightBodies(skyCtx, bodies, canvas.width, canvas.height, scale);
     let twinkle: HTMLCanvasElement | undefined;
     if (stars.length && tier !== 'still') {
       twinkle = document.createElement('canvas');
@@ -397,7 +380,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     teardown();
     cancelAnimationFrame(raf);
     raf = 0;
-    if (opts.backdrop) paintPlanes(opts.backdrop);
+    if (opts.backdrop) paintCards(opts.backdrop);
     report(true);
   };
 

@@ -1,87 +1,22 @@
 /* eslint-disable no-restricted-syntax, no-continue -- test loops over sample times */
 import { describe, expect, it } from 'vitest';
-import { skyColours } from './skyColour';
 import {
-  MAX_STARS,
-  NIGHT_LUMA,
   SLOTS,
   TWINKLE_GAIN,
   TWINKLE_PERIOD,
   activeAt,
-  makeStars,
-  skyLuma,
   slotCount,
   slotOffset,
   slotPeriod,
-  starCount,
   twinkleGain,
 } from './stars';
 
-const DAY = {
-  ...skyColours(),
-  top: [96, 150, 220],
-  mid: [150, 190, 235],
-  horizon: [240, 215, 190],
-} as const;
-const NIGHT = {
-  ...skyColours(),
-  top: [10, 14, 40],
-  mid: [30, 34, 80],
-  horizon: [60, 50, 90],
-} as const;
-const N = makeStars(NIGHT, 390, 844).length;
+/** A field the size of a night's visible stars. */
+const N = 1200;
 
 function hash2(a: number, b: number) {
   return ((a * 7919 + b * 104729) % 1000) / 1000;
 }
-
-describe('star placement', () => {
-  it('is deterministic: the same sky and size give the identical field', () => {
-    expect(makeStars(NIGHT, 390, 844)).toEqual(makeStars(NIGHT, 390, 844));
-    expect(makeStars(skyColours(), 390, 844)).toEqual(makeStars(skyColours(), 390, 844));
-  });
-
-  it('draws none in a day sky or the lavender dusk, and some in a night one', () => {
-    expect(makeStars(DAY, 390, 844)).toHaveLength(0);
-    expect(makeStars(skyColours(), 390, 844)).toHaveLength(0);
-    expect(makeStars(NIGHT, 390, 844).length).toBeGreaterThan(50);
-  });
-
-  it('is a few hundred at most: bounded by MAX_STARS and by the viewport', () => {
-    for (const [w, h] of [
-      [390, 844],
-      [1920, 1080],
-      [100, 100],
-    ] as const) {
-      expect(makeStars(NIGHT, w, h).length).toBeLessThanOrEqual(starCount(w, h));
-      expect(starCount(w, h)).toBeLessThanOrEqual(MAX_STARS);
-    }
-    expect(N).toBeGreaterThan(150);
-  });
-
-  it('thins toward the horizon: more than twice the stars in the top third than the bottom third of the sky', () => {
-    const all = makeStars(NIGHT, 390, 844);
-    expect(all.filter((s) => s.y < 0.26).length).toBeGreaterThan(
-      2 * all.filter((s) => s.y > 0.52).length
-    );
-  });
-
-  it('fades with the sky: every star sits where the sky is dark, alpha within bounds', () => {
-    for (const s of makeStars(NIGHT, 390, 844)) {
-      expect(skyLuma(NIGHT, s.y)).toBeLessThan(NIGHT_LUMA);
-      expect(s.alpha).toBeLessThanOrEqual(0.9);
-      expect(s.alpha).toBeGreaterThanOrEqual(0.05);
-    }
-  });
-
-  it('varies in size and brightness', () => {
-    const all = makeStars(NIGHT, 390, 844);
-    expect(new Set(all.map((s) => s.r.toFixed(2))).size).toBeGreaterThan(50);
-    expect(
-      Math.max(...all.map((s) => s.alpha)) - Math.min(...all.map((s) => s.alpha))
-    ).toBeGreaterThan(0.3);
-  });
-});
 
 describe('twinkle schedule', () => {
   const times = Array.from({ length: 400 }, (_, i) => i * 0.37);

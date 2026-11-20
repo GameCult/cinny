@@ -1,7 +1,7 @@
 import chroma from 'chroma-js';
 import { describe, expect, it } from 'vitest';
 import { baked } from '../../../sky/baked';
-import { AA, NIGHT_SKY_LIGHTEST, luminance } from '../../../sky/skyTokens.js';
+import { AA, luminance } from '../../../sky/skyTokens.js';
 import { indexColorMXID } from '../../../util/colorMXID';
 import type { FixedSkyState } from './skyState';
 import {
@@ -115,8 +115,6 @@ describe('inkForState', () => {
     expect(chroma(aqua).oklch()[0]).toBeLessThanOrEqual(NIGHT_INK_MAX_L);
     expect(chroma(aqua).oklch()[1]).toBeGreaterThan(0.08);
     expect(patchRatio(aqua, 'night', true)).toBeGreaterThan(3.9);
-    // The one-patch figure is what the cap gives up; against the sky's own lightest (skyBackdrop) it clears AA.
-    expect((luminance(aqua) + 0.05) / (NIGHT_SKY_LIGHTEST + 0.05)).toBeGreaterThanOrEqual(AA);
   });
 
   it('leaves a colour that already clears its patch untouched, and a non-colour alone', () => {

@@ -1,19 +1,16 @@
-// A hand-written manifest v1 and index v1 (wire form, as export.py writes them): the runtime's tests need no real bake and no decoder.
-import { FRAME_KEYS } from './manifest';
+// A hand-written manifest v2 and index v1 (wire form, as export.py writes them): the runtime's tests need no real bake and no decoder.
 import type { View } from './view';
 
-const SUN: Record<typeof FRAME_KEYS[number], [number, number]> = {
-  dawn: [100, 0],
-  morning: [130, 20],
-  noon: [180, 60],
-  golden: [240, 6],
-  dusk: [262, -2.5],
-  night: [0, -12],
-};
+/** Card scales of the fixture, nearest first, as the baker derives them for a camera 200 m forward (distances 1.2 km, 12 km, 40 km). */
+const SCALES = [1.2, 1.0167, 1.005] as const;
 
-export const wireManifest = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
-  schema: 1,
-  baker_version: 1,
+/** A v2 manifest of `k` cards (1 to 6), nearest first, each a band of the 600-row plane. */
+export const wireManifest = (
+  over: Record<string, unknown> = {},
+  k = 3
+): Record<string, unknown> => ({
+  schema: 2,
+  baker_version: 2,
   bake_id: 'abc123abc123',
   place: {
     id: 'vienna',
@@ -21,9 +18,7 @@ export const wireManifest = (over: Record<string, unknown> = {}): Record<string,
     lat: 48.19,
     lon: 16.35,
     altitude_km: 0.183,
-    tz_h: 1,
-    tz_name: 'CET',
-    date: '2026-06-21',
+    eye_m: 1.7,
   },
   view: {
     look_az_deg: 214,
@@ -31,24 +26,29 @@ export const wireManifest = (over: Record<string, unknown> = {}): Record<string,
     plane_w: 1280,
     plane_h: 600,
     px_per_deg_h: 1280 / 72,
-    px_per_deg_v: 17.7,
+    px_per_deg_v: 177.8,
+    exaggeration: 10,
     horizon_row: 314.5,
-    sky_row: 0,
-    near_row: 599,
+    sky_row: 24,
+    near_row: 396,
   },
-  frames: FRAME_KEYS.map((key) => ({
-    key,
-    sun: { az: SUN[key][0], el: SUN[key][1] },
-    hour_utc: 0,
-    planes: Object.fromEntries(
-      ['far', 'mid', 'near'].map((n) => [
-        n,
-        { file: `${key}-${n}.webp`, bytes: 1, w: 1280, h: 600 },
-      ])
-    ),
-    bytes: 3,
-    luma: { min: 0.1, max: 0.5 },
+  curvature: { r_earth_m: 6371000, k_ref: 0.13 },
+  encoding: { log_d_min: 4.6, log_d_max: 11.5, normal: 'rt8' },
+  camera: { r_m: 200, heading_max_deg: 23 },
+  cards: Array.from({ length: k }, (_, i) => ({
+    top: 100 * i,
+    h: 600 - 100 * i,
+    near_m: i ? 1000 * i : null,
+    far_m: i < k - 1 ? 1000 * (i + 1) : null,
+    median_m: 1000 * (i + 1),
+    distance_m: 1000 * (i + 1),
+    scale: SCALES[i] ?? 1.001,
+    colour: { file: `card-${i}-colour.webp`, bytes: 1 },
+    geometry: { file: `card-${i}-geometry.webp`, bytes: 1 },
   })),
+  w: 1280,
+  h: 600,
+  bytes: 2 * k,
   attribution: {
     credit_line: 'credit',
     licence: 'licence',
@@ -72,5 +72,6 @@ export const ELSEWHERE_VIEW: View = {
   planeW: 1600,
   planeH: 700,
   pxPerDegH: 1600 / 90,
+  pxPerDegV: 100,
   horizonRow: 250,
 };

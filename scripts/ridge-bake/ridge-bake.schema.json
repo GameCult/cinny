@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "ridge-bake manifest v1 and index v1",
+ "title": "ridge-bake manifest v2 and index v1",
  "$defs": {
   "manifest": {
    "type": "object",
@@ -10,13 +10,19 @@
     "bake_id",
     "place",
     "view",
-    "frames",
+    "curvature",
+    "encoding",
+    "camera",
+    "cards",
+    "w",
+    "h",
+    "bytes",
     "attribution"
    ],
    "additionalProperties": false,
    "properties": {
     "schema": {
-     "const": 1
+     "const": 2
     },
     "baker_version": {
      "type": "integer"
@@ -32,9 +38,7 @@
       "lat",
       "lon",
       "altitude_km",
-      "tz_h",
-      "tz_name",
-      "date"
+      "eye_m"
      ],
      "additionalProperties": false,
      "properties": {
@@ -53,14 +57,8 @@
       "altitude_km": {
        "type": "number"
       },
-      "tz_h": {
+      "eye_m": {
        "type": "number"
-      },
-      "tz_name": {
-       "type": "string"
-      },
-      "date": {
-       "type": "string"
       }
      }
     },
@@ -73,6 +71,7 @@
       "plane_h",
       "px_per_deg_h",
       "px_per_deg_v",
+      "exaggeration",
       "horizon_row",
       "sky_row",
       "near_row"
@@ -98,6 +97,9 @@
       "px_per_deg_v": {
        "type": "number"
       },
+      "exaggeration": {
+       "type": "number"
+      },
       "horizon_row": {
        "type": "number"
       },
@@ -109,156 +111,148 @@
       }
      }
     },
-    "frames": {
+    "curvature": {
+     "type": "object",
+     "required": [
+      "r_earth_m",
+      "k_ref"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "r_earth_m": {
+       "type": "number"
+      },
+      "k_ref": {
+       "type": "number"
+      }
+     }
+    },
+    "encoding": {
+     "type": "object",
+     "required": [
+      "log_d_min",
+      "log_d_max",
+      "normal"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "log_d_min": {
+       "type": "number"
+      },
+      "log_d_max": {
+       "type": "number"
+      },
+      "normal": {
+       "const": "rt8"
+      }
+     }
+    },
+    "camera": {
+     "type": "object",
+     "required": [
+      "r_m",
+      "heading_max_deg"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "r_m": {
+       "type": "number"
+      },
+      "heading_max_deg": {
+       "type": "number"
+      }
+     }
+    },
+    "cards": {
      "type": "array",
-     "minItems": 6,
+     "minItems": 1,
      "maxItems": 6,
      "items": {
       "type": "object",
       "required": [
-       "key",
-       "sun",
-       "hour_utc",
-       "planes",
-       "bytes",
-       "luma"
+       "top",
+       "h",
+       "near_m",
+       "far_m",
+       "median_m",
+       "distance_m",
+       "scale",
+       "colour",
+       "geometry"
       ],
       "additionalProperties": false,
       "properties": {
-       "key": {
-        "enum": [
-         "dawn",
-         "morning",
-         "noon",
-         "golden",
-         "dusk",
-         "night"
-        ]
-       },
-       "sun": {
-        "type": "object",
-        "required": [
-         "az",
-         "el"
-        ],
-        "additionalProperties": false,
-        "properties": {
-         "az": {
-          "type": "number"
-         },
-         "el": {
-          "type": "number"
-         }
-        }
-       },
-       "hour_utc": {
-        "type": "number"
-       },
-       "planes": {
-        "type": "object",
-        "required": [
-         "far",
-         "mid",
-         "near"
-        ],
-        "additionalProperties": false,
-        "properties": {
-         "far": {
-          "type": "object",
-          "required": [
-           "file",
-           "bytes",
-           "w",
-           "h"
-          ],
-          "additionalProperties": false,
-          "properties": {
-           "file": {
-            "type": "string"
-           },
-           "bytes": {
-            "type": "integer"
-           },
-           "w": {
-            "type": "integer"
-           },
-           "h": {
-            "type": "integer"
-           }
-          }
-         },
-         "mid": {
-          "type": "object",
-          "required": [
-           "file",
-           "bytes",
-           "w",
-           "h"
-          ],
-          "additionalProperties": false,
-          "properties": {
-           "file": {
-            "type": "string"
-           },
-           "bytes": {
-            "type": "integer"
-           },
-           "w": {
-            "type": "integer"
-           },
-           "h": {
-            "type": "integer"
-           }
-          }
-         },
-         "near": {
-          "type": "object",
-          "required": [
-           "file",
-           "bytes",
-           "w",
-           "h"
-          ],
-          "additionalProperties": false,
-          "properties": {
-           "file": {
-            "type": "string"
-           },
-           "bytes": {
-            "type": "integer"
-           },
-           "w": {
-            "type": "integer"
-           },
-           "h": {
-            "type": "integer"
-           }
-          }
-         }
-        }
-       },
-       "bytes": {
+       "top": {
         "type": "integer"
        },
-       "luma": {
+       "h": {
+        "type": "integer"
+       },
+       "near_m": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "far_m": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "median_m": {
+        "type": "number"
+       },
+       "distance_m": {
+        "type": "number"
+       },
+       "scale": {
+        "type": "number"
+       },
+       "colour": {
         "type": "object",
         "required": [
-         "min",
-         "max"
+         "file",
+         "bytes"
         ],
         "additionalProperties": false,
         "properties": {
-         "min": {
-          "type": "number"
+         "file": {
+          "type": "string"
          },
-         "max": {
-          "type": "number"
+         "bytes": {
+          "type": "integer"
          }
-        },
-        "description": "min and max WCAG relative luminance of the three planes composited far, mid, near over a flat mid-grey sky, over pixels whose composite coverage 1 - prod(1 - alpha) is at least 0.5"
+        }
+       },
+       "geometry": {
+        "type": "object",
+        "required": [
+         "file",
+         "bytes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "file": {
+          "type": "string"
+         },
+         "bytes": {
+          "type": "integer"
+         }
+        }
        }
-      }
+      },
+      "description": "nearest first; the runtime paints the list last to first. top and h place the card back at its rows of the frame; near_m and far_m are the median seam depths, null at the ends; median_m and distance_m are the median distance of the card's solid pixels that are not wall; scale = distance_m / (distance_m - camera.r_m) is the card's pan rate per unit of heading and its static size."
      }
+    },
+    "w": {
+     "type": "integer"
+    },
+    "h": {
+     "type": "integer"
+    },
+    "bytes": {
+     "type": "integer"
     },
     "attribution": {
      "type": "object",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
 import { baked } from '../../../sky/baked';
-import { AA, NIGHT_SKY_LIGHTEST, contrast, luminance } from '../../../sky/skyTokens.js';
+import { AA, contrast } from '../../../sky/skyTokens.js';
 import { Editor } from '../../components/editor/Editor.css';
 import { PageContent, PageNavContent } from '../../components/page/style.css';
 import { CallStatus } from '../call-status/styles.css';
@@ -12,29 +12,16 @@ import { SkyPlate, plateRegions } from './skyPlate.css';
 import {
   getResolvedSkyState,
   setSkyClock,
-  skyBackdrop,
   subscribe as subscribeSky,
 } from './skyState';
-import type { FixedSkyState, SkyBackdrop } from './skyState';
 import { sceneThemeId, skyThemeId } from './skyTheme';
 
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
+const r2 = (n: number) => n.toFixed(2);
 const fixed = (['day', 'dusk', 'night'] as const).flatMap((s) => {
   const id = skyThemeId(s);
   return id ? [[s, id] as const] : [];
 });
-
-// WCAG contrast of an ink against the sky it is worst on, measured as skyState.test.ts does: the
-// sky can show any luminance between its darkest and lightest, and contrast is lowest where the
-// backdrop is closest to the ink, which is the ink's own luminance clamped into that range.
-const against = (ink: string, bg: number) => {
-  const li = luminance(ink);
-  const [hi, lo] = li > bg ? [li, bg] : [bg, li];
-  return (hi + 0.05) / (lo + 0.05);
-};
-const ratio = (ink: string, b: SkyBackdrop) =>
-  against(ink, Math.min(b.lightest, Math.max(b.darkest, luminance(ink))));
-const r2 = (n: number) => n.toFixed(2);
 
 describe('skyThemeId', () => {
   it('picks a theme for each explicit state', () => {
@@ -102,61 +89,6 @@ describe('skyThemeId', () => {
   });
 });
 
-describe('ink of the theme a state picks, on bare sky', () => {
-  // Per state: the picked theme, its text ink and link, and their WCAG ratios on the sky the scenes
-  // draw (skyBackdrop, the worst case over its band). Text clears 4.5 in every state. Link clears
-  // in every state: the links are derived in src/sky/skyTokens.js, outside the band, and these numbers are recorded as
-  // they are measured. Midnight's link is brightened in its own hue until it clears the lightest Night sky
-  // (NIGHT_SKY_LIGHTEST); Dusk's dark link needs a backdrop of about 0.4554, which the dusk floor is set above.
-  // 'auto' resolves from the clock to one of these three and has the same numbers.
-  const cells: [FixedSkyState, string, string, string, string, string][] = [
-    ['day', 'noonday-sky', '#342d25', '6.60', '#2a4f27', '4.55'],
-    ['dusk', 'noonday-sky', '#342d25', '6.59', '#2a4f27', '4.54'],
-    ['night', 'midnight-sky', '#aeccff', '4.89', '#8ad1bd', '4.53'],
-  ];
-
-  it.each(cells)(
-    '%s with %s: text %s is %s, link %s is %s',
-    (state, id, ink, want, link, wantLink) => {
-      const sky = SKY[id as keyof typeof SKY];
-      expect(sky.tokens.Background.OnContainer).toBe(ink);
-      expect(sky.link).toBe(link);
-      expect(r2(ratio(ink, skyBackdrop(state)))).toBe(want);
-      expect(r2(ratio(link, skyBackdrop(state)))).toBe(wantLink);
-    }
-  );
-
-  it.each(cells)('%s: text clears AA', (state, _id, ink) => {
-    expect(ratio(ink, skyBackdrop(state))).toBeGreaterThanOrEqual(AA);
-  });
-
-  it('link clears AA in every state', () => {
-    const link = (s: FixedSkyState, id: keyof typeof SKY) => ratio(SKY[id].link, skyBackdrop(s));
-    expect(link('day', 'noonday-sky')).toBeGreaterThanOrEqual(AA);
-    expect(link('dusk', 'noonday-sky')).toBeGreaterThanOrEqual(AA);
-    expect(link('night', 'midnight-sky')).toBeGreaterThanOrEqual(AA);
-  });
-
-  it('keeps the lightest Night sky the link was fitted to equal to the Night backdrop (no drift)', () => {
-    expect(NIGHT_SKY_LIGHTEST).toBe(skyBackdrop('night').lightest);
-  });
-
-  it.each([
-    [12, 'day'],
-    [18, 'dusk'],
-    [0, 'night'],
-  ] as const)('auto at %s:00 has the numbers of %s', (hour, state) => {
-    setSkyClock(() => atStandardTime(hour, hour === 18 ? 10 : 0));
-    const id = skyThemeId(getResolvedSkyState()) as keyof typeof SKY;
-    expect(id).toBe(skyThemeId(state));
-    const { tokens, link } = SKY[id];
-    const text = tokens.Background.OnContainer;
-    expect(r2(ratio(text, skyBackdrop('auto')))).toBe(r2(ratio(text, skyBackdrop(state))));
-    expect(r2(ratio(link, skyBackdrop('auto')))).toBe(r2(ratio(link, skyBackdrop(state))));
-    setSkyClock();
-  });
-});
-
 describe('the plate, where text cannot rest on bare sky', () => {
   // Each theme's plate: fill, ink, link and the WCAG ratios of ink and link on the fill.
   const plates = [
@@ -217,7 +149,7 @@ describe('regions that sit on the plate', () => {
 describe('the sign-in footer band', () => {
   // The footer line is the plate's ink on a band that mixes FOOTER_TINT of the plate's fill over the blurred scene,
   // as the browser does: per channel, in encoded sRGB (not in linear light, which flatters dark scenes). The scene
-  // behind it is the scene, taken as grey: as dark as 0, as light as the sky state's lightest backdrop. Ink
+  // behind it is the scene, taken as grey: as dark as 0 or as light as 1 (a sky's range is whatever the look draws). Ink
   // contrast is lowest at one of those two ends, so both are checked.
   const encode = (l: number) => (l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4) - 0.055);
   const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -235,7 +167,7 @@ describe('the sign-in footer band', () => {
     '%s: the ink clears AA over the darkest and the lightest scene behind it',
     (state, id) => {
       const { Other, OtherText } = SKY[id].bubbles;
-      [0, skyBackdrop(state).lightest].forEach((behind) => {
+      [0, 1].forEach((behind) => {
         expect(contrast(OtherText, bandOver(Other, behind))).toBeGreaterThanOrEqual(AA);
       });
     }

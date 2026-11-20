@@ -1,14 +1,14 @@
 # Background scene
 
-**Default: the ridge scene** (`ridge/`), no WebGL. `startBackgroundScene` runs it unless the client
+**Default: the ridge scene** (`ridge/`): no per-frame WebGL (the baked cards are lit once per scene build, in a WebGL2 context that is released after). `startBackgroundScene` runs it unless the client
 config says `backgroundScene.style: 'raymarch'`; the tier flag still defaults to `off`, and null still
 means "keep the CSS ground". Everything below this section describes the opt-in ray-march scene.
 
-- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky? })` returns `{ login, dispose }` or
+- `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky?, backdrop? })` returns `{ login, dispose }` or
   null (tier `off`, no 2D context). It paints the sky (`ridge/physicalSky.ts`, from the `SkyColours` the host passes) on the host
   canvas at the viewport's size in canvas pixels, then the stars baked into it, a twinkle overlay canvas for the swinging ones
-  (`ridge/stars.ts`), the baked ridge planes (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`).
-  With no planes (the load failed) the scene shows sky, stars and weather only. No script runs per frame except the twinkle, at most every 50 ms.
+  (`ridge/stars.ts`), the lit ridge cards (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`).
+  With no cards (the load failed) the scene shows sky, stars and weather only. No script runs per frame except the twinkle, at most every 50 ms.
   The host canvas and its parent must be positioned and the canvas should fill the parent. A resize rebuilds it; so does a sky change
   (`index.ts`).
 - Paused when the tab is hidden; under `prefers-reduced-motion` the rain is paused and the stars stay at base brightness.
@@ -18,17 +18,23 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   and shows `n / median / p95` in a corner readout.
 - `ridge/skyColour.ts` `skyColours()` is the fallback three-stop palette (top, mid, horizon) a scene gets with no `sky` option; the host
   passes `ridgeSkyFor` (skyForState.ts) instead.
-- Ridge planes: `ridge/manifest.ts` `loadManifest` reads `${BASE_URL}public/ridge/index.json` (config `backgroundScene.place` picks the entry,
-  unknown or absent: the index default), then the place's `manifest.json` (v1, written by `scripts/ridge-bake/export.py`; it is the one JSON
-  the backdrop reads). `ridge/frameChoice.ts` picks the two baked frames the sky's sun lies between and a blend weight; `ridge/Backdrop.ts`
-  decodes only those. `index.ts` `prepare()` loads manifest and planes with the scene chunk, so `createRidgeScene({ backdrop })` stays
-  synchronous, and a rebuild keeps the old scene up until the new one's planes have loaded, then swaps. The rig is one div of three plane groups (far, mid, near; DOM order is paint order; no z-index, no fixed position, nothing
-  outside the scene's parent), each drifting on `Element.animate` (transform only, 150 s loop, paused when the tab is hidden, motion is
-  reduced or the scene is still); a still draws the planes into the host canvas. Two frames are a true crossfade (`frameChoice.ts`
-  `crossfade`: a at 1 - w plus b at w, summed in an isolated group, `plus-lighter` in the rig and `lighter` in an offscreen for the still), because
-  the planes are haze as alpha and b laid over a would double the haze. A failure anywhere (404, bad manifest, an image that
-  will not decode) is the sky-only scene on `FALLBACK_VIEW`, told to the host by the live scene alone, through `onPlanesFail` when the live scene has no planes and `onPlanesOk` when a later one has them (never from a stale or disposed build); it is never `onCompileFail`.
-  `vite.config.js` copies `public/ridge` into `dist/public/`.
+- Ridge cards: `ridge/manifest.ts` `loadManifest` reads `${BASE_URL}public/ridge/index.json` (config `backgroundScene.place` picks the entry,
+  unknown or absent: the index default), then the place's `manifest.json` (schema 2, written by `scripts/ridge-bake/export.py`; it is the one JSON
+  the backdrop reads): K G-buffer cards, nearest first, each a colour WebP (albedo, straight alpha) and a geometry WebP (the normal as 'rt8', the
+  log-distance, and the wall code R = G = 255 for the extruded face under a ridge). `index.ts` `prepare()` loads the manifest and, with the scene chunk,
+  `ridge/Backdrop.ts` `loadBackdrop`: every card's two files fetched and decoded straight (no premultiply, no colour management), then
+  `ridge/lightCards.ts` lights each card once in WebGL2 for the sky of this build (sun and ambient from the atmosphere, aerial perspective from the
+  geometry's distance, ink on occluding edges and creases, the sky's own display so terrain and sky share an exposure) into a 2D canvas, and releases
+  the context. A sky change is a rebuild, so it lights again; nothing is lit per frame, and the host canvas is only ever asked for 2d.
+  `createRidgeScene({ backdrop })` stays synchronous, and a rebuild keeps the old scene up until the new one's cards are lit, then swaps. The rig
+  is one div of K card elements (farthest first; DOM order is paint order; no z-index, no fixed position, nothing outside the scene's parent),
+  each placed at its rows of the plane and moved by `view.ts` `cardMotion`: the camera turns through the baker's heading range (capped so every card still covers
+  the viewport) and card i pans `scale_i` x heading and is drawn `scale_i` times its bake, about the horizon centre, as a camera pushed forward on a circle
+  round the bake centre sees it (ruling ridge-camera-on-circle); the scales come from the manifest. It drifts on `Element.animate` (transform only, 150 s loop,
+  paused when the tab is hidden, motion is reduced or the scene is still); a still draws the same cards at heading 0 into the host canvas. A failure
+  anywhere (404, a manifest that is not schema 2, a card that will not decode, no WebGL2, a lighting pass that throws) is the sky-only scene on `FALLBACK_VIEW`,
+  told to the host by the live scene alone, through `onPlanesFail` when the live scene has no cards and `onPlanesOk` when a later one has them (never from a stale
+  or disposed build); it is never `onCompileFail`. `vite.config.js` copies `public/ridge` into `dist/public/`.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
 - Not yet measured on a phone: see the PR description.
 

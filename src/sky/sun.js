@@ -29,17 +29,32 @@ const mix = (a, b, t) => a + (b - a) * t;
 
 const toMs = (time) => (time instanceof Date ? time.getTime() : typeof time === 'string' ? Date.parse(time) : Number(time));
 
-/** Sun elevation and azimuth in degrees at a UTC moment and place. Azimuth runs clockwise from north. */
-export function sunPosition(time, lat, lon) {
-  const d = toMs(time) / 86400000 - 10957.5; // days since J2000.0 (2000-01-01 12:00 UTC)
+/** Days since J2000.0 (2000-01-01 12:00 UTC) at a UTC moment. */
+export const daysSinceJ2000 = (time) => toMs(time) / 86400000 - 10957.5;
+
+/** Greenwich mean sidereal time in radians (unreduced) at `d` days since J2000.0. */
+export const gmstRad = (d) => (280.46061837 + 360.98564736629 * d) * RAD;
+
+/** The sun's right ascension and declination of date, in radians, and its ecliptic longitude `lambda`, at a UTC moment. */
+export function sunEquatorial(time) {
+  const d = daysSinceJ2000(time);
   const L = (280.46 + 0.9856474 * d) * RAD; // mean longitude
   const g = (357.528 + 0.9856003 * d) * RAD; // mean anomaly
   const lambda = L + (1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * RAD; // ecliptic longitude
   const eps = (23.439 - 0.0000004 * d) * RAD; // obliquity
-  const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
-  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
-  const gmst = (280.46061837 + 360.98564736629 * d) * RAD;
-  const hourAngle = gmst + lon * RAD - ra;
+  return {
+    dec: Math.asin(Math.sin(eps) * Math.sin(lambda)),
+    ra: Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda)),
+    lambda,
+  };
+}
+
+/**
+ * Elevation and azimuth in degrees of a point of the sky at a UTC moment and place, from its right ascension and declination of date
+ * (radians): the one sidereal transform of the sun, the moon and the stars. Azimuth runs clockwise from north; no refraction.
+ */
+export function equatorialToHorizontal(ra, dec, time, lat, lon) {
+  const hourAngle = gmstRad(daysSinceJ2000(time)) + lon * RAD - ra;
   const phi = lat * RAD;
   const sinEl = Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(hourAngle);
   // Hour angle is westward-positive, so atan2 gives azimuth from south, westward; +180 turns it into
@@ -49,6 +64,12 @@ export function sunPosition(time, lat, lon) {
     elevation: Math.asin(clamp(sinEl, -1, 1)) / RAD,
     azimuth: (((south / RAD + 180) % 360) + 360) % 360,
   };
+}
+
+/** Sun elevation and azimuth in degrees at a UTC moment and place. Azimuth runs clockwise from north. */
+export function sunPosition(time, lat, lon) {
+  const { ra, dec } = sunEquatorial(time);
+  return equatorialToHorizontal(ra, dec, time, lat, lon);
 }
 
 /** Sun elevation in degrees at a UTC moment and place. */

@@ -3,7 +3,7 @@ import { forgetManifests, loadManifest, parseManifest } from './manifest';
 import { wireIndex, wireManifest } from './manifest.fixture';
 
 describe('parseManifest', () => {
-  it('reads a v1 manifest into the View the sky and planes share', () => {
+  it('reads a v2 manifest into the View the sky and cards share, and K cards nearest first', () => {
     const m = parseManifest(wireManifest(), '/public/ridge/v/');
     expect(m.dir).toBe('/public/ridge/v/');
     expect(m.view).toMatchObject({
@@ -11,35 +11,84 @@ describe('parseManifest', () => {
       windowDeg: 72,
       planeW: 1280,
       planeH: 600,
-      pxPerDegH: 1280 / 72, // not px_per_deg_v (17.7): a real bake's two differ 10x
+      pxPerDegH: 1280 / 72,
+      pxPerDegV: 177.8, // not px_per_deg_h: a real bake's two differ 10x
       horizonRow: 314.5,
     });
     expect(m.view.place).toEqual({ id: 'vienna', lat: 48.19, lon: 16.35, altitudeKm: 0.183 });
-    expect(m.frames.map((f) => f.key)).toEqual([
-      'dawn',
-      'morning',
-      'noon',
-      'golden',
-      'dusk',
-      'night',
-    ]);
-    expect(m.frames[2]).toMatchObject({
-      sun: { az: 180, el: 60 },
-      planes: { far: 'noon-far.webp', near: 'noon-near.webp' },
+    expect(m.encoding).toEqual({ logDMin: 4.6, logDMax: 11.5 });
+    expect(m.camera).toEqual({ headingMaxDeg: 23 });
+    expect(m.cards.map((c) => c.scale)).toEqual([1.2, 1.0167, 1.005]);
+    expect(m.cards[1]).toEqual({
+      top: 100,
+      h: 500,
+      scale: 1.0167,
+      colour: 'card-1-colour.webp',
+      geometry: 'card-1-geometry.webp',
     });
     expect(m.attribution.creditLine).toBe('credit');
   });
 
-  it('rejects a missing field, a wrong schema, a plane wider than 4096 and fewer than 6 frames', () => {
+  it.each([1, 2, 3, 4, 5, 6])('parses a bake of %i cards', (k) => {
+    expect(parseManifest(wireManifest({}, k), '/').cards).toHaveLength(k);
+  });
+
+  it('keeps only what the runtime reads: no distances, no camera offset', () => {
+    const m = parseManifest(wireManifest(), '/') as unknown as Record<string, any>;
+    expect(JSON.stringify(m)).not.toMatch(/median|near_m|far_m|distance|rM|r_m/);
+  });
+
+  it('refuses schema 1, no cards, seven cards, a card past the plane, a scale that is not above 0, a missing camera', () => {
+    const w = wireManifest() as any;
+    expect(() => parseManifest({ ...w, schema: 1 }, '/')).toThrow(/schema/);
+    expect(() => parseManifest({ ...w, cards: [] }, '/')).toThrow(/cards/);
+    expect(() => parseManifest(wireManifest({}, 7), '/')).toThrow(/cards/);
+    const card = w.cards[0];
+    const withCard = (c: unknown) => ({ ...w, cards: [c] });
+    expect(() => parseManifest(withCard({ ...card, top: 300, h: 301 }), '/')).toThrow(/rows/);
+    expect(() => parseManifest(withCard({ ...card, top: -1 }), '/')).toThrow(/rows/);
+    expect(() => parseManifest(withCard({ ...card, scale: 0 }), '/')).toThrow(/scale/);
+    expect(() => parseManifest(withCard({ ...card, scale: -1 }), '/')).toThrow(/scale/);
+    expect(() => parseManifest(withCard({ ...card, scale: Infinity }), '/')).toThrow(/scale/);
+    expect(() => parseManifest({ ...w, camera: undefined }, '/')).toThrow(/camera/);
+    expect(() => parseManifest({ ...w, camera: { heading_max_deg: 0 } }, '/')).toThrow(/heading/);
+  });
+
+  it('rejects a missing field, a plane wider than 4096, a normal that is not rt8 and a backwards encoding', () => {
     const w = wireManifest() as any;
     expect(() => parseManifest({ ...w, bake_id: undefined }, '/')).toThrow(/bake_id/);
-    expect(() => parseManifest({ ...w, schema: 2 }, '/')).toThrow(/schema/);
     expect(() => parseManifest({ ...w, view: { ...w.view, plane_w: 4097 } }, '/')).toThrow(/4096/);
-    expect(() => parseManifest({ ...w, frames: w.frames.slice(1) }, '/')).toThrow(/frames/);
     expect(() => parseManifest({ ...w, view: { ...w.view, horizon_row: 'x' } }, '/')).toThrow(
       /horizon_row/
     );
+    expect(() => parseManifest({ ...w, encoding: { ...w.encoding, normal: 'oct' } }, '/')).toThrow(
+      /normal/
+    );
+    expect(() =>
+      parseManifest({ ...w, encoding: { ...w.encoding, log_d_max: w.encoding.log_d_min } }, '/')
+    ).toThrow(/encoding/);
     expect(() => parseManifest(null, '/')).toThrow();
+  });
+
+  it('never echoes a value it refused', () => {
+    const w = wireManifest() as any;
+    const refusal = (bad: unknown) => {
+      try {
+        parseManifest(bad, '/');
+      } catch (e) {
+        return String(e);
+      }
+      return '';
+    };
+    for (const bad of [
+      { ...w, schema: 'SECRET-VALUE-42' },
+      { ...w, camera: { heading_max_deg: 'SECRET-VALUE-42' } },
+      { ...w, cards: [{ ...w.cards[0], scale: 'SECRET-VALUE-42' }] },
+    ]) {
+      const msg = refusal(bad);
+      expect(msg).not.toBe('');
+      expect(msg).not.toContain('SECRET-VALUE-42');
+    }
   });
 });
 

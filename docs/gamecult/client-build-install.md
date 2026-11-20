@@ -113,10 +113,8 @@ Hard-refresh to clear `sw.js`. Do not delete the failed release; leave it for di
 
 ## Open
 
-- Until the release that drops the terrain style (Meta 2026-11-17, ruling
-  `ratatoskr:ruling:ridge-only-scene-terrain-cut`), the served config said
-  `backgroundScene.style: terrain` and lacked the repo's `dings`, `fileZoneShare` and
-  `registration` blocks. That release replaces the carried file with the production config; a
-  `terrain` value left anywhere now falls to the ridge default. Until the carried file and the
-  build pin are equal again, every handoff build stops at the live check unless
-  `ALLOW_CONFIG_DRIFT=1` is set (section 1).
+- Release a5 (2026-11-20, dist `a1fdfee3`, receipt `/opt/commons/handoff/rat146-a5-receipt-20261120.md`)
+  replaced the carried config with the repo's `config.json` (ridge, `fileZoneShare` on; ruling
+  `ratatoskr:ruling:ridge-only-scene-terrain-cut`). The carried file and the build pin are equal, so a
+  handoff build passes its live check without `ALLOW_CONFIG_DRIFT=1`. A release that changes
+  `config.json` changes the carried file deliberately, as a5's `carry.sh` did.

@@ -1,13 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atStandardTime } from './standardTime.testkit';
-import { baked } from '../../../sky/baked';
-import { luminance } from '../../../sky/skyTokens.js';
 import {
-  SKY_STATES,
   SKY_STATE_KEY,
   resolveSkyState,
-  setSkyClock,
-  skyBackdrop,
   type SkyState,
 } from './skyState';
 
@@ -106,39 +101,6 @@ describe('sky state', () => {
   });
 });
 
-describe('skyBackdrop', () => {
-  it('puts night below day and dusk', () => {
-    expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('day').darkest);
-    expect(skyBackdrop('night').lightest).toBeLessThan(skyBackdrop('dusk').lightest);
-    expect(skyBackdrop('dusk').lightest).toBeGreaterThanOrEqual(skyBackdrop('day').lightest);
-  });
-
-  it('holds the baked gradients for day and night', () => {
-    const lum = (g: readonly string[]) => g.map(luminance);
-    expect(skyBackdrop('day').lightest).toBeGreaterThanOrEqual(
-      Math.max(...lum(baked.noonday.gradient)) - 1e-9
-    );
-    expect(skyBackdrop('night').darkest).toBeLessThanOrEqual(
-      Math.min(...lum(baked.midnight.gradient)) + 1e-9
-    );
-  });
-
-  it('is the band of the sky auto resolves to, not the union of all three', () => {
-    const at = (h: number) => setSkyClock(() => atStandardTime(h, 0));
-    at(12);
-    expect(skyBackdrop('auto')).toEqual(skyBackdrop('day'));
-    at(0);
-    expect(skyBackdrop('auto')).toEqual(skyBackdrop('night'));
-    setSkyClock();
-  });
-
-  it('never has darkest above lightest', () => {
-    SKY_STATES.forEach((s) =>
-      expect(skyBackdrop(s).darkest).toBeLessThanOrEqual(skyBackdrop(s).lightest)
-    );
-  });
-});
-
 describe('auto follows the clock', () => {
   const local = (h: number, m = 0) => atStandardTime(h, m); // local solar time ~ local clock
   let storage: ReturnType<typeof fakeStorage>;
@@ -213,5 +175,71 @@ describe('auto follows the clock', () => {
     m.setSkyState('night');
     m.setSkyState('auto');
     expect(cb.mock.calls).toEqual([['night'], ['day']]);
+  });
+});
+
+describe('the constellation lines toggle', () => {
+  let storage: ReturnType<typeof fakeStorage>;
+  beforeEach(() => {
+    storage = fakeStorage();
+    vi.stubGlobal('localStorage', storage);
+  });
+
+  it('are off by default, and a first pick of Night is a plain choice that leaves them off', async () => {
+    const m = await fresh();
+    expect(m.getConstellationLines()).toBe(false);
+    m.pickSkyState('night');
+    expect(m.getSkyState()).toBe('night');
+    expect(m.getConstellationLines()).toBe(false);
+  });
+
+  it('re-picking Night while the choice is Night toggles them, tells the listeners, and keeps the choice', async () => {
+    const m = await fresh();
+    m.pickSkyState('night');
+    const cb = vi.fn();
+    m.subscribe(cb);
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(true);
+    expect(cb.mock.calls).toEqual([['night']]);
+    expect(m.getSkyState()).toBe('night');
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it('are not toggled by re-picking any other state, nor by picking Night from Auto that resolves to night', async () => {
+    const m = await fresh();
+    m.pickSkyState('day');
+    m.pickSkyState('day');
+    expect(m.getConstellationLines()).toBe(false);
+    m.setSkyClock(() => new Date('2026-12-04T00:00:00Z'));
+    m.pickSkyState('auto');
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(false);
+  });
+
+  it('persist per viewer, and come back from storage', async () => {
+    const m = await fresh();
+    m.pickSkyState('night');
+    m.pickSkyState('night');
+    expect(storage.data.get(m.SKY_LINES_KEY)).toBe('on');
+    const again = await fresh();
+    expect(again.getConstellationLines()).toBe(true);
+  });
+
+  it('survive a refused storage: they hold for the page and read as off from a broken store', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    });
+    const m = await fresh();
+    expect(m.getConstellationLines()).toBe(false);
+    m.pickSkyState('night');
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(true);
   });
 });
