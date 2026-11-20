@@ -84,3 +84,38 @@ export function windowFor(view: View, viewportW: number, viewportH: number): Win
     driftPx: (scale * view.planeW - viewportW) / 2,
   };
 }
+
+/** What `cardMotion` reads of a manifest: the cards' scales, the baker's heading range and the View. */
+interface CardRig {
+  view: View;
+  camera: { headingMaxDeg: number };
+  cards: readonly { scale: number }[];
+}
+
+export interface CardMotion {
+  /** The heading either side of the look azimuth the drift turns through, degrees. */
+  headingDeg: number;
+  /** Per card, in manifest order (nearest first): the static scale the baker derived and how far it pans, in viewport px, at the end of the drift. */
+  cards: { scale: number; reachPx: number }[];
+}
+
+/**
+ * Where each card goes on a viewport: the single owner of pan reach and heading range (ruling ridge-camera-on-circle). The heading is the baker's
+ * `headingMaxDeg` unless a card could no longer cover the viewport at it, so it is capped by the card that would uncover first: card i is `scale` times
+ * wider on screen, and shown at heading delta d it needs `half viewport / scale + d x pxPerDegH` of its half width. Card i pans `scale` x heading x
+ * `pxPerDegH` plane pixels, at the plane's scale. One scale per card on both axes; nothing is reprojected inside a card (ruling ridge-cards-per-card-slide).
+ */
+export function cardMotion(m: CardRig, win: Window): CardMotion {
+  const half = (win.plane.w - 2 * win.driftPx) / (2 * win.plane.scale); // half the viewport, in plane px
+  const cap = Math.min(
+    ...m.cards.map((c) => (m.view.planeW / 2 - half / c.scale) / m.view.pxPerDegH)
+  );
+  const headingDeg = Math.max(0, Math.min(m.camera.headingMaxDeg, cap));
+  return {
+    headingDeg,
+    cards: m.cards.map((c) => ({
+      scale: c.scale,
+      reachPx: c.scale * headingDeg * m.view.pxPerDegH * win.plane.scale,
+    })),
+  };
+}
