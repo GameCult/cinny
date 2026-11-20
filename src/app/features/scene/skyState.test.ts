@@ -215,3 +215,69 @@ describe('auto follows the clock', () => {
     expect(cb.mock.calls).toEqual([['night'], ['day']]);
   });
 });
+
+describe('the constellation lines toggle', () => {
+  let storage: ReturnType<typeof fakeStorage>;
+  beforeEach(() => {
+    storage = fakeStorage();
+    vi.stubGlobal('localStorage', storage);
+  });
+
+  it('are off by default, and a first pick of Night is a plain choice that leaves them off', async () => {
+    const m = await fresh();
+    expect(m.getConstellationLines()).toBe(false);
+    m.pickSkyState('night');
+    expect(m.getSkyState()).toBe('night');
+    expect(m.getConstellationLines()).toBe(false);
+  });
+
+  it('re-picking Night while the choice is Night toggles them, tells the listeners, and keeps the choice', async () => {
+    const m = await fresh();
+    m.pickSkyState('night');
+    const cb = vi.fn();
+    m.subscribe(cb);
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(true);
+    expect(cb.mock.calls).toEqual([['night']]);
+    expect(m.getSkyState()).toBe('night');
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it('are not toggled by re-picking any other state, nor by picking Night from Auto that resolves to night', async () => {
+    const m = await fresh();
+    m.pickSkyState('day');
+    m.pickSkyState('day');
+    expect(m.getConstellationLines()).toBe(false);
+    m.setSkyClock(() => new Date('2026-12-04T00:00:00Z'));
+    m.pickSkyState('auto');
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(false);
+  });
+
+  it('persist per viewer, and come back from storage', async () => {
+    const m = await fresh();
+    m.pickSkyState('night');
+    m.pickSkyState('night');
+    expect(storage.data.get(m.SKY_LINES_KEY)).toBe('on');
+    const again = await fresh();
+    expect(again.getConstellationLines()).toBe(true);
+  });
+
+  it('survive a refused storage: they hold for the page and read as off from a broken store', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    });
+    const m = await fresh();
+    expect(m.getConstellationLines()).toBe(false);
+    m.pickSkyState('night');
+    m.pickSkyState('night');
+    expect(m.getConstellationLines()).toBe(true);
+  });
+});

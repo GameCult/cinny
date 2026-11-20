@@ -14,9 +14,11 @@ import {
 import FocusTrap from 'focus-trap-react';
 import { stopPropagation } from '../../utils/keyboard';
 import { useSkyState } from '../../hooks/useSkyState';
-import { SKY_STATES, setSkyState, type SkyState } from './skyState';
+import { SKY_STATES, pickSkyState, type SkyState } from './skyState';
 import { loadManifest } from './ridge/manifest';
 import {
+  LINES_CREDIT,
+  STARS_CREDIT,
   terrainCredit,
   WEATHER_CREDIT,
   WEATHER_CREDIT_URL,
@@ -87,7 +89,7 @@ export function SkyStateControl() {
                   role="menuitemradio"
                   aria-checked={state === s}
                   onClick={() => {
-                    setSkyState(s);
+                    pickSkyState(s);
                     setCords(undefined);
                   }}
                   after={state === s ? <Icon size="100" src={Icons.Check} /> : undefined}
@@ -117,6 +119,12 @@ export function SkyStateControl() {
                       {WEATHER_CREDIT_URL}
                     </a>
                     . {WEATHER_DATASET}.
+                  </Text>
+                  <Text size="T200" priority="300">
+                    {STARS_CREDIT}.
+                  </Text>
+                  <Text size="T200" priority="300">
+                    {LINES_CREDIT}.
                   </Text>
                 </Box>
               )}

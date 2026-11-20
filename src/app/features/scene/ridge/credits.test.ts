@@ -1,7 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { WEATHER_CREDIT, WEATHER_CREDIT_URL, WEATHER_DATASET, terrainCredit } from './credits';
+import {
+  LINES_CREDIT,
+  LINES_SOURCE_URL,
+  STARS_CREDIT,
+  STARS_SOURCE_URL,
+  WEATHER_CREDIT,
+  WEATHER_CREDIT_URL,
+  WEATHER_DATASET,
+  terrainCredit,
+} from './credits';
 import { parseIndex, parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import { WEATHER_ATTRIBUTION } from './weatherFeed';
@@ -37,5 +46,16 @@ describe('the terrain credit', () => {
 
   it('is absent without a manifest', () => {
     expect(terrainCredit(undefined)).toBeUndefined();
+  });
+});
+
+describe('the night sky credits', () => {
+  const data = readFileSync(join(__dirname, 'nightSkyData.ts'), 'utf8');
+  it("name the sources the generated data's header names, with their licences", () => {
+    expect(data).toContain(STARS_SOURCE_URL);
+    expect(data).toContain(LINES_SOURCE_URL);
+    expect(data).toMatch(/BSD-3-Clause/);
+    expect(STARS_CREDIT).toMatch(/Yale Bright Star Catalogue.*public domain/);
+    expect(LINES_CREDIT).toMatch(/Olaf Frohn.*BSD-3-Clause/);
   });
 });

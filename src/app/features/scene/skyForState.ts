@@ -8,11 +8,11 @@ import type { Place, View } from './ridge/view';
 import { BUDGET } from './ridge/toneMap';
 import { ridgeWeather, setFedWeather } from './ridge/weather';
 import { currentWeather, fetchWeatherFile } from './ridge/weatherFeed';
-import { resolveSkyState, skyNow } from './skyState';
+import { getConstellationLines, resolveSkyState, skyNow } from './skyState';
 import type { SkyState } from './skyState';
 
 /**
- * What a rebuild of the ridge scene is for: the fixed state it draws and the weather. The sun moves with the clock inside a state and
+ * What a rebuild of the ridge scene is for: the fixed state it draws, the weather and, at night, the constellation lines. The sun moves with the clock inside a state and
  * is not part of the key (the scene is baked at its start), as the sky was one gradient per state before.
  */
 export const ridgeSkyKey = (
@@ -20,7 +20,10 @@ export const ridgeSkyKey = (
   view: View,
   weather: number = ridgeWeather(),
   now: Date = skyNow()
-): string => `ridge:${resolveSkyState(state, now)}:${weather}:${view.place.id}`;
+): string => {
+  const fixed = resolveSkyState(state, now);
+  return `ridge:${fixed}:${weather}:${view.place.id}${fixed === 'night' && getConstellationLines() ? ':lines' : ''}`;
+};
 
 const WEATHER_REFRESH_MS = 10 * 60_000;
 let weatherAt = -Infinity;

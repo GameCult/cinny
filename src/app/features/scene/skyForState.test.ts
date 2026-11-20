@@ -123,3 +123,18 @@ describe('loadWeather', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('the rebuild key and the constellation lines', () => {
+  it('carries the lines at night only: toggling them is a different sky, a day sky is the same', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
+    vi.resetModules();
+    const st = await import('./skyState');
+    const f = await import('./skyForState');
+    const off = f.ridgeSkyKey('night', FALLBACK_VIEW, 0);
+    const dayOff = f.ridgeSkyKey('day', FALLBACK_VIEW, 0);
+    st.pickSkyState('night');
+    st.pickSkyState('night');
+    expect(f.ridgeSkyKey('night', FALLBACK_VIEW, 0)).toBe(`${off}:lines`);
+    expect(f.ridgeSkyKey('day', FALLBACK_VIEW, 0)).toBe(dayOff);
+  });
+});

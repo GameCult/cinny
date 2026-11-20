@@ -51,6 +51,22 @@ export function resolveSkyState(s: SkyState, now: Date = clock()): FixedSkyState
   return el <= -DAY_FROM ? 'night' : 'dusk';
 }
 
+/** The constellation lines (a hidden extra, ruling ridge-constellation-lines-hidden-extra): on or off, per viewer, off by default. */
+export const SKY_LINES_KEY = 'ratatoskr.skyLines';
+let lines: boolean | undefined;
+
+/** Whether the constellation lines are on: the stored choice of this viewer. They are drawn over the real stars of a night sky only. */
+export const getConstellationLines = (): boolean => {
+  if (lines === undefined) {
+    try {
+      lines = localStorage.getItem(SKY_LINES_KEY) === 'on';
+    } catch {
+      lines = false;
+    }
+  }
+  return lines;
+};
+
 let current: SkyState | undefined;
 const listeners = new Set<(s: FixedSkyState) => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -107,6 +123,24 @@ export function setSkyState(s: SkyState): void {
     sync();
     emit();
   }
+}
+
+/**
+ * A pick in the sky menu. Picking a state sets it; picking Night while the choice already is Night toggles the constellation lines, which
+ * listeners hear as a sky change (the scene is rebuilt for it: `ridgeSkyKey` carries the flag).
+ */
+export function pickSkyState(s: SkyState): void {
+  if (s === 'night' && getSkyState() === 'night') {
+    lines = !getConstellationLines();
+    try {
+      localStorage.setItem(SKY_LINES_KEY, lines ? 'on' : 'off');
+    } catch {
+      // Storage is refused: the lines hold for this page load only.
+    }
+    emit();
+    return;
+  }
+  setSkyState(s);
 }
 
 /** Listeners hear the resolved sky: on a change of choice, and while 'auto', when the clock crosses a boundary. */
