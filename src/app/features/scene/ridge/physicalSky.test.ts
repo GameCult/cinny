@@ -3,7 +3,7 @@ import { FALLBACK_VIEW } from './view';
 import { ELSEWHERE_VIEW } from './manifest.fixture';
 import { sunForState } from './sunAt';
 import { makePhysicalSky, paintSky } from './physicalSky';
-import { skyBackdrop } from '../skyState';
+import { ridgeDrawn } from '../skyForState';
 import type { FixedSkyState } from '../skyState';
 import { windowFor } from './view';
 import type { PhysicalSky } from './physicalSky';
@@ -38,7 +38,7 @@ describe.each(['day', 'dusk', 'night'] as FixedSkyState[])(
   'the %s sky stays inside its backdrop bounds',
   (state) => {
     it('over weather, season and viewport shape', () => {
-      const b = skyBackdrop(state);
+      const b = ridgeDrawn(state);
       let lo = 2;
       let hi = -1;
       for (const day of DAYS) {

@@ -15,7 +15,7 @@ import type { RidgeLook } from './lightCards';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import type { PhysicalSky } from './physicalSky';
-import { ACES_FIT, ACES_IN, ACES_OUT } from './toneMap';
+import { ACES_FIT, ACES_IN, ACES_OUT, LIFT_ONLY } from './toneMap';
 
 const manifest = parseManifest(wireManifest(), '/d/');
 const RAD = Math.PI / 180;
@@ -93,13 +93,13 @@ describe('the lighting inputs', () => {
     ({
       sun: { azimuth: 214, elevation },
       atm: a,
-      fit: { display: { exposure: 12, lift: 0.01 } },
+      fit: { display: { exposure: 12, curve: LIFT_ONLY } },
       view: manifest.view,
     } as unknown as PhysicalSky);
 
   it("takes the display of the sky's own fit, so terrain and sky share one exposure", () => {
     const l = lightingOf(manifest, sky(30));
-    expect([l.exposure, l.lift]).toEqual([12, 0.01]);
+    expect([l.exposure, l.curve]).toEqual([12, LIFT_ONLY]);
     expect(l.ambient).toEqual([0.1, 0.2, 0.3]);
     expect(l.logDMin).toBe(4.6);
     expect(l.logDSpan).toBeCloseTo(11.5 - 4.6, 12);
@@ -193,7 +193,7 @@ describe('the look reaches the shader', () => {
         irradiance: { direct: [0, 0, 0], ambient: [0.1, 0.2, 0.3] },
         radiance: (_a: number, _b: number, o: number[]) => o.fill(0),
       },
-      fit: { display: { exposure: 1, lift: 0 } },
+      fit: { display: { exposure: 1, curve: LIFT_ONLY } },
       view: manifest.view,
     } as unknown as PhysicalSky;
     const one = { ...manifest, cards: manifest.cards.slice(0, 1) };
@@ -258,6 +258,36 @@ function sky30(): PhysicalSky {
       transmittanceToSpace: (_m: number, o: number[]) => o.fill(1),
       irradiance: { direct: [0, 0, 0], ambient: [0, 0, 0] },
     },
-    fit: { display: { exposure: 1, lift: 0 } },
+    fit: { display: { exposure: 1, curve: LIFT_ONLY } },
   } as unknown as PhysicalSky;
 }
+
+describe('night ambient', () => {
+  const nightAtm = {
+    observerKm: 0.183,
+    mieScale: 1,
+    transmittanceToSpace: (_m: number, o: number[]) => o.fill(1),
+    irradiance: { direct: [0, 0, 0], ambient: [0.001, 0.001, 0.002] },
+    radiance: (_a: number, _b: number, o: number[]) => o.fill(0),
+  };
+  const night = (state: string, nightAmbient?: [number, number, number]) =>
+    lightingOf(
+      manifest,
+      {
+        state,
+        sun: { azimuth: 0, elevation: -30 },
+        atm: nightAtm,
+        fit: { display: { exposure: 1, curve: LIFT_ONLY } },
+        view: manifest.view,
+      } as unknown as PhysicalSky,
+      nightAmbient ? { ...DEFAULT_LOOK, nightAmbient } : DEFAULT_LOOK
+    );
+  it('lights the ground at night, cool, and only at night', () => {
+    const n = night('night');
+    const base = nightAtm.irradiance.ambient;
+    n.ambient.forEach((a, i) => expect(a).toBeGreaterThan(base[i]));
+    expect(n.ambient[2] - base[2]).toBeGreaterThan(n.ambient[0] - base[0]);
+    expect(night('dusk').ambient).toEqual(base);
+    expect(DEFAULT_LOOK.nightAmbient.every((c) => c > 0)).toBe(true);
+  });
+});

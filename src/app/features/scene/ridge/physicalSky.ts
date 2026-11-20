@@ -7,7 +7,7 @@ import type { Atmosphere } from './earthAtmosphere';
 import { domeSize, renderDome, SUN_RADIUS, sunOnScreen } from './skyDome';
 import type { Dome } from './skyDome';
 import type { Srgb } from './skyColour';
-import { display8, fitDisplay, holdBudget, MARGIN } from './toneMap';
+import { display8, fitDisplay, MARGIN } from './toneMap';
 import type { Display, Fit } from './toneMap';
 import { sunForState } from './sunAt';
 import type { SunSample } from './sunAt';
@@ -99,7 +99,7 @@ export function paintSky(p: PhysicalSky, cssW: number, cssH: number, camera: Cam
   const dome = renderDome(p.atm, p.sun, camera, w, h, p.weather.cover);
   const data = new Uint8ClampedArray(w * h * 4);
   const out = [0, 0, 0];
-  const display = holdBudget(p.state, dome.hdr, p.fit.display);
+  const display = p.fit.display;
   for (let i = 0; i < w * h; i += 1) {
     display8(dome.hdr[i * 3], dome.hdr[i * 3 + 1], dome.hdr[i * 3 + 2], display, out);
     data[i * 4] = out[0];

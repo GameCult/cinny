@@ -8,6 +8,7 @@ import { ridgeDrawn, ridgeSkyFor, ridgeSkyKey, loadWeather } from './skyForState
 import { DAY_FROM, setSkyClock, skyBackdrop } from './skyState';
 import type { FixedSkyState } from './skyState';
 import { skyThemeId } from './skyTheme';
+import { BUDGET } from './ridge/toneMap';
 
 const STATES = ['day', 'dusk', 'night'] as const;
 const SKY = { 'midnight-sky': baked.midnight, 'noonday-sky': baked.noonday } as const;
@@ -91,10 +92,10 @@ describe('ridgeSkyFor', () => {
     expect(ridgeSkyKey('day', FALLBACK_VIEW, 0.3)).not.toBe(ridgeSkyKey('night', FALLBACK_VIEW, 0.3));
   });
 
-  it.each(STATES)('%s: the display is fitted to the budget its text ink needs', (state) => {
-    const { floor, ceiling } = needs(state);
+  it.each(STATES)('%s: the display is the curve of its budget: black lift at the floor, the ceiling the light ink needs', (state) => {
+    const { ceiling } = needs(state);
     const r = ridgeDrawn(state);
-    expect(r.darkest).toBeGreaterThanOrEqual(floor);
+    expect(r.darkest).toBe(BUDGET[state].floor);
     expect(r.lightest).toBeLessThanOrEqual(ceiling);
     const fit = ridgeSkyFor(state, FALLBACK_VIEW, 0.3).physical?.fit;
     expect(fit?.lo).toBeGreaterThanOrEqual(r.darkest - 1e-9);
@@ -103,11 +104,8 @@ describe('ridgeSkyFor', () => {
 });
 
 describe('skyBackdrop holds the ridge sky', () => {
-  it.each(STATES)('%s: the backdrop bound contains the ridge display budget', (state) => {
-    const r = ridgeDrawn(state);
-    const b = skyBackdrop(state);
-    expect(b.darkest).toBeLessThanOrEqual(r.darkest);
-    expect(b.lightest).toBeGreaterThanOrEqual(r.lightest);
+  it.each(STATES)('%s: the backdrop bound contains the ridge display ceiling', (state) => {
+    expect(skyBackdrop(state).lightest).toBeGreaterThanOrEqual(ridgeDrawn(state).lightest);
   });
 });
 

@@ -3,9 +3,12 @@
 // matrix), then the sRGB encode. A per-pixel function with no state, applied once to the baked sky (CPU: the scene is a 2D
 // canvas, there is no float render target to fall back from).
 //
-// Exposure is chosen per sky state (`exposureFor`): the sky is physical radiance, so brightness is the camera's, not a
-// shaping of the result. Day and dusk expose to the sky's own luminance (adaptation, as an eye or auto-exposure does) so the
-// darkest of the sky stays where the state's dark ink needs a backdrop; night is fixed, the physical dark.
+// Exposure is chosen per sky state: the sky is physical radiance, so brightness is the camera's. Day and dusk expose to the
+// sky's own luminance (adaptation); night is the physical dark. After ACES comes one more curve, per channel in display-linear:
+// a monotone cubic through five knots, fitted per sky from the luminance distribution of the sky grid so that its 5th, 50th and
+// 95th percentiles land on the state's target display luminances. The curve starts at a small black lift (BLACK_LIFT, the only
+// absolute lift) and ends at white (day, dusk) or at the night ceiling (light ink needs a dark ground). It is fitted on the sky
+// grid alone: the cards are not sampled, they ride the same curve.
 import type { FixedSkyState } from '../skyState';
 
 type Rgb = readonly [number, number, number];
@@ -56,46 +59,111 @@ export function toneMap8(r: number, g: number, b: number, exposure: number, out:
 export const displayLuma = (c: ArrayLike<number>): number =>
   0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 
-/** What a sky state needs of its backdrop's display luminance, from the ink it wears (skyState.ts, skyInk.ts). */
+/** What a sky state needs of its backdrop's display luminance, and the targets its curve is fitted to. */
 export interface Budget {
-  /** The darkest texel may not be darker than this (dark ink needs a light backdrop). 0: no floor. */
+  /** The darkest texel the curve can draw (its black lift, less one 8-bit step). */
   floor: number;
-  /** The lightest texel may not be lighter than this (light ink needs a dark one). 1: no ceiling. */
+  /** What black is drawn as, display-linear: the curve's first knot. */
+  lift: number;
+  /** The lightest texel may not be lighter than this (light ink needs a dark one); it is the curve's top knot. 1: white. */
   ceiling: number;
-  /** Display luminance the log-mean of the sky is exposed to, before the budget is applied; undefined: a fixed exposure. */
+  /** Display luminance the log-mean of the sky is exposed to before the curve; undefined: a fixed exposure. */
   key?: number;
   /** Exposure range, in multiples of scene radiance (per unit sun irradiance). */
   min: number;
   max: number;
+  /** Display luminance the 5th, 50th and 95th percentile of the sky's luminance are mapped to. */
+  targets: readonly [number, number, number];
+  /** Fixed knot positions (ACES output) for the three targets instead of the sky's percentiles: for a state whose sky carries no signal to fit (night: the sky is black, the cards are what the curve is for). */
+  knots?: readonly [number, number, number];
+  /** The most the curve may steepen the sky's own spread about its median (display luminance per unit of ACES output): a nearly flat overcast sky is not blown up into a gradient. */
+  maxGain: number;
 }
 
 /** Display luminance slack for the 8-bit rounding and the smooth upscale of the baked grid. */
 export const MARGIN = 0.004;
 
-/**
- * Day and Dusk wear the same dark ink, so one floor: its bound plus margin, 0.4744, which is what the dark link needs (about 0.4554 for 4.5:1, skyTheme.test.ts); a lower day floor (0.317 was tried) leaves the link at 3.3:1. Night wears light ink, and its
- * dimmer foldout headers (L 0.386 on screen, rat-crest-a7c95ce-20261111) need a backdrop of at most 0.047.
- */
+/** The one absolute lift of day and dusk: what black is drawn as, display-linear. The rest of the range is made by the curve. */
+export const BLACK_LIFT = 0.02;
+/** Night's black lift: the whole night range is under its ceiling (0.043), so its black is lifted less. */
+export const NIGHT_LIFT = 0.004;
+
+/** Night wears light ink, whose dimmer foldout headers (L 0.386 on screen, rat-crest-a7c95ce-20261111) need a backdrop of at most 0.047. */
 export const BUDGET: Record<FixedSkyState, Budget> = {
-  day: { floor: 0.4744 + MARGIN, ceiling: 1, key: 0.45, min: 4, max: 60 },
-  dusk: { floor: 0.4744 + MARGIN, ceiling: 1, key: 0.5, min: 4, max: 400 },
-  night: { floor: 0, ceiling: 0.047 - MARGIN, key: 0.03, min: 8, max: 3000 },
+  day: { floor: BLACK_LIFT - 0.001, lift: BLACK_LIFT, ceiling: 1, key: 0.45, min: 4, max: 60, targets: [0.22, 0.58, 0.9], maxGain: 4 },
+  dusk: { floor: BLACK_LIFT - 0.001, lift: BLACK_LIFT, ceiling: 1, key: 0.5, min: 4, max: 400, targets: [0.12, 0.45, 0.85], maxGain: 4 },
+  night: {
+    floor: NIGHT_LIFT - 0.001,
+    lift: NIGHT_LIFT,
+    ceiling: 0.047 - MARGIN,
+    min: 1,
+    max: 1,
+    knots: [0.002, 0.02, 0.15],
+    targets: [0.008, 0.018, 0.032],
+    maxGain: 1e6,
+  },
 };
 
-/** The luma one 8-bit code moves at the day floor (about 0.0037): a lift step smaller than this can leave the encoded luma where it was, so the floor search never steps less. */
-const CODE_STEP = 0.0045;
+/** Knots of the curve: black, the 5th, 50th, 95th percentile, white. */
+export const KNOTS = 5;
 
-/** The display transform of a sky: exposure, then ACES, then a black lift (veiling glare) in display-linear. */
+/** A monotone piecewise-cubic Hermite curve over display-linear 0..1: knot positions, values and slopes. */
+export interface Curve {
+  x: number[];
+  y: number[];
+  m: number[];
+}
+
+/** The monotone cubic (Fritsch-Carlson, Brodlie's weighted harmonic mean) through strictly increasing `x` and non-decreasing `y`. */
+export function makeCurve(x: number[], y: number[]): Curve {
+  const n = x.length;
+  const h = x.slice(1).map((v, i) => v - x[i]);
+  const d = h.map((hk, i) => (y[i + 1] - y[i]) / hk);
+  const m = new Array<number>(n).fill(0);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let k = 1; k < n - 1; k += 1) {
+    if (d[k - 1] * d[k] <= 0) continue;
+    const w1 = 2 * h[k] + h[k - 1];
+    const w2 = h[k] + 2 * h[k - 1];
+    m[k] = (w1 + w2) / (w1 / d[k - 1] + w2 / d[k]);
+  }
+  return { x, y, m };
+}
+
+/** The curve at `v` (clamped to 0..1). `lightCards.ts` writes the same evaluation into its shader. */
+export function applyCurve(c: Curve, v: number): number {
+  const t0 = Math.min(1, Math.max(0, v));
+  let k = 0;
+  for (let i = 1; i < c.x.length - 1; i += 1) if (t0 > c.x[i]) k = i;
+  const h = c.x[k + 1] - c.x[k];
+  const t = (t0 - c.x[k]) / h;
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (
+    (2 * t3 - 3 * t2 + 1) * c.y[k] +
+    (t3 - 2 * t2 + t) * h * c.m[k] +
+    (-2 * t3 + 3 * t2) * c.y[k + 1] +
+    (t3 - t2) * h * c.m[k + 1]
+  );
+}
+
+/** The straight line from the black lift to white: what a display with no fitted curve does. */
+export const LIFT_ONLY: Curve = makeCurve(
+  [0, 0.25, 0.5, 0.75, 1],
+  [0, 0.25, 0.5, 0.75, 1].map((v) => BLACK_LIFT + (1 - BLACK_LIFT) * v)
+);
+
+/** The display transform of a sky: exposure, then ACES, then the fitted curve in display-linear. */
 export interface Display {
   exposure: number;
-  /** Added to every channel after the curve, then rescaled so white stays white: out = lift + (1 - lift) * aces. */
-  lift: number;
+  curve: Curve;
 }
 
 /** The 8-bit sRGB of linear radiance through a display. */
 export function display8(r: number, g: number, b: number, d: Display, out: number[]): void {
   acesLinear(r, g, b, d.exposure, out);
-  for (let i = 0; i < 3; i += 1) out[i] = Math.round(encode(d.lift + (1 - d.lift) * out[i]));
+  for (let i = 0; i < 3; i += 1) out[i] = Math.round(encode(applyCurve(d.curve, out[i])));
 }
 
 const decode = (v: number): number => {
@@ -119,15 +187,16 @@ export interface Fit {
   /** Darkest and lightest display luminance of the grid under `display`. */
   lo: number;
   hi: number;
-  /** The exposure before the budget moved it, and what the budget took (for the numbers a report cites). */
+  /** The exposure the state's key chose (the curve does the rest). */
   keyExposure: number;
 }
 
 /**
- * Choose the display of a sky, the one place brightness is decided. `hdr` is the grid's radiance (3 floats a texel) and
- * `meanLuma` its log-mean luminance. Exposure starts at the state's key (adaptation); a ceiling lowers it until the
- * lightest texel is inside the budget (bisection: luminance is monotone in exposure); a floor raises the black lift until the
- * darkest is (luminance is monotone in lift, and linear: the lift needed is solved in one step).
+ * Choose the display of a sky, the one place brightness is decided. `hdr` is the grid's radiance (3 floats a texel) and `meanLuma` its
+ * log-mean luminance. Exposure is the state's key (adaptation). The curve is then fitted: the 5th, 50th and 95th percentile of the
+ * grid's luminance after ACES go to the state's targets (the outer two held to the budget's `maxGain` times the sky's own spread about the median),
+ * between a black lift below and white (or the night ceiling) above. Monotone by construction, so the ceiling holds for every texel
+ * of every grid and card, and no pass over another viewport's grid is needed.
  */
 export function fitDisplay(state: FixedSkyState, hdr: Float32Array, meanLuma: number): Fit {
   const b = BUDGET[state];
@@ -136,83 +205,41 @@ export function fitDisplay(state: FixedSkyState, hdr: Float32Array, meanLuma: nu
       ? b.min
       : Math.min(b.max, Math.max(b.min, (b.key * 1.6) / Math.max(meanLuma, 1e-9)));
   const n = hdr.length / 3;
+  const tmp = [0, 0, 0];
+  const xs: number[] = [];
+  for (let i = 0; i < n; i += 1) {
+    acesLinear(hdr[i * 3], hdr[i * 3 + 1], hdr[i * 3 + 2], keyExposure, tmp);
+    xs.push(displayLuma(tmp));
+  }
+  xs.sort((p, q) => p - q);
+  const pct = (q: number) => xs[Math.min(n - 1, Math.floor(q * n))];
+  const x = [0, ...(b.knots ?? [pct(0.05), pct(0.5), pct(0.95)]), 1];
+  x[1] = Math.max(x[1], 1e-7);
+  x[2] = Math.max(x[2], x[1] * 1.001 + 1e-7);
+  x[3] = Math.max(x[3], x[2] * 1.001 + 1e-7);
+  if (x[3] > 0.97) {
+    x[3] = 0.97;
+    x[2] = Math.min(x[2], 0.965);
+    x[1] = Math.min(x[1], 0.96);
+  }
+  const [t0, t1, t2] = b.targets;
+  const y = [
+    b.lift,
+    Math.max(b.lift + 1e-4, t0, t1 - b.maxGain * (x[2] - x[1])),
+    t1,
+    Math.min(b.ceiling - 1e-4, t2, t1 + b.maxGain * (x[3] - x[2])),
+    b.ceiling,
+  ];
+  y[1] = Math.min(y[1], y[2] - 1e-4);
+  y[3] = Math.max(y[3], y[2] + 1e-4);
+  const display: Display = { exposure: keyExposure, curve: makeCurve(x, y) };
+  let lo = 2;
+  let hi = -1;
   const stride = Math.max(1, Math.floor(n / 4000));
-  const tmp = [0, 0, 0];
-  const range = (d: Display) => {
-    let lo = 2;
-    let hi = -1;
-    for (let i = 0; i < n; i += stride) {
-      const l = displayLumaOf(hdr[i * 3], hdr[i * 3 + 1], hdr[i * 3 + 2], d, tmp);
-      if (l < lo) lo = l;
-      if (l > hi) hi = l;
-    }
-    return { lo, hi };
-  };
-  let exposure = keyExposure;
-  let r = range({ exposure, lift: 0 });
-  if (r.hi > b.ceiling) {
-    let lo = 0;
-    let hiE = exposure;
-    for (let k = 0; k < 24; k += 1) {
-      const mid = (lo + hiE) / 2;
-      if (range({ exposure: mid, lift: 0 }).hi > b.ceiling) hiE = mid;
-      else lo = mid;
-    }
-    exposure = lo;
-    r = range({ exposure, lift: 0 });
+  for (let i = 0; i < n; i += stride) {
+    const l = displayLumaOf(hdr[i * 3], hdr[i * 3 + 1], hdr[i * 3 + 2], display, tmp);
+    if (l < lo) lo = l;
+    if (l > hi) hi = l;
   }
-  let lift = 0;
-  if (r.lo < b.floor) {
-    // Linear in the displayed linear luminance: L' = lift + (1 - lift) L, but through the 8-bit encode; solve in linear then check once.
-    lift = (b.floor - r.lo) / (1 - r.lo);
-    let probe = range({ exposure, lift });
-    for (let k = 0; k < 6 && probe.lo < b.floor; k += 1) {
-      lift += Math.max((b.floor - probe.lo) * 1.05, CODE_STEP);
-      probe = range({ exposure, lift });
-    }
-    r = probe;
-  }
-  return { display: { exposure, lift }, lo: r.lo, hi: r.hi, keyExposure };
-}
-
-/**
- * The display, moved only as far as the budget needs, for a grid other than the one it was fitted on (another viewport's shape,
- * its own texels): the fit is made once on a canonical grid so that resizing repaints the same sky, and this keeps a texel the canonical
- * grid did not have inside the state's bounds. A display that already holds them is returned as it is.
- */
-export function holdBudget(state: FixedSkyState, hdr: Float32Array, d: Display): Display {
-  const b = BUDGET[state];
-  const n = hdr.length / 3;
-  const tmp = [0, 0, 0];
-  const range = (x: Display) => {
-    let lo = 2;
-    let hi = -1;
-    for (let i = 0; i < n; i += 1) {
-      const l = displayLumaOf(hdr[i * 3], hdr[i * 3 + 1], hdr[i * 3 + 2], x, tmp);
-      if (l < lo) lo = l;
-      if (l > hi) hi = l;
-    }
-    return { lo, hi };
-  };
-  let cur = d;
-  let r = range(cur);
-  if (r.hi > b.ceiling) {
-    let lo = 0;
-    let hiE = cur.exposure;
-    for (let k = 0; k < 20; k += 1) {
-      const mid = (lo + hiE) / 2;
-      if (range({ exposure: mid, lift: cur.lift }).hi > b.ceiling) hiE = mid;
-      else lo = mid;
-    }
-    cur = { exposure: lo, lift: cur.lift };
-    r = range(cur);
-  }
-  for (let k = 0; k < 8 && r.lo < b.floor; k += 1) {
-    cur = {
-      exposure: cur.exposure,
-      lift: cur.lift + ((b.floor - r.lo) / (1 - r.lo)) * 1.05 + 1e-4,
-    };
-    r = range(cur);
-  }
-  return cur;
+  return { display, lo, hi, keyExposure };
 }

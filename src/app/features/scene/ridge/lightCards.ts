@@ -6,13 +6,14 @@
 // Per pixel: the normal from the geometry card in the column's frame (r along the ray, t across it, up), the sun brought into that frame per column;
 // radiance = albedo x (sun transmittance x max(n.s, 0) + ambient irradiance) / pi; aerial perspective L T(d) + Lsky (1 - T(d)) with d from the
 // geometry's log-distance and the sky's own extinction at the ground; contours; then the sky's own display (exposure, ACES with `toneMap.ts`'s
-// constants written into the shader, black lift, sRGB), so terrain and sky share one exposure. Wall pixels (R = G = 255 in the geometry file, a code
+// constants written into the shader, the sky's fitted curve, sRGB), so terrain and sky share one exposure. Wall pixels (R = G = 255 in the geometry file, a code
 // no real normal reaches) are the extruded face under a ridge: they are lit with the face up and wear no crease ink.
 import { extinctionAt } from './earthAtmosphere';
 import type { Vec3 } from './earthAtmosphere';
 import type { RidgeManifest } from './manifest';
 import type { PhysicalSky } from './physicalSky';
-import { ACES_FIT, ACES_IN, ACES_OUT } from './toneMap';
+import { ACES_FIT, ACES_IN, ACES_OUT, KNOTS } from './toneMap';
+import type { Curve } from './toneMap';
 import type { View } from './view';
 
 export interface CardBitmaps {
@@ -70,6 +71,8 @@ export interface RidgeLook {
   groundNoise: number;
   /** Low-frequency noise darkening of the direct sun (static). 0 = none. */
   cloudShadows: number;
+  /** Night's moonlight on the ground: the radiance of a white card in it (rgb, at the night exposure, before the curve); added only in the night state, where the atmosphere gives the ground none. A dim cool value. */
+  nightAmbient: readonly [number, number, number];
 }
 
 export const DEFAULT_LOOK: RidgeLook = {
@@ -89,6 +92,7 @@ export const DEFAULT_LOOK: RidgeLook = {
   inkScale: 1,
   groundNoise: 0,
   cloudShadows: 0,
+  nightAmbient: [0.5, 0.66, 1.1],
 };
 
 const RAD = Math.PI / 180;
@@ -132,10 +136,12 @@ export interface Lighting {
   sunTransmittance: Vec3;
   ambient: Vec3;
   exposure: number;
-  lift: number;
+  /** The sky's fitted curve (`toneMap.ts`), applied per channel after ACES. */
+  curve: Curve;
 }
 
 const scale3 = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
+const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
 export function lightingOf(
   manifest: RidgeManifest,
@@ -153,9 +159,12 @@ export function lightingOf(
     logDSpan: manifest.encoding.logDMax - manifest.encoding.logDMin,
     extinction: scale3(extinctionAt(sky.atm.observerKm, sky.atm.mieScale), look.hazeScale),
     sunTransmittance: lit ? [trans[0], trans[1], trans[2]] : [0, 0, 0],
-    ambient: scale3(sky.atm.irradiance.ambient, look.ambientScale),
+    ambient: add3(
+      scale3(sky.atm.irradiance.ambient, look.ambientScale),
+      sky.state === 'night' ? scale3(look.nightAmbient as Vec3, Math.PI) : [0, 0, 0]
+    ),
     exposure: sky.fit.display.exposure,
-    lift: sky.fit.display.lift,
+    curve: sky.fit.display.curve,
   };
 }
 
@@ -206,7 +215,10 @@ uniform vec2 uLogD;
 uniform vec3 uExt;
 uniform vec3 uTSun;
 uniform vec3 uAmbient;
-uniform vec2 uDisplay;
+uniform float uExposure;
+uniform float uCx[${KNOTS}];
+uniform float uCy[${KNOTS}];
+uniform float uCm[${KNOTS}];
 uniform vec2 uInkGeometry; // occludeLogD, creaseCos
 uniform vec3 uInkKeep; // edge, occlude, crease
 uniform float uInkScale;
@@ -246,6 +258,20 @@ vec3 aces(vec3 x) {
   vec3 p = fit(max(vec3(dot(IN_R0, x), dot(IN_R1, x), dot(IN_R2, x)), 0.0));
   return clamp(vec3(dot(OUT_R0, p), dot(OUT_R1, p), dot(OUT_R2, p)), 0.0, 1.0);
 }
+
+// toneMap.ts applyCurve: the monotone cubic Hermite through the sky's five knots.
+float curve1(float v) {
+  float x = clamp(v, 0.0, 1.0);
+  int k = 0;
+  for (int i = 1; i < ${KNOTS - 1}; i++) if (x > uCx[i]) k = i;
+  float h = uCx[k + 1] - uCx[k];
+  float t = (x - uCx[k]) / h;
+  float t2 = t * t;
+  float t3 = t2 * t;
+  return (2.0 * t3 - 3.0 * t2 + 1.0) * uCy[k] + (t3 - 2.0 * t2 + t) * h * uCm[k]
+    + (-2.0 * t3 + 3.0 * t2) * uCy[k + 1] + (t3 - t2) * h * uCm[k + 1];
+}
+vec3 curve(vec3 c) { return vec3(curve1(c.r), curve1(c.g), curve1(c.b)); }
 
 vec3 skyAt(vec2 uv) {
   vec2 f = uv * vec2(uSkySize) - 0.5;
@@ -329,8 +355,7 @@ void main() {
   }
   radiance *= 1.0 - (1.0 - keep) * uInkScale;
 
-  vec3 lin = aces(radiance * uDisplay.x);
-  vec3 rgb = toSrgb(uDisplay.y + (1.0 - uDisplay.y) * lin);
+  vec3 rgb = toSrgb(curve(aces(radiance * uExposure)));
   outColor = vec4(rgb * c.a, c.a);
 }
 `;
@@ -426,7 +451,10 @@ export function lightCards(
     gl.uniform3f(u('uExt'), ...lit.extinction);
     gl.uniform3f(u('uTSun'), ...lit.sunTransmittance);
     gl.uniform3f(u('uAmbient'), ...lit.ambient);
-    gl.uniform2f(u('uDisplay'), lit.exposure, lit.lift);
+    gl.uniform1f(u('uExposure'), lit.exposure);
+    gl.uniform1fv(u('uCx'), lit.curve.x);
+    gl.uniform1fv(u('uCy'), lit.curve.y);
+    gl.uniform1fv(u('uCm'), lit.curve.m);
     gl.uniform2f(u('uInkGeometry'), look.occludeLogD, look.creaseCos);
     gl.uniform3f(u('uInkKeep'), look.inkKeep.edge, look.inkKeep.occlude, look.inkKeep.crease);
     gl.uniform1f(u('uInkScale'), look.inkScale);
