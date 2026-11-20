@@ -189,7 +189,7 @@ def set_view(skyline, sky_row=0.04, near_row=0.66):
 COV_BINS = 160                         # log-distance bins between the first and the last sample
 SIG_B = 1.5                            # blur of the coverage along depth (bins): seams settle in gaps
 SEAM_LAM, SEAM_UNARY = 2.0, 0.25       # forward energy: a seam that moves a bin between neighbouring columns pays SEAM_LAM per bin plus every visible row it sweeps; one that sits in visible terrain pays SEAM_UNARY x those rows (cross-fadable)
-SEAM_PRIOR = 0.05                      # the authored depth only breaks ties between equal gaps, rows per nat^2: a stronger pull makes a seam hop across a ridge it cannot follow (2.0 hopped a 4 to 15 km ridge between two columns, a tear)
+SEAM_PRIOR = 0.1                       # the authored depth is a weak pull, rows per nat^2: a stronger one makes a seam hop across a ridge it cannot follow (2.0 hopped a 4 to 15 km ridge between two columns, a tear); a weaker one lets a seam without the swept term follow it (the test pins both sides)
 SEAM_SEP = 0.4                         # seams at least this far apart in log-distance (nat)
 XF = 0.07                              # half-width of a seam's cross-fade, nat (about two bins)
 

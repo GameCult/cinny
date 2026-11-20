@@ -74,13 +74,12 @@ def test_seam_never_splits_a_receding_ridge_side_by_side():
     assert np.abs(np.diff(a0[ok])).max() < 0.35 and np.abs(np.diff(a1[ok])).max() < 0.35, ('a card appears or vanishes between neighbouring columns', np.abs(np.diff(a0[ok])).max(), np.abs(np.diff(a1[ok])).max())
     assert ((a0 + (1 - a0) * a1)[ok] > 0.999).all(), 'the ridge body is not covered by the two cards together'
 def test_far_card_keeps_terrain_hidden_behind_a_nearer_ridge():
-    """Layered depth: a far ridge (20 km) lower in angle than the near ridge (3 km) in azimuth 0..36 and higher in 36..72.  Where the near card is opaque in front of the far ridge (columns 100..500) the mid card still holds that ridge, at its distance."""
-    b = _bake(terrain(block(0, 359.99, 3000, 3600, 350), block(0, 36, 20000, 21500, 700), block(36, 359.99, 20000, 21500, 1800)), [6]); c0, c1 = b['cards']
-    top_far = ridge.opaque(b['a']); lo = theta(700, 20000); r = _row(lo - 0.2)
+    """Layered depth: a far ridge (20 km) lower in angle than the near ridge (3 km) in azimuth 0..36 and higher in 36..72.  Where the near card is opaque in front of the far ridge (columns 100..500) the mid card still holds that ridge, at its distance;
+    where the far ridge shows above the near one (column 900) the near card is empty and the mid card holds it."""
+    b = _bake(terrain(block(0, 359.99, 3000, 3600, 350), block(0, 36, 20000, 21500, 1500), block(36, 359.99, 20000, 21500, 2400)), [6]); c0, c1 = _canvas(b['cards'][0]), b['cards'][1]; a1 = _canvas(c1); ld1 = _canvas(c1, 'logd'); r = _row(theta(1500, 20000) - 0.2)
     for x in (100, 300, 500):
-        assert _canvas(c0)[r, x] > 0.99, ('the near ridge does not cover the far one here', x); assert _canvas(c1)[r, x] > 0.99, ('the far card lost the terrain behind the near ridge', x)
-        assert abs(math.exp(_canvas(c1, 'logd')[r, x]) - 20000) < 1500, (x, math.exp(_canvas(c1, 'logd')[r, x]))
-    assert _canvas(c0, 'alpha')[_row(theta(1800, 20000) - 0.2), 900] > 0.99 and _canvas(c1)[_row(theta(1800, 20000) + 0.1), 900] < 0.5 + 0.5, 'sanity'
+        assert c0[r, x] > 0.99, ('the near ridge does not cover the far one here', x); assert a1[r, x] > 0.99, ('the far card lost the terrain behind the near ridge', x); assert abs(math.exp(ld1[r, x]) - 20000) < 1500, (x, math.exp(ld1[r, x]))
+    r = _row(0.5 * (theta(350, 3000) + theta(2400, 20000))); assert c0[r, 900] < 0.01 and a1[r, 900] > 0.99 and abs(math.exp(ld1[r, 900]) - 20000) < 1500, (c0[r, 900], a1[r, 900])
 def test_crossfade_is_complementary():
     """A ridge across the seam (seam fixed at 6 km, the ridge's front face at 5.9 km inside the cross-fade): the nearer card is partly transparent over the window, the farther card is opaque on the ridge, and the composite stays at coverage 1 below the crest."""
     A, Hh = rays(terrain(block(0, 359.99, 5900, 6100, 900))); ridge.P.update(win0=0, eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = ridge.win(A), ridge.win(Hh)

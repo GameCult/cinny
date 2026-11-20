@@ -1,6 +1,6 @@
 # ridge-bake
 
-Offline baker for the ridge backdrop: it turns a Copernicus DEM into six sun frames of three transparent WebP planes (far, mid, near) per place, plus a `manifest.json` and an `index.json` that the runtime reads. The baker is not shipped; `public/ridge/` holds its output.
+Offline baker for the ridge backdrop: it turns a Copernicus DEM into K+1 G-buffer cards per place, split by K authored seams, plus a `manifest.json` (schema 2) and an `index.json` that the runtime reads. Each card is a colour WebP (albedo and coverage) and a geometry WebP (normal and log-distance). The baker is not shipped; `public/ridge/` holds its output. The client owns lighting, haze and ink: no sun, haze or shadow is baked.
 
 ## Run
 
@@ -8,11 +8,11 @@ Offline baker for the ridge backdrop: it turns a Copernicus DEM into six sun fra
 python3 -I scripts/ridge-bake/export.py <place-id> --tiles DIR --out public/ridge/ [--work DIR] [--sheet contact.png]
 ```
 
-Needs Python 3 with `numpy`, `tifffile` and `imagecodecs`. `--tiles` is a directory of Copernicus GLO-30 tiles (never committed); `--work` caches the mosaic and rays (default `$TMPDIR/ridge-bake-work`); `--sheet` writes the six frames over one flat sky. `python3 -I scripts/ridge-bake/export.py --write-schema` rewrites `ridge-bake.schema.json`; `export.py` holds the one dict it comes from.
+Needs Python 3 with `numpy`, `tifffile` and `imagecodecs`. `--tiles` is a directory of Copernicus GLO-30 tiles (never committed); `--work` caches the mosaic and rays (default `$TMPDIR/ridge-bake-work`); `--sheet` writes the contact sheet (the composite, every card alone and the depth image with every seam, lit by one fixed light). `python3 -I scripts/ridge-bake/export.py --write-schema` rewrites `ridge-bake.schema.json`, which the tests pin.
 
-Tests: `RIDGE_PY=<python> RIDGE_TILES=DIR scripts/ridge-bake/tests/run.sh [test_ridge.py|mutate.py|mutate_export.py]` (the full file takes about 9 minutes; `mutate.py` runs the mutants of taper, chains and sweep and `mutate_export.py` those of the planes path and export, each failing if one survives).
+Tests: `RIDGE_PY=<python> RIDGE_TILES=DIR scripts/ridge-bake/tests/run.sh [test_ridge.py|mutate.py]` (`mutate.py` re-introduces each rule's failure into a copy of the baker and fails if a test does not notice).
 
-## Tiles per preset (`places.json`, date 2026-09-23)
+## Tiles per preset (`places.json`)
 
 Files are `Copernicus_DSM_COG_10_<N|S>dd_00_<E|W>ddd_00_DEM.tif`; the list below is `<N|S>dd<E|W>ddd`.
 
@@ -25,11 +25,18 @@ Files are `Copernicus_DSM_COG_10_<N|S>dd_00_<E|W>ddd_00_DEM.tif`; the list below
 | amadablam | N27E086 N27E087 N28E086 N28E087 |
 | trecime | N46E011 N46E012 |
 
-## Planes
+## Cards
 
-`relight_planes` renders every layer twice, with haze colour 0 and 1; the relight is affine in the haze colour, so the difference is each pixel's haze share. That share becomes transparency and the sky behind supplies the haze. Far is slot 0 plus the floor, near is the last slot, mid is every slot between (a place needs at least 3). Colour is exact over the frame's own haze colour; over another sky it drifts by the difference between the two. Stacked planes would leak: each plane's haze is alpha over whatever is behind it, so a nearer plane's haze would veil the farther ridge instead of the sky, and the farther ridge would show through it (a slanted seam through Vienna's near plane). `relight_planes` therefore scales a farther plane's alpha, near to far, to what the nearer layers leave open in the opaque frame (their transmittance over the stack's), looked up as the most open pixel within `OCCLUDE_MARGIN_PX` columns and eased by a Gaussian, because the runtime slides the planes against each other and a hidden pixel must stay hidden after the slide. The nearest layer is the ground in front of the eye: `bake_layer(near=True)` keeps its body opaque down to the horizon (its dissolve starts there), where the farther layers keep theirs (the haze arches). `export.check_near_cover` refuses, at `write_bake`, a near plane with a fully transparent column or a hole between a column's crest and the horizon row, in every frame; the farther planes may have empty columns. Over a flat sky the stack differs from the opaque frame by 1.8/255 over the whole frame (Vienna noon; 4.9 before the knock-out), but that is 11.2/255 mean over the 16.4% of pixels where two planes overlap and 0.005/255 everywhere else; the tests bound the frame at 3/255 and the overlap at 12.5/255. The spec's 2/255 pin is met on the frame; the overlap keeps the margin's soft blob.
+`places.json` gives each preset `card_split_km`, an ordered list of 1 to 5 seam depths in km, and optionally `prefilter_m`. A preset without `card_split_km` is refused; K splits make K+1 cards, at most `MAX_CARDS` = 6 per place. New places get a seam probe look before their first bake.
 
-Manifest `luma` is the min and max relative luminance (WCAG, linear 0..1) of the three planes composited far, mid, near over a flat mid-grey sky, over the pixels whose composite coverage `1 - prod(1 - alpha)` is at least 0.5. No plane pixel is opaque (haze is alpha), so no per-plane solid set exists; the composite is what the runtime shows.
+1. **March.** `stage0` marches 6400 azimuth columns of rays over the DEM with Earth curvature and refraction (`ridge.elev`), cached by a key of its inputs.
+2. **Low-pass.** `prefilter` blurs the sampled heights with a Gaussian of `prefilter_m` metres along each ray and across rays at equal distance (sigma = `prefilter_m` / (distance x column width) columns), then recomputes the angles. Roofs go, hills stay.
+3. **View.** `set_view` maps angle to row linearly: the highest skyline angle in the window sits at 4% of the frame height, the lowest at 66%, clamped to 1x to 10x vertical exaggeration.
+4. **Seams.** `coverage` counts the visible rows of the opaque view per log-distance bin and column. `seams` finds one seam per authored split per column by dynamic programming (seam carving, forward energy): it sits in a gap between depths, moving it costs 2 per bin plus the visible rows it sweeps (so it never hops across a ridge between two columns and splits it side by side), a seam inside visible terrain is cheap to cross-fade, the authored depth only breaks ties. Seam k stays 0.4 nat beyond seam k-1.
+5. **Cards.** `cards` makes card i from the first visible hit at or beyond seam i-1 (layered depth: a farther card keeps the terrain a nearer ridge hides), alpha 1 minus a smoothstep over seam i in log-distance (the cross-fade), crest rows with fractional coverage, distance and normal interpolated between samples by angle, albedo from a small height and slope material, cropped to the rows where alpha is not zero. The alpha-over composite of the cards equals the opaque view; `check_cover` refuses a bake that differs by more than 0.02.
+6. **Normals.** `normals` takes the along-ray slope and the across-ray slope at equal distance (neighbouring columns, same sample), both times the vertical exaggeration.
+
+Files per card `i`: `card-<i>-colour.webp` (lossy RGB albedo, lossless straight alpha) and `card-<i>-geometry.webp` (lossless: R, G = (n + 1) / 2 for the normal's along and across components, B = log-distance normalised between `encoding.log_d_min` and `log_d_max`). The manifest lists the cards nearest first with their row band (`top`, `h`), median seam depths and files; the runtime paints the list last to first. `check_budget` refuses more than `MAX_CARDS` cards, more than 1.5 MB of card files, or more than 20 MB decoded (2 textures x width x band rows x 4 bytes per card); a cap is never raised to fit a bake.
 
 ## Licence
 
