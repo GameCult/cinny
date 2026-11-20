@@ -121,7 +121,6 @@ export interface Budget {
   /** The most the curve may steepen the sky's own spread about its median (display luminance per unit of ACES output): a nearly flat overcast sky is not blown up into a gradient. */
   maxGain: number;
 }
-export const MARGIN = 0.004;
 
 /** The one absolute lift of day and dusk: what black is drawn as, display-linear. The rest of the range is made by the curve. */
 export const BLACK_LIFT = 0.02;
