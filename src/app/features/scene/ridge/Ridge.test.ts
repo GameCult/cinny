@@ -6,8 +6,10 @@ import type { SkyColours } from './skyColour';
 import { makeStars } from './stars';
 import { makePhysicalSky, paintSky as paintPhysicalSky } from './physicalSky';
 import { startBackgroundScene } from '../index';
+import { parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
-import { FALLBACK_VIEW, windowFor } from './view';
+import type { Backdrop } from './Backdrop';
+import { cardMotion, FALLBACK_VIEW, windowFor } from './view';
 
 describe('noise', () => {
   it('is deterministic and in [0, 1)', () => {
@@ -144,7 +146,16 @@ function ctx() {
       draws.push('sky');
     },
     save() {},
-    restore() {},
+    restore() {
+      c.t = undefined;
+      c.k = undefined;
+    },
+    translate(x: number, y: number) {
+      c.t = [x, y];
+    },
+    scale(k: number) {
+      c.k = k;
+    },
     rect() {},
     clip() {},
     createImageData: (w: number, h: number) => ({
@@ -175,7 +186,9 @@ function ctx() {
       else draws.push('fill');
     },
     drawImage(...a: unknown[]) {
-      images.push(Object.assign(a, { alpha: c.globalAlpha, op: c.globalCompositeOperation }));
+      images.push(
+        Object.assign(a, { alpha: c.globalAlpha, op: c.globalCompositeOperation, t: c.t, k: c.k })
+      );
     },
     globalAlpha: 1,
     globalCompositeOperation: 'source-over',
@@ -518,6 +531,175 @@ describe('rain in the scene', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: rainy(1) })!;
     rainEls(parent).forEach((e: any) => expect(e.anims[0].play).not.toHaveBeenCalled());
+    s.dispose();
+  });
+});
+
+describe('the ridge cards in the scene', () => {
+  const manifest = parseManifest(wireManifest(), '/d/'); // three cards, scales 1.2, 1.0167, 1.005, nearest first
+  const litCards = (): Backdrop => ({
+    manifest,
+    cards: manifest.cards.map((c, k) => {
+      const canvas = fakeEl('canvas');
+      canvas.id = `card-${k}`;
+      return { canvas: canvas as unknown as HTMLCanvasElement, top: c.top, h: c.h, scale: c.scale };
+    }),
+  });
+  const night: SkyColours = {
+    ...DAY,
+    top: [10, 14, 40],
+    mid: [30, 34, 80],
+    horizon: [60, 50, 90],
+    physical: makePhysicalSky('night', new Date('2026-06-21T22:40:00Z'), 1, FALLBACK_VIEW),
+  };
+  const rigOf = (parent: any) =>
+    parent.children.find((c: any) => c.children.some((g: any) => g.anims.length));
+  const win = windowFor(manifest.view, 400, 800);
+  const motion400 = cardMotion(manifest, win);
+
+  it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: litCards() })!;
+    const kinds = parent.children.map((c: any) => c.tag);
+    expect(kinds).toEqual(['canvas', 'canvas', 'div', 'div', 'div']);
+    expect(parent.children[2].children).toHaveLength(3);
+    parent.children.forEach((c: any) => {
+      expect(c.style.zIndex).toBeUndefined();
+      expect(c.style.position).not.toBe('fixed');
+    });
+    s.dispose();
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('is one element per card, farthest first, each at its rows of the plane and its origin on the horizon centre', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    const rig = rigOf(parent);
+    expect(rig.children.map((c: any) => c.id)).toEqual(['card-2', 'card-1', 'card-0']);
+    const planeTop = 800 - win.plane.bottom - win.plane.h;
+    rig.children.forEach((el: any, j: number) => {
+      const card = manifest.cards[2 - j];
+      expect(el.style.left).toBe(`${(400 - win.plane.w) / 2}px`);
+      expect(el.style.width).toBe(`${win.plane.w}px`);
+      expect(el.style.top).toBe(`${planeTop + card.top * win.plane.scale}px`);
+      expect(el.style.height).toBe(`${card.h * win.plane.scale}px`);
+      expect(el.style.transformOrigin).toBe(
+        `${win.plane.w / 2}px ${(manifest.view.horizonRow - card.top) * win.plane.scale}px`
+      );
+    });
+    s.dispose();
+  });
+
+  it('pans card i by scale_i x heading and scales it by scale_i, to and fro on the compositor', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    rigOf(parent).children.forEach((el: any, j: number) => {
+      const k = 2 - j;
+      const { scale, reachPx } = motion400.cards[k];
+      const { keyframes, options } = el.anims[0];
+      expect(scale).toBe(manifest.cards[k].scale);
+      expect(keyframes).toEqual([
+        { transform: `translate3d(${-reachPx}px,0,0) scale(${scale})` },
+        { transform: `translate3d(${reachPx}px,0,0) scale(${scale})` },
+      ]);
+      expect(options).toMatchObject({
+        duration: 75000,
+        iterations: Infinity,
+        direction: 'alternate',
+        easing: 'ease-in-out',
+      });
+    });
+    // The nearer the card, the further it travels.
+    const reach = (j: number) => motion400.cards[2 - j].reachPx;
+    expect(reach(2)).toBeGreaterThan(reach(1));
+    expect(reach(1)).toBeGreaterThan(reach(0));
+    s.dispose();
+  });
+
+  it('adds no rAF or timer callback of its own: the drift is Element.animate, the stars alone loop', () => {
+    const { canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    expect(rafQueue).toHaveLength(1); // the frame sampler, as without cards
+    s.dispose();
+  });
+
+  it('pauses the drift under reduced motion, in a hidden tab, and plays it again', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    const anims = rigOf(parent).children.map((g: any) => g.anims[0]);
+    anims.forEach((a: any) => expect(a.play).toHaveBeenCalled());
+    anims.forEach((a: any) => a.pause.mockClear());
+    motion.matches = true;
+    motion.addEventListener.mock.calls
+      .filter((c: any[]) => c[0] === 'change')
+      .forEach((c: any[]) => c[1]());
+    anims.forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    motion.matches = false;
+    anims.forEach((a: any) => a.pause.mockClear());
+    doc.visibilityState = 'hidden';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    anims.forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    s.dispose();
+    anims.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
+  });
+
+  it("a still draws every card, farthest first, scaled by its own scale about the rig's origin, at heading 0", () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: litCards() });
+    const drawn = images.filter((a) => (a[0] as any).id) as any[];
+    expect(drawn.map((a) => a[0].id)).toEqual(['card-2', 'card-1', 'card-0']);
+    const dpr = 2;
+    const s = win.plane.scale * dpr;
+    const x0 = (800 - win.plane.w * dpr) / 2;
+    const planeTop = 1600 - win.plane.h * dpr;
+    const origin = [x0 + (win.plane.w * dpr) / 2, planeTop + manifest.view.horizonRow * s];
+    drawn.forEach((a, j) => {
+      const card = manifest.cards[2 - j];
+      expect(a.k).toBe(card.scale);
+      expect(a.t).toEqual(origin);
+      expect([a[1], a[2], a[3], a[4]]).toEqual([
+        x0 - origin[0],
+        planeTop + card.top * s - origin[1],
+        win.plane.w * dpr,
+        card.h * s,
+      ]);
+      expect([a.alpha, a.op]).toEqual([1, 'source-over']);
+    });
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('settles to a still with the cards painted when the frame rate is poor', () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() });
+    runFrames(100, 400);
+    expect(images.filter((a) => (a[0] as any).id)).toHaveLength(3);
+    expect(parent.children).toEqual([canvas]);
+  });
+
+  it('with no backdrop it is the sky alone', () => {
+    const { parent, canvas } = host();
+    createRidgeScene({ canvas, tier: 'full', sky: DAY });
+    expect(parent.children).toEqual([canvas]);
+    expect(images.filter((a) => (a[0] as any).id)).toHaveLength(0);
+  });
+
+  it('asks the host canvas, and every canvas it makes, only for 2d: the cards arrive lit', () => {
+    const { canvas } = host();
+    const kinds: string[] = [];
+    const ask = (el: any) => {
+      const real = el.getContext;
+      el.getContext = vi.fn((k: string) => (kinds.push(k), real(k)));
+    };
+    ask(canvas);
+    const make = doc.createElement;
+    doc.createElement = (t: string) => {
+      const el = make(t);
+      ask(el);
+      return el;
+    };
+    const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: litCards() })!;
+    expect(kinds.length).toBeGreaterThan(0);
+    expect(kinds.every((k) => k === '2d')).toBe(true);
     s.dispose();
   });
 });

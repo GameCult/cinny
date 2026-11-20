@@ -11,11 +11,14 @@ import { sunAt } from './ridge/sunAt';
 import { ridgeWeather } from './ridge/weather';
 import { parseWeatherFile, WEATHER_ATTRIBUTION, weatherFromFile } from './ridge/weatherFeed';
 
-const { createRidgeScene, createScene } = vi.hoisted(() => ({
+const { createRidgeScene, createScene, loadBackdrop } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
   createScene: vi.fn(),
+  loadBackdrop: vi.fn(),
 }));
 vi.mock('./ridge/Ridge', () => ({ createRidgeScene }));
+// Decoding and lighting are the cards' own tests' (Backdrop.test.ts, lightCards.test.ts); here the door sees a loader it can hold, fail and count.
+vi.mock('./ridge/Backdrop', () => ({ loadBackdrop }));
 vi.mock('./Scene', () => ({ createScene }));
 // The physical sky is baked per call (tens of ms: atmosphere LUTs) and the clock here is fixed, so a state always
 // draws the same sky. Baking once per state keeps the 21-offset sweep under the default timeout when the machine is
@@ -48,6 +51,35 @@ const microtasks = (n: number) =>
     (p) => p.then(() => undefined),
     Promise.resolve()
   );
+/** A loader for `loadBackdrop` that waits on `ctl.hold` (queueing its settle in `ctl.pending`), then resolves a backdrop or, with `ctl.fail` as it stood when asked, null. `ctl.calls` is the sky each call was lit for. */
+const loader = () => {
+  const ctl = {
+    pending: [] as Array<() => void>,
+    hold: false,
+    fail: false,
+    calls: [] as any[],
+  };
+  loadBackdrop.mockImplementation(
+    (manifest: unknown, physical: unknown) =>
+      new Promise((resolve) => {
+        const fails = ctl.fail; // the outcome belongs to the request, whenever it settles
+        const settle = () => {
+          ctl.calls.push(physical);
+          resolve(fails ? null : { manifest, cards: [] });
+        };
+        if (ctl.hold) ctl.pending.push(settle);
+        else settle();
+      })
+  );
+  return {
+    ctl,
+    release: async () => {
+      ctl.hold = false;
+      ctl.pending.splice(0).forEach((s) => s());
+      await flush();
+    },
+  };
+};
 const fakeScene = () => ({ login: vi.fn(), dispose: vi.fn() });
 const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
@@ -58,6 +90,7 @@ beforeEach(() => {
   setSkyState('auto');
   createRidgeScene.mockReset();
   createScene.mockReset();
+  loadBackdrop.mockReset();
 });
 afterEach(() => {
   setSkyClock();
@@ -70,7 +103,9 @@ describe('startBackgroundScene follows the sky state', () => {
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
     expect(createRidgeScene).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night', FALLBACK_VIEW).top));
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(
+      hex(ridgeSkyFor('night', FALLBACK_VIEW).top)
+    );
     scene?.dispose();
   });
 
@@ -89,7 +124,9 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('night');
     createRidgeScene.mockReturnValue(fakeScene());
     const scene = await startBackgroundScene(config, caps, { canvas });
-    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(hex(ridgeSkyFor('night', FALLBACK_VIEW).top));
+    expect(hex(createRidgeScene.mock.calls[0][0].sky.top)).toBe(
+      hex(ridgeSkyFor('night', FALLBACK_VIEW).top)
+    );
     scene?.dispose();
   });
 
@@ -101,7 +138,9 @@ describe('startBackgroundScene follows the sky state', () => {
     setSkyState('day');
     await flush();
     expect(first.dispose).toHaveBeenCalledOnce();
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day', FALLBACK_VIEW).top));
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(
+      hex(ridgeSkyFor('day', FALLBACK_VIEW).top)
+    );
     scene?.dispose();
     expect(second.dispose).toHaveBeenCalledOnce();
   });
@@ -114,7 +153,9 @@ describe('startBackgroundScene follows the sky state', () => {
     const scene = await started;
     await flush();
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('day', FALLBACK_VIEW).top));
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(
+      hex(ridgeSkyFor('day', FALLBACK_VIEW).top)
+    );
     expect(a.dispose).toHaveBeenCalledOnce();
     scene?.dispose();
     expect(b.dispose).toHaveBeenCalledOnce();
@@ -217,7 +258,9 @@ describe('startBackgroundScene follows the sky state', () => {
     await flush();
     // The initial build and one rebuild, for dusk; day's rebuild stood down before building anything.
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
-    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(hex(ridgeSkyFor('dusk', FALLBACK_VIEW).top));
+    expect(hex(createRidgeScene.mock.calls[1][0].sky.top)).toBe(
+      hex(ridgeSkyFor('dusk', FALLBACK_VIEW).top)
+    );
     scene?.dispose();
   });
 
@@ -288,5 +331,392 @@ describe('startBackgroundScene follows the sky state', () => {
     expect(scene).toBeNull();
     expect(onCompileFail).toHaveBeenCalledOnce();
     expect(onCompileFail).toHaveBeenCalledWith(boom);
+  });
+});
+
+describe('the ridge planes', () => {
+  const served = (over: Record<string, unknown> = {}) => {
+    const files: Record<string, unknown> = {
+      '/public/ridge/index.json': wireIndex,
+      '/public/ridge/vienna-abc123abc123/manifest.json': wireManifest(),
+      '/public/ridge/graz-def456def456/manifest.json': wireManifest({
+        place: { ...(wireManifest() as any).place, id: 'graz', name: 'Graz' },
+      }),
+      ...over,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url in files
+          ? { ok: true, status: 200, json: async () => files[url] }
+          : { ok: false, status: 404, json: async () => ({}) }
+      )
+    );
+  };
+  beforeEach(() => forgetManifests());
+
+  it('hands the scene the lit cards of its manifest, lit once for the sky it was given, over the manifest view', async () => {
+    served();
+    const { ctl } = loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    const opts = createRidgeScene.mock.calls[0][0];
+    expect(opts.backdrop.manifest.view.place.id).toBe('vienna');
+    expect(opts.sky.physical.view).toBe(opts.backdrop.manifest.view);
+    expect(ctl.calls).toHaveLength(1);
+    expect(ctl.calls[0]).toBe(opts.sky.physical); // the sky the cards were lit for is the sky the scene paints
+    expect(ctl.calls[0].state).toBe('night'); // midnight by the clock
+    scene?.dispose();
+  });
+
+  it('config place picks the index entry; an unknown id falls back to the default', async () => {
+    served();
+    loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    (await startBackgroundScene({ ...config, place: 'graz' }, caps, { canvas }))?.dispose();
+    expect(createRidgeScene.mock.calls[0][0].backdrop.manifest.view.place.id).toBe('graz');
+    forgetManifests();
+    (await startBackgroundScene({ ...config, place: 'nowhere' }, caps, { canvas }))?.dispose();
+    expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('vienna');
+  });
+
+  const skyOnly = async (onPlanesFail = vi.fn(), onCompileFail = vi.fn()) => {
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onCompileFail });
+    const opts = createRidgeScene.mock.calls[0][0];
+    expect(scene).not.toBeNull();
+    expect(opts.backdrop).toBeUndefined();
+    expect(opts.sky.physical.view).toBe(FALLBACK_VIEW);
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    expect(onCompileFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  };
+
+  it('a 404 manifest gives the sky-only scene with the fallback view, one onPlanesFail and no onCompileFail', async () => {
+    served({ '/public/ridge/index.json': undefined });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }))
+    );
+    loader();
+    await skyOnly();
+  });
+});
+
+describe('the ridge cards failing', () => {
+  it('a card that will not load gives the same sky-only scene, and a rebuild does not report again', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () => (url.endsWith('index.json') ? wireIndex : wireManifest()),
+      }))
+    );
+    loader().ctl.fail = true;
+    forgetManifests();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const onCompileFail = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onCompileFail });
+    expect(createRidgeScene.mock.calls[0][0].backdrop).toBeUndefined();
+    setSkyState('day');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    expect(onCompileFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  });
+});
+
+describe('the ridge cards and the live scene', () => {
+  const serve = (manifest: Record<string, unknown> = wireManifest()) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () => (url.endsWith('index.json') ? wireIndex : manifest),
+      }))
+    );
+  beforeEach(() => forgetManifests());
+
+  it('says nothing about cards when they load', async () => {
+    serve();
+    loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const onPlanesOk = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onPlanesOk });
+    setSkyState('day');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(createRidgeScene.mock.calls.every((c) => c[0].backdrop)).toBe(true);
+    expect(onPlanesFail).not.toHaveBeenCalled();
+    expect(onPlanesOk).not.toHaveBeenCalled();
+    scene?.dispose();
+  });
+
+  it('lights the cards again for the new sky on a sky-change rebuild, never otherwise', async () => {
+    serve();
+    const { ctl } = loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    expect(ctl.calls.map((s) => s.state)).toEqual(['night']);
+    setSkyState('night'); // the sky already drawn: no rebuild, no lighting
+    await flush();
+    expect(ctl.calls).toHaveLength(1);
+    setSkyState('day');
+    await flush();
+    expect(ctl.calls.map((s) => s.state)).toEqual(['night', 'day']);
+    expect(createRidgeScene.mock.calls[1][0].sky.physical).toBe(ctl.calls[1]);
+    expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('vienna');
+    scene?.dispose();
+  });
+
+  it('a lighting pass that throws (no WebGL2) is the sky alone, one onPlanesFail and never onCompileFail', async () => {
+    serve();
+    loadBackdrop.mockRejectedValue(new Error('ridge: no WebGL2'));
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const onCompileFail = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onCompileFail });
+    expect(createRidgeScene.mock.calls[0][0].backdrop).toBeUndefined();
+    expect(createRidgeScene.mock.calls[0][0].sky.physical.view).toBe(FALLBACK_VIEW);
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    expect(onPlanesFail.mock.calls[0][0].message).toMatch(/WebGL2/);
+    expect(onCompileFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  });
+
+  it("keys a rebuild by the manifest's place: the same sky state over a rebaked place rebuilds", async () => {
+    serve();
+    loader();
+    const [a, b] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(a).mockReturnValueOnce(b);
+    const w = wireManifest() as any;
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    // 'auto' at midnight and 'night' are one sky: no rebuild, while the place is the one drawn.
+    setSkyState('night');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    forgetManifests();
+    serve({ ...w, place: { ...w.place, id: 'graz' } });
+    setSkyState('auto');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('graz');
+    scene?.dispose();
+  });
+
+  it("reads the weather against the manifest place's sun, not the fallback place's", async () => {
+    const w = wireManifest() as any;
+    const place = { ...w.place, id: 'weather-place', lat: -33, lon: -163.65, tz_h: -11 };
+    const now = new Date('2026-11-11T10:50:00Z');
+    const wx = {
+      fetched_at: '2026-11-11T10:45:00Z',
+      observed_at: '2026-11-11T10:40:00Z',
+      station: 11035,
+      precip_mm_10min: 0,
+      humidity_pct: 60,
+      sunshine_s_10min: null,
+      glow_wm2: 100,
+      attribution: WEATHER_ATTRIBUTION,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          url.endsWith('weather.json')
+            ? wx
+            : url.endsWith('index.json')
+            ? wireIndex
+            : { ...w, place },
+      }))
+    );
+    loader();
+    setSkyClock(() => now);
+    createRidgeScene.mockReturnValue(fakeScene());
+    (await startBackgroundScene(config, caps, { canvas }))?.dispose();
+    const file = parseWeatherFile(wx)!;
+    const at = (p: { lat: number; lon: number }) =>
+      weatherFromFile(
+        file,
+        sunAt({ id: 'x', altitudeKm: 0, ...p }, new Date(Date.parse(wx.observed_at) - 5 * 60_000))
+          .elevation
+      );
+    expect(at(FALLBACK_VIEW.place)).not.toBe(at(place));
+    expect(ridgeWeather()).toBe(at(place));
+  });
+
+  it('a failed load is the sky alone on the fallback view, never the manifest place', async () => {
+    serve();
+    const { ctl } = loader();
+    ctl.fail = true;
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    const opts = createRidgeScene.mock.calls[0][0];
+    expect(opts.backdrop).toBeUndefined();
+    expect(opts.sky.physical.view).toBe(FALLBACK_VIEW);
+    scene?.dispose();
+  });
+
+  it('a rebuild keeps the old scene until the new planes have loaded, then swaps', async () => {
+    serve();
+    const d = loader();
+    const first = fakeScene();
+    const second = fakeScene();
+    createRidgeScene.mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    d.ctl.hold = true;
+    setSkyState('day');
+    await flush();
+    expect(d.ctl.pending.length).toBeGreaterThan(0);
+    expect(first.dispose).not.toHaveBeenCalled();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    scene?.login();
+    expect(first.login).toHaveBeenCalledOnce();
+    await d.release();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(second.dispose).not.toHaveBeenCalled();
+    expect(onActive).toHaveBeenCalledOnce();
+    expect(second.login).toHaveBeenCalledOnce(); // replayed onto the swapped-in scene
+    scene?.dispose();
+    expect(second.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('a build that fails after the scene is disposed makes nothing and says nothing', async () => {
+    serve();
+    const d = loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail });
+    d.ctl.hold = true;
+    d.ctl.fail = true;
+    setSkyState('day');
+    await flush();
+    scene?.dispose();
+    await d.release();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    expect(onPlanesFail).not.toHaveBeenCalled();
+  });
+
+  it('a superseded build that fails does not speak for the live scene, which has planes', async () => {
+    serve();
+    const d = loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail });
+    d.ctl.hold = true;
+    d.ctl.fail = true;
+    setSkyState('day'); // stale: its decodes will reject
+    await flush();
+    d.ctl.fail = false;
+    setSkyState('dusk'); // the live one: its decodes will succeed
+    await flush();
+    const stale = d.ctl.pending.splice(0, 1);
+    d.ctl.pending.length = 0;
+    d.ctl.hold = false;
+    stale.forEach((s) => s()); // the first six are day's, settled in order
+    await flush();
+    expect(onPlanesFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  });
+
+  it('a superseded build that finishes after the newer one touches nothing of the live scene', async () => {
+    serve();
+    const d = loader();
+    const [first, second, third] = [fakeScene(), fakeScene(), fakeScene()];
+    createRidgeScene
+      .mockReturnValueOnce(first)
+      .mockReturnValueOnce(second)
+      .mockReturnValueOnce(third);
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    d.ctl.hold = true;
+    setSkyState('day'); // stale: its decodes are held until after the newer build is live
+    await flush();
+    const dayDecodes = d.ctl.pending.splice(0);
+    setSkyState('dusk');
+    await flush();
+    const duskDecodes = d.ctl.pending.splice(0);
+    expect(dayDecodes.length).toBeGreaterThan(0);
+    expect(duskDecodes.length).toBeGreaterThan(0);
+    duskDecodes.forEach((s) => s());
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(onActive).toHaveBeenCalledOnce();
+    dayDecodes.forEach((s) => s()); // the stale build finishes last
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(second.dispose).not.toHaveBeenCalled(); // the live scene is not disposed by a build that lost
+    expect(onActive).toHaveBeenCalledOnce();
+    scene?.login();
+    expect(second.login).toHaveBeenCalledOnce();
+    scene?.dispose();
+    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(third.dispose).not.toHaveBeenCalled();
+  });
+
+  it('a build that finishes after dispose makes nothing, shows nothing and disposes nothing twice', async () => {
+    serve();
+    const d = loader();
+    const first = fakeScene();
+    createRidgeScene.mockReturnValueOnce(first).mockReturnValueOnce(fakeScene());
+    const onActive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    d.ctl.hold = true;
+    setSkyState('day');
+    await flush();
+    scene?.dispose();
+    await d.release();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(onActive).not.toHaveBeenCalled();
+  });
+
+  it('a rebuild that makes no scene says nothing about planes and leaves the host inactive', async () => {
+    serve();
+    const d = loader();
+    createRidgeScene.mockReturnValueOnce(fakeScene()).mockReturnValueOnce(null);
+    const onPlanesFail = vi.fn();
+    const onInactive = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onInactive });
+    d.ctl.fail = true;
+    setSkyState('day');
+    await flush();
+    expect(onInactive).toHaveBeenCalledOnce();
+    expect(onPlanesFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  });
+
+  it('tells the host when the live scene loses its planes and when it gets them back', async () => {
+    serve();
+    const d = loader();
+    d.ctl.fail = true;
+    createRidgeScene.mockReturnValue(fakeScene());
+    const onPlanesFail = vi.fn();
+    const onPlanesOk = vi.fn();
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onPlanesOk });
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    setSkyState('day'); // still failing: the host is not told twice
+    await flush();
+    expect(onPlanesFail).toHaveBeenCalledOnce();
+    expect(onPlanesOk).not.toHaveBeenCalled();
+    d.ctl.fail = false;
+    setSkyState('dusk');
+    await flush();
+    expect(onPlanesOk).toHaveBeenCalledOnce();
+    expect(createRidgeScene.mock.calls[2][0].backdrop).toBeDefined();
+    d.ctl.fail = true;
+    setSkyState('night');
+    await flush();
+    expect(onPlanesFail).toHaveBeenCalledTimes(2);
+    scene?.dispose();
   });
 });

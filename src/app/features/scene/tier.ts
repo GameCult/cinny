@@ -16,7 +16,7 @@ export interface Capabilities {
 }
 
 /**
- * 'ridge': baked parallax ridges, no WebGL (default). 'raymarch': the sphere-traced world with its tree and
+ * 'ridge': baked ridge cards lit once per sky in WebGL2, no per-frame WebGL (default). 'raymarch': the sphere-traced world with its tree and
  * clouds.
  */
 export type SceneStyle = 'ridge' | 'raymarch';
