@@ -103,18 +103,18 @@ describe('the lighting inputs', () => {
   it("takes the display of the sky's own fit, so terrain and sky share one exposure", () => {
     const l = lightingOf(manifest, sky(30));
     expect([l.exposure, l.curve]).toEqual([12, LIFT_ONLY]);
-    expect(l.ambient).toEqual([0.1, 0.2, 0.3]);
+    [0.1, 0.2, 0.3].forEach((a, i) => expect(l.key.ambient[i]).toBeCloseTo(a, 6)); // plus the airglow's
     expect(l.logDMin).toBe(4.6);
     expect(l.logDSpan).toBeCloseTo(11.5 - 4.6, 12);
   });
 
   it("gives the ground the sun's transmittance at its elevation, and none with the sun below the atmosphere's cut-off", () => {
     const l = lightingOf(manifest, sky(30));
-    expect(l.sunTransmittance[0]).toBeCloseTo(0.9 * Math.sin(30 * RAD), 12);
-    expect(l.sunTransmittance[2]).toBeCloseTo(0.7 * Math.sin(30 * RAD), 12);
-    expect(lightingOf(manifest, sky(DEFAULT_LOOK.sunCutoffDeg - 1)).sunTransmittance).toEqual([0, 0, 0]);
+    expect(l.key.direct[0]).toBeCloseTo(0.9 * Math.sin(30 * RAD), 12);
+    expect(l.key.direct[2]).toBeCloseTo(0.7 * Math.sin(30 * RAD), 12);
+    expect(lightingOf(manifest, sky(DEFAULT_LOOK.sunCutoffDeg - 1)).key.direct).toEqual([0, 0, 0]);
     expect(
-      lightingOf(manifest, sky(DEFAULT_LOOK.sunCutoffDeg + 0.5)).sunTransmittance[0]
+      lightingOf(manifest, sky(DEFAULT_LOOK.sunCutoffDeg + 0.5)).key.direct[0]
     ).toBeGreaterThanOrEqual(0);
   });
 
@@ -137,9 +137,9 @@ describe('the lighting inputs', () => {
     const above = Math.floor((horizonRow / planeH) * SKY_LUT.h) - 6;
     expect(texel(0, above)[0]).toBeCloseTo(
       Math.sin(((horizonRow - rowAt(above)) / pxPerDegV) * RAD),
-      9
+      7 // the airglow floor adds a few 1e-9
     );
-    expect(texel(0, SKY_LUT.h - 1)[0]).toBe(0);
+    expect(texel(0, SKY_LUT.h - 1)[0]).toBeCloseTo(0, 7);
     // The sun lies at 214 degrees, the middle of the window: the cosine from the sun is 1 there and falls to the sides.
     const mid = texel(SKY_LUT.w / 2, above)[1];
     expect(mid).toBeGreaterThan(0.999);
@@ -245,9 +245,9 @@ describe('the look reaches the shader', () => {
     const base = run();
     const look = run({ hazeScale: 2 * DEFAULT_LOOK.hazeScale, ambientScale: 0.5 });
     look.uExt.forEach((e, k) => expect(e).toBeCloseTo(2 * base.uExt[k], 12));
-    expect(look.uAmbient[2]).toBeCloseTo(0.15, 12);
+    expect(look.uAmbient[2]).toBeCloseTo(0.15, 6); // plus the airglow's ambient
     expect(
-      lightingOf(manifest, sky30(), { ...DEFAULT_LOOK, sunCutoffDeg: 45 }).sunTransmittance
+      lightingOf(manifest, sky30(), { ...DEFAULT_LOOK, sunCutoffDeg: 45 }).key.direct
     ).toEqual([0, 0, 0]);
   });
 });
@@ -265,33 +265,48 @@ function sky30(): PhysicalSky {
   } as unknown as PhysicalSky;
 }
 
-describe('night ambient', () => {
-  const nightAtm = {
+describe('night key light', () => {
+  const atmOf = (ambient: [number, number, number]) => ({
     observerKm: 0.183,
     mieScale: 1,
     transmittanceToSpace: (_m: number, o: number[]) => o.fill(1),
-    irradiance: { direct: [0, 0, 0], ambient: [0.001, 0.001, 0.002] },
+    irradiance: { direct: [0, 0, 0], ambient },
     radiance: (_a: number, _b: number, o: number[]) => o.fill(0),
-  };
-  const night = (state: string, nightAmbient?: [number, number, number]) =>
-    lightingOf(
-      manifest,
-      {
-        state,
-        sun: { azimuth: 0, elevation: -30 },
-        atm: nightAtm,
-        fit: { display: { exposure: 1, curve: LIFT_ONLY } },
-        view: manifest.view,
-      } as unknown as PhysicalSky,
-      nightAmbient ? { ...DEFAULT_LOOK, nightAmbient } : DEFAULT_LOOK
-    );
-  it('lights the ground at night, cool, and only at night', () => {
-    const n = night('night');
-    const base = nightAtm.irradiance.ambient;
-    n.ambient.forEach((a, i) => expect(a).toBeGreaterThan(base[i]));
-    expect(n.ambient[2] - base[2]).toBeGreaterThan(n.ambient[0] - base[0]);
-    expect(night('dusk').ambient).toEqual(base);
-    expect(DEFAULT_LOOK.nightAmbient.every((c) => c > 0)).toBe(true);
+  });
+  const night = (moonEl: number | undefined, state = 'night') =>
+    lightingOf(manifest, {
+      state,
+      sun: { azimuth: 0, elevation: -30 },
+      moon: { azimuth: 150, elevation: moonEl ?? -20 },
+      night:
+        moonEl === undefined
+          ? {}
+          : { moon: { azimuth: 150, elevation: moonEl, ratio: 2.5e-6, atm: atmOf([0.4, 0.5, 0.8]) } },
+      atm: atmOf([0.001, 0.001, 0.002]),
+      fit: { display: { exposure: 1, curve: LIFT_ONLY } },
+      view: manifest.view,
+    } as unknown as PhysicalSky);
+
+  it('is the moon at night: its direction, its irradiance ratio times the transmittance, its ambient scaled by the ratio', () => {
+    const l = night(40);
+    expect([l.key.azimuth, l.key.elevation]).toEqual([150, 40]);
+    expect(l.key.direct[0]).toBeCloseTo(2.5e-6, 12);
+    expect(l.key.ambient[2]).toBeGreaterThan(0.002);
+    expect(l.key.ambient[2]).toBeCloseTo(0.002 + 0.8 * 2.5e-6, 4);
+  });
+  it('has no direct light with the moon down, and keeps the ambient (twilight and airglow)', () => {
+    const l = night(undefined);
+    expect(l.key.direct).toEqual([0, 0, 0]);
+    expect(l.key.ambient.every((a) => a > 0)).toBe(true);
+  });
+  it('fades the moon out over the horizon', () => {
+    expect(night(-0.5).key.direct[0]).toBe(0);
+    expect(night(0.5).key.direct[0]).toBeGreaterThan(0);
+    expect(night(0.5).key.direct[0]).toBeLessThan(night(5).key.direct[0]);
+  });
+  it('the sun lights the other states', () => {
+    const l = lightingOf(manifest, sky30());
+    expect(l.key.elevation).toBe(30);
   });
 });
 

@@ -5,6 +5,8 @@ import type { Atmosphere } from './earthAtmosphere';
 import type { SunSample } from './sunAt';
 import type { Camera } from './view';
 import { cloudAmount, cloudRadiance } from './clouds';
+import { addNightRadiance } from './nightSky';
+import type { NightLight } from './nightSky';
 
 const RAD = Math.PI / 180;
 /** The sun's angular radius in radians (Hillaire's/Bruneton's `sun_angular_radius`). */
@@ -25,7 +27,7 @@ export const domeSize = (cssW: number, cssH: number): { w: number; h: number } =
 });
 
 /**
- * Render the HDR sky. Rays below the horizon take the horizon's radiance (the ridges cover them). The sun's disc is not here: it is smaller than a texel, so the host draws it on the upscaled canvas (`sunOnScreen`). `cover` (0..1, `weather.ts`) lays the cloud deck (`clouds.ts`) over it.
+ * Render the HDR sky: the sun's atmosphere, plus at night the moon's (`night`, scaled by its irradiance ratio) and the airglow. Rays below the horizon take the horizon's radiance (the ridges cover them). The sun's disc is not here: it is smaller than a texel, so the host draws it on the upscaled canvas (`sunOnScreen`). `cover` (0..1, `weather.ts`) lays the cloud deck (`clouds.ts`) over it.
  */
 export function renderDome(
   atm: Atmosphere,
@@ -33,7 +35,8 @@ export function renderDome(
   camera: Camera,
   w: number,
   h: number,
-  cover = 0
+  cover = 0,
+  night?: NightLight
 ): Dome {
   const hdr = new Float32Array(w * h * 3);
   const sunAz = sun.azimuth * RAD;
@@ -47,6 +50,19 @@ export function renderDome(
     const zenith = [0, 0, 0];
     atm.radiance(1, 1, zenith);
     cloudRadiance(sz, trans, zenith, cover, cloud);
+    if (night?.moon) {
+      // The deck is moonlit as it is sunlit: the moon's own light through the air, scaled by its irradiance.
+      const m = night.moon;
+      const moonCloud = [0, 0, 0];
+      const moonTrans = [0, 0, 0];
+      const moonZenith = [0, 0, 0];
+      m.atm.transmittanceToSpace(Math.max(Math.sin(m.elevation * RAD), 0), moonTrans);
+      m.atm.radiance(1, 1, moonZenith);
+      cloudRadiance(Math.sin(m.elevation * RAD), moonTrans, moonZenith, cover, moonCloud);
+      for (let i = 0; i < 3; i += 1) cloud[i] += moonCloud[i] * m.ratio;
+    }
+    // The airglow lights the deck too, at the zenith's strength.
+    addNightRadiance(undefined, 1, 0, cloud);
   }
   let logSum = 0;
   for (let j = 0; j < h; j += 1) {
@@ -57,6 +73,7 @@ export function renderDome(
       const az = (camera.azimuthDeg + ((i + 0.5) / w - 0.5) * camera.hfovDeg) * RAD;
       const cosFromSun = Math.cos(az - sunAz);
       atm.radiance(vz, cosFromSun, rgb);
+      addNightRadiance(night, vz, az, rgb);
       let r = rgb[0];
       let g = rgb[1];
       let b = rgb[2];

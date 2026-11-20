@@ -9,6 +9,8 @@ import type { Dome } from './skyDome';
 import type { Srgb } from './skyColour';
 import { display8, fitDisplay, MARGIN } from './toneMap';
 import type { Display, Fit } from './toneMap';
+import { moonAt } from './nightSky';
+import type { MoonSample, NightLight } from './nightSky';
 import { sunForState } from './sunAt';
 import type { SunSample } from './sunAt';
 import { windowFor } from './view';
@@ -21,6 +23,10 @@ export interface PhysicalSky {
   /** Where the observer stands and where the planes look: the camera of any viewport is `windowFor(view, w, h).camera`. */
   view: View;
   sun: SunSample;
+  /** The moon over the place at the sun's moment (`sun.time`): the night's key light, and a body in any sky it is above the horizon of. */
+  moon: MoonSample;
+  /** What lights the sky besides the sun: at night, the moon above the horizon with its own atmosphere bake. */
+  night: NightLight;
   weather: Weather;
   atm: Atmosphere;
   /** The display fitted to this sky's budget. */
@@ -67,13 +73,33 @@ export function makePhysicalSky(
   });
   // A 16:9 viewport: the camera's fov and horizon fraction do not depend on its size, only on its shape.
   const { camera } = windowFor(view, CANON.w, CANON.h);
-  const dome = renderDome(atm, sun, camera, CANON.w, CANON.h, weather.cover);
+  // The moon is the night's light: its own bake of the same atmosphere, for a light at its elevation (the transmittance and the
+  // multiple-scattering tables do not depend on it, but the bake is one function). Only in the night state, and only above -2 degrees.
+  const moon = moonAt(view.place, sun.time);
+  const night: NightLight =
+    state === 'night' && moon.elevation > -2
+      ? {
+          moon: {
+            azimuth: moon.azimuth,
+            elevation: moon.elevation,
+            ratio: moon.ratio,
+            atm: bakeAtmosphere({
+              sunElevationDeg: moon.elevation,
+              mieScale: weather.mieScale,
+              observerKm: view.place.altitudeKm,
+            }),
+          },
+        }
+      : {};
+  const dome = renderDome(atm, sun, camera, CANON.w, CANON.h, weather.cover, night);
   const fit = fitDisplay(state, dome.hdr, dome.meanLuma);
   const at = (f: number) => rowMean(dome, fit.display, Math.round(f * CANON.h));
   return {
     state,
     view,
     sun,
+    moon,
+    night,
     weather,
     atm,
     fit,
@@ -96,7 +122,7 @@ export interface SkyPixels {
 /** The sky for a viewport seen through `camera` (`windowFor(p.view, cssW, cssH).camera`), as a small RGBA grid the host canvas upscales smoothly. */
 export function paintSky(p: PhysicalSky, cssW: number, cssH: number, camera: Camera): SkyPixels {
   const { w, h } = domeSize(cssW, cssH);
-  const dome = renderDome(p.atm, p.sun, camera, w, h, p.weather.cover);
+  const dome = renderDome(p.atm, p.sun, camera, w, h, p.weather.cover, p.night);
   const data = new Uint8ClampedArray(w * h * 4);
   const out = [0, 0, 0];
   const display = p.fit.display;

@@ -92,11 +92,12 @@ describe('ridgeSkyFor', () => {
     expect(ridgeSkyKey('day', FALLBACK_VIEW, 0.3)).not.toBe(ridgeSkyKey('night', FALLBACK_VIEW, 0.3));
   });
 
-  it.each(STATES)('%s: the display is the curve of its budget: black lift at the floor, the ceiling the light ink needs', (state) => {
-    const { ceiling } = needs(state);
+  // Night has no ink ceiling: its display top is a tunable (NIGHT_CEILING, ruling ridge-night-real-sky: the operator tunes it by eye),
+  // because the moon and the stars are drawn through the same display.
+  it.each(STATES)('%s: the display is the curve of its budget: black lift at the floor, and its ceiling', (state) => {
     const r = ridgeDrawn(state);
     expect(r.darkest).toBe(BUDGET[state].floor);
-    expect(r.lightest).toBeLessThanOrEqual(ceiling);
+    if (state !== 'night') expect(r.lightest).toBeLessThanOrEqual(needs(state).ceiling);
     const fit = ridgeSkyFor(state, FALLBACK_VIEW, 0.3).physical?.fit;
     expect(fit?.lo).toBeGreaterThanOrEqual(r.darkest - 1e-9);
     expect(fit?.hi).toBeLessThanOrEqual(r.lightest + 1e-9);
@@ -104,7 +105,7 @@ describe('ridgeSkyFor', () => {
 });
 
 describe('skyBackdrop holds the ridge sky', () => {
-  it.each(STATES)('%s: the backdrop bound contains the ridge display ceiling', (state) => {
+  it.each(['day', 'dusk'] as const)('%s: the backdrop bound contains the ridge display ceiling', (state) => {
     expect(skyBackdrop(state).lightest).toBeGreaterThanOrEqual(ridgeDrawn(state).lightest);
   });
 });

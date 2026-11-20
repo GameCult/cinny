@@ -12,7 +12,8 @@ import { extinctionAt } from './earthAtmosphere';
 import type { Vec3 } from './earthAtmosphere';
 import type { RidgeManifest } from './manifest';
 import type { PhysicalSky } from './physicalSky';
-import { ACES_FIT, ACES_IN, ACES_OUT, KNOTS } from './toneMap';
+import { addNightRadiance, airglow } from './nightSky';
+import { ACES_FIT, ACES_IN, ACES_OUT, KNOTS, SCOTOPIC } from './toneMap';
 import type { Curve } from './toneMap';
 import type { View } from './view';
 
@@ -71,8 +72,6 @@ export interface RidgeLook {
   groundNoise: number;
   /** Low-frequency noise darkening of the direct sun (static). 0 = none. */
   cloudShadows: number;
-  /** Night's moonlight on the ground: the radiance of a white card in it (rgb, at the night exposure, before the curve); added only in the night state, where the atmosphere gives the ground none. A dim cool value. */
-  nightAmbient: readonly [number, number, number];
   /** Cel shading: the lit side of the relief (n.s) in this many flat bands instead of Lambert's ramp (0 = Lambert; at most `CEL_MAX`). */
   celBands: number;
   /** Width of each band edge in n.s units (0 = hard). */
@@ -102,7 +101,6 @@ export const PHYSICAL_LOOK: RidgeLook = {
   inkScale: 1,
   groundNoise: 0,
   cloudShadows: 0,
-  nightAmbient: [0.5, 0.66, 1.1],
   celBands: 0,
   celSoftness: 0,
   celAmbientAway: 1,
@@ -192,12 +190,54 @@ export interface Lighting {
   logDSpan: number;
   /** Per km of horizontal path, per channel. */
   extinction: Vec3;
-  /** The sun's transmittance to the ground, per channel; zero with the sun below the atmosphere's cut-off. */
-  sunTransmittance: Vec3;
-  ambient: Vec3;
+  /** Where the key light is (the sun by day and dusk, the moon at night) and what of it reaches the ground. */
+  key: KeyLight;
   exposure: number;
   /** The sky's fitted curve (`toneMap.ts`), applied per channel after ACES. */
   curve: Curve;
+  /** Weight of the scotopic grade (`toneMap.ts`), applied to the radiance before exposure. */
+  grade: number;
+}
+
+/**
+ * The key light of the ground and what it brings. Day and dusk: the sun, by its transmittance to the ground, cut off below `look.sunCutoffDeg`.
+ * Night: the moon, by its transmittance times its irradiance relative to the sun's (phase and distance, `nightSky.ts`), faded out over the
+ * horizon; it is the direction the cel bands are cut by, and what is left of it, the sun's twilight and the airglow, is the ambient.
+ * `direct` is per unit of sun irradiance, `ambient` the irradiance the sky and the airglow give a horizontal surface.
+ */
+export interface KeyLight {
+  azimuth: number;
+  elevation: number;
+  direct: Vec3;
+  ambient: Vec3;
+}
+
+export function keyLight(sky: PhysicalSky, look: RidgeLook = DEFAULT_LOOK): KeyLight {
+  const ambient = scale3(sky.atm.irradiance.ambient, look.ambientScale);
+  const glow = [0, 0, 0];
+  airglow(0.6, glow);
+  const base = add3(ambient, scale3([glow[0], glow[1], glow[2]], Math.PI));
+  const trans = [0, 0, 0];
+  if (sky.state === 'night') {
+    const m = sky.night.moon;
+    if (!m) return { azimuth: sky.moon.azimuth, elevation: sky.moon.elevation, direct: [0, 0, 0], ambient: base };
+    m.atm.transmittanceToSpace(Math.max(Math.sin(m.elevation * RAD), 0), trans);
+    const fade = smooth(-0.5, 1.5, m.elevation) * m.ratio;
+    return {
+      azimuth: m.azimuth,
+      elevation: m.elevation,
+      direct: [trans[0] * fade, trans[1] * fade, trans[2] * fade],
+      ambient: add3(base, scale3(scale3(m.atm.irradiance.ambient, look.ambientScale), m.ratio)),
+    };
+  }
+  sky.atm.transmittanceToSpace(Math.max(Math.sin(sky.sun.elevation * RAD), 0), trans);
+  const lit = sky.sun.elevation > look.sunCutoffDeg;
+  return {
+    azimuth: sky.sun.azimuth,
+    elevation: sky.sun.elevation,
+    direct: lit ? [trans[0], trans[1], trans[2]] : [0, 0, 0],
+    ambient: base,
+  };
 }
 
 const scale3 = (v: Vec3, k: number): Vec3 => [v[0] * k, v[1] * k, v[2] * k];
@@ -208,23 +248,16 @@ export function lightingOf(
   sky: PhysicalSky,
   look: RidgeLook = DEFAULT_LOOK
 ): Lighting {
-  const trans = [0, 0, 0];
-  const sinEl = Math.sin(sky.sun.elevation * RAD);
-  sky.atm.transmittanceToSpace(Math.max(sinEl, 0), trans);
-  const lit = sky.sun.elevation > look.sunCutoffDeg;
   return {
     planeW: manifest.view.planeW,
     planeH: manifest.view.planeH,
     logDMin: manifest.encoding.logDMin,
     logDSpan: manifest.encoding.logDMax - manifest.encoding.logDMin,
     extinction: scale3(extinctionAt(sky.atm.observerKm, sky.atm.mieScale), look.hazeScale),
-    sunTransmittance: lit ? [trans[0], trans[1], trans[2]] : [0, 0, 0],
-    ambient: add3(
-      scale3(sky.atm.irradiance.ambient, look.ambientScale),
-      sky.state === 'night' ? scale3(look.nightAmbient as Vec3, Math.PI) : [0, 0, 0]
-    ),
+    key: keyLight(sky, look),
     exposure: sky.fit.display.exposure,
     curve: sky.fit.display.curve,
+    grade: sky.fit.display.grade ?? 0,
   };
 }
 
@@ -250,6 +283,7 @@ export function skyLut(sky: PhysicalSky, view: View, w: number, h: number): Floa
     for (let i = 0; i < w; i += 1) {
       const az = columnAzimuth(view, ((i + 0.5) / w) * view.planeW - 0.5, view.planeW);
       sky.atm.radiance(Math.sin(elDeg * RAD), Math.cos((az - sky.sun.azimuth) * RAD), rgb);
+      addNightRadiance(sky.night, Math.sin(elDeg * RAD), az * RAD, rgb);
       out.set([rgb[0], rgb[1], rgb[2], 0], (j * w + i) * 4);
     }
   }
@@ -276,6 +310,8 @@ uniform vec3 uExt;
 uniform vec3 uTSun;
 uniform vec3 uAmbient;
 uniform float uExposure;
+uniform float uGrade;
+uniform vec3 uScotTint;
 uniform float uCx[${KNOTS}];
 uniform float uCy[${KNOTS}];
 uniform float uCm[${KNOTS}];
@@ -305,6 +341,19 @@ ${[0, 1, 2]
   .join('\n')}
 const vec3 FIT_AB = vec3(${glsl(ACES_FIT[0])}, ${glsl(ACES_FIT[1])}, 0.0);
 const vec3 FIT_CDE = vec3(${glsl(ACES_FIT[2])}, ${glsl(ACES_FIT[3])}, ${glsl(ACES_FIT[4])});
+
+// toneMap.ts scotopic: toward the rods' luminance (Jensen et al. 2001) in a blue-shifted grey, at weight w.
+float scotLum(vec3 c) {
+  float X = dot(vec3(0.4124, 0.3576, 0.1805), c);
+  float Y = dot(vec3(0.2126, 0.7152, 0.0722), c);
+  float Z = dot(vec3(0.0193, 0.1192, 0.9505), c);
+  return max(0.0, Y * (1.33 * (1.0 + (Y + Z) / max(X, 1e-30)) - 1.68));
+}
+vec3 scotopic(vec3 c, float w) {
+  if (w <= 0.0) return c;
+  float k = scotLum(c) / scotLum(vec3(1.0));
+  return mix(c, k * uScotTint, w);
+}
 
 vec3 toLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -432,7 +481,7 @@ void main() {
   }
   radiance *= 1.0 - (1.0 - keep) * uInkScale;
 
-  vec3 rgb = toSrgb(curve(aces(radiance * uExposure)));
+  vec3 rgb = toSrgb(curve(aces(scotopic(radiance, uGrade) * uExposure)));
   outColor = vec4(rgb * c.a, c.a);
 }
 `;
@@ -526,8 +575,10 @@ export function lightCards(
     gl.uniform2f(u('uPlane'), lit.planeW, lit.planeH);
     gl.uniform2f(u('uLogD'), lit.logDMin, lit.logDSpan);
     gl.uniform3f(u('uExt'), ...lit.extinction);
-    gl.uniform3f(u('uTSun'), ...lit.sunTransmittance);
-    gl.uniform3f(u('uAmbient'), ...lit.ambient);
+    gl.uniform3f(u('uTSun'), ...lit.key.direct);
+    gl.uniform3f(u('uAmbient'), ...lit.key.ambient);
+    gl.uniform1f(u('uGrade'), lit.grade);
+    gl.uniform3f(u('uScotTint'), ...SCOTOPIC.tint);
     gl.uniform1f(u('uExposure'), lit.exposure);
     gl.uniform1fv(u('uCx'), lit.curve.x);
     gl.uniform1fv(u('uCy'), lit.curve.y);
@@ -550,7 +601,7 @@ export function lightCards(
     gl.uniform1fv(u('uBandLevels'), celLevels(look.celBands, look.celBandLevels));
     gl.uniform1f(u('uRadPerPx'), (manifest.view.windowDeg * RAD) / lit.planeW);
     gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
-    const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, sky.sun));
+    const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, lit.key));
     const skyTex = floatTexture(
       gl,
       3,
