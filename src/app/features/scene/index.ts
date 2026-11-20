@@ -4,11 +4,9 @@ import { debugOverlaysAllowed } from './debugOverlays';
 import { getSkyState, subscribe } from './skyState';
 import type { SkyState } from './skyState';
 import type { SkyColours } from './ridge/skyColour';
-import type { Backdrop } from './ridge/Backdrop';
 import { loadManifest } from './ridge/manifest';
 import type { RidgeManifest } from './ridge/manifest';
 import { FALLBACK_VIEW } from './ridge/view';
-import { frameChoice } from './ridge/frameChoice';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -77,32 +75,14 @@ async function prepare(
     const { createRidgeScene } = await import('./ridge/Ridge');
     const { manifest, fail } = await manifestOf(config);
     await loadWeather(weatherUrl(), (manifest?.view ?? FALLBACK_VIEW).place);
-    // The planes load with the scene chunk and the weather: createRidgeScene stays synchronous. Any failure is the sky alone.
-    let backdrop: Backdrop | null = null;
+    // Every failure is the sky alone: a manifest that did not load or parse (schema 1 included) names itself in `fail`.
     let sky: SkyColours | undefined;
-    let planesFail: Error | null = fail;
-    if (manifest) {
-      try {
-        const manifestSky = ridgeSkyFor(state, manifest.view);
-        sky = manifestSky;
-        const choice = frameChoice(
-          manifest.frames,
-          (manifestSky.physical as NonNullable<typeof manifestSky.physical>).sun
-        );
-        const { loadBackdrop } = await import('./ridge/Backdrop');
-        backdrop = await loadBackdrop(manifest, choice);
-        if (!backdrop) throw new Error('ridge planes did not load');
-      } catch (e) {
-        backdrop = null;
-        sky = undefined;
-        planesFail = e instanceof Error ? e : new Error(String(e));
-      }
-    }
+    const planesFail: Error | null = fail;
+    if (manifest) sky = ridgeSkyFor(state, manifest.view);
     const made = guarded(() =>
       createRidgeScene({
         ...options,
         sky: sky ?? ridgeSkyFor(state, FALLBACK_VIEW),
-        backdrop: backdrop ?? undefined,
       })
     );
     return { ...made, planesFail };

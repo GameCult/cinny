@@ -1,5 +1,5 @@
-// The one View: where the sky's camera stands and looks, and where the ridge planes sit against it. A baked place's manifest
-// (`view` and `place`, manifest v1) is a View; a sky with no planes uses FALLBACK_VIEW. `windowFor` is the single owner of the
+// The one View: where the sky's camera stands and looks, and where the ridge cards sit against it. A baked place's manifest
+// (`view` and `place`, manifest v2) is a View; a sky with no planes uses FALLBACK_VIEW. `windowFor` is the single owner of the
 // registration between sky and ridge: one View and a viewport in, the sky Camera and the plane's placement out. Nothing else
 // chooses a field of view, a horizon row or an azimuth.
 
@@ -20,6 +20,8 @@ export interface ManifestView {
   planeW: number;
   planeH: number;
   pxPerDegH: number;
+  /** Plane pixels per degree of elevation (the baker draws the vertical exaggerated: it is not `pxPerDegH`). */
+  pxPerDegV: number;
   /** Row of the horizon in the plane, from its top. */
   horizonRow: number;
 }
@@ -41,7 +43,7 @@ export interface Camera {
   horizonAt: number;
 }
 
-/** The sky of a scene with no planes (a failed load): Vienna facing south-west, with the numbers of the six-key Vienna bake. */
+/** The sky of a scene with no planes (a failed load): Vienna facing south-west, with the numbers of the Vienna bake. */
 export const FALLBACK_VIEW: View = {
   place: { id: 'vienna', lat: 48.1929826, lon: 16.3534237, altitudeKm: 0.183 },
   lookAzDeg: 214,
@@ -49,6 +51,7 @@ export const FALLBACK_VIEW: View = {
   planeW: 1280,
   planeH: 600,
   pxPerDegH: 1280 / 72,
+  pxPerDegV: 177.8,
   horizonRow: 314.5,
 };
 
