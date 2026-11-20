@@ -140,7 +140,7 @@ def _vienna(splits):
     saved = ridge.P
     try:
         p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); aw = ridge.win(a); hw = ridge.win(h)
-        nrm = tuple(ridge.win(x) for x in ridge.normals(d, h)); cov = ridge.coverage(d, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits], d); return d, aw, ridge.cards(d, aw, hw, sm, nrm, slide_px=export.max_slide_px(WIN)), sm, ridge.opaque(aw)
+        nrm = tuple(ridge.win(x) for x in ridge.normals(d, h)); cov = ridge.coverage(d, aw); sm = ridge.seams(cov, [k * 1000.0 for k in splits], d); return d, aw, ridge.cards(d, aw, hw, sm, nrm), sm, ridge.opaque(aw)
     finally: ridge.P = saved
 def test_vienna_k1_k2_k3():
     """Vienna with card_split_km [6], [6, 40] and [6, 20, 40]: 2, 3 and 4 cards, seams ordered in every column, each composite equals the opaque view within 0.02; the cross-fade column count of each K is printed."""
