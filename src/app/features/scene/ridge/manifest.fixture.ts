@@ -9,10 +9,11 @@ export const DISTANCES: (number | null)[][] = [
   [40000, 41000, null, 39000],
 ];
 
-/** A schema 3 manifest of `k` cards (1 to 3, nearest first), each a band of the 600-row plane, over four tiles of 1600 columns. */
+/** A schema 3 manifest of `k` cards (1 to 3, nearest first), each a band of the 600-row plane, over `tiles` tiles (4 by default, 32 as the baker cuts) whose distances repeat the four above. */
 export const wireManifest = (
   over: Record<string, unknown> = {},
-  k = 3
+  k = 3,
+  tiles = 4
 ): Record<string, unknown> => ({
   schema: 3,
   baker_version: 4,
@@ -36,8 +37,8 @@ export const wireManifest = (
     sky_row: 24,
     near_row: 396,
     ring_w: 6400,
-    tile_w: 1600,
-    tiles: 4,
+    tile_w: 6400 / tiles,
+    tiles,
     apron: 2,
   },
   curvature: { r_earth_m: 6371000, k_ref: 0.13 },
@@ -47,9 +48,9 @@ export const wireManifest = (
     near_m: i ? 1000 * 10 ** (i - 1) * 4 : null,
     far_m: i < k - 1 ? 4000 * 10 ** i : null,
   })),
-  tiles: Array.from({ length: 4 }, (_, t) =>
+  tiles: Array.from({ length: tiles }, (_, t) =>
     Array.from({ length: k }, (_, i) => {
-      const d = DISTANCES[i][t];
+      const d = DISTANCES[i][t % 4];
       return d === null
         ? null
         : {
