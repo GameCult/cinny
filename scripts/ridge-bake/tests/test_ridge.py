@@ -76,10 +76,14 @@ def _recede(d0, d1, thick=300.0, hgt=1500.0):
     return terrain(lambda dk, az: np.where(np.abs(dk - (d0 + (d1 - d0) * ((az % 72) / 72.0))) < thick / 2, hgt, 0.0))
 def _receding(dk, az): return _recede(4000.0, 15000.0)(dk, az)
 def test_the_swept_rows_term_keeps_the_seam_from_hopping_under_a_stronger_pull():
-    """With the authored depth pulling twice as hard (0.04 instead of 0.02) the seams of the 5 to 30 km and the 8 to 40 km ridges still follow the ridge: only the cost of the visible rows it would sweep holds it back (with that term out of the cost it hops between two columns)."""
-    old = ridge.SEAM_PRIOR; ridge.SEAM_PRIOR = 0.04
+    """With the authored depth pulling five times as hard (0.1 instead of 0.02) the seams of the 3-12, 4-15 (split 10) and 6-14 km ridges still follow the ridge, and twice as hard (0.04) those of the 4-15 (split 6), 5-30 and 8-40 km ridges: only the cost of the visible rows it would sweep holds it back (with that term out of the cost it hops between two columns)."""
+    old = ridge.SEAM_PRIOR
     try:
-        for d0, d1, sp in ((5, 30, 12), (8, 40, 15)):
+        ridge.SEAM_PRIOR = 0.1
+        for d0, d1, sp in ((3, 12, 6), (4, 15, 10), (6, 14, 9)):
+            j0, j1, cover = _alpha_jumps(d0, d1, sp); assert j0 < 0.35 and j1 < 0.35 and cover > 0.999, ('the seam hopped across the ridge', (d0, d1, sp), j0, j1)
+        ridge.SEAM_PRIOR = 0.04       # these three tear above 0.04 (measured: 0.05 tears 5-30 and 8-40, 0.1 tears 4-15/6): the seam is closed on the ring, so a stronger pull makes one tear per period cheaper than staying beyond the ridge
+        for d0, d1, sp in ((4, 15, 6), (5, 30, 12), (8, 40, 15)):
             j0, j1, cover = _alpha_jumps(d0, d1, sp); assert j0 < 0.35 and j1 < 0.35 and cover > 0.999, ('the seam hopped across the ridge', (d0, d1, sp), j0, j1)
     finally: ridge.SEAM_PRIOR = old
 RECEDING = [(4, 15, 6), (3, 12, 6), (5, 30, 12), (8, 40, 15), (4, 15, 10), (6, 14, 9)]        # km at azimuth 0, km at azimuth 72, authored split km
@@ -347,25 +351,25 @@ def test_budgets():
     far = [[] for _ in range(32)]; far[0] = [rows // 2]; far[n + 3] = [rows - rows // 2 + 1]; assert not refused([0] * 32, far), 'a run is only N tiles long'; far[n - 1] = far[n + 3]; far[n + 3] = []; assert refused([0] * 32, far)
     assert export.run_tiles(0.0, 1000.0) == math.ceil(export.HFOV_MAX_DEG / 11.25) + 5 and export.run_tiles(250.0, 20000.0) > export.run_tiles(25.0, 20000.0) and export.run_tiles(1e9, 1.0) == 32, 'N = ceil(arc_max / 11.25) + 1 + 4'
     rows_t = [[10, 20] if t in (30, 31, 0, 1) else [] for t in range(32)]; assert export.resident_bytes(rows_t, 4) == 4 * export.LIT_W * 120 and export.resident_bytes(rows_t, 3) == 4 * export.LIT_W * 90 and export.resident_bytes(rows_t, 40) == 4 * export.LIT_W * 120
-def _fit(d, r): return export.fit_px(d, [d], r, ridge.HPX_DEG)
+def _fit(d, r): return export.fit_px(d, r, ridge.HPX_DEG)
 def test_r_max():
     """On a card at 1.5 km: r_max_m falls as FIT_PX_MAX falls and is at most half the distance; it is the largest offset within the bound (the fit error at r_max is within it, a little more is not); a forward-only sweep of phi finds a larger r_max than the whole circle (the error is in the phi
-    that is not forward); a distance that varies inside the tile counts; the resident gate binds when its tiles are heavy; a place whose r_max_m is below 25 refuses and names the card and tile."""
-    ppd = ridge.HPX_DEG; dist = [[1500.0] for _ in range(32)]; cols = [[np.array([1500.0])] for _ in range(32)]; bands = [[100] for _ in range(32)]; saved = (export.FIT_PX_MAX, export.PHI_STEPS)
+    that is not forward); the binding card tile is the nearest one (each tile's line is fitted at its own distance_m); the resident gate binds when its tiles are heavy; a place whose r_max_m is below 25 refuses and names the card and tile."""
+    ppd = ridge.HPX_DEG; dist = [[1500.0] for _ in range(32)]; bands = [[100] for _ in range(32)]; saved = (export.FIT_PX_MAX, export.PHI_STEPS)
     try:
-        r = export.solve_r_max(dist, cols, bands, ppd); assert 25 < r <= 750 and _fit(1500.0, r) <= export.FIT_PX_MAX + 1e-9 and _fit(1500.0, r + 0.5) > export.FIT_PX_MAX, ('r_max is not the largest offset within the bound', r, _fit(1500.0, r), _fit(1500.0, r + 0.5))
-        export.FIT_PX_MAX = 12.0; r12 = export.solve_r_max(dist, cols, bands, ppd); export.FIT_PX_MAX = 60.0; r60 = export.solve_r_max(dist, cols, bands, ppd); export.FIT_PX_MAX = saved[0]; assert r12 < r < r60, (r12, r, r60)
-        export.FIT_PX_MAX = 1e9; assert export.solve_r_max(dist, cols, bands, ppd) == 750.0, 'r_max is not capped at half the nearest distance'; export.FIT_PX_MAX = saved[0]
-        export.PHI_STEPS = 1; rf = export.solve_r_max(dist, cols, bands, ppd); export.PHI_STEPS = saved[1]; assert rf > r + 5, ('a forward-only sweep finds the same r_max', rf, r)
-        near = [[np.array([1500.0, 800.0])] for _ in range(32)]; rn = export.solve_r_max(dist, near, bands, ppd); assert rn < r - 5, ('a distance that varies inside the tile does not count', rn, r)
-        dist2 = [[20000.0] for _ in range(32)]; cols2 = [[np.array([20000.0])] for _ in range(32)]; free = export.solve_r_max(dist2, cols2, bands, ppd); heavy = [[1700000 // (4 * export.LIT_W)] for _ in range(32)]; held = export.solve_r_max(dist2, cols2, heavy, ppd)
+        r = export.solve_r_max(dist, bands, ppd); assert 25 < r <= 750 and _fit(1500.0, r) <= export.FIT_PX_MAX + 1e-9 and _fit(1500.0, r + 0.5) > export.FIT_PX_MAX, ('r_max is not the largest offset within the bound', r, _fit(1500.0, r), _fit(1500.0, r + 0.5))
+        export.FIT_PX_MAX = 12.0; r12 = export.solve_r_max(dist, bands, ppd); export.FIT_PX_MAX = 60.0; r60 = export.solve_r_max(dist, bands, ppd); export.FIT_PX_MAX = saved[0]; assert r12 < r < r60, (r12, r, r60)
+        export.FIT_PX_MAX = 1e9; assert export.solve_r_max(dist, bands, ppd) == 750.0, 'r_max is not capped at half the nearest distance'; export.FIT_PX_MAX = saved[0]
+        export.PHI_STEPS = 1; rf = export.solve_r_max(dist, bands, ppd); export.PHI_STEPS = saved[1]; assert rf > r + 5, ('a forward-only sweep finds the same r_max', rf, r)
+        mixed = [[1500.0 if t == 3 else 9000.0] for t in range(32)]; assert export.solve_r_max(mixed, bands, ppd) == r, 'the binding tile is not the nearest one'
+        dist2 = [[20000.0] for _ in range(32)]; free = export.solve_r_max(dist2, bands, ppd); heavy = [[1700000 // (4 * export.LIT_W)] for _ in range(32)]; held = export.solve_r_max(dist2, heavy, ppd)
         assert held < free - 100 and export.resident_bytes(heavy, export.run_tiles(held, 20000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(heavy, export.run_tiles(held + 1.0, 20000.0)), ('the resident gate does not bind r_max', held, free)
-        two = [[5000.0, 40.0 if t == 7 else 5000.0] for t in range(32)]; c2 = [[np.array([5000.0]), np.array([two[t][1]])] for t in range(32)]
-        try: export.solve_r_max(two, c2, [[100, 100] for _ in range(32)], ppd)
+        two = [[5000.0, 40.0 if t == 7 else 5000.0] for t in range(32)]
+        try: export.solve_r_max(two, [[100, 100] for _ in range(32)], ppd)
         except ValueError as e: assert 'below 25' in str(e) and 'card 1' in str(e) and 'tile 7' in str(e), str(e)
         else: assert False, 'a bake whose r_max_m is below 25 was accepted'
         close = [[30.0] for _ in range(32)]
-        try: export.solve_r_max(close, [[np.array([30.0])] for _ in range(32)], bands, ppd)
+        try: export.solve_r_max(close, bands, ppd)
         except ValueError as e: assert 'below 25' in str(e) and 'card 0' in str(e), str(e)
         else: assert False, 'a nearest card at 30 m was accepted'
     finally: export.FIT_PX_MAX, export.PHI_STEPS = saved
@@ -437,7 +441,7 @@ def test_written_cards_decode_to_the_cards_in_memory():
             for c, rec in zip(b['cards'][t], m['tiles'][t]):
                 col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; wall = c['wall']; solid = (al > 0) & ~wall; part = (al > 0.05) & (al < 0.95) & ~wall; partial_seen += int(part.sum())
                 assert (col[..., 3] == np.rint(al * 255)).all(), 'alpha is not exact'; e = np.abs(col[..., :3] / 255.0 - c['albedo']).max(-1)
-                assert e[solid].mean() < 0.03 and np.percentile(e[solid], 99) < 0.1, ('albedo is off', e[solid].mean(), np.percentile(e[solid], 99)); assert part.sum() == 0 or e[part].mean() < 0.1, ('albedo at partial alpha is off: premultiplied?', e[part].mean())
+                assert e[solid].mean() < 0.021 and np.percentile(e[solid], 99) < 0.081, ('albedo is off', e[solid].mean(), np.percentile(e[solid], 99)); assert part.sum() == 0 or e[part].mean() < 0.1, ('albedo at partial alpha is off: premultiplied?', e[part].mean())
                 assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6; assert (((geo[..., 0] == 255) & (geo[..., 1] == 255)) == wall).all(), 'the wall code is not R = G = 255 on exactly the wall pixels'
                 assert np.abs(geo[..., 0] / 255.0 * 2 - 1 - c['n_r'])[solid].max() < 2 * q and np.abs(geo[..., 1] / 255.0 * 2 - 1 - c['n_t'])[solid].max() < 2 * q, 'a normal channel is off or swapped'
                 assert np.abs(enc['log_d_min'] + geo[..., 2] / 255.0 * span - c['logd'])[solid].max() < span * q, 'the log-distance is off or not over the encoding range'

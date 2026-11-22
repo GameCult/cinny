@@ -44,7 +44,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'budget: the resident run does not wrap the ring': ("sum(per[(t + k) % TILES] for k in range(n))", "sum(per[t + k] for k in range(n) if t + k < TILES)"),
  'budget: the run length forgets the margin tiles': ("math.ceil(arc / TILE_DEG) + 1 + 4", "math.ceil(arc / TILE_DEG)"),
  'r_max: the camera sweeps forward only (phi = 0)': ("PHI_STEPS = 24 ", "PHI_STEPS = 1 "),
- 'r_max: the per-column distances inside a tile are ignored': ("fit_px(d, cols[t][i], r, px_per_deg)", "fit_px(d, [d], r, px_per_deg)"),
+ 'r_max: every card of a tile is fitted at the nearest card distance': ("fit_px(d, r, px_per_deg) for d in row", "fit_px(row[0] if row[0] is not None else d, r, px_per_deg) for d in row"),
  'r_max: not capped at half the nearest distance': ("cap = 0.5 * rmin", "cap = 5.0 * rmin"),
  'r_max: the resident gate is not part of the search': (" and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX\n", "\n"),
  'r_max: a bake below the floor is accepted': ("if r_max < R_MAX_FLOOR_M:", "if False:"),
