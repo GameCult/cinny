@@ -19,20 +19,25 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
 - `ridge/skyColour.ts` `skyColours()` is the fallback three-stop palette (top, mid, horizon) a scene gets with no `sky` option; the host
   passes `ridgeSkyFor` (skyForState.ts) instead.
 - Ridge cards: `ridge/manifest.ts` `loadManifest` reads `${BASE_URL}public/ridge/index.json` (config `backgroundScene.place` picks the entry,
-  unknown or absent: the index default), then the place's `manifest.json` (schema 2, written by `scripts/ridge-bake/export.py`; it is the one JSON
-  the backdrop reads): K G-buffer cards, nearest first, each a colour WebP (albedo, straight alpha) and a geometry WebP (the normal as 'rt8', the
-  log-distance, and the wall code R = G = 255 for the extruded face under a ridge). `index.ts` `prepare()` loads the manifest and, with the scene chunk,
-  `ridge/Backdrop.ts` `loadBackdrop`: every card's two files fetched and decoded straight (no premultiply, no colour management), then
-  `ridge/lightCards.ts` lights each card once in WebGL2 for the sky of this build (sun and ambient from the atmosphere, aerial perspective from the
-  geometry's distance, ink on occluding edges and creases, the sky's own display so terrain and sky share an exposure) into a 2D canvas, and releases
-  the context. A sky change is a rebuild, so it lights again; nothing is lit per frame, and the host canvas is only ever asked for 2d.
-  `createRidgeScene({ backdrop })` stays synchronous, and a rebuild keeps the old scene up until the new one's cards are lit, then swaps. The rig
-  is one div of K card elements (farthest first; DOM order is paint order; no z-index, no fixed position, nothing outside the scene's parent),
-  each placed at its rows of the plane and moved by `view.ts` `cardMotion`: the camera turns through the baker's heading range (capped so every card still covers
-  the viewport) and card i pans `scale_i` x heading and is drawn `scale_i` times its bake, about the horizon centre, as a camera pushed forward on a circle
-  round the bake centre sees it (ruling ridge-camera-on-circle); the scales come from the manifest. It drifts on `Element.animate` (transform only, 150 s loop,
-  paused when the tab is hidden, motion is reduced or the scene is still); a still draws the same cards at heading 0 into the host canvas. A failure
-  anywhere (404, a manifest that is not schema 2, a card that will not decode, no WebGL2, a lighting pass that throws) is the sky-only scene on `FALLBACK_VIEW`,
+  unknown or absent: the index default), then the place's `manifest.json` (schema 3, written by `scripts/ridge-bake/export.py`; it is the one JSON
+  the backdrop reads): the whole 360 degree ring, K G-buffer cards nearest first, each cut into azimuth tiles (32 of 11.25 degrees) of a colour WebP (albedo,
+  straight alpha) and a geometry WebP (the normal as 'rt8', the log-distance, and the wall code R = G = 255 for the extruded face under a ridge), each tile
+  with the card's distance there; `camera.r_max_m` bounds the parallax offset. Schema 2 is refused with a message naming the stale deploy. `index.ts`
+  `prepare()` loads the manifest, anchors the heading (`ridge/heading.ts`) and, with the scene chunk, `ridge/Backdrop.ts` `createBackdrop`: `ensure(arc)`
+  fetches and decodes the tiles of an arc of azimuth it does not hold, one tile at a time (no premultiply, no colour management), and `ridge/lightCards.ts`
+  `createLighter` lights each card of a tile in WebGL2 for the sky of this build (sun and ambient from the atmosphere in absolute azimuth, aerial perspective from the
+  geometry's distance, ink on occluding edges and creases, the sky's own display so terrain and sky share an exposure) into a 2D canvas of the tile's interior and one
+  overlap column each side. The backdrop holds the arc ahead and two tiles beyond and lets go of the rest; a tile that fails is absent and tried again. A sky change is a
+  rebuild, so it makes a new lighter; nothing is lit per frame, and the host canvas is only ever asked for 2d.
+  `createRidgeScene({ backdrop })` stays synchronous (`prepare()` awaits the first arc), and a rebuild keeps the old scene up until the new one is lit, then swaps; the
+  heading survives it. The rig is one div of K boxes, one per card (farthest first; DOM order is paint order; no z-index, no fixed position, nothing outside the scene's
+  parent), each holding that card's resident tiles at their unwrapped azimuth. A card's pose (scale and shift) is derived by `view.ts` `cardPose` from its distance at
+  the heading (`ring.ts`), the viewer's offset and the camera's angle on its circle, as a camera on a circle round the bake centre sees it (ruling ridge-camera-on-circle;
+  the offset is signed and clamped by `offsetRange`, the one clamp). `heading.ts` owns the view direction and the camera's angle (unwrapped degrees, module state, a manual
+  `hold` stops the rotation); `cameraState.ts` holds the viewer's mode, speed and offset in `ratatoskr.camera`. The motion is one `Element.animate` per card (transform only, a
+  keyframe each second for 30 s, reissued at 80% and on any change; paused when the tab is hidden or motion is reduced, then constant); a 500 ms timer asks the backdrop for
+  the arc ahead and mounts the tiles it has made. A still draws the tiles of the arc into the host canvas at the heading now. The sky does not turn with the heading. A failure
+  anywhere (404, a manifest that is not schema 3, no tile that will decode, no WebGL2, a lighting pass that throws) is the sky-only scene on `FALLBACK_VIEW`,
   told to the host by the live scene alone, through `onPlanesFail` when the live scene has no cards and `onPlanesOk` when a later one has them (never from a stale
   or disposed build); it is never `onCompileFail`. `vite.config.js` copies `public/ridge` into `dist/public/`.
 - `harness/scene/bundle.cjs <out> ridge` builds a standalone page (`?tier=`, `?probe=1`).
@@ -65,7 +70,7 @@ named moments draw today's weather; a free moment draws a clear sky.
 
 `skyState.ts` holds the stores (choice, place, constellation lines) and tells listeners; the choice persists in `ratatoskr.skyChoice`. The key
 of the old four-state menu is read once by `skyState.ts` (Day became Noon) and removed. `skyPlace.ts` is the one writer of the place: a scene start loads the manifest of the configured place (nothing else fetches it, so a page with no scene fetches nothing) and the build
-settles what it draws, the manifest's place when the cards load, `FALLBACK_VIEW`'s when they do not (a failed manifest, a card that will not decode), so the sky, the weather, the ink and the Auto
+settles what it draws, the manifest's place when the cards load, `FALLBACK_VIEW`'s when they do not (a failed manifest, no tile that will decode), so the sky, the weather, the ink and the Auto
 timer read the place that is drawn. Until a scene has settled it no sky is drawn for ink and the theme's own ink stands. The one timer (Auto, a named moment) tells listeners when the band
 changes or a named moment's place-local day rolls over.
 

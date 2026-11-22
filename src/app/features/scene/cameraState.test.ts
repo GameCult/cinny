@@ -22,7 +22,9 @@ beforeEach(() => {
   });
   vi.stubGlobal('window', { matchMedia: () => reduced });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('the viewer camera', () => {
   it('starts at the defaults: both, a turn in ten minutes, 200 m forward', () => {

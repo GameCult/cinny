@@ -23,9 +23,15 @@ after of one change, never as a phone frame time.
 
 ## Ridge look sheet
 
-Renders the Vienna cards (`public/ridge/vienna-6815bb9dca99`) lit for six sky states (dawn 2, morning 15, noon 55, golden 6, dusk -3, night -30 degrees of sun)
-by a set of looks (`RidgeLook`, `src/app/features/scene/ridge/lightCards.ts`, the one owner of look values), one 480x270 canvas per cell at heading 0. The sky
-behind a cell is the app's own (`makePhysicalSky` + `paintSky`, upscaled), without the sun disc, stars or clouds. Not shipped.
+Renders a baked place (`?place=`, the index default otherwise) lit for six sky states (dawn 2, morning 15, noon 55, golden 6, dusk -3, night -30 degrees of sun)
+by a set of looks (`RidgeLook`, `src/app/features/scene/ridge/lightCards.ts`, the one owner of look values), one 480x270 canvas per cell, drawn by the app's own still
+path (`createRidgeScene` at tier 'still' over a `createBackdrop` of the tiles round the heading), at the rest azimuth unless `?views=` says otherwise. The sky
+behind a cell is the app's own, without clouds. Not shipped.
+
+    ...ridgeSheet.html?views=214:0:200,0:0:200,214:90:98.2&sky=2      # one column per view heading:phi:offset (degrees, degrees, metres) at one sky (an index of SKIES)
+
+A heading of 0 or 360 is across north; a phi other than 0 is the offset-only rotation mode (the camera circling the centre, the view direction staying); the offset is
+clamped to the place's range as the app does.
 
     npx vite --port 5199          # from the repo root; the app's vite config serves the page and public/
     http://localhost:5199/harness/scene/ridgeSheet.html                # four presets x six skies

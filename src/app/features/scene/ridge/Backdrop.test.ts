@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { createBackdrop, KEEP_MARGIN_TILES, LOAD_MARGIN_TILES } from './Backdrop';
-import type { Lighter } from './lightCards';
+import type { CardBitmaps, Lighter } from './lightCards';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import type { PhysicalSky } from './physicalSky';
@@ -22,22 +23,23 @@ const rig = (fail: (url: string) => boolean = () => false) => {
     if (fail(url)) throw new Error('ridge: 404');
     return { url } as unknown as Blob;
   });
-  const decode = vi.fn(async (blob: Blob & { url: string }) => {
-    const t = tileOf(blob.url);
+  const decode = vi.fn(async (blob: Blob) => {
+    const { url } = blob as unknown as { url: string };
+    const t = tileOf(url);
     inFlight.set(t, (inFlight.get(t) ?? 0) + 1);
     mostTiles = Math.max(mostTiles, inFlight.size);
     await new Promise((r) => setTimeout(r, 0));
     inFlight.set(t, (inFlight.get(t) ?? 1) - 1);
     if (inFlight.get(t) === 0) inFlight.delete(t);
-    const b = { url: blob.url, closed: false, close: () => (b.closed = true) };
+    const b = { url, closed: false, close: () => (b.closed = true) };
     bitmaps.push(b);
     return b as unknown as ImageBitmap;
   });
   const canvases: { tile: number; card: number; width: number; height: number }[] = [];
-  const lighter = (): Lighter & { light: ReturnType<typeof vi.fn> } => ({
+  const lighter = (): Lighter & { light: Mock<[CardBitmaps, number, number], HTMLCanvasElement> } => ({
     lost: false,
     release: vi.fn(),
-    light: vi.fn((_b: unknown, tile: number, card: number) => {
+    light: vi.fn((_b: CardBitmaps, tile: number, card: number) => {
       const c = { tile, card, width: 202, height: 100 };
       canvases.push(c);
       return c as unknown as HTMLCanvasElement;
@@ -52,7 +54,9 @@ const urlsOfTiles = (tiles: number[]) =>
   );
 const arc72 = (centre: number) => ({ fromDeg: centre - 36, toDeg: centre + 36 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('createBackdrop', () => {
   it('fetches nothing until it is asked, and then the files of the tiles of the arc and one tile beyond it, straight, and no others', async () => {

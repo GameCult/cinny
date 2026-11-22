@@ -10,7 +10,8 @@ import { sunOfBand } from './skyTestkit';
 import { startBackgroundScene } from '../index';
 import { parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
-import type { Backdrop, LitTile } from './Backdrop';
+import type { Arc, Backdrop, LitTile } from './Backdrop';
+import type { Mock } from 'vitest';
 import { cardPose, FALLBACK_VIEW, offsetRange, windowFor } from './view';
 import { anchor, getMode, headingAt, hold, phiAt, resetHeading } from './heading';
 import { getCamera, resetCamera, setCamera } from '../cameraState';
@@ -560,11 +561,11 @@ describe('the ridge cards in the scene', () => {
         return [{ tile, card, canvas: canvas as unknown as HTMLCanvasElement }];
       })
     );
-  const litCards = (): Backdrop & { ensure: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> } => {
+  const litCards = (): Backdrop & { ensure: Mock<[Arc], Promise<void>>; dispose: Mock<[], void> } => {
     const lit = tilesOf();
     return {
       manifest,
-      ensure: vi.fn(async () => undefined),
+      ensure: vi.fn(async (_arc: Arc): Promise<void> => undefined),
       litTiles: () => lit,
       dispose: vi.fn(),
     };
@@ -594,7 +595,9 @@ describe('the ridge cards in the scene', () => {
     vi.spyOn(performance, 'now').mockReturnValue(T0);
     anchor(view.place.id, view.lookAzDeg, T0); // what index.ts prepare does before the scene is made
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('lays the night bodies (lines, stars, moon) in the sky before any card, so the cards occlude them', () => {
     const { canvas } = host();
