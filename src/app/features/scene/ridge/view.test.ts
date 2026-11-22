@@ -102,6 +102,9 @@ describe('cardPose', () => {
     // The sideways part of a pose: where the line meets the heading's own column, a0 = shift / k + s (h - rest).
     const a0 = (q: { scale: number; shiftPx: number }) => q.shiftPx / k + q.scale * (135 - rest);
     expect(a0(at(0))).toBeCloseTo(0, 6);
+    // A camera to the clockwise side of the heading (east of a north view) sees the card to the left of it, and one on the other side to the right.
+    expect(a0(p)).toBeLessThan(0);
+    expect(a0(at(-90))).toBeGreaterThan(0);
     // r / R x 57.3 degrees at the heading's own column; the line fitted over the arc takes the mean of cos over it, about 0.93 of that.
     const centre = (200 / 12000) * (180 / Math.PI);
     expect(Math.abs(a0(p)) / centre).toBeGreaterThan(0.9);
