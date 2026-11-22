@@ -48,10 +48,10 @@ def test_paths_come_from_the_environment_with_no_default():
         r = subprocess.run([sys.executable, '-I', '-c', 'import sys; sys.path.insert(0, %r); import ridge' % SRC], env=e, capture_output=True, text=True); assert r.returncode and var in r.stderr and 'not set' in r.stderr, (var, r.stderr[-200:])
 
 # ---------------------------------------------------------------------------------------- synthetic bakes: the shared steps of export.bake_place on rays the fixtures make
-def _bake(hfun, splits_km, sigma=0.0):
-    """prefilter, whole-ring set_view, coverage and the periodic seams on the whole ring, then the window columns 0..NW (azimuth 0..72) of them and the cards on those, of synthetic rays: the pieces of the bake a fixture can look at cheaply."""
+def _bake(hfun, splits_km, sigma=0.0, fixed_m=None):
+    """prefilter, whole-ring set_view, coverage and the periodic seams on the whole ring (or fixed_m, one seam depth in m for every column), then the window columns 0..NW (azimuth 0..72) of them and the cards on those, of synthetic rays: the pieces of the bake a fixture can look at cheaply."""
     A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, sigma); v = ridge.set_view(a.max(0))
-    nrm = tuple(_w(x) for x in ridge.normals(D, h)); aw, hw = _w(a), _w(h); cov_ring = ridge.coverage(D, a); cov = _w(cov_ring); sm = _w(ridge.seams(cov_ring, [k * 1000.0 for k in splits_km], D))
+    nrm = tuple(_w(x) for x in ridge.normals(D, h)); aw, hw = _w(a), _w(h); cov_ring = ridge.coverage(D, a); cov = _w(cov_ring); sm = _w(ridge.seams(cov_ring, [k * 1000.0 for k in splits_km], D)) if fixed_m is None else np.array([np.full(NW, float(v)) for v in fixed_m])
     return dict(cards=ridge.cards(D, aw, hw, sm, nrm), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(D), a=aw, h=hw, nrm=nrm, v=v)
 def _canvas(card, key='alpha'):
     out = np.zeros((H, NW) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
@@ -62,6 +62,10 @@ WALLED = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 400
 NEARHILL = terrain(block(0, 359.99, 0, 4000, 150), block(0, 359.99, 38000, 40000, 2000))       # ground above the eye from the first sample on: every row of card 0 lies below its first sample
 def _ramp(dk, az): return np.maximum(GROUND, np.where(dk > 12000, (dk - 12000) * 0.045 + 50.0, 0.0))       # a slope the first sample of card 1 stands on: n_up about 0.9, so the material would be rock if the face counted
 
+def test_the_vertical_anchors_read_the_whole_ring():
+    """set_view anchors the highest skyline angle of the ring at 4% of the frame and the lowest at 66%, wherever they are: a peak at column 3555 and a low at column 5333, both outside the first 72 degrees, set the mapping."""
+    sk = np.full(W, 1.0); sk[3555] = 3.0; sk[5333] = -1.0; sk[10] = 1.5; v = ridge.set_view(sk)
+    assert v['sky_deg'] == 3.0 and v['low_deg'] == -1.0 and abs(v['px_per_deg'] - 0.62 * H / 4.0) < 1e-9 and abs(v['horizon_row'] - ridge.TOP_DEG * v['px_per_deg']) < 1e-9 and abs(ridge.TOP_DEG - (3.0 + 0.04 * H / v['px_per_deg'])) < 1e-9, v
 def test_seams_fall_in_depth_gaps():
     """Three ridges at 3, 20 and 70 km: targets [6, 40] give a seam in (3, 20) and one in (20, 70) in EVERY column, ordered with at least 0.4 nat between; targets [6] give one seam in (3, 20)."""
     b = _bake(THREE, [6, 40]); s = b['seams']; assert s.shape == (2, NW)
@@ -72,11 +76,12 @@ def _recede(d0, d1, thick=300.0, hgt=1500.0):
     return terrain(lambda dk, az: np.where(np.abs(dk - (d0 + (d1 - d0) * ((az % 72) / 72.0))) < thick / 2, hgt, 0.0))
 def _receding(dk, az): return _recede(4000.0, 15000.0)(dk, az)
 def test_the_swept_rows_term_keeps_the_seam_from_hopping_under_a_stronger_pull():
-    """With the authored depth pulling twice as hard (0.04 instead of 0.02) the 4 to 15 km ridge's seam still follows the ridge: only the cost of the visible rows it would sweep holds it back (with that term out of the cost it hops between two columns)."""
+    """With the authored depth pulling twice as hard (0.04 instead of 0.02) the seams of the 5 to 30 km and the 8 to 40 km ridges still follow the ridge: only the cost of the visible rows it would sweep holds it back (with that term out of the cost it hops between two columns)."""
     old = ridge.SEAM_PRIOR; ridge.SEAM_PRIOR = 0.04
-    try: j0, j1, cover = _alpha_jumps(4, 15, 6)
+    try:
+        for d0, d1, sp in ((5, 30, 12), (8, 40, 15)):
+            j0, j1, cover = _alpha_jumps(d0, d1, sp); assert j0 < 0.35 and j1 < 0.35 and cover > 0.999, ('the seam hopped across the ridge', (d0, d1, sp), j0, j1)
     finally: ridge.SEAM_PRIOR = old
-    assert j0 < 0.35 and j1 < 0.35 and cover > 0.999, ('the seam hopped across the ridge', j0, j1)
 RECEDING = [(4, 15, 6), (3, 12, 6), (5, 30, 12), (8, 40, 15), (4, 15, 10), (6, 14, 9)]        # km at azimuth 0, km at azimuth 72, authored split km
 def _alpha_jumps(d0, d1, split):
     """The two cards' alpha on the ridge body (crest + 4 rows), column to column: the largest step of each.  """
@@ -145,18 +150,18 @@ def _ring(key, hfun, splits_km):
     """export.cut_ring on synthetic rays (prefilter, whole-ring set_view, then the ring cut), cached by key: dict(bake = what export.bake_place returns, minus the place)."""
     if key not in _RING:
         A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); v = ridge.set_view(a.max(0)); r = export.cut_ring(D, a, h, splits_km)
-        _RING[key] = dict(r, place=dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE, tz='Europe/Vienna'), v=v,
+        _RING[key] = dict(r, op_ring=ridge.opaque(a), place=dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE, tz='Europe/Vienna'), v=v,
                           view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H),
                           meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1]))))
     return _RING[key]
 def _tile_canvas(card, key='alpha'):
     out = np.zeros((H, TW) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
 def _across_north(dk, az): return np.where(in_arc(az, 340, 20) & (np.abs(dk - (12000.0 + 400.0 * (((az + 180) % 360) - 180))) < 200), 1500.0, 0.0)       # a ridge across the wrap at 4 km (az -20) to 20 km (az +20)
-ACROSS = terrain(block(0, 359.99, 3000, 3600, 350), _across_north, block(0, 359.99, 70000, 72000, 3000))
+ACROSS = terrain(block(0, 359.99, 3000, 3600, 350), _across_north, block(0, 359.99, 70000, 72000, 3000), block(0.0, 0.05, 6000, 7000, 2500), block(359.95, 359.99, 6000, 7000, 2500))       # and a tower one column wide on each side of north
 def test_ring_wrap():
     """A ridge across column 6399 / 0 (receding from 4 km at -20 deg to 20 km at +20 deg): the seam is continuous over the wrap (its jump there no larger than the largest jump elsewhere), tile 31's right apron equals tile 0's first columns and tile 0's left apron
     tile 31's last (every card, pixel for pixel), neighbouring tiles agree on their shared apron, and the interiors of all tiles composite to the opaque ring."""
-    b = _ring('across', ACROSS, [8]); sm = np.log(b['seams'][0]); jumps = np.abs(np.diff(np.append(sm, sm[0]))); assert jumps[-1] <= jumps[:-1].max() + 1e-9 and jumps[:-1].max() > 0.05, ('the seam jumps over the wrap', jumps[-1], jumps[:-1].max())
+    b = _ring('across', ACROSS, [8]); sm = np.log(b['seams'][0]); jumps = np.abs(np.diff(np.append(sm, sm[0]))); assert jumps[-1] <= jumps[:-1].max() + 1e-9, ('the seam jumps over the wrap', jumps[-1], jumps[:-1].max())
     A_ = export.APRON; T_ = export.TILE_W; ring = np.zeros((H, W)); op = np.zeros((H, W))
     for t, tile in enumerate(b['cards']):
         nxt = b['cards'][(t + 1) % export.TILES]
@@ -164,8 +169,20 @@ def test_ring_wrap():
             assert (_tile_canvas(c)[:, T_ + A_:T_ + 2 * A_] == _tile_canvas(nxt[i])[:, A_:2 * A_]).all(), ('the apron differs from the neighbour', t, i); seen = _tile_canvas(c)[:, T_ + A_:T_ + 2 * A_] > 0
             for key in ('logd', 'wall'): assert (_tile_canvas(c, key)[:, T_ + A_:T_ + 2 * A_][seen] == _tile_canvas(nxt[i], key)[:, A_:2 * A_][seen]).all(), ('the apron differs from the neighbour', t, i, key)
         comp = 1 - np.prod([1 - _tile_canvas(c) for c in tile], axis=0); ring[:, t * T_:(t + 1) * T_] = comp[:, A_:A_ + T_]; op[:, t * T_:(t + 1) * T_] = b['opaque'][t][:, A_:A_ + T_]
-    assert np.abs(ring - op).max() < 0.02, np.abs(ring - op).max()
+    assert np.abs(ring - op).max() < 0.02, np.abs(ring - op).max(); assert np.abs(ring - b['op_ring']).max() < 0.02 and b['op_ring'][:, [0, W - 1]].sum(0).min() > b['op_ring'][:, [1, W - 2]].sum(0).max() + 10, 'the tiles hold the wrong columns of the ring (a tower on column 0 and column 6399 is the fixture)'
     assert b['opaque'][0].shape == (H, T_ + 2 * A_) and (b['opaque'][0][:, :A_] == b['opaque'][export.TILES - 1][:, T_:T_ + A_]).all(), 'the left apron of tile 0 is not the last columns of tile 31'
+def test_every_tile_is_cut_at_its_own_seam():
+    """The seams sweep from 5 km to 30 km once round the ring (ridge.seams stands in): in every tile the near card holds nothing beyond its columns' seam (plus the cross-fade) and the far card nothing before it, so no tile is cut with another tile's seams."""
+    saved = ridge.seams; sweep = 5000.0 * 6.0 ** (np.arange(W) / W)
+    ridge.seams = lambda cov, targets, d: sweep[None, :]
+    try: b = _ring('swept', terrain(block(0, 359.99, 3000, 3600, 350), block(0, 359.99, 20000, 21500, 1800), block(0, 359.99, 70000, 72000, 3000)), [8])
+    finally: ridge.seams = saved
+    T_, A_ = export.TILE_W, export.APRON; ix = slice(A_, A_ + T_); xf = ridge.XF; seen = 0
+    for t, tile in enumerate(b['cards']):
+        s_t = np.broadcast_to(sweep[np.arange(T_) + t * T_], (H, T_)); c0, c1 = tile[0], tile[1]; d0 = np.exp(_tile_canvas(c0, 'logd')[:, ix]); d1 = np.exp(_tile_canvas(c1, 'logd')[:, ix])
+        n0 = (_tile_canvas(c0)[:, ix] >= 0.5) & (_tile_canvas(c0, 'wall')[:, ix] < 0.5); n1 = (_tile_canvas(c1)[:, ix] >= 0.5) & (_tile_canvas(c1, 'wall')[:, ix] < 0.5); seen += int(n0.sum() + n1.sum())
+        assert (d0[n0] <= s_t[n0] * math.exp(xf) * 1.02 + 100).all() and (d1[n1] >= s_t[n1] * math.exp(-xf) * 0.98 - 100).all(), ('a card tile is cut at another tile seam', t)
+    assert seen > 100_000, 'the fixture holds no card pixels'
 def test_tile_is_a_crop_of_the_columns():
     """ridge.cards on a tile's columns (the 200 it owns and the apron) equals the same columns of ridge.cards on a wider run of columns, pixel for pixel, for fixed seams: the tile cut changes no pixel and adds no seam."""
     b = _bake(terrain(_receding, block(0, 359.99, 3000, 3600, 350)), [6]); x0 = 500; n = export.TILE_W + 2 * export.APRON; sl = slice(x0, x0 + n)
@@ -275,6 +292,8 @@ def test_cover_and_size_refusals_write_nothing():
         except ValueError as e: assert 'tile 3' in str(e), str(e)
         off = [list(r) for r in pk['tiles']]; off[7][0] = dict(off[7][0], top=H - 5); _refuses(d + '/off', b, dict(pk, tiles=off), 'a card leaving the frame was written')
         narrow = [list(r) for r in pk['tiles']]; c0 = b['cards'][2][0]; narrow[2][0] = dict(narrow[2][0], colour=export.encode_colour(c0['albedo'][:, 2:-2], c0['alpha'][:, 2:-2]), geometry=export.encode_geometry(c0['n_r'][:, 2:-2], c0['n_t'][:, 2:-2], c0['logd'][:, 2:-2], b['meta']['encoding'])); _refuses(d + '/apron', b, dict(pk, tiles=narrow), 'a tile without its apron was written')
+        try: _write(d + '/apron', b, dict(pk, tiles=narrow))
+        except ValueError as e: assert 'apron' in str(e), str(e)
         mism = [list(r) for r in pk['tiles']]; mism[4][1] = dict(mism[4][1], geometry=export.encode_geometry(c0['n_r'][:50], c0['n_t'][:50], c0['logd'][:50], b['meta']['encoding'])); _refuses(d + '/size', b, dict(pk, tiles=mism), 'a colour and geometry of two sizes were written')
         _refuses(d + '/rows', b, pk, 'view plane_h disagreeing with the opaque view was written', view=dict(b['view'], plane_h=H + 1)); _refuses(d + '/short', b, dict(pk, tiles=pk['tiles'][:31]), 'a bake of 31 tiles was written')
     finally: shutil.rmtree(d)
@@ -286,7 +305,7 @@ def test_card_cap_refusals():
     d = tempfile.mkdtemp()
     try:
         for bad in ([5, 10, 20, 30, 40, 50], [6, 6], [6, 5], []):
-            p = os.path.join(d, 'p.json'); json.dump(dict(presets=[dict(id='x', card_split_km=bad)]), open(p, 'w'))
+            p = os.path.join(d, 'p.json'); json.dump(dict(presets=[dict(id='x', tz='UTC', card_split_km=bad)]), open(p, 'w'))       # a valid zone, so only the splits can refuse it
             try: ridge.load_preset('x', p)
             except ValueError: pass
             else: assert False, ('a preset with splits', bad, 'was accepted')
@@ -352,7 +371,7 @@ def test_r_max():
     finally: export.FIT_PX_MAX, export.PHI_STEPS = saved
 def test_pack_distance_and_r_max_in_the_bake():
     """pack: a card tile's distance_m is exp(median ln d) over the interior solid pixels that are not wall (not the wall rows, not the apron columns); the manifest camera is the r_max_m of those distances and no per-card scale or median is written."""
-    b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[10][1]); n = c['alpha'].shape[0]; wall = np.zeros_like(c['wall']); wall[:n * 3 // 4] = True; ld = np.where(wall, c['logd'] + 3.0, c['logd']).copy(); ld[:, :2] += 2.0; ld[:, -2:] -= 2.0; cs[10][1] = dict(c, wall=wall, logd=ld)
+    b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[10][1]); n = c['alpha'].shape[0]; wall = np.zeros_like(c['wall']); wall[:n * 3 // 4] = True; ld = np.where(wall, c['logd'] + 3.0, c['logd']).copy(); ld[:, :2] += 2.0; ld[:, -2:] += 2.0; cs[10][1] = dict(c, wall=wall, logd=ld)
     pk = export.pack(dict(b, cards=cs)); inner = (slice(None), slice(2, -2)); want = float(np.exp(np.median(ld[inner][~wall[inner]]))); with_wall = float(np.exp(np.median(ld[inner]))); assert abs(with_wall - want) > 0.05 * want, 'the fixture cannot tell wall rows from ground'
     assert abs(pk['tiles'][10][1]['distance_m'] - want) < 1e-9 * want, ('the distance counted wall rows or the apron', pk['tiles'][10][1]['distance_m'], want); assert set(pk['tiles'][10][1]) == {'top', 'colour', 'geometry', 'distance_m'} and set(pk['cards'][0]) == {'near_m', 'far_m'}
     base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and abs(base['report']['nearest_m'] - min(e[0]['distance_m'] for e in base['tiles'])) < 1e-9 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
@@ -435,7 +454,7 @@ def test_wall_rows_flagged():
     """Card i > 0 flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at), card 0 none; the wall carries R = G = 255 in the geometry file and no other pixel has r2 + t2 above 1.02; wall pixels keep that sample's
     distance and their albedo is the ground material of the sample's height with the face up (so a steep face is not rock), constant down the column."""
     steep = 0
-    for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6]), lambda: _bake(_ramp, [20])):
+    for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6]), lambda: _bake(_ramp, [20], fixed_m=[20000.0])):       # the ramp's seam is fixed: the wall must stand on the slope, below the height where every material is rock or snow
         b = make(); assert not b['cards'][0]['wall'].any(), 'card 0 has a wall'; lo = ridge.rowang - 0.5 / ridge.PXDEG_V; seen = 0
         for i, c in enumerate(b['cards']):
             if i == 0: continue

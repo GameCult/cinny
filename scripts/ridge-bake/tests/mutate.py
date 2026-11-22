@@ -1,5 +1,5 @@
 """Mutation check: re-introduce a cause into a COPY of the baker, run the fixtures against it, and require that at least one fails.
-  venv/bin/python tests/mutate.py          (prints one line per mutant; exit 1 if a mutant survives)"""
+  venv/bin/python tests/mutate.py [word ...]   (prints one line per mutant whose name holds every word; exit 1 if a mutant survives)"""
 import os, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__)); SRC = os.path.join(HERE, '..')
 MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
@@ -66,7 +66,7 @@ def run(item):
     return line, r.returncode == 0
 if __name__ == '__main__':
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(int(os.environ.get('MUTATE_JOBS', '6'))) as ex: res = list(ex.map(run, [(n, v) for n, v in MUTANTS.items() if n not in EQUIVALENT]))
+    with ThreadPoolExecutor(int(os.environ.get('MUTATE_JOBS', '6'))) as ex: res = list(ex.map(run, [(n, v) for n, v in MUTANTS.items() if n not in EQUIVALENT and all(w in n for w in sys.argv[1:])]))
     for line, _ in res: print(line, flush=True)
     for n, why in EQUIVALENT.items(): print('EQUIVALENT ' + n + ' -> ' + why)
     sys.exit(1 if any(sv for _, sv in res) else 0)
