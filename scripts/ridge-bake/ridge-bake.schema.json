@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "ridge-bake manifest v2 and index v1",
+ "title": "ridge-bake manifest v3 and index v1",
  "$defs": {
   "manifest": {
    "type": "object",
@@ -14,15 +14,14 @@
     "encoding",
     "camera",
     "cards",
-    "w",
-    "h",
+    "tiles",
     "bytes",
     "attribution"
    ],
    "additionalProperties": false,
    "properties": {
     "schema": {
-     "const": 2
+     "const": 3
     },
     "baker_version": {
      "type": "integer"
@@ -71,8 +70,10 @@
      "type": "object",
      "required": [
       "look_az_deg",
-      "window_deg",
-      "plane_w",
+      "ring_w",
+      "tile_w",
+      "tiles",
+      "apron",
       "plane_h",
       "px_per_deg_h",
       "px_per_deg_v",
@@ -86,12 +87,17 @@
       "look_az_deg": {
        "type": "number"
       },
-      "window_deg": {
-       "const": 72
+      "ring_w": {
+       "const": 6400
       },
-      "plane_w": {
-       "type": "integer",
-       "maximum": 4096
+      "tile_w": {
+       "const": 200
+      },
+      "tiles": {
+       "const": 32
+      },
+      "apron": {
+       "const": 2
       },
       "plane_h": {
        "type": "integer"
@@ -155,15 +161,11 @@
     "camera": {
      "type": "object",
      "required": [
-      "r_m",
-      "heading_max_deg"
+      "r_max_m"
      ],
      "additionalProperties": false,
      "properties": {
-      "r_m": {
-       "type": "number"
-      },
-      "heading_max_deg": {
+      "r_max_m": {
        "type": "number"
       }
      }
@@ -175,24 +177,11 @@
      "items": {
       "type": "object",
       "required": [
-       "top",
-       "h",
        "near_m",
-       "far_m",
-       "median_m",
-       "distance_m",
-       "scale",
-       "colour",
-       "geometry"
+       "far_m"
       ],
       "additionalProperties": false,
       "properties": {
-       "top": {
-        "type": "integer"
-       },
-       "h": {
-        "type": "integer"
-       },
        "near_m": {
         "type": [
          "number",
@@ -204,57 +193,78 @@
          "number",
          "null"
         ]
-       },
-       "median_m": {
-        "type": "number"
-       },
-       "distance_m": {
-        "type": "number"
-       },
-       "scale": {
-        "type": "number"
-       },
-       "colour": {
-        "type": "object",
-        "required": [
-         "file",
-         "bytes"
-        ],
-        "additionalProperties": false,
-        "properties": {
-         "file": {
-          "type": "string"
-         },
-         "bytes": {
-          "type": "integer"
+       }
+      }
+     },
+     "description": "nearest first; the runtime paints the list last to first.  near_m and far_m are the median seam depths over the ring, null at the ends."
+    },
+    "tiles": {
+     "type": "array",
+     "minItems": 32,
+     "maxItems": 32,
+     "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 6,
+      "items": {
+       "type": [
+        "object",
+        "null"
+       ],
+       "required": [
+        "top",
+        "h",
+        "distance_m",
+        "colour",
+        "geometry"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "top": {
+         "type": "integer"
+        },
+        "h": {
+         "type": "integer"
+        },
+        "distance_m": {
+         "type": "number"
+        },
+        "colour": {
+         "type": "object",
+         "required": [
+          "file",
+          "bytes"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "file": {
+           "type": "string"
+          },
+          "bytes": {
+           "type": "integer"
+          }
          }
-        }
-       },
-       "geometry": {
-        "type": "object",
-        "required": [
-         "file",
-         "bytes"
-        ],
-        "additionalProperties": false,
-        "properties": {
-         "file": {
-          "type": "string"
-         },
-         "bytes": {
-          "type": "integer"
+        },
+        "geometry": {
+         "type": "object",
+         "required": [
+          "file",
+          "bytes"
+         ],
+         "additionalProperties": false,
+         "properties": {
+          "file": {
+           "type": "string"
+          },
+          "bytes": {
+           "type": "integer"
+          }
          }
         }
        }
-      },
-      "description": "nearest first; the runtime paints the list last to first. top and h place the card back at its rows of the frame; near_m and far_m are the median seam depths, null at the ends; median_m and distance_m are the median distance of the card's solid pixels that are not wall; scale = distance_m / (distance_m - camera.r_m) is the card's pan rate per unit of heading and its static size."
-     }
-    },
-    "w": {
-     "type": "integer"
-    },
-    "h": {
-     "type": "integer"
+      }
+     },
+     "description": "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are not wall (the interior tile_w columns)."
     },
     "bytes": {
      "type": "integer"

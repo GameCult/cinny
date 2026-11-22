@@ -1,11 +1,12 @@
 """Ridge baker: the ray march of a place, cut into K+1 layered-depth G-buffer cards by K authored seams (places.json), no painter, no sun.
 Offline baker for the ridge backdrop (scripts/ridge-bake); export.py drives it.
 
-  load_preset(id) -> configure()  : observer, tiles, mosaic origin, ring radius, window azimuth, card splits and prefilter from places.json
+  load_preset(id) -> configure()  : observer, tiles, mosaic origin, ring radius, rest azimuth, card splits and prefilter from places.json
   stage0(detail)                   : ray march of all 6400 azimuth columns (curvature+refraction), optional authored sub-DEM foreground detail, cached
   prefilter(d, h, sigma_m)         : Gaussian low-pass of the sampled heights (along each ray, across rays at equal distance), angles recomputed with elev
-  set_view(skyline)                : authored Y mapping from the march skyline: angle -> row, see set_view
-  coverage(d, a) / seams(cov, ..)  : visible rows per log-distance bin; one forward-energy seam per authored split, per column
+  set_view(skyline)                : authored Y mapping from the march skyline of the whole ring: angle -> row, see set_view
+  ring_cols(a, c0, n)              : n columns of the ring from column c0, periodic (the tile cut)
+  coverage(d, a) / seams(cov, ..)  : visible rows per log-distance bin; one forward-energy seam per authored split, per column, periodic round the ring
   normals(d, h) / cards(...)       : per-sample normals; the K+1 cards (coverage, distance, normal, albedo), each cropped to its band of rows
 Vertical exaggeration is AUTHORED and derived per view by set_view (printed on the page).  The client owns lighting, haze and ink (ruling ridge-cards-runtime-lit)."""
 import sys, time, math, json
@@ -22,7 +23,6 @@ def _env_dir(name, what):
 B = _env_dir('RIDGE_WORK', 'the work directory (the mosaic / ray caches)')
 COP = _env_dir('RIDGE_TILES', 'the directory of Copernicus GLO-30 tiles (Copernicus_DSM_COG_10_*_DEM.tif)')
 W = 6400                               # ring columns: 360 deg at 17.78 px/deg
-WIN = 1280                             # window = 72 deg of the ring
 HPX_DEG = W / 360.0
 H = 600                                # frame rows
 COLW = math.radians(360.0 / W)
@@ -82,7 +82,7 @@ def bil(a, lat_top, lon_left, lat, lon):
     return (a[y0, x0] * (1 - fx) * (1 - fy) + a[y0, x0 + 1] * fx * (1 - fy) + a[y0 + 1, x0] * (1 - fx) * fy + a[y0 + 1, x0 + 1] * fx * fy)
 
 def configure(p):
-    """Set the module state for a preset: observer, eye elevation (DEM ground + eye height, or ground_override), window azimuth."""
+    """Set the module state for a preset: observer, eye elevation (DEM ground + eye height, or ground_override), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
     global P
     P = p; m, lt, ll = mosaic(p)
     ground = p['ground_override_m'] if 'ground_override_m' in p else float(bil(m, lt, ll, np.array(p['lat']), np.array(p['lon'])))
@@ -90,10 +90,11 @@ def configure(p):
     if 'look_at' in p:
         la, lo = p['look_at']; P['az_center'] = (math.degrees(math.atan2((lo - p['lon']) * math.cos(math.radians(p['lat'])), la - p['lat'])) + 360) % 360
     else: P['az_center'] = p['az_deg']
-    P['win0'] = int(round(P['az_center'] / 360 * W - WIN / 2)) % W
     return P
 
-def win(img): return np.take(img, (P['win0'] + np.arange(WIN)) % W, axis=1)
+def ring_cols(a, c0, n):
+    """n columns of the ring array a (last axis W) from column c0 (negative or past W wraps): the one periodic take, the wrap at 0 / 360 degrees is handled here."""
+    return np.take(a, (c0 + np.arange(n)) % W, axis=-1)
 
 # ====================================================================== authored sub-DEM foreground detail (Aetheria / CultMath ridged multifractal)
 def _frac(v): return v - np.floor(v)
@@ -182,10 +183,10 @@ def normals(d, h):
 # ====================================================================== the authored Y mapping
 def set_view(skyline, sky_row=0.04, near_row=0.66):
     """AUTHORED vertical mapping, linear in elevation angle: row = (TOP_DEG - angle) * PXDEG_V over the whole 600-row frame (cylindrical, horizontal 17.78 px/deg).  skyline is the highest angle any sample reaches in each
-    ring column (W,), straight from the march.  Two anchors: the highest skyline angle in the window sits at `sky_row` (4%) of the frame height, the LOWEST sits at `near_row` (66%); everything below is body and ground.
-    PXDEG_V = (near_row - sky_row) * 600 / (highest - lowest), clamped to [17.78, 178] px/deg = vertical exaggeration 1x..10x.  TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V."""
+    ring column (W,), straight from the march.  Two anchors on the whole ring (ruling ridge-ring-vertical-anchors): the highest skyline angle of the ring sits at `sky_row` (4%) of the frame height, the LOWEST sits at `near_row` (66%);
+    everything below is body and ground.  PXDEG_V = (near_row - sky_row) * 600 / (highest - lowest), clamped to [17.78, 178] px/deg = vertical exaggeration 1x..10x.  TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V."""
     global rowang, PXDEG_V, TOP_DEG, BOTTOM_DEG
-    w = win(np.asarray(skyline)[None, :])[0]; sky = float(w.max()); low = float(w.min())
+    sk = np.asarray(skyline); sky = float(sk.max()); low = float(sk.min())
     ppd = float(np.clip((near_row - sky_row) * H / max(sky - low, 0.05), HPX_DEG, 10 * HPX_DEG))
     PXDEG_V = ppd; TOP_DEG = sky + sky_row * H / ppd; BOTTOM_DEG = TOP_DEG - H / ppd; rowang = TOP_DEG - (np.arange(H) + 0.5) / PXDEG_V
     return dict(top_deg=TOP_DEG, bottom_deg=BOTTOM_DEG, px_per_deg=PXDEG_V, exaggeration=PXDEG_V / HPX_DEG, horizon_row=TOP_DEG * PXDEG_V, sky_deg=sky, low_deg=low, sky_row=sky_row, near_row=near_row)
@@ -194,7 +195,7 @@ def set_view(skyline, sky_row=0.04, near_row=0.66):
 COV_BINS = 160                         # log-distance bins between the first and the last sample
 SIG_B = 1.5                            # blur of the coverage along depth (bins): seams settle in gaps
 SEAM_LAM, SEAM_UNARY = 2.0, 0.25       # forward energy: a seam that moves a bin between neighbouring columns pays SEAM_LAM per bin plus every visible row it sweeps; one that sits in visible terrain pays SEAM_UNARY x those rows (cross-fadable)
-SEAM_PRIOR = 0.02                      # the authored depth is a faint pull, rows per nat^2 (the test pins the window: six synthetic receding ridges tear at 0.1, and without the swept-rows term at 0.02 they tear again)
+SEAM_PRIOR = 0.02                      # the authored depth is a faint pull, rows per nat^2 (the tests pin the window: six synthetic receding ridges, a sawtooth round the ring, tear at 0.05, and without the swept-rows term at 0.02 they tear too)
 SEAM_SEP = 0.4                         # seams at least this far apart in log-distance (nat)
 XF = 0.07                              # half-width of a seam's cross-fade, nat (about two bins)
 
@@ -216,21 +217,22 @@ def _dt(f, u):
     u = u.reshape((-1,) + (1,) * (f.ndim - 1)); return np.minimum(np.minimum.accumulate(f - u, axis=0) + u, np.flip(np.minimum.accumulate(np.flip(f + u, 0), axis=0), 0) - u)
 
 def seams(cov, targets, d):
-    """(K, n) ordered seam distances (m), one per authored target (m), each column.  One 1D forward-energy DP per seam, in target order (seam carving, Avidan & Shamir 2007; forward energy, Rubinstein et al. 2008): unary
+    """(K, n) ordered seam distances (m), one per authored target (m), each column of a RING (cov is periodic: the last column neighbours the first).  One 1D forward-energy DP per seam, in target order (seam carving, Avidan & Shamir 2007; forward energy, Rubinstein et al. 2008): unary
     SEAM_UNARY x the rows at the seam; moving a bin between neighbouring columns costs SEAM_LAM per bin plus the rows swept, an L1 distance in u = cumsum(rows) + SEAM_LAM x bin; a weak prior to the target.  Seam k is held at
-    least SEAM_SEP nat beyond seam k-1 in every column.  Sequential, not joint: a joint DP has NB^K states per column and seams in gaps do not interact."""
-    cov = np.asarray(cov, np.float64); nb, n = cov.shape; edges = log_edges(d, nb); bc = 0.5 * (edges[:-1] + edges[1:]); sep = int(math.ceil(SEAM_SEP / (edges[1] - edges[0]))); INF = 1e12
+    least SEAM_SEP nat beyond seam k-1 in every column.  Sequential, not joint: a joint DP has NB^K states per column and seams in gaps do not interact.  Periodic: the DP runs over the ring three times side by side and keeps the middle lap,
+    so a seam is continuous across the wrap and a tile boundary is only a crop."""
+    cov = np.tile(np.asarray(cov, np.float64), (1, 3)); nb, n3 = cov.shape; n = n3 // 3; edges = log_edges(d, nb); bc = 0.5 * (edges[:-1] + edges[1:]); sep = int(math.ceil(SEAM_SEP / (edges[1] - edges[0]))); INF = 1e12
     r = int(3 * SIG_B) + 1; kern = np.exp(-0.5 * (np.arange(-r, r + 1) / SIG_B) ** 2); kern /= kern.sum(); pad = np.pad(cov, ((r, r), (0, 0)), mode='edge'); Cs = sum(kv * pad[i:i + nb] for i, kv in enumerate(kern))
-    bins = np.arange(nb); lo = np.zeros(n, int); out = np.zeros((len(targets), n))
+    bins = np.arange(nb); lo = np.zeros(n3, int); out = np.zeros((len(targets), n3))
     for t, T in enumerate(targets):
         prior = SEAM_PRIOR * (bc - math.log(T)) ** 2; need = np.minimum(lo + (sep if t else 0), nb - 1); feas = bins[:, None] >= need[None, :]
         warp = lambda x: np.cumsum(0.5 * (cov[:, x - 1] + cov[:, x])) + SEAM_LAM * bins
         cost = np.where(feas[:, 0], SEAM_UNARY * Cs[:, 0] + prior, INF); store = [cost]
-        for x in range(1, n): cost = np.where(feas[:, x], _dt(cost, warp(x)) + SEAM_UNARY * Cs[:, x] + prior, INF); store.append(cost)
-        j = np.zeros(n, int); j[-1] = int(np.argmin(store[-1]))
-        for x in range(n - 1, 0, -1): u = warp(x); j[x - 1] = int(np.argmin(store[x - 1] + np.abs(u - u[j[x]])))
+        for x in range(1, n3): cost = np.where(feas[:, x], _dt(cost, warp(x)) + SEAM_UNARY * Cs[:, x] + prior, INF); store.append(cost)
+        j = np.zeros(n3, int); j[-1] = int(np.argmin(store[-1]))
+        for x in range(n3 - 1, 0, -1): u = warp(x); j[x - 1] = int(np.argmin(store[x - 1] + np.abs(u - u[j[x]])))
         out[t] = np.exp(bc[j]); lo = j
-    return out
+    return out[:, n:2 * n]
 
 # ====================================================================== cards: layered depth, one per band between seams
 GRASS, FOREST, ROCK, SNOW = (0.36, 0.44, 0.26), (0.22, 0.31, 0.20), (0.47, 0.44, 0.41), (0.93, 0.95, 0.97)
@@ -244,7 +246,7 @@ def cards(d, a, h, seams, nrm=None):
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
-    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for a window cut from the ring).  Rows of a card i > 0 below the angle of its first sample (hit and idx == 0) are the extruded wall of the ridge the card starts at: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
+    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of a card i > 0 below the angle of its first sample (hit and idx == 0) are the extruded wall of the ridge the card starts at: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
     and `wall` flags them (card 0 has no wall: its rows below the first sample are the ground).  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
     n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p
