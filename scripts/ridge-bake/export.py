@@ -139,20 +139,20 @@ def check_budget(n_cards, tile_bytes, bands, r_max_m, rmin_m):
     n = run_tiles(r_max_m, rmin_m); res = resident_bytes(bands, n)
     if res > RESIDENT_BYTES_MAX: raise ValueError(f'{n} consecutive tiles light to {res} bytes, above {RESIDENT_BYTES_MAX}')
 
-def fit_px(d, rs, r, px_per_deg):
-    """The worst error, in card pixels, of the card's linear slide at offset r (m): over the camera's angle phi on its circle against its heading (PHI_STEPS) and the viewport (beta in +-HFOV_MAX_DEG / 2), the exact view angle of a cylinder point at distance R,
-    alpha = atan2(R sin beta - r sin phi, R cos beta - r cos phi), against the least-squares line a + s beta fitted to it for the tile's distance_m d; R runs over rs, the card's per-column median distances in the tile, so a card whose distance varies inside the tile counts."""
-    b = np.radians(np.linspace(-HFOV_MAX_DEG / 2, HFOV_MAX_DEG / 2, 33))[None, None, :]; p = np.linspace(0, 2 * math.pi, PHI_STEPS, endpoint=False)[None, :, None]
-    ang = lambda R: np.arctan2(R * np.sin(b) - r * np.sin(p), R * np.cos(b) - r * np.cos(p)); bc = b - b.mean(); A = ang(np.float64(d)); s = (A * bc).sum(-1, keepdims=True) / (bc * bc).sum(); line = A.mean(-1, keepdims=True) + s * bc
-    return math.degrees(float(np.abs(ang(np.asarray(rs, np.float64)[:, None, None]) - line).max())) * px_per_deg
-def fit_table(dist, cols, r, px_per_deg):
+def fit_px(d, r, px_per_deg):
+    """The worst error, in card pixels, of a card tile's linear slide at offset r (m): over the camera's angle phi on its circle against its heading (PHI_STEPS) and the viewport (beta in +-HFOV_MAX_DEG / 2), the exact view angle of a cylinder point at the tile's
+    distance d, alpha = atan2(d sin beta - r sin phi, d cos beta - r cos phi), against the least-squares line a + s beta fitted to it (ruling ridge-offset-range-fit)."""
+    b = np.radians(np.linspace(-HFOV_MAX_DEG / 2, HFOV_MAX_DEG / 2, 33))[None, :]; p = np.linspace(0, 2 * math.pi, PHI_STEPS, endpoint=False)[:, None]
+    A = np.arctan2(d * np.sin(b) - r * np.sin(p), d * np.cos(b) - r * np.cos(p)); bc = b - b.mean(); s = (A * bc).sum(-1, keepdims=True) / (bc * bc).sum(); line = A.mean(-1, keepdims=True) + s * bc
+    return math.degrees(float(np.abs(A - line).max())) * px_per_deg
+def fit_table(dist, r, px_per_deg):
     """(tiles, cards) fit_px of every card tile at offset r; nan where the card is null in that tile."""
-    return np.array([[np.nan if d is None else fit_px(d, cols[t][i], r, px_per_deg) for i, d in enumerate(row)] for t, row in enumerate(dist)])
-def solve_r_max(dist, cols, bands, px_per_deg):
+    return np.array([[np.nan if d is None else fit_px(d, r, px_per_deg) for d in row] for row in dist])
+def solve_r_max(dist, bands, px_per_deg):
     """The largest offset r (m, down to 0.1 m) at which every card tile fits within FIT_PX_MAX and the resident gate holds: never above half the nearest card's smallest tile distance.  Scans r upward from 0 on 128 steps to the first failure, then bisects that step.
     Refuses (naming the card and tile that bind) a bake whose r_max_m is below R_MAX_FLOOR_M."""
     near = min((row[0], t) for t, row in enumerate(dist) if row[0] is not None); rmin = near[0]; cap = 0.5 * rmin
-    ok = lambda r: bool(np.nanmax(fit_table(dist, cols, r, px_per_deg)) <= FIT_PX_MAX) and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX
+    ok = lambda r: bool(np.nanmax(fit_table(dist, r, px_per_deg)) <= FIT_PX_MAX) and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX
     lo, hi = 0.0, None
     for r in np.linspace(0, cap, 129)[1:]:
         if ok(r): lo = float(r)
@@ -166,7 +166,7 @@ def solve_r_max(dist, cols, bands, px_per_deg):
     r_max = math.floor(lo * 10) / 10
     if r_max < R_MAX_FLOOR_M:
         if cap < R_MAX_FLOOR_M: raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card 0 stands {rmin:.0f} m away in tile {near[1]} and the offset stays under half of that')
-        tb = fit_table(dist, cols, R_MAX_FLOOR_M, px_per_deg); t, i = np.unravel_index(int(np.nanargmax(tb)), tb.shape)
+        tb = fit_table(dist, R_MAX_FLOOR_M, px_per_deg); t, i = np.unravel_index(int(np.nanargmax(tb)), tb.shape)
         if tb[t, i] > FIT_PX_MAX: raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card {i} in tile {t} errs {tb[t, i]:.1f} card px at {R_MAX_FLOOR_M:g} m (the bound is {FIT_PX_MAX:g})')
         n = run_tiles(R_MAX_FLOOR_M, rmin); raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: at {R_MAX_FLOOR_M:g} m, {n} consecutive tiles light to {resident_bytes(bands, n)} bytes, above {RESIDENT_BYTES_MAX}')
     return r_max
@@ -238,24 +238,24 @@ def bake_place(pid):
 
 def pack(bake):
     """The tiles of a bake as bytes plus their manifest facts.  Per card tile: distance_m = exp(median ln d) over the solid (alpha >= 0.5) pixels that are not wall of the interior TILE_W columns (a tile with none falls back to its non-wall, then any, lit pixels);
-    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the card tiles' distances and per-column median distances.  Refuses a card empty in every tile (naming the splits) and a card with
+    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the card tiles' distances.  Refuses a card empty in every tile (naming the splits) and a card with
     no solid terrain apart from its wall in any tile.  Returns dict(cards, tiles, camera, report) (report is printed, not written)."""
     sm = bake['seams']; sp = bake['splits_km']; k = len(sp) + 1; ppd = bake['view']['px_per_deg_h']; inner = slice(APRON, APRON + TILE_W); enc = bake['meta']['encoding']
     for i in range(k):
         if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise ValueError(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
-    tiles, dist, cols, bands = [], [], [], []; any_solid = [False] * k
+    tiles, dist, bands = [], [], []; any_solid = [False] * k
     for tile in bake['cards']:
-        row, drow, crow, brow = [], [], [], []
+        row, drow, brow = [], [], []
         for i, c in enumerate(tile):
-            if c['alpha'].shape[0] == 0: row.append(None); drow.append(None); crow.append(None); continue
+            if c['alpha'].shape[0] == 0: row.append(None); drow.append(None); continue
             al, wl, ld = c['alpha'][:, inner], c['wall'][:, inner], c['logd'][:, inner]; solid = (al >= 0.5) & ~wl; any_solid[i] |= bool(solid.any())
             pool = next((m, l) for m, l in ((solid, ld), ((al > 0) & ~wl, ld), (al > 0, ld), (c['alpha'] > 0, c['logd'])) if m.any())
-            dm = float(np.exp(np.median(pool[1][pool[0]]))); rc = [float(np.exp(np.median(ld[:, x][solid[:, x]]))) for x in range(TILE_W) if solid[:, x].any()]
-            row.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc, c['wall']), distance_m=dm)); drow.append(dm); crow.append(np.array(rc if rc else [dm])); brow.append(c['alpha'].shape[0])
-        tiles.append(row); dist.append(drow); cols.append(crow); bands.append(brow)
+            dm = float(np.exp(np.median(pool[1][pool[0]])))
+            row.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc, c['wall']), distance_m=dm)); drow.append(dm); brow.append(c['alpha'].shape[0])
+        tiles.append(row); dist.append(drow); bands.append(brow)
     for i in range(k):
         if not any_solid[i]: raise ValueError(f'card {i} holds no solid terrain apart from its wall rows')
-    r_max = solve_r_max(dist, cols, bands, ppd); rmin = min(row[0] for row in dist if row[0] is not None); n = run_tiles(r_max, rmin); worst = np.nanmax(fit_table(dist, cols, r_max, ppd), axis=0)
+    r_max = solve_r_max(dist, bands, ppd); rmin = min(row[0] for row in dist if row[0] is not None); n = run_tiles(r_max, rmin); worst = np.nanmax(fit_table(dist, r_max, ppd), axis=0)
     cards = [dict(near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None) for i in range(k)]
     return dict(cards=cards, tiles=tiles, camera=dict(r_max_m=r_max), report=dict(fit_px=[float(x) for x in worst], run_tiles=n, resident_bytes=resident_bytes(bands, n), nearest_m=rmin))
 
