@@ -213,7 +213,7 @@ def _refuses(out, b, packed, why, **kw):
     except ValueError: assert not os.path.exists(out), ('a refused bake left files', why)
     else: assert False, why
 def _pins():
-    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 4), 'the ring layout is pinned'
+    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 5), 'the ring layout is pinned'
     assert (export.TILE_BYTES_MAX, export.PLACE_BYTES_MAX, export.RESIDENT_BYTES_MAX, export.FIT_PX_MAX, export.R_MAX_FLOOR_M, export.PHI_STEPS) == (235_000, 7_500_000, 20_000_000, 24.0, 25.0, 24), 'the budgets and the fit bound are pinned'
     assert abs(export.HFOV_MAX_DEG - 72 / 1.1) < 1e-12
 
@@ -222,12 +222,13 @@ def test_schema3():
     _pins(); d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); mk = lambda: json.loads(json.dumps(m))
-        assert m['schema'] == 3 and m['baker_version'] == 4 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m']) and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
+        assert m['schema'] == 3 and m['baker_version'] == 5 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
         def bad(f, why):
             x = mk(); f(x)
             try: export.validate_manifest(x)
             except ValueError: return
             raise AssertionError(why)
+        bad(lambda x: x['camera'].pop('r_max_forward_m'), 'a camera without its forward offset validated'); bad(lambda x: x['camera'].pop('r_max_m'), 'a camera without its offset validated')
         bad(lambda x: x['tiles'].pop(), 'a manifest of 31 tiles validated'); bad(lambda x: x['tiles'][3].pop(), 'a tile with a card missing validated'); bad(lambda x: x['tiles'][3].append(None), 'a tile with an extra card validated'); bad(lambda x: x['view'].pop('apron'), 'a missing apron validated')
         bad(lambda x: x['view'].update(apron=0), 'an apron of 0 validated'); bad(lambda x: x['tiles'][2][1]['colour'].update(file='card-1-t03-colour.webp'), 'a file named for another tile validated')
         bad(lambda x: x['tiles'].__setitem__(slice(None), [[None] * 3 for _ in range(32)]), 'a card null in every tile validated'); bad(lambda x: x.update(bytes=x['bytes'] + 1), 'a wrong byte total validated')
@@ -324,13 +325,21 @@ def test_card_cap_refusals():
             except ValueError: pass
             else: assert False, ('a preset with tz', bad_tz, 'was accepted')
         place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
-        full = [np.ones((H, 204)) for _ in range(32)]; cards = lambda k: [dict(near_m=None if i == 0 else 1.0, far_m=None if i == k - 1 else 1.0) for i in range(k)]; cam = dict(r_max_m=100.0)
+        full = [np.ones((H, 204)) for _ in range(32)]; cards = lambda k: [dict(near_m=None if i == 0 else 1.0, far_m=None if i == k - 1 else 1.0) for i in range(k)]; cam = dict(r_max_m=100.0, r_max_forward_m=100.0)
         big = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, H) for _ in range(5)] for _ in range(32)], camera=cam)
         try: export.write_bake(d + '/big', place, view, meta, big, full)
         except ValueError as e: assert 'consecutive tiles' in str(e), str(e)
         else: assert False, 'six full-frame cards in every tile were written'
         assert not os.path.exists(d + '/big')
         ok = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, 100, seed=i) for i in range(1, 6)] for _ in range(32)], camera=cam); dest = export.write_bake(d + '/six', place, view, meta, ok, full); assert len(json.load(open(dest / 'manifest.json'))['cards']) == 6
+        fwd = lambda r: dict(ok, camera=dict(r_max_m=100.0, r_max_forward_m=r)); bands6 = [[H] + [100] * 5] * 32; assert export.resident_bytes(bands6, export.run_tiles(100.0, 1000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(bands6, export.run_tiles(1e6, 1000.0)), 'the fixture cannot tell the gate at r_max_forward_m from the gate at r_max_m'
+        try: export.write_bake(d + '/fwd', place, view, meta, fwd(1e6), full)
+        except ValueError as e: assert 'consecutive tiles' in str(e), str(e)
+        else: assert False, 'a bake whose forward offset breaks the resident gate was written'
+        try: export.write_bake(d + '/low', place, view, meta, fwd(50.0), full)
+        except ValueError as e: assert 'below r_max_m' in str(e), str(e)
+        else: assert False, 'a bake whose forward offset is below the worst-case offset was written'
+        assert not os.path.exists(d + '/fwd') and not os.path.exists(d + '/low')
         try: export.check_budget(7, [1000] * 32, [[10] * 7] * 32, 100.0, 1000.0)
         except ValueError as e: assert 'above 6' in str(e)
         else: assert False, '7 cards were accepted'
@@ -351,7 +360,7 @@ def test_budgets():
     far = [[] for _ in range(32)]; far[0] = [rows // 2]; far[n + 3] = [rows - rows // 2 + 1]; assert not refused([0] * 32, far), 'a run is only N tiles long'; far[n - 1] = far[n + 3]; far[n + 3] = []; assert refused([0] * 32, far)
     assert export.run_tiles(0.0, 1000.0) == math.ceil(export.HFOV_MAX_DEG / 11.25) + 5 and export.run_tiles(250.0, 20000.0) > export.run_tiles(25.0, 20000.0) and export.run_tiles(1e9, 1.0) == 32, 'N = ceil(arc_max / 11.25) + 1 + 4'
     rows_t = [[10, 20] if t in (30, 31, 0, 1) else [] for t in range(32)]; assert export.resident_bytes(rows_t, 4) == 4 * export.LIT_W * 120 and export.resident_bytes(rows_t, 3) == 4 * export.LIT_W * 90 and export.resident_bytes(rows_t, 40) == 4 * export.LIT_W * 120
-def _fit(d, r): return export.fit_px(d, r, ridge.HPX_DEG)
+def _fit(d, r, phis=None): return export.fit_px(d, r, ridge.HPX_DEG, phis)
 def test_r_max():
     """On a card at 1.5 km: r_max_m falls as FIT_PX_MAX falls and is at most half the distance; it is the largest offset within the bound (the fit error at r_max is within it, a little more is not); a forward-only sweep of phi finds a larger r_max than the whole circle (the error is in the phi
     that is not forward); the binding card tile is the nearest one (each tile's line is fitted at its own distance_m); the resident gate binds when its tiles are heavy; a place whose r_max_m is below 25 refuses and names the card and tile."""
@@ -361,9 +370,12 @@ def test_r_max():
         export.FIT_PX_MAX = 12.0; r12 = export.solve_r_max(dist, bands, ppd); export.FIT_PX_MAX = 60.0; r60 = export.solve_r_max(dist, bands, ppd); export.FIT_PX_MAX = saved[0]; assert r12 < r < r60, (r12, r, r60)
         export.FIT_PX_MAX = 1e9; assert export.solve_r_max(dist, bands, ppd) == 750.0, 'r_max is not capped at half the nearest distance'; export.FIT_PX_MAX = saved[0]
         export.PHI_STEPS = 1; rf = export.solve_r_max(dist, bands, ppd); export.PHI_STEPS = saved[1]; assert rf > r + 5, ('a forward-only sweep finds the same r_max', rf, r)
+        rp = export.solve_r_max(dist, bands, ppd, phis=1); assert rp == rf and 25 < rp <= 750 and _fit(1500.0, rp, 1) <= export.FIT_PX_MAX + 1e-9 and _fit(1500.0, rp + 0.5, 1) > export.FIT_PX_MAX, ('the phi = 0 bound is not the largest offset within the bound at phi = 0', rp, rf)
+        assert _fit(1500.0, rp) > export.FIT_PX_MAX, 'the forward offset fits at some other phi, so the two numbers do not differ'
         mixed = [[1500.0 if t == 3 else 9000.0] for t in range(32)]; assert export.solve_r_max(mixed, bands, ppd) == r, 'the binding tile is not the nearest one'
         dist2 = [[20000.0] for _ in range(32)]; free = export.solve_r_max(dist2, bands, ppd); heavy = [[1700000 // (4 * export.LIT_W)] for _ in range(32)]; held = export.solve_r_max(dist2, heavy, ppd)
         assert held < free - 100 and export.resident_bytes(heavy, export.run_tiles(held, 20000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(heavy, export.run_tiles(held + 1.0, 20000.0)), ('the resident gate does not bind r_max', held, free)
+        held_f = export.solve_r_max(dist2, heavy, ppd, phis=1); assert held_f >= held and export.resident_bytes(heavy, export.run_tiles(held_f, 20000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(heavy, export.run_tiles(held_f + 1.0, 20000.0)), ('the resident gate does not bind the forward offset', held_f, held)
         two = [[5000.0, 40.0 if t == 7 else 5000.0] for t in range(32)]
         try: export.solve_r_max(two, [[100, 100] for _ in range(32)], ppd)
         except ValueError as e: assert 'below 25' in str(e) and 'card 1' in str(e) and 'tile 7' in str(e), str(e)
@@ -378,7 +390,7 @@ def test_pack_distance_and_r_max_in_the_bake():
     b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[10][1]); n = c['alpha'].shape[0]; wall = np.zeros_like(c['wall']); wall[:n * 3 // 4] = True; ld = np.where(wall, c['logd'] + 3.0, c['logd']).copy(); ld[:, :2] += 2.0; ld[:, -2:] += 2.0; cs[10][1] = dict(c, wall=wall, logd=ld)
     pk = export.pack(dict(b, cards=cs)); inner = (slice(None), slice(2, -2)); want = float(np.exp(np.median(ld[inner][~wall[inner]]))); with_wall = float(np.exp(np.median(ld[inner]))); assert abs(with_wall - want) > 0.05 * want, 'the fixture cannot tell wall rows from ground'
     assert abs(pk['tiles'][10][1]['distance_m'] - want) < 1e-9 * want, ('the distance counted wall rows or the apron', pk['tiles'][10][1]['distance_m'], want); assert set(pk['tiles'][10][1]) == {'top', 'colour', 'geometry', 'distance_m'} and set(pk['cards'][0]) == {'near_m', 'far_m'}
-    base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and abs(base['report']['nearest_m'] - min(e[0]['distance_m'] for e in base['tiles'])) < 1e-9 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
+    base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and base['camera']['r_max_forward_m'] >= base['camera']['r_max_m'] and abs(base['report']['nearest_m'] - min(e[0]['distance_m'] for e in base['tiles'])) < 1e-9 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
     assert abs(base['cards'][0]['far_m'] - 1500.0) < 1e-6 and base['cards'][0]['near_m'] is None and base['cards'][1]['near_m'] == base['cards'][0]['far_m']
 def test_the_sheet_draws_the_ring():
     """The contact sheet is the ring at 1/4 width (1600 px) with a mark on each of the 32 tile boundaries, in the composite, every card's strip and the depth image, stacked: composite, K cards, depth."""
@@ -425,8 +437,8 @@ def test_bake_place_manifest_fields_on_vienna():
             assert (_tile_canvas(c, 'logd')[:, T_ + A_:T_ + 2 * A_][seen] == _tile_canvas(nxt[i], 'logd')[:, A_:2 * A_][seen]).all(), ('the apron is not the neighbour tile', t, i, 'logd')
     d = tempfile.mkdtemp()
     try:
-        pk = export.pack(b); rp = pk['report']; print('   vienna r_max_m', pk['camera']['r_max_m'], 'nearest card m', round(rp['nearest_m']), 'resident run', rp['run_tiles'], 'tiles', rp['resident_bytes'], 'bytes; worst fit error per card (card px)', [round(x, 1) for x in rp['fit_px']], 'sky/low deg', round(b['v']['sky_deg'], 2), round(b['v']['low_deg'], 2), 'exaggeration', round(view['exaggeration'], 2))
-        dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); assert m['camera']['r_max_m'] >= export.R_MAX_FLOOR_M
+        pk = export.pack(b); rp = pk['report']; print('   vienna r_max_m', pk['camera']['r_max_m'], 'r_max_forward_m', pk['camera']['r_max_forward_m'], 'nearest card m', round(rp['nearest_m']), 'resident run', rp['run_tiles'], 'tiles', rp['resident_bytes'], 'bytes; worst fit error per card (card px)', [round(x, 1) for x in rp['fit_px']], 'sky/low deg', round(b['v']['sky_deg'], 2), round(b['v']['low_deg'], 2), 'exaggeration', round(view['exaggeration'], 2))
+        dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); assert m['camera']['r_max_m'] >= export.R_MAX_FLOOR_M and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m']
         assert json.load(open(d + '/index.json'))['default'] == 'vienna' and sorted(os.listdir(d)) == sorted(['index.json', dest.name]), os.listdir(d); print('   vienna manifest bytes', m['bytes'], 'largest tile', max(sum(e[k]['bytes'] for e in row if e for k in ('colour', 'geometry')) for row in m['tiles']))
     finally: shutil.rmtree(d)
 
