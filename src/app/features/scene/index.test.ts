@@ -8,19 +8,20 @@ import type { SkyChoice } from './ridge/skyMoment';
 import { ridgeSkyFor } from './skyForState';
 import { forgetManifests } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
-import { FALLBACK_VIEW } from './ridge/view';
+import { FALLBACK_VIEW, HFOV_MAX_DEG } from './ridge/view';
+import { hold, resetHeading } from './ridge/heading';
 import { sunAt } from './ridge/sunAt';
 import { ridgeWeather } from './ridge/weather';
 import { parseWeatherFile, WEATHER_ATTRIBUTION, weatherFromFile } from './ridge/weatherFeed';
 
-const { createRidgeScene, createScene, loadBackdrop } = vi.hoisted(() => ({
+const { createRidgeScene, createScene, createBackdrop } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
   createScene: vi.fn(),
-  loadBackdrop: vi.fn(),
+  createBackdrop: vi.fn(),
 }));
 vi.mock('./ridge/Ridge', () => ({ createRidgeScene }));
-// Decoding and lighting are the cards' own tests' (Backdrop.test.ts, lightCards.test.ts); here the door sees a loader it can hold, fail and count.
-vi.mock('./ridge/Backdrop', () => ({ loadBackdrop }));
+// Decoding and lighting are the cards' own tests' (Backdrop.test.ts, lightCards.test.ts); here the door sees a backdrop whose first arc it can hold, fail and count.
+vi.mock('./ridge/Backdrop', () => ({ createBackdrop }));
 vi.mock('./Scene', () => ({ createScene }));
 // The physical sky is baked per call (tens of ms: atmosphere LUTs) and the clock here is fixed, so a state always
 // draws the same sky. Baking once per state keeps the 21-offset sweep under the default timeout when the machine is
@@ -58,26 +59,38 @@ const microtasks = (n: number) =>
     (p) => p.then(() => undefined),
     Promise.resolve()
   );
-/** A loader for `loadBackdrop` that waits on `ctl.hold` (queueing its settle in `ctl.pending`), then resolves a backdrop or, with `ctl.fail` as it stood when asked, null. `ctl.calls` is the sky each call was lit for. */
+/** A `createBackdrop` whose first `ensure` waits on `ctl.hold` (queueing its settle in `ctl.pending`), then makes tiles or, with `ctl.fail` as it stood when asked, none. `ctl.calls` is the sky each backdrop was lit for; `ctl.made` the backdrops. */
 const loader = () => {
   const ctl = {
     pending: [] as Array<() => void>,
     hold: false,
     fail: false,
     calls: [] as any[],
+    made: [] as any[],
   };
-  loadBackdrop.mockImplementation(
-    (manifest: unknown, physical: unknown) =>
-      new Promise((resolve) => {
-        const fails = ctl.fail; // the outcome belongs to the request, whenever it settles
-        const settle = () => {
-          ctl.calls.push(physical);
-          resolve(fails ? null : { manifest, cards: [] });
-        };
-        if (ctl.hold) ctl.pending.push(settle);
-        else settle();
-      })
-  );
+  createBackdrop.mockImplementation((manifest: unknown, physical: unknown) => {
+    const fails = ctl.fail; // the outcome belongs to the request, whenever it settles
+    let made = false;
+    const bd = {
+      manifest,
+      dispose: vi.fn(),
+      litTiles: () => (made && !fails ? [{ tile: 0, card: 0, canvas: {} }] : []),
+      ensure: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            const settle = () => {
+              made = true;
+              ctl.calls.push(physical);
+              resolve();
+            };
+            if (ctl.hold) ctl.pending.push(settle);
+            else settle();
+          })
+      ),
+    };
+    ctl.made.push(bd);
+    return bd;
+  });
   return {
     ctl,
     release: async () => {
@@ -102,7 +115,7 @@ beforeEach(() => {
   setSkyPlace(FALLBACK_VIEW.place);
   createRidgeScene.mockReset();
   createScene.mockReset();
-  loadBackdrop.mockReset();
+  createBackdrop.mockReset();
 });
 afterEach(() => {
   setSkyClock();
@@ -384,6 +397,61 @@ describe('the ridge planes', () => {
     scene?.dispose();
   });
 
+  it('awaits the first arc of tiles round the heading before the scene is made, and anchors a new place at its rest azimuth', async () => {
+    served();
+    resetHeading();
+    const d = loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    d.ctl.hold = true;
+    const started = startBackgroundScene(config, caps, { canvas });
+    await flush();
+    expect(createRidgeScene).not.toHaveBeenCalled(); // the tiles are not made yet
+    expect(d.ctl.made).toHaveLength(1);
+    const arc = d.ctl.made[0].ensure.mock.calls[0][0];
+    expect((arc.fromDeg + arc.toDeg) / 2).toBeCloseTo(214, 0); // the Vienna rest azimuth, nothing having turned the view
+    expect(arc.toDeg - arc.fromDeg).toBeCloseTo(HFOV_MAX_DEG, 6);
+    await d.release();
+    (await started)?.dispose();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    // A rebuild for a new sky keeps the heading the view has turned to.
+    hold(100, performance.now());
+    forgetManifests();
+    (await startBackgroundScene(config, caps, { canvas }))?.dispose();
+    const second = d.ctl.made[1].ensure.mock.calls[0][0];
+    expect((second.fromDeg + second.toDeg) / 2).toBeCloseTo(100, 0);
+  });
+
+  it('a build that goes stale disposes the backdrop it made, and a scene that fails to be made does too', async () => {
+    served();
+    const d = loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    d.ctl.hold = true;
+    setSkyChoice(NOON); // stale once the next choice lands
+    await flush();
+    const day = d.ctl.pending.splice(0);
+    setSkyChoice(DUSK);
+    await flush();
+    const dusk = d.ctl.pending.splice(0);
+    dusk.forEach((s) => s());
+    await flush();
+    day.forEach((s) => s());
+    await flush();
+    const [, dayBackdrop, duskBackdrop] = d.ctl.made;
+    expect(dayBackdrop.dispose).toHaveBeenCalledOnce();
+    expect(duskBackdrop.dispose).not.toHaveBeenCalled(); // it is the live scene's
+    scene?.dispose();
+    createRidgeScene.mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    d.ctl.hold = false;
+    const onCompileFail = vi.fn();
+    forgetManifests();
+    await startBackgroundScene(config, caps, { canvas, onCompileFail });
+    expect(onCompileFail).toHaveBeenCalled();
+    expect(d.ctl.made[d.ctl.made.length - 1].dispose).toHaveBeenCalledOnce();
+  });
+
   it('config place picks the index entry; an unknown id falls back to the default', async () => {
     served();
     loader();
@@ -594,7 +662,9 @@ describe('the ridge cards and the live scene', () => {
 
   it('a lighting pass that throws (no WebGL2) is the sky alone, one onPlanesFail and never onCompileFail', async () => {
     serve();
-    loadBackdrop.mockRejectedValue(new Error('ridge: no WebGL2'));
+    createBackdrop.mockImplementation(() => {
+      throw new Error('ridge: no WebGL2');
+    });
     createRidgeScene.mockReturnValue(fakeScene());
     const onPlanesFail = vi.fn();
     const onCompileFail = vi.fn();

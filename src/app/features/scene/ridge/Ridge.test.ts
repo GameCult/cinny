@@ -10,8 +10,10 @@ import { sunOfBand } from './skyTestkit';
 import { startBackgroundScene } from '../index';
 import { parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
-import type { Backdrop } from './Backdrop';
-import { cardMotion, FALLBACK_VIEW, windowFor } from './view';
+import type { Backdrop, LitTile } from './Backdrop';
+import { cardPose, FALLBACK_VIEW, offsetRange, windowFor } from './view';
+import { anchor, getMode, headingAt, hold, phiAt, resetHeading } from './heading';
+import { getCamera, resetCamera, setCamera } from '../cameraState';
 
 describe('noise', () => {
   it('is deterministic and in [0, 1)', () => {
@@ -228,6 +230,7 @@ beforeEach(() => {
       innerWidth: 400,
       innerHeight: 800,
       matchMedia: () => motion,
+      clearTimeout,
       location: {
         get search() {
           return search;
@@ -545,15 +548,27 @@ describe('rain in the scene', () => {
 });
 
 describe('the ridge cards in the scene', () => {
-  const manifest = parseManifest(wireManifest(), '/d/'); // three cards, scales 1.2, 1.0167, 1.005, nearest first
-  const litCards = (): Backdrop => ({
-    manifest,
-    cards: manifest.cards.map((c, k) => {
-      const canvas = fakeEl('canvas');
-      canvas.id = `card-${k}`;
-      return { canvas: canvas as unknown as HTMLCanvasElement, top: c.top, h: c.h, scale: c.scale };
-    }),
-  });
+  const manifest = parseManifest(wireManifest(), '/d/'); // four tiles of 90 degrees, three cards (card 2 absent in tile 2); rest azimuth 214
+  const { view } = manifest;
+  const tilesOf = (): LitTile[] =>
+    manifest.tiles.flatMap((row, tile) =>
+      row.flatMap((e, card) => {
+        if (!e) return [];
+        const canvas = fakeEl('canvas');
+        canvas.id = `t${tile}c${card}`;
+        canvas.width = 1602;
+        return [{ tile, card, canvas: canvas as unknown as HTMLCanvasElement }];
+      })
+    );
+  const litCards = (): Backdrop & { ensure: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> } => {
+    const lit = tilesOf();
+    return {
+      manifest,
+      ensure: vi.fn(async () => undefined),
+      litTiles: () => lit,
+      dispose: vi.fn(),
+    };
+  };
   const night: SkyColours = {
     ...DAY,
     top: [10, 14, 40],
@@ -564,7 +579,22 @@ describe('the ridge cards in the scene', () => {
   const rigOf = (parent: any) =>
     parent.children.find((c: any) => c.children.some((g: any) => g.anims.length));
   const win = windowFor(manifest.view, 400, 800);
-  const motion400 = cardMotion(manifest, win);
+  const planeTop = 800 - win.plane.bottom - win.plane.h;
+  const horizonY = planeTop + view.horizonRow * win.plane.scale;
+  const k = win.plane.scale * view.pxPerDegH;
+  /** The animations of a box that are still running: a reissue cancels the one before it. */
+  const live = (box: any): any[] => box.anims.filter((a: any) => a.cancel.mock.calls.length === 0);
+  const mountedIds = (rig: any): string[] =>
+    rig.children.flatMap((box: any) => box.children.map((c: any) => c.id)).sort();
+  const T0 = 5_000;
+
+  beforeEach(() => {
+    resetHeading();
+    resetCamera();
+    vi.spyOn(performance, 'now').mockReturnValue(T0);
+    anchor(view.place.id, view.lookAzDeg, T0); // what index.ts prepare does before the scene is made
+  });
+  afterEach(() => vi.restoreAllMocks());
 
   it('lays the night bodies (lines, stars, moon) in the sky before any card, so the cards occlude them', () => {
     const { canvas } = host();
@@ -579,8 +609,8 @@ describe('the ridge cards in the scene', () => {
     const images = draws.map((d, i) => (d === 'image' ? i : -1)).filter((i) => i >= 0);
     expect(bodies.length).toBeGreaterThan(0);
     expect(draws).toContain('line'); // the lines are drawn (the sky is a night one)
-    const cards = images.slice(-3); // the sky's upscale first, then the three cards, farthest first
-    expect(cards).toHaveLength(3);
+    const cards = images.slice(1); // the sky's upscale first, then the cards' tiles
+    expect(cards.length).toBeGreaterThan(0);
     expect(Math.max(...bodies)).toBeLessThan(Math.min(...cards));
   });
 
@@ -594,9 +624,10 @@ describe('the ridge cards in the scene', () => {
     expect(draws.filter((d) => d === 'image')).toHaveLength(1); // only the sky's own upscale is in the host canvas: the cards are DOM above it
   });
 
-  it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position', () => {
+  it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position, and disposes the backdrop with itself', () => {
     const { parent, canvas } = host();
-    const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: litCards() })!;
+    const bd = litCards();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: bd })!;
     const kinds = parent.children.map((c: any) => c.tag);
     expect(kinds).toEqual(['canvas', 'canvas', 'div', 'div', 'div']);
     expect(parent.children[2].children).toHaveLength(3);
@@ -604,112 +635,241 @@ describe('the ridge cards in the scene', () => {
       expect(c.style.zIndex).toBeUndefined();
       expect(c.style.position).not.toBe('fixed');
     });
+    expect(bd.dispose).not.toHaveBeenCalled();
     s.dispose();
     expect(parent.children).toEqual([canvas]);
+    expect(bd.dispose).toHaveBeenCalledOnce();
   });
 
-  it('is one element per card, farthest first, each at its rows of the plane and its origin on the horizon centre', () => {
+  it('is one box per card, farthest first, spanning the viewport with its origin on the horizon centre, holding that card’s tiles', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
     const rig = rigOf(parent);
     expect(rig.children.map((c: any) => c.id)).toEqual(['card-2', 'card-1', 'card-0']);
-    const planeTop = 800 - win.plane.bottom - win.plane.h;
-    rig.children.forEach((el: any, j: number) => {
-      const card = manifest.cards[2 - j];
-      expect(el.style.left).toBe(`${(400 - win.plane.w) / 2}px`);
-      expect(el.style.width).toBe(`${win.plane.w}px`);
-      expect(el.style.top).toBe(`${planeTop + card.top * win.plane.scale}px`);
-      expect(el.style.height).toBe(`${card.h * win.plane.scale}px`);
-      expect(el.style.transformOrigin).toBe(
-        `${win.plane.w / 2}px ${(manifest.view.horizonRow - card.top) * win.plane.scale}px`
-      );
+    rig.children.forEach((el: any) => {
+      expect(el.style.left).toBe('0');
+      expect(el.style.width).toBe('400px');
+      expect(el.style.height).toBe('800px');
+      expect(el.style.transformOrigin).toBe(`200px ${horizonY}px`);
+    });
+    // Each card's tiles are its own: the box of card 0 holds only c0 canvases.
+    rig.children.forEach((el: any) => {
+      const card = Number(el.id.slice(-1));
+      el.children.forEach((c: any) => expect(c.id.endsWith(`c${card}`)).toBe(true));
     });
     s.dispose();
   });
 
-  it('pans card i by scale_i x heading and scales it by scale_i, to and fro on the compositor', () => {
+  it('mounts the tiles of the arc about to be seen at their unwrapped azimuth, at their own rows of the plane, one overlap column before the interior', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
-    rigOf(parent).children.forEach((el: any, j: number) => {
-      const k = 2 - j;
-      const { scale, reachPx } = motion400.cards[k];
-      const { keyframes, options } = el.anims[0];
-      expect(scale).toBe(manifest.cards[k].scale);
-      expect(keyframes).toEqual([
-        { transform: `translate3d(${-reachPx}px,0,0) scale(${scale})` },
-        { transform: `translate3d(${reachPx}px,0,0) scale(${scale})` },
-      ]);
-      expect(options).toMatchObject({
-        duration: 75000,
-        iterations: Infinity,
-        direction: 'alternate',
-        easing: 'ease-in-out',
-      });
-    });
-    // The nearer the card, the further it travels.
-    const reach = (j: number) => motion400.cards[2 - j].reachPx;
-    expect(reach(2)).toBeGreaterThan(reach(1));
-    expect(reach(1)).toBeGreaterThan(reach(0));
+    const rig = rigOf(parent);
+    // Rest azimuth 214: tile 2 (180..270). Tile 1 and tile 3 are out of sight for the next 30 s at 0.6 degrees per second.
+    expect(mountedIds(rig)).toEqual(['t2c0', 't2c1']);
+    const c0 = rig.children[2].children[0];
+    const e = manifest.tiles[2][0]!;
+    const colDeg = 360 / view.ringW;
+    const px = (v: string) => parseFloat(v);
+    expect(px(c0.style.left)).toBeCloseTo(200 + (180 - colDeg - 214) * k, 6);
+    expect(px(c0.style.top)).toBeCloseTo(horizonY + (e.top - view.horizonRow) * win.plane.scale, 6);
+    expect(px(c0.style.width)).toBeCloseTo((view.tileW + 2) * win.plane.scale, 6);
+    expect(px(c0.style.height)).toBeCloseTo(e.h * win.plane.scale, 6);
     s.dispose();
   });
 
-  it('adds no rAF or timer callback of its own: the drift is Element.animate, the stars alone loop', () => {
+  it('is one animation per card, not per tile, carrying the pose the heading owner gives each second for 30 seconds', () => {
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    const rig = rigOf(parent);
+    rig.children.forEach((box: any) => expect(live(box)).toHaveLength(1));
+    rig.children.forEach((box: any) => {
+      const card = Number(box.id.slice(-1));
+      const { keyframes, options } = live(box)[0];
+      expect(options).toEqual({ duration: 30000, easing: 'linear', fill: 'forwards' });
+      expect(keyframes).toHaveLength(31);
+      const pose = (t: number) =>
+        cardPose(manifest, card, headingAt(t), phiAt(t), clampOffset(), win);
+      [0, 1, 17, 30].forEach((n) => {
+        const p = pose(T0 + n * 1000);
+        expect(keyframes[n]).toEqual({ transform: `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})` });
+      });
+      // The view turns at the viewer's 0.6 degrees per second: the container moves one pan per second, a nearer card faster.
+    });
+    const near = live(rig.children[2])[0].keyframes;
+    const far = live(rig.children[0])[0].keyframes;
+    const shift = (kf: any) => Number(/translate3d\((-?[\d.e-]+)px/.exec(kf.transform)?.[1]);
+    expect(Math.abs(shift(near[30]) - shift(near[0]))).toBeGreaterThan(Math.abs(shift(far[30]) - shift(far[0])));
+    s.dispose();
+  });
+
+  const clampOffset = () => {
+    const [lo, hi] = offsetRange(manifest, win);
+    return Math.min(hi, Math.max(lo, getCamera().offsetM));
+  };
+
+  it('a heading of 400 degrees places the tiles a heading of 40 does, a revolution on', () => {
+    const at = (h: number) => {
+      resetHeading();
+      anchor(view.place.id, view.lookAzDeg, T0);
+      hold(h, T0);
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+      const rig = rigOf(parent);
+      const out = { ids: mountedIds(rig), left: Number(rig.children[2].children[0].style.left.slice(0, -2)) };
+      s.dispose();
+      return out;
+    };
+    // Manual turns leave the rotation off; the default is 'both', which the scene applies over the hold, so the view keeps turning from the held angle.
+    const a = at(40);
+    const b = at(400);
+    expect(b.ids).toEqual(a.ids);
+    expect(b.left - a.left).toBeCloseTo(360 * k, 4);
+  });
+
+  it('asks the backdrop for the arc between now and the end of the stretch, at once and every half second, and mounts what it has made', async () => {
+    vi.useFakeTimers();
+    (window as any).setTimeout = setTimeout;
+    (window as any).clearTimeout = clearTimeout;
+    const { parent, canvas } = host();
+    const bd = litCards();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: bd })!;
+    expect(bd.ensure).not.toHaveBeenCalled(); // the first arc was made before the scene (index.ts prepare)
+    vi.advanceTimersByTime(500);
+    expect(bd.ensure).toHaveBeenCalledTimes(1);
+    const arc = bd.ensure.mock.calls[0][0];
+    // The heading is 214 and turns 0.6 degrees per second to 232 in 30 s; on a 400 x 800 viewport a card shows about 28 degrees of itself.
+    expect(arc.fromDeg).toBeLessThan(214 - 10);
+    expect(arc.toDeg).toBeGreaterThan(232 + 10);
+    vi.advanceTimersByTime(1500);
+    expect(bd.ensure).toHaveBeenCalledTimes(4);
+    // The view is turned by hand to the north: the next tick holds the tiles there.
+    const before = mountedIds(rigOf(parent));
+    hold(300, T0);
+    vi.advanceTimersByTime(500);
+    const after = mountedIds(rigOf(parent));
+    expect(before).toEqual(['t2c0', 't2c1']);
+    expect(after).not.toContain('t2c0');
+    expect(after.some((id) => id.startsWith('t3'))).toBe(true);
+    s.dispose();
+    vi.useRealTimers();
+  });
+
+  it('issues the next stretch of motion once 80% of the last has run, on any change of heading, mode or offset, and not otherwise', () => {
+    vi.useFakeTimers();
+    (window as any).setTimeout = setTimeout;
+    (window as any).clearTimeout = clearTimeout;
+    const now = vi.mocked(performance.now);
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    const rig = rigOf(parent);
+    const issued = () => rig.children.map((b: any) => b.anims.length);
+    const base = issued()[0];
+    now.mockReturnValue(T0 + 20_000);
+    vi.advanceTimersByTime(20_000);
+    expect(issued()[0]).toBe(base); // 20 s of 30: not yet
+    now.mockReturnValue(T0 + 24_500);
+    vi.advanceTimersByTime(4_500);
+    expect(issued()[0]).toBe(base + 1);
+    expect(rig.children[0].anims[base - 1].cancel).toHaveBeenCalled();
+    const afterReissue = issued()[0];
+    setCamera({ offsetM: 20 });
+    expect(issued()[0]).toBe(afterReissue + 1);
+    setCamera({ offsetM: 20 }); // nothing changed
+    expect(issued()[0]).toBe(afterReissue + 1);
+    hold(10, T0 + 24_500);
+    expect(issued()[0]).toBe(afterReissue + 2);
+    s.dispose();
+    setCamera({ offsetM: 30 });
+    expect(issued()[0]).toBe(afterReissue + 2); // a disposed scene is deaf
+    vi.useRealTimers();
+  });
+
+  it('adds no rAF of its own over ten idle seconds: the drift is Element.animate, the stars alone loop', () => {
+    vi.useFakeTimers();
+    (window as any).setTimeout = setTimeout;
+    (window as any).clearTimeout = clearTimeout;
     const { canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
     expect(rafQueue).toHaveLength(1); // the frame sampler, as without cards
+    vi.advanceTimersByTime(10_000);
+    expect(rafQueue).toHaveLength(1);
+    s.dispose();
+    vi.useRealTimers();
+  });
+
+  it('runs constant keyframes under reduced motion, and the view turns nothing whatever the viewer asked for', () => {
+    motion.matches = true;
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+    expect(getMode()).toBe('still');
+    rigOf(parent).children.forEach((box: any) => {
+      const { keyframes } = live(box)[0];
+      expect(keyframes.length).toBeGreaterThan(0);
+      keyframes.forEach((f: any) => expect(f).toEqual(keyframes[0]));
+    });
     s.dispose();
   });
 
-  it('pauses the drift under reduced motion, in a hidden tab, and plays it again', () => {
+  it('pauses the motion in a hidden tab and when motion is reduced, plays it again from where the clock is, and cancels it on dispose', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
-    const anims = rigOf(parent).children.map((g: any) => g.anims[0]);
-    anims.forEach((a: any) => expect(a.play).toHaveBeenCalled());
-    anims.forEach((a: any) => a.pause.mockClear());
+    const rig = rigOf(parent);
+    const anims = () => rig.children.map((g: any) => g.anims[g.anims.length - 1]);
+    anims().forEach((a: any) => expect(a.play).toHaveBeenCalled());
+    const first = anims();
+    first.forEach((a: any) => a.pause.mockClear());
     motion.matches = true;
     motion.addEventListener.mock.calls
       .filter((c: any[]) => c[0] === 'change')
       .forEach((c: any[]) => c[1]());
-    anims.forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    anims().forEach((a: any) => expect(a.pause).toHaveBeenCalled());
     motion.matches = false;
-    anims.forEach((a: any) => a.pause.mockClear());
     doc.visibilityState = 'hidden';
     doc.dispatchEvent(new Event('visibilitychange'));
-    anims.forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    anims().forEach((a: any) => expect(a.pause).toHaveBeenCalled());
+    doc.visibilityState = 'visible';
+    (performance.now as any).mockReturnValue(T0 + 60_000);
+    doc.dispatchEvent(new Event('visibilitychange'));
+    const resumed = anims();
+    resumed.forEach((a: any) => expect(a.play).toHaveBeenCalled());
+    // Back in view the motion starts from the clock now, not from where it stopped.
+    const frame0 = (box: any) => box.anims[box.anims.length - 1].keyframes[0].transform;
+    const p = cardPose(manifest, 0, headingAt(T0 + 60_000), phiAt(T0 + 60_000), clampOffset(), win);
+    expect(frame0(rig.children[2])).toBe(`translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`);
     s.dispose();
-    anims.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
+    resumed.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
   });
 
-  it("a still draws every card, farthest first, scaled by its own scale about the rig's origin, at heading 0", () => {
+  it('a still draws the tiles of the arc in the host canvas, farthest card first, each card at its pose about the rig’s origin, at the heading now', () => {
     const { parent, canvas } = host();
     createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: litCards() });
     const drawn = images.filter((a) => (a[0] as any).id) as any[];
-    expect(drawn.map((a) => a[0].id)).toEqual(['card-2', 'card-1', 'card-0']);
+    expect(drawn.map((a) => a[0].id)).toEqual(['t2c1', 't2c0']);
+    expect(drawn[0][0].id.endsWith('c1')).toBe(true);
     const dpr = 2;
-    const s = win.plane.scale * dpr;
-    const x0 = (800 - win.plane.w * dpr) / 2;
-    const planeTop = 1600 - (win.plane.h + win.plane.bottom) * dpr;
-    const origin = [x0 + (win.plane.w * dpr) / 2, planeTop + manifest.view.horizonRow * s];
-    drawn.forEach((a, j) => {
-      const card = manifest.cards[2 - j];
-      expect(a.k).toBe(card.scale);
-      expect(a.t).toEqual(origin);
+    drawn.forEach((a) => {
+      const card = Number(a[0].id.slice(-1));
+      const p = cardPose(manifest, card, headingAt(T0), phiAt(T0), clampOffset(), win);
+      expect(a.k).toBe(p.scale);
+      expect(a.t).toEqual([(200 + p.shiftPx) * dpr, horizonY * dpr]);
+      const e = manifest.tiles[2][card]!;
+      const colDeg = 360 / view.ringW;
       expect([a[1], a[2], a[3], a[4]]).toEqual([
-        x0 - origin[0],
-        planeTop + card.top * s - origin[1],
-        win.plane.w * dpr,
-        card.h * s,
+        (180 - colDeg - 214) * k * dpr,
+        (e.top - view.horizonRow) * win.plane.scale * dpr,
+        (view.tileW + 2) * win.plane.scale * dpr,
+        e.h * win.plane.scale * dpr,
       ]);
       expect([a.alpha, a.op]).toEqual([1, 'source-over']);
     });
     expect(parent.children).toEqual([canvas]);
   });
 
-  it('settles to a still with the cards painted when the frame rate is poor', () => {
+  it('settles to a still with the tiles painted when the frame rate is poor', () => {
     const { parent, canvas } = host();
     createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() });
     runFrames(100, 400);
-    expect(images.filter((a) => (a[0] as any).id)).toHaveLength(3);
+    expect(images.filter((a) => (a[0] as any).id).length).toBeGreaterThan(0);
     expect(parent.children).toEqual([canvas]);
   });
 
@@ -720,7 +880,7 @@ describe('the ridge cards in the scene', () => {
     expect(images.filter((a) => (a[0] as any).id)).toHaveLength(0);
   });
 
-  it('asks the host canvas, and every canvas it makes, only for 2d: the cards arrive lit', () => {
+  it('asks the host canvas, and every canvas it makes, only for 2d: the tiles arrive lit', () => {
     const { canvas } = host();
     const kinds: string[] = [];
     const ask = (el: any) => {

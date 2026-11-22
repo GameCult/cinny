@@ -3,12 +3,17 @@ import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
-import { cardMotion, windowFor } from './view';
+import { cardArc, cardPose, offsetRange, windowFor } from './view';
+import type { CardPose, View } from './view';
+import type { TileCard } from './manifest';
+import { residentTiles } from './ring';
+import { headingAt, phiAt, setMode, setRate, subscribe as onHeading } from './heading';
+import { getCamera, subscribe as onCamera } from '../cameraState';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
 import type { NightBodies } from './nightBodies';
 import { drawRainTile, RAIN_TILES } from './rain';
-import type { Backdrop } from './Backdrop';
+import type { Arc, Backdrop, LitTile } from './Backdrop';
 
 export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   /** Show the rAF median/p95 readout. Default: the page URL has `?probe=1`, where `debug` allows it. */
@@ -19,7 +24,7 @@ export type RidgeOptions = Pick<SceneOptions, 'canvas' | 'tier'> & {
   onProbe?: (s: FrameStats & { still: boolean }) => void;
   /** The sky's colours; default `skyColours()`, the one function to replace with Void's sun.js. */
   sky?: SkyColours;
-  /** The baked ridge cards, already lit for `sky` (`Backdrop.ts`); none is the sky-only scene (`view.ts` FALLBACK_VIEW). */
+  /** The baked ridge cards by tile, lit for `sky` (`Backdrop.ts`), the arc around the heading already made; none is the sky-only scene (`view.ts` FALLBACK_VIEW). The scene owns it from here and disposes it with itself. */
   backdrop?: Backdrop;
   /** Draw the constellation lines over the stars (a hidden extra, `skyState.ts`); only a night sky shows them. */
   lines?: boolean;
@@ -96,11 +101,23 @@ function paintSky(
 
 const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** The rig: one box per card, each holding that card's resident tiles and carried by one animation of its pose. */
+interface Rig {
+  el: HTMLElement;
+  anims: (Animation | undefined)[];
+  /** Issue the next stretch of every card's motion from the heading owner's clock now (a tab shown again). */
+  reissue: () => void;
+  /** Take the viewer's mode and speed to the heading owner again, then reissue (reduced motion switched). */
+  sync: () => void;
+  /** Stop the residency timer and the subscriptions. */
+  stop: () => void;
+}
+
 interface Built {
   /** The twinkling stars' own canvas, over the sky; absent in a day sky and in 'still'. */
   twinkle?: HTMLCanvasElement;
   /** The ridge cards' rig, over the twinkle canvas and under the rain; absent in 'still' (the cards are drawn into the host canvas). */
-  rig?: { el: HTMLElement; anims: (Animation | undefined)[] };
+  rig?: Rig;
   /** The rain's tiles and their falling, present only when the weather rains (`rain.ts`). */
   rain?: { els: HTMLElement[]; anims: (Animation | undefined)[] };
 }
@@ -108,8 +125,14 @@ interface Built {
 /** The twinkle overlay redraws at most this often: the swings are 2 to 7 s, no need for 60 fps. */
 const TWINKLE_FRAME_MS = 50;
 
-/** One leg of the back-and-forth drift, a turn of the heading from one end of its range to the other, takes DRIFT_LEG_S, so the loop is 150 s. Authored, tunable by eye. */
-const DRIFT_LEG_S = 75;
+/**
+ * A card's motion is issued as one animation of this many seconds, a keyframe each second sampled from the heading owner (`heading.ts`) and the
+ * viewer's offset, and issued again once REISSUE_FRAC of it has run, so the compositor always has the next stretch before it needs it. Authored.
+ */
+const SEGMENT_S = 30;
+const REISSUE_FRAC = 0.8;
+/** How often the arc of tiles ahead is asked for and the mounted tiles are brought up to date. */
+const RESIDENCY_MS = 500;
 
 /**
  * The ridge scene: same contract as `createScene` ({ login, dispose }, null for "keep the CSS
@@ -146,6 +169,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
 
   const teardown = () => {
     built?.twinkle?.remove();
+    built?.rig?.stop();
     built?.rig?.anims.forEach((a) => a?.cancel());
     built?.rig?.el.remove();
     built?.rain?.anims.forEach((a) => a?.cancel());
@@ -211,15 +235,47 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     return { els, anims };
   };
 
+  /** Where a tile sits in a card's box, in viewport px from the centre column and the horizon: its left edge (one overlap column before its interior) and its band. */
+  const tileBox = (view: View, scale: number, lt: LitTile, turn: number, entry: TileCard) => {
+    const colDeg = 360 / view.ringW;
+    const az = turn * 360 + (lt.tile * 360) / view.tiles - colDeg;
+    return {
+      left: (az - view.lookAzDeg) * view.pxPerDegH * scale,
+      top: (entry.top - view.horizonRow) * scale,
+      w: (view.tileW + 2) * scale,
+      h: entry.h * scale,
+    };
+  };
+
   /**
-   * The ridge over the sky: one element per lit card, farthest first (DOM order is paint order, stacking is by order alone), placed at the card's rows
-   * of the plane and scaled about the horizon's centre by the baker's `scale` (`view.ts` `cardMotion` owns every offset and scale). The camera
-   * turns through its heading range and back on the compositor: card i pans `scale` x heading, so a nearer card leads the far range.
+   * Hand the viewer's mode and speed to the heading owner: when the scene starts, when the viewer changes the camera and when reduced motion is switched. Not on
+   * every issue: a manual turn stops the rotation until the viewer chooses one again (ruling ridge-view-turn-handback), and a later issue must not undo that.
    */
-  const startRig = (bd: Backdrop, w: number, h: number): NonNullable<Built['rig']> => {
+  const syncKinematics = () => {
+    const cam = getCamera();
+    const t = clock();
+    // Reduced motion turns nothing, whatever the viewer asked for.
+    setMode(reducedMotion?.matches ? 'still' : cam.mode, t);
+    setRate(cam.speedDegPerS, t);
+  };
+
+  /** The viewer's offset, clamped to the range this place and viewport allow (`view.ts` `offsetRange`, the one clamp). */
+  const offsetNow = (bd: Backdrop, win: ReturnType<typeof windowFor>): number => {
+    const [lo, hi] = offsetRange(bd.manifest, win);
+    return Math.min(hi, Math.max(lo, getCamera().offsetM));
+  };
+
+  /**
+   * The ridge over the sky: one box per card, farthest first (DOM order is paint order, stacking is by order alone). A box spans the viewport with its
+   * transform origin on the horizon centre and holds the resident tiles of its card at their azimuth; one animation per box carries its pose
+   * (`view.ts` `cardPose`) over SEGMENT_S seconds of the heading owner's clock. A timer asks the backdrop for the arc ahead and mounts what it has made.
+   */
+  const startRig = (bd: Backdrop, w: number, h: number): Rig => {
     const { view } = bd.manifest;
     const win = windowFor(view, w, h);
-    const motion = cardMotion(bd.manifest, win);
+    const planeTop = h - win.plane.bottom - win.plane.h;
+    const horizonY = planeTop + view.horizonRow * win.plane.scale;
+    const k = bd.manifest.cards.length;
     const el = document.createElement('div');
     el.setAttribute('aria-hidden', 'true');
     Object.assign(el.style, {
@@ -231,60 +287,167 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       overflow: 'hidden',
       pointerEvents: 'none',
     });
-    const anims: (Animation | undefined)[] = [];
-    const planeTop = h - win.plane.bottom - win.plane.h;
-    for (let k = bd.cards.length - 1; k >= 0; k -= 1) {
-      const card = bd.cards[k];
-      const { scale, reachPx } = motion.cards[k];
-      const node = card.canvas;
-      Object.assign(node.style, {
+    const boxes: HTMLElement[] = [];
+    for (let i = k - 1; i >= 0; i -= 1) {
+      const box = document.createElement('div');
+      box.id = `card-${i}`;
+      Object.assign(box.style, {
         position: 'absolute',
-        left: `${(w - win.plane.w) / 2}px`,
-        top: `${planeTop + card.top * win.plane.scale}px`,
-        width: `${win.plane.w}px`,
-        height: `${card.h * win.plane.scale}px`,
-        transformOrigin: `${win.plane.w / 2}px ${(view.horizonRow - card.top) * win.plane.scale}px`,
+        left: '0',
+        top: '0',
+        width: `${w}px`,
+        height: `${h}px`,
+        transformOrigin: `${w / 2}px ${horizonY}px`,
         willChange: 'transform',
+        pointerEvents: 'none',
       });
-      el.appendChild(node);
-      anims.push(
-        node.animate?.(
-          [
-            { transform: `translate3d(${-reachPx}px,0,0) scale(${scale})` },
-            { transform: `translate3d(${reachPx}px,0,0) scale(${scale})` },
-          ],
-          {
-            duration: DRIFT_LEG_S * 1000,
-            iterations: Infinity,
-            direction: 'alternate',
-            easing: 'ease-in-out',
-          }
-        )
-      );
+      el.appendChild(box);
+      boxes[i] = box;
     }
+    const anims: (Animation | undefined)[] = new Array(k).fill(undefined);
+    syncKinematics();
+    let offset = offsetNow(bd, win);
+    const poseAt = (card: number, t: number): CardPose =>
+      cardPose(bd.manifest, card, headingAt(t), phiAt(t), offset, win);
+    const transform = (p: CardPose) => `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
+    let issuedAt = 0;
+    let live = true;
+
+    /** The next stretch of every card's motion, from now: it replaces the one running, which agrees with it where they meet. */
+    const issue = () => {
+      if (!live) return;
+      offset = offsetNow(bd, win);
+      const t0 = clock();
+      issuedAt = t0;
+      const frozen = reducedMotion?.matches === true;
+      for (let i = 0; i < k; i += 1) {
+        const frames = frozen
+          ? [{ transform: transform(poseAt(i, t0)) }, { transform: transform(poseAt(i, t0)) }]
+          : Array.from({ length: SEGMENT_S + 1 }, (_, n) => ({
+              transform: transform(poseAt(i, t0 + n * 1000)),
+            }));
+        boxes[i].style.transform = frames[0].transform;
+        anims[i]?.cancel();
+        anims[i] = boxes[i].animate?.(frames, {
+          duration: SEGMENT_S * 1000,
+          easing: 'linear',
+          fill: 'forwards',
+        });
+        if (!moving()) anims[i]?.pause();
+      }
+    };
+
+    /** The arc of azimuth any card shows between two instants. */
+    const arcBetween = (t0: number, t1: number): Arc => {
+      let fromDeg = Infinity;
+      let toDeg = -Infinity;
+      for (const t of [t0, t1]) {
+        for (let i = 0; i < k; i += 1) {
+          const a = cardArc(view, win, w, poseAt(i, t));
+          fromDeg = Math.min(fromDeg, a.fromDeg);
+          toDeg = Math.max(toDeg, a.toDeg);
+        }
+      }
+      return { fromDeg, toDeg };
+    };
+
+    const mounted = new Map<HTMLCanvasElement, number>();
+    /** Put the made tiles the arc shows into their card's box at their azimuth, and take the others out. */
+    const mount = (arc: Arc) => {
+      const refs = residentTiles(view, (arc.fromDeg + arc.toDeg) / 2, (arc.toDeg - arc.fromDeg) / 2);
+      const turnOf = new Map(refs.map((r) => [r.tile, r.turn]));
+      const keep = new Set<HTMLCanvasElement>();
+      for (const lt of bd.litTiles()) {
+        const turn = turnOf.get(lt.tile);
+        const entry = bd.manifest.tiles[lt.tile][lt.card];
+        if (turn === undefined || !entry) continue;
+        keep.add(lt.canvas);
+        if (mounted.get(lt.canvas) === turn && lt.canvas.parentElement === boxes[lt.card]) continue;
+        const b = tileBox(view, win.plane.scale, lt, turn, entry);
+        Object.assign(lt.canvas.style, {
+          position: 'absolute',
+          left: `${w / 2 + b.left}px`,
+          top: `${horizonY + b.top}px`,
+          width: `${b.w}px`,
+          height: `${b.h}px`,
+        });
+        mounted.set(lt.canvas, turn);
+        boxes[lt.card].appendChild(lt.canvas);
+      }
+      for (const c of [...mounted.keys()]) {
+        if (keep.has(c)) continue;
+        c.remove();
+        mounted.delete(c);
+      }
+    };
+
+    // The one timer: ask for the arc ahead, mount what is made, and issue the next stretch once this one is mostly spent.
+    const win0 = window;
+    let timer = 0;
+    const residency = () => {
+      timer = 0;
+      if (!live) return;
+      const t = clock();
+      if (t - issuedAt >= SEGMENT_S * 1000 * REISSUE_FRAC && moving()) issue();
+      const arc = arcBetween(t, t + SEGMENT_S * 1000);
+      mount(arc);
+      void bd.ensure(arc).then(() => live && mount(arc));
+      timer = win0.setTimeout(residency, RESIDENCY_MS);
+    };
     parent.appendChild(el);
-    return { el, anims };
+    issue();
+    mount(arcBetween(issuedAt, issuedAt + SEGMENT_S * 1000));
+    const sync = () => {
+      syncKinematics();
+      issue();
+    };
+    const offHeading = onHeading(issue);
+    const offCamera = onCamera(sync);
+    timer = win0.setTimeout(residency, RESIDENCY_MS);
+    return {
+      el,
+      anims,
+      reissue: issue,
+      sync,
+      stop: () => {
+        live = false;
+        win0.clearTimeout(timer);
+        offHeading();
+        offCamera();
+      },
+    };
   };
 
-  /** Paint the lit cards into the host canvas, farthest first, each at its scale about the same origin as the rig, at heading 0: the still scene's one image. */
+  /** Paint the lit tiles of every card into the host canvas, farthest first, each card at its pose about the rig's origin, at the heading now: the still scene's one image. */
   const paintCards = (bd: Backdrop) => {
     const ctx = context2d(canvas);
     if (!ctx) return;
     const { view } = bd.manifest;
-    const { w, h, scale } = viewSize();
+    const { w, h, scale: dpr } = viewSize();
     const win = windowFor(view, w, h);
-    const s = win.plane.scale * scale;
-    const dw = win.plane.w * scale;
-    const x0 = (canvas.width - dw) / 2;
-    const planeTop = canvas.height - (win.plane.h + win.plane.bottom) * scale;
-    const ox = x0 + dw / 2;
-    const oy = planeTop + view.horizonRow * s;
-    for (let k = bd.cards.length - 1; k >= 0; k -= 1) {
-      const card = bd.cards[k];
+    const offset = offsetNow(bd, win);
+    const t = clock();
+    const planeTop = h - win.plane.bottom - win.plane.h;
+    const horizonY = planeTop + view.horizonRow * win.plane.scale;
+    const poses = bd.manifest.cards.map((_, i) =>
+      cardPose(bd.manifest, i, headingAt(t), phiAt(t), offset, win)
+    );
+    const arcs = poses.map((p) => cardArc(view, win, w, p));
+    const from = Math.min(...arcs.map((a) => a.fromDeg));
+    const to = Math.max(...arcs.map((a) => a.toDeg));
+    const turnOf = new Map(residentTiles(view, (from + to) / 2, (to - from) / 2).map((r) => [r.tile, r.turn]));
+    const lit = bd.litTiles();
+    for (let i = poses.length - 1; i >= 0; i -= 1) {
       ctx.save();
-      ctx.translate(ox, oy);
-      ctx.scale(card.scale, card.scale);
-      ctx.drawImage(card.canvas, x0 - ox, planeTop + card.top * s - oy, dw, card.h * s);
+      ctx.translate((w / 2 + poses[i].shiftPx) * dpr, horizonY * dpr);
+      ctx.scale(poses[i].scale, poses[i].scale);
+      for (const lt of lit.filter((x) => x.card === i)) {
+        const turn = turnOf.get(lt.tile);
+        const entry = bd.manifest.tiles[lt.tile][i];
+        if (turn === undefined || !entry) continue;
+        const b = tileBox(view, win.plane.scale, lt, turn, entry);
+        ctx.drawImage(lt.canvas, b.left * dpr, b.top * dpr, b.w * dpr, b.h * dpr);
+      }
       ctx.restore();
     }
   };
@@ -361,6 +524,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   function syncPlayState() {
+    if (moving()) built?.rig?.reissue();
     const anims = [...(built?.rig?.anims ?? []), ...(built?.rain?.anims ?? [])];
     anims.forEach((a) => (moving() ? a?.play() : a?.pause()));
     if (!built?.twinkle) return;
@@ -458,7 +622,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('resize', onResize);
-  reducedMotion?.addEventListener?.('change', syncPlayState);
+  const onMotionChange = () => {
+    built?.rig?.sync();
+    syncPlayState();
+  };
+  reducedMotion?.addEventListener?.('change', onMotionChange);
 
   return {
     login() {
@@ -468,10 +636,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (disposed) return;
       disposed = true;
       cancelAnimationFrame(raf);
+      opts.backdrop?.dispose();
       clearTimeout(resizeTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('resize', onResize);
-      reducedMotion?.removeEventListener?.('change', syncPlayState);
+      reducedMotion?.removeEventListener?.('change', onMotionChange);
       teardown();
       readout?.remove();
     },

@@ -6,7 +6,7 @@ import type { SkyChoice } from './ridge/skyMoment';
 import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
-import { FALLBACK_VIEW } from './ridge/view';
+import { FALLBACK_VIEW, HFOV_MAX_DEG } from './ridge/view';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -30,6 +30,8 @@ const weatherUrl = (): string => `${import.meta.env.BASE_URL.replace(/\/$/, '')}
 /** A scene made ready: every await is done, so `make` is synchronous and a rebuild can keep the old scene until the instant it swaps. */
 interface Prepared {
   make: () => Scene | null;
+  /** Let go of what was made for a scene that will never be made (a build that went stale): the backdrop's lighting context. */
+  discard: () => void;
   /** Why this scene is the sky alone, when the baked planes did not load; null when it has planes or none are asked for. */
   planesFail: Error | null;
 }
@@ -40,12 +42,15 @@ async function prepare(
   choice: SkyChoice
 ): Promise<Prepared> {
   // Whatever throws in making the scene is a compile failure, as whatever throws in loading it.
+  let backdrop: Backdrop | null = null;
   const guarded = (make: () => Scene | null): Prepared => ({
     planesFail: null,
+    discard: () => backdrop?.dispose(),
     make: () => {
       try {
         return make();
       } catch (e) {
+        backdrop?.dispose();
         options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
         return null;
       }
@@ -61,22 +66,29 @@ async function prepare(
     const { createRidgeScene } = await import('./ridge/Ridge');
     const { manifest, fail } = await ensureSkyPlace(config);
     await loadWeather(weatherUrl(), (manifest?.view ?? FALLBACK_VIEW).place);
-    // The cards load with the scene chunk and the weather, and are lit here for this sky (once per build: a sky change comes through a rebuild, never per
-    // frame), so createRidgeScene stays synchronous. Any failure, a missing WebGL2 included, is the sky alone, over the view the store is told of.
-    let backdrop: Backdrop | null = null;
+    // The tiles around the heading load with the scene chunk and the weather, and are lit here for this sky (a sky change comes through a rebuild), so
+    // createRidgeScene stays synchronous and the scene's first frame has its ridge; it asks for the tiles ahead as the view turns. Any failure, a missing
+    // WebGL2 included, is the sky alone, over the view the store is told of.
     let lit: SkyColours | undefined;
     let planesFail: Error | null = fail;
     if (manifest) {
       try {
         const manifestSky = ridgeSkyFor(choice, manifest.view);
-        const { loadBackdrop } = await import('./ridge/Backdrop');
-        backdrop = await loadBackdrop(
+        const { createBackdrop } = await import('./ridge/Backdrop');
+        const heading = await import('./ridge/heading');
+        backdrop = createBackdrop(
           manifest,
           manifestSky.physical as NonNullable<typeof manifestSky.physical>
         );
-        if (!backdrop) throw new Error('ridge cards did not load');
+        // A place not shown before faces its rest azimuth; a rebuild for a sky keeps the heading the view has turned to.
+        const now = performance.now();
+        heading.anchor(manifest.view.place.id, manifest.view.lookAzDeg, now);
+        const h = heading.headingAt(now);
+        await backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 });
+        if (backdrop.litTiles().length === 0) throw new Error('ridge cards did not load');
         lit = manifestSky;
       } catch (e) {
+        backdrop?.dispose();
         backdrop = null;
         planesFail = e instanceof Error ? e : new Error(String(e));
       }
@@ -95,7 +107,7 @@ async function prepare(
     return { ...made, planesFail };
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
-    return { make: () => null, planesFail: null };
+    return { make: () => null, discard: () => undefined, planesFail: null };
   }
 }
 
@@ -171,7 +183,10 @@ export async function startBackgroundScene(
     built = key;
     // The old scene stays up while the next one loads; a build that is stale or after dispose is never made, so it never speaks.
     const ready = await prepared(next);
-    if (disposed || mine !== generation) return;
+    if (disposed || mine !== generation) {
+      ready.discard();
+      return;
+    }
     inner?.dispose();
     inner = null;
     const scene = ready.make();
