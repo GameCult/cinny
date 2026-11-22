@@ -25,7 +25,7 @@ describe('parseManifest', () => {
       tz: 'Europe/Vienna',
     });
     expect(m.encoding).toEqual({ logDMin: 4.6, logDMax: 11.5 });
-    expect(m.camera).toEqual({ rMaxM: 100 });
+    expect(m.camera).toEqual({ rMaxM: 100, rMaxForwardM: 180 });
     expect(m.cards).toEqual([
       { nearM: null, farM: 4000 },
       { nearM: 4000, farM: 40000 },
@@ -72,7 +72,9 @@ describe('parseManifest', () => {
     expect(() => parseManifest(withTile({ ...t, distance_m: 0 }), '/')).toThrow(/distance/);
     expect(() => parseManifest(withTile({ ...t, distance_m: Infinity }), '/')).toThrow(/distance/);
     expect(() => parseManifest({ ...w, camera: undefined }, '/')).toThrow(/camera/);
-    expect(() => parseManifest({ ...w, camera: { r_max_m: 0 } }, '/')).toThrow(/r_max_m/);
+    expect(() => parseManifest({ ...w, camera: { r_max_m: 0, r_max_forward_m: 0 } }, '/')).toThrow(/r_max_m/);
+    expect(() => parseManifest({ ...w, camera: { r_max_m: 100 } }, '/')).toThrow(/r_max_forward_m/);
+    expect(() => parseManifest({ ...w, camera: { r_max_m: 100, r_max_forward_m: 99 } }, '/')).toThrow(/r_max_forward_m/);
   });
 
   it('rejects a missing field, a normal that is not rt8 and a backwards encoding', () => {
@@ -109,7 +111,8 @@ describe('parseManifest', () => {
     };
     for (const bad of [
       { ...w, schema: 'SECRET-VALUE-42' },
-      { ...w, camera: { r_max_m: 'SECRET-VALUE-42' } },
+      { ...w, camera: { r_max_m: 'SECRET-VALUE-42', r_max_forward_m: 180 } },
+      { ...w, camera: { r_max_m: 100, r_max_forward_m: 'SECRET-VALUE-42' } },
       { ...w, tiles: [[{ ...w.tiles[0][0], distance_m: 'SECRET-VALUE-42' }, ...w.tiles[0].slice(1)], ...w.tiles.slice(1)] },
     ]) {
       const msg = refusal(bad);

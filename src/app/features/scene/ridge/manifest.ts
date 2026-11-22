@@ -33,8 +33,12 @@ export interface RidgeManifest {
   view: View;
   /** How the geometry file's blue channel maps to ln metres: `logD = logDMin + b x (logDMax - logDMin)`, b in 0..1. The red and green channels are the 'rt8' normal. */
   encoding: { logDMin: number; logDMax: number };
-  /** The largest camera offset from the bake centre the cards' linear slide fits, metres (ruling ridge-offset-range-fit). */
-  camera: { rMaxM: number };
+  /**
+   * The largest camera offset from the bake centre the cards' linear slide fits, metres (ruling ridge-offset-range-fit): `rMaxM` over every angle of the camera
+   * on its circle (the offset-only rotation mode), `rMaxForwardM` with the camera pushed forward along the view direction alone (the modes where the offset
+   * turns with the view), so never below `rMaxM`.
+   */
+  camera: { rMaxM: number; rMaxForwardM: number };
   /** Nearest first. */
   cards: CardEntry[];
   /** `tiles[t][i]` is card i in tile t, or null where the card holds nothing there. */
@@ -138,8 +142,11 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
   const logDMin = num(e.log_d_min, 'encoding.log_d_min');
   const logDMax = num(e.log_d_max, 'encoding.log_d_max');
   if (!(logDMax > logDMin)) fail('encoding', 'log_d_max not above log_d_min');
-  const rMaxM = num(rec(r.camera, 'camera').r_max_m, 'camera.r_max_m');
+  const cam = rec(r.camera, 'camera');
+  const rMaxM = num(cam.r_max_m, 'camera.r_max_m');
   if (!(rMaxM > 0)) fail('camera.r_max_m', 'not above 0');
+  const rMaxForwardM = num(cam.r_max_forward_m, 'camera.r_max_forward_m');
+  if (!(rMaxForwardM >= rMaxM)) fail('camera.r_max_forward_m', 'below camera.r_max_m');
   const a = rec(r.attribution, 'attribution');
   const id = str(p.id, 'place.id');
   return {
@@ -165,7 +172,7 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
       horizonRow: num(v.horizon_row, 'view.horizon_row'),
     },
     encoding: { logDMin, logDMax },
-    camera: { rMaxM },
+    camera: { rMaxM, rMaxForwardM },
     cards,
     tiles: grid,
     attribution: {

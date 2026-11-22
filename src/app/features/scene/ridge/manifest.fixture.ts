@@ -43,7 +43,7 @@ export const wireManifest = (
   },
   curvature: { r_earth_m: 6371000, k_ref: 0.13 },
   encoding: { log_d_min: 4.6, log_d_max: 11.5, normal: 'rt8' },
-  camera: { r_max_m: 100 },
+  camera: { r_max_m: 100, r_max_forward_m: 180 },
   cards: Array.from({ length: k }, (_, i) => ({
     near_m: i ? 1000 * 10 ** (i - 1) * 4 : null,
     far_m: i < k - 1 ? 4000 * 10 ** i : null,

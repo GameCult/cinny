@@ -31,7 +31,7 @@ export interface WireManifest {
   schema: number;
   bake_id: string;
   view: { ring_w: number; tile_w: number; tiles: number; apron: number };
-  camera: { r_max_m: number };
+  camera: { r_max_m: number; r_max_forward_m: number };
   cards: unknown[];
   tiles: (WireTile | null)[][];
 }
@@ -42,12 +42,12 @@ const bytesOf = (row: (WireTile | null)[]): number =>
 
 /**
  * N and the lit bytes of the worst run of N consecutive tiles (4 bytes x (tile_w + 2) x band rows, per card), cyclic: the same N and the same sum as
- * export.py `run_tiles` and `resident_bytes`, recomputed from the manifest alone. The nearest distance is card 0's smallest over the tiles.
+ * export.py `run_tiles` and `resident_bytes`, recomputed from the manifest alone, at the larger of the two offsets the bake ships. The nearest distance is card 0's smallest over the tiles.
  */
 export function residentBytes(m: WireManifest): { n: number; bytes: number } {
   const { tiles, tile_w } = m.view;
   const rmin = Math.min(...m.tiles.flatMap((row) => (row[0] ? [row[0].distance_m] : [])));
-  const n = runTiles({ tiles }, HFOV_MAX_DEG, m.camera.r_max_m, rmin);
+  const n = runTiles({ tiles }, HFOV_MAX_DEG, Math.max(m.camera.r_max_m, m.camera.r_max_forward_m), rmin);
   const per = m.tiles.map((row) => row.reduce((a, e) => a + (e ? 4 * (tile_w + 2) * e.h : 0), 0));
   let worst = 0;
   for (let t = 0; t < tiles; t += 1) {
@@ -178,6 +178,7 @@ describe('the committed ridge assets', () => {
 
       it('carries the offset bound and a distance for every tile a card holds', () => {
         expect(raw.camera.r_max_m).toBeGreaterThan(0);
+        expect(raw.camera.r_max_forward_m).toBeGreaterThanOrEqual(raw.camera.r_max_m);
         raw.tiles.forEach((row) => row.forEach((e) => e && expect(e.distance_m).toBeGreaterThan(0)));
         raw.cards.forEach((_, i) => expect(raw.tiles.some((row) => row[i] !== null)).toBe(true));
       });
@@ -252,7 +253,7 @@ describe('sizeGate', () => {
     schema: 3,
     bake_id: 'x',
     view: { ring_w: 6400, tile_w: 6400 / tiles, tiles, apron: 2 },
-    camera: { r_max_m: 50 },
+    camera: { r_max_m: 50, r_max_forward_m: 50 },
     cards: Array.from({ length: cards }, () => ({})),
     tiles: Array.from({ length: tiles }, () =>
       Array.from({ length: cards }, () => entry(perTile / cards, h))

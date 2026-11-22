@@ -1,6 +1,6 @@
 {
  "schema": 3,
- "baker_version": 4,
+ "baker_version": 5,
  "bake_id": "64118fed28c7",
  "place": {
   "id": "vienna",
@@ -35,7 +35,8 @@
   "normal": "rt8"
  },
  "camera": {
-  "r_max_m": 98.2
+  "r_max_m": 98.2,
+  "r_max_forward_m": 205.4
  },
  "cards": [
   {
