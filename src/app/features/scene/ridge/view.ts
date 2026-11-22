@@ -1,7 +1,10 @@
 // The one View: where the sky's camera stands and looks, and where the ridge cards sit against it. A baked place's manifest
-// (`view` and `place`, manifest v2) is a View; a sky with no planes uses FALLBACK_VIEW. `windowFor` is the single owner of the
-// registration between sky and ridge: one View and a viewport in, the sky Camera and the plane's placement out. Nothing else
-// chooses a field of view, a horizon row or an azimuth.
+// (`view` and `place`, manifest schema 3) is a View; a sky with no planes uses FALLBACK_VIEW. `windowFor` is the single owner of the
+// registration between sky and ridge: one View and a viewport in, the sky Camera and the plane's placement out. `offsetRange` is the one
+// clamp on the camera's offset and `cardPose` the one place a card's scale and shift are derived (ruling ridge-camera-on-circle). Nothing
+// else chooses a field of view, a horizon row, an azimuth, a scale or a shift.
+import { distanceAt } from './ring';
+import type { RidgeManifest } from './manifest';
 
 /** Where the observer stands. `id` names the baked place (it keys a rebuild); `altitudeKm` is the ground height, eye height excluded. */
 export interface Place {
@@ -13,13 +16,17 @@ export interface Place {
   tz: string;
 }
 
-/** The manifest's `view`: the baked window of the sky the planes cover. Angles are degrees, planes are in plane pixels. */
+/**
+ * The manifest's `view`: the ring the planes cover, all 360 degrees, absolute compass (column 0 = north), cut into `tiles` azimuth tiles of `tileW` columns
+ * (`apron` real neighbour columns each side in a tile's files). Angles are degrees, planes are in plane pixels.
+ */
 export interface ManifestView {
-  /** Compass azimuth at the centre of the planes, degrees clockwise from north. */
+  /** The rest azimuth: the compass azimuth the view faces before anything turns it, degrees clockwise from north. */
   lookAzDeg: number;
-  /** Horizontal angle the planes span. */
-  windowDeg: number;
-  planeW: number;
+  ringW: number;
+  tileW: number;
+  tiles: number;
+  apron: number;
   planeH: number;
   pxPerDegH: number;
   /** Plane pixels per degree of elevation (the baker draws the vertical exaggerated: it is not `pxPerDegH`). */
@@ -45,21 +52,24 @@ export interface Camera {
   horizonAt: number;
 }
 
-/** The sky of a scene with no planes (a failed load): Vienna facing south-west, with the numbers of the Vienna bake. */
+/** The sky of a scene with no planes (a failed load): Vienna facing south-west, with the numbers of the Vienna ring bake. */
 export const FALLBACK_VIEW: View = {
   place: { id: 'vienna', lat: 48.1929826, lon: 16.3534237, altitudeKm: 0.183, tz: 'Europe/Vienna' },
   lookAzDeg: 214,
-  windowDeg: 72,
-  planeW: 1280,
+  ringW: 6400,
+  tileW: 200,
+  tiles: 32,
+  apron: 2,
   planeH: 600,
-  pxPerDegH: 1280 / 72,
-  pxPerDegV: 177.8,
-  horizonRow: 314.5,
+  pxPerDegH: 6400 / 360,
+  pxPerDegV: 171.73831979090915,
+  horizonRow: 357.01990847502145,
 };
 
-/** The share of the viewport height the plane's height is at least scaled to, and the slack each side of the viewport kept for drift. Authored, tunable by eye. */
+/** The share of the viewport height the plane's height is at least scaled to. Authored, tunable by eye. */
 export const RIDGE_BAND_FRAC = 0.6;
-export const DRIFT_FRAC = 0.05;
+/** The widest field of view a viewport may show: a 16:9 viewport with 1.1 widths of plane (72 / 1.1 degrees), as export.py HFOV_MAX_DEG. */
+export const HFOV_MAX_DEG = 72 / 1.1;
 /**
  * Where the horizon sits down the viewport, as a fraction of its height: one constant for every sky state and every viewport (ruling
  * ridge-frame-more-sky-fixed-pitch: the camera pitch never changes between day and night). The plane extends below the viewport bottom and
@@ -69,16 +79,14 @@ export const HORIZON_AT = 0.85;
 
 export interface Window {
   camera: Camera;
-  /** The planes in viewport pixels: scaled size, centred on `lookAzDeg`, placed so the horizon row lands at `HORIZON_AT` of the height. `bottom` is the distance of the plane's foot above the viewport's bottom edge: negative, the plane runs on below it. */
-  plane: { scale: number; w: number; h: number; bottom: number };
-  /** How far the plane may slide sideways from centre and still cover the viewport. */
-  driftPx: number;
+  /** The planes in viewport pixels: the scale of a plane pixel, the plane's height, and `bottom`, the distance of its foot above the viewport's bottom edge (negative: the plane runs on below it). The horizon row lands at `HORIZON_AT`. */
+  plane: { scale: number; h: number; bottom: number };
 }
 
 export function windowFor(view: View, viewportW: number, viewportH: number): Window {
   const scale = Math.max(
     (RIDGE_BAND_FRAC * viewportH) / view.planeH,
-    (viewportW * (1 + 2 * DRIFT_FRAC)) / view.planeW
+    viewportW / (HFOV_MAX_DEG * view.pxPerDegH)
   );
   const hfovDeg = viewportW / (scale * view.pxPerDegH);
   return {
@@ -90,45 +98,90 @@ export function windowFor(view: View, viewportW: number, viewportH: number): Win
     },
     plane: {
       scale,
-      w: scale * view.planeW,
       h: scale * view.planeH,
       bottom: (1 - HORIZON_AT) * viewportH - scale * (view.planeH - view.horizonRow),
     },
-    driftPx: (scale * view.planeW - viewportW) / 2,
   };
 }
 
-/** What `cardMotion` reads of a manifest: the cards' scales, the baker's heading range and the View. */
-interface CardRig {
-  view: View;
-  camera: { headingMaxDeg: number };
-  cards: readonly { scale: number }[];
+/**
+ * The offsets the camera may take on its circle, metres, forward positive: the one clamp (ruling ridge-offset-range-fit). Forward is the bake's
+ * `rMaxM`, the largest offset every card's linear slide fits. Backward is the same, until the nearest card, shrunk by R / (R + r) about the horizon,
+ * would lift its foot above the viewport bottom and show the sky under it: the baker's nearest-card-off-the-bottom refusal as a clamp.
+ */
+export function offsetRange(manifest: RidgeManifest, win: Window): [number, number] {
+  const { rMaxM } = manifest.camera;
+  const { planeH, horizonRow } = manifest.view;
+  const below = win.plane.scale * (planeH - horizonRow);
+  const keep = 1 + win.plane.bottom / below; // the smallest scale at which the foot stays under the viewport bottom
+  const nearest = Math.min(...manifest.tiles.map((row) => row[0]?.distanceM ?? Infinity));
+  const back = keep >= 1 ? 0 : Math.min(rMaxM, nearest * (1 / keep - 1));
+  return [-back, rMaxM];
 }
 
-export interface CardMotion {
-  /** The heading either side of the look azimuth the drift turns through, degrees. */
-  headingDeg: number;
-  /** Per card, in manifest order (nearest first): the static scale the baker derived and how far it pans, in viewport px, at the end of the drift. */
-  cards: { scale: number; reachPx: number }[];
+/** What a card does on screen: its scale about the horizon and how far it is shifted sideways, viewport px, at a heading and camera angle. */
+export interface CardPose {
+  scale: number;
+  shiftPx: number;
+}
+
+const RAD = Math.PI / 180;
+const FIT_SAMPLES = 9;
+
+/**
+ * Where a card goes on a viewport: the camera stands on its circle of radius `offsetM` (signed, forward positive) at angle `phiDeg` against the heading
+ * `headingDeg`; a card at distance R (`ring.ts` `distanceAt` at the heading) seen from there is at angle `atan2(R sin b - r sin phi, R cos b - r cos phi)`
+ * from the heading for a point `b` degrees off it. A card is one flat sheet (ruling ridge-cards-per-card-slide), so that curve is fitted by the line
+ * `a + s b` over the viewport's arc, and the card is scaled by `s` about the horizon and shifted so the column at azimuth `az` lands at `a + s (az - heading)`.
+ * `shiftPx` is the translate of a container whose tiles sit at `(az - rest) x px per degree`, rest being the View's rest azimuth.
+ */
+export function cardPose(
+  manifest: RidgeManifest,
+  card: number,
+  headingDeg: number,
+  phiDeg: number,
+  offsetM: number,
+  win: Window
+): CardPose {
+  const R = distanceAt(manifest, card, headingDeg);
+  const half = win.camera.hfovDeg / 2;
+  const phi = phiDeg * RAD;
+  let sb = 0;
+  let sa = 0;
+  let sbb = 0;
+  let sba = 0;
+  for (let i = 0; i < FIT_SAMPLES; i += 1) {
+    const b = (-half + (2 * half * i) / (FIT_SAMPLES - 1)) * RAD;
+    const a = Math.atan2(R * Math.sin(b) - offsetM * Math.sin(phi), R * Math.cos(b) - offsetM * Math.cos(phi)) / RAD;
+    const bd = b / RAD;
+    sb += bd;
+    sa += a;
+    sbb += bd * bd;
+    sba += bd * a;
+  }
+  const n = FIT_SAMPLES;
+  const s = (n * sba - sb * sa) / (n * sbb - sb * sb);
+  const a0 = (sa - s * sb) / n;
+  const { view } = manifest;
+  return {
+    scale: s,
+    shiftPx: win.plane.scale * view.pxPerDegH * (a0 - s * (headingDeg - view.lookAzDeg)),
+  };
 }
 
 /**
- * Where each card goes on a viewport: the single owner of pan reach and heading range (ruling ridge-camera-on-circle). The heading is the baker's
- * `headingMaxDeg` unless a card could no longer cover the viewport at it, so it is capped by the card that would uncover first: card i is `scale` times
- * wider on screen, and shown at heading delta d it needs `half viewport / scale + d x pxPerDegH` of its half width. Card i pans `scale` x heading x
- * `pxPerDegH` plane pixels, at the plane's scale. One scale per card on both axes; nothing is reprojected inside a card (ruling ridge-cards-per-card-slide).
+ * The compass azimuths, unwrapped, of the card columns a pose puts on a viewport `viewportW` px wide: a column at `az` lands at `shiftPx + scale x (az - rest)
+ * x px per degree` from the centre. This is the arc the loader must hold for that card.
  */
-export function cardMotion(m: CardRig, win: Window): CardMotion {
-  const half = (win.plane.w - 2 * win.driftPx) / (2 * win.plane.scale); // half the viewport, in plane px
-  const cap = Math.min(
-    ...m.cards.map((c) => (m.view.planeW / 2 - half / c.scale) / m.view.pxPerDegH)
-  );
-  const headingDeg = Math.max(0, Math.min(m.camera.headingMaxDeg, cap));
+export function cardArc(
+  view: View,
+  win: Window,
+  viewportW: number,
+  pose: CardPose
+): { fromDeg: number; toDeg: number } {
+  const per = pose.scale * win.plane.scale * view.pxPerDegH;
   return {
-    headingDeg,
-    cards: m.cards.map((c) => ({
-      scale: c.scale,
-      reachPx: c.scale * headingDeg * m.view.pxPerDegH * win.plane.scale,
-    })),
+    fromDeg: view.lookAzDeg + (-viewportW / 2 - pose.shiftPx) / per,
+    toDeg: view.lookAzDeg + (viewportW / 2 - pose.shiftPx) / per,
   };
 }
