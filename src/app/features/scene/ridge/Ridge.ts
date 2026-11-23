@@ -3,11 +3,12 @@ import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
-import { cardArc, cardPose, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
+import { cardArc, cardPose, HFOV_MAX_DEG, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
 import type { CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
 import { freeze, normalize, poseAt as headingPose, setRange, settledAt, subscribe as onHeading } from './heading';
+import type { Pose } from './heading';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
 import type { NightBodies } from './nightBodies';
@@ -168,6 +169,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   let raf = 0;
   let readout: HTMLElement | undefined;
   let resizeTimer = 0;
+  /** The pose a still shows: taken at its first paint and drawn at every repaint after, tile arrivals included; a resize takes a new one. A still has no clock. */
+  let stillPose: Pose | undefined;
   const sampler = new FrameSampler();
 
   const viewSize = () => {
@@ -403,15 +406,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     };
   };
 
-  /** Paint the lit tiles of every card into the host canvas, farthest first, each card at its pose about the rig's origin, at the heading now: the still scene's one image. */
+  /** Paint the lit tiles of every card into the host canvas, farthest first, each card at its pose about the rig's origin, at the pose the still froze at its first paint: the still scene's one image. */
   const paintCards = (bd: Backdrop) => {
     const ctx = context2d(canvas);
     if (!ctx) return;
     const { view } = bd.manifest;
     const { w, h, scale: dpr } = viewSize();
     const win = windowFor(view, w, h);
-    const t = clock();
-    const at = headingPose(t);
+    const at = (stillPose ??= headingPose(clock()));
     const planeTop = h - win.plane.bottom - win.plane.h;
     const horizonY = planeTop + view.horizonRow * win.plane.scale;
     const poses = bd.manifest.cards.map((_, i) =>
@@ -531,6 +533,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   /** Drop the twinkle and the rain, leaving the painted sky as a still image. */
   const settleToStill = () => {
     if (still && !built) return;
+    if (!still) stillPose = undefined; // a live scene that flattens freezes the pose it has now
     still = true;
     teardown();
     cancelAnimationFrame(raf);
@@ -599,11 +602,22 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     wake();
   };
   /** Make the scene again at the size it has now and settle as it was: after a resize, and after tiles arrive into a still. A burst of either is one rebuild, 250 ms after the last. */
-  const rebuild = () => {
+  let freshPose = false;
+  const rebuild = (fresh: boolean) => {
+    freshPose ||= fresh;
     clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(() => {
       if (disposed) return;
       const wasStill = still;
+      if (freshPose) {
+        // A resize is a new view: a still takes the pose the heading has now and asks for the tiles of it; the arrivals then repaint that pose.
+        stillPose = undefined;
+        if (wasStill && opts.backdrop) {
+          const { h } = headingPose(clock());
+          void opts.backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 }).catch(() => undefined);
+        }
+      }
+      freshPose = false;
       if (!build()) return;
       if (wasStill) settleToStill();
       else {
@@ -615,10 +629,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   // A still draws once and has no timer to ask for tiles, so it is told of each one that is made after its paint (the deadline of a scene start leaves the rest of the
   // first arc loading); the live tier mounts them on its own timer. Nothing asks for more: a repaint adds no request, so the fill-in ends with the last tile.
   const offTile = opts.backdrop?.onTile(() => {
-    if (still && !disposed) rebuild();
+    if (still && !disposed) rebuild(false);
   });
   document.addEventListener('visibilitychange', onVisibility);
-  window.addEventListener('resize', rebuild);
+  const onResize = () => rebuild(true);
+  window.addEventListener('resize', onResize);
   const onMotionChange = () => {
     built?.rig?.sync();
     syncPlayState();
@@ -637,7 +652,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       opts.backdrop?.dispose();
       clearTimeout(resizeTimer);
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('resize', rebuild);
+      window.removeEventListener('resize', onResize);
       reducedMotion?.removeEventListener?.('change', onMotionChange);
       teardown();
       readout?.remove();

@@ -1522,6 +1522,31 @@ describe('the ridge cards in the scene', () => {
       s.dispose();
     });
 
+    it('a still shows one pose: a tile that arrives half a minute late is drawn at the pose of the first paint, and a resize takes the pose of its own clock', () => {
+      timers();
+      const { bd, arrive } = arriving([18]);
+      const { canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: bd })!;
+      const placed = (id: string) => images.filter((a) => (a[0] as any).id?.startsWith(id)).map((a: any) => [a.t, a[1], a[2], a[3], a[4], a.k]);
+      const first = placed('t18');
+      expect(first.length).toBeGreaterThan(0);
+      images.length = 0;
+      vi.spyOn(performance, 'now').mockReturnValue(T0 + 30_000); // the clock has turned the heading 18 degrees on
+      arrive(17);
+      vi.advanceTimersByTime(300);
+      expect(drawnTiles()).toEqual(new Set(['t18', 't17'])); // the tile chosen for the first pose is on the canvas
+      expect(placed('t18')).toEqual(first); // and the old ones have not moved
+      expect(bd.ensure).not.toHaveBeenCalled();
+      images.length = 0;
+      window.dispatchEvent(new Event('resize'));
+      vi.advanceTimersByTime(300);
+      expect(bd.ensure).toHaveBeenCalledTimes(1); // a new view: the tiles of the pose it takes
+      const arc = bd.ensure.mock.calls[0][0];
+      expect((arc.fromDeg + arc.toDeg) / 2).toBeCloseTo(poseAt(T0 + 30_000).h, 6);
+      expect(placed('t18')).not.toEqual(first);
+      s.dispose();
+    });
+
     it('is the same after a settle from the live tier, and stops listening with the scene', () => {
       timers();
       const { bd, arrive, listeners } = arriving([18]);
