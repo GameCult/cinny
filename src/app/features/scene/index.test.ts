@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { atSolarTime } from './ridge/skyTestkit';
 import type { Scene } from './Scene';
-import { startBackgroundScene } from './index';
+import { PREPARE_DEADLINE_MS, startBackgroundScene } from './index';
 import { getResolvedSkyState, getSkyPlace, pickSkyChoice, setSkyChoice, setSkyClock, setSkyPlace, subscribe } from './skyState';
 import { skyBand } from './ridge/skyMoment';
 import type { SkyChoice } from './ridge/skyMoment';
 import { ridgeSkyFor } from './skyForState';
 import { forgetManifests } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
-import { FALLBACK_VIEW, HFOV_MAX_DEG } from './ridge/view';
-import { hold, resetHeading } from './ridge/heading';
+import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
+import { headingAt, hold, resetHeading } from './ridge/heading';
+import { resetCamera, setCamera } from './cameraState';
 import { sunAt } from './ridge/sunAt';
 import { ridgeWeather } from './ridge/weather';
 import { parseWeatherFile, WEATHER_ATTRIBUTION, weatherFromFile } from './ridge/weatherFeed';
@@ -419,6 +420,92 @@ describe('the ridge planes', () => {
     (await startBackgroundScene(config, caps, { canvas }))?.dispose();
     const second = d.ctl.made[1].ensure.mock.calls[0][0];
     expect((second.fromDeg + second.toDeg) / 2).toBeCloseTo(100, 0);
+  });
+
+  it('bounds the speed from the anchor: while the first tiles load the view turns no faster than the place sustains, whatever speed is stored', async () => {
+    served({ '/public/ridge/vienna-abc123abc123/manifest.json': wireManifest({ camera: { r_max_m: 98.2, r_max_forward_m: 205.4 } }, 3, 32) }); // a ring whose gate holds fewer than all its tiles
+    resetHeading();
+    resetCamera();
+    setCamera({ mode: 'both', speedDegPerS: 12 }, 0);
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const d = loader();
+    let seen = NaN;
+    createRidgeScene.mockImplementation(() => {
+      seen = headingAt(performance.now());
+      return fakeScene();
+    });
+    d.ctl.hold = true;
+    const started = startBackgroundScene(config, caps, { canvas });
+    await flush();
+    clock.mockReturnValue(6_000); // the tiles took five seconds
+    await d.release();
+    (await started)?.dispose();
+    const slow = maxSpeed(d.ctl.made[0].manifest, 'both');
+    expect(slow).toBeLessThan(12);
+    expect(seen).toBeCloseTo(214 + 5 * slow, 6); // not 214 + 60
+    clock.mockRestore();
+    resetCamera();
+  });
+
+  describe('a scene start with a deadline', () => {
+    /** A backdrop whose first arc never settles, holding `tiles` tiles. */
+    const silent = (tiles: number) => {
+      const made: any[] = [];
+      createBackdrop.mockImplementation((manifest: unknown) => {
+        const bd = {
+          manifest,
+          dispose: vi.fn(),
+          litTiles: () => Array.from({ length: tiles }, (_, tile) => ({ tile, card: 0, canvas: {} })),
+          ensure: vi.fn(() => new Promise<void>(() => undefined)),
+        };
+        made.push(bd);
+        return bd;
+      });
+      return made;
+    };
+    const real = () => new Promise<void>((r) => setImmediate(r));
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('draws with the tiles it has when the server is slow, and the rest fill in: the backdrop is the scene, not a finished load', async () => {
+      served();
+      resetHeading();
+      const made = silent(2);
+      createRidgeScene.mockReturnValue(fakeScene());
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const started = startBackgroundScene(config, caps, { canvas });
+      for (let i = 0; i < 20; i += 1) await real();
+      expect(made).toHaveLength(1);
+      expect(createRidgeScene).not.toHaveBeenCalled(); // the first arc is still out
+      await vi.advanceTimersByTimeAsync(PREPARE_DEADLINE_MS - 1);
+      for (let i = 0; i < 5; i += 1) await real();
+      expect(createRidgeScene).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      const scene = await started;
+      expect(createRidgeScene).toHaveBeenCalledOnce();
+      expect(createRidgeScene.mock.calls[0][0].backdrop).toBe(made[0]); // the scene holds it, and goes on asking it for the arcs ahead
+      expect(made[0].dispose).not.toHaveBeenCalled();
+      scene?.dispose();
+    });
+
+    it('is the sky alone, told once, when the deadline passes with no tile held, and lets go of the backdrop and its requests', async () => {
+      served();
+      resetHeading();
+      const made = silent(0);
+      createRidgeScene.mockReturnValue(fakeScene());
+      const onPlanesFail = vi.fn();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const started = startBackgroundScene(config, caps, { canvas, onPlanesFail });
+      for (let i = 0; i < 20; i += 1) await real();
+      await vi.advanceTimersByTimeAsync(PREPARE_DEADLINE_MS);
+      const scene = await started;
+      expect(createRidgeScene).toHaveBeenCalledOnce();
+      expect(createRidgeScene.mock.calls[0][0].backdrop).toBeUndefined();
+      expect(made[0].dispose).toHaveBeenCalledOnce();
+      expect(onPlanesFail).toHaveBeenCalledOnce();
+      scene?.dispose();
+    });
   });
 
   it('a build that goes stale disposes the backdrop it made, and a scene that fails to be made does too', async () => {

@@ -3,11 +3,11 @@ import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
-import { cardArc, cardPose, maxSpeed, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
+import { cardArc, cardPose, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
 import type { CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
-import { freeze, headingAt, normalize, phiAt, setSpeedLimit, subscribe as onHeading } from './heading';
+import { easeEndsAt, easeLeft, EASE_MS, freeze, headingAt, normalize, phiAt, shownPhiAt, subscribe as onHeading } from './heading';
 import { effectiveMode, getCamera, subscribe as onCamera } from '../cameraState';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
@@ -132,6 +132,17 @@ const TWINKLE_FRAME_MS = 50;
 const REISSUE_FRAC = 0.8;
 /** How often the arc of tiles ahead is asked for and the mounted tiles are brought up to date. */
 const RESIDENCY_MS = 500;
+
+/** Keyframe spacing while an ease runs, ms: fine enough that the straight lines between them are the smoothstep to a pixel. */
+const EASE_KEY_MS = 50;
+/** The instants of a stretch keyed finely up to `easeMs`, then every second to SEGMENT_S: ms from the stretch's start, ascending, ending at the stretch's length. */
+const easeTimes = (easeMs: number): number[] => {
+  const times: number[] = [];
+  for (let ms = 0; ms < easeMs; ms += EASE_KEY_MS) times.push(ms);
+  times.push(easeMs);
+  for (let ms = (Math.floor(easeMs / 1000) + 1) * 1000; ms <= SEGMENT_S * 1000; ms += 1000) times.push(ms);
+  return times;
+};
 
 /**
  * The ridge scene: same contract as `createScene` ({ login, dispose }, null for "keep the CSS
@@ -293,11 +304,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     }
     const anims: (Animation | undefined)[] = new Array(k).fill(undefined);
     freeze(reducedMotion?.matches === true, clock()); // reduced motion turns nothing, whatever the viewer chose
-    // The speed the baked resident count sustains is derived at every read in the heading owner; the viewer's stored speed is not touched.
-    setSpeedLimit((mode) => maxSpeed(bd.manifest, mode), clock());
+    // The offset the cards are posed at is eased, as the camera's angle is (`heading.ts` `shownPhiAt`): when the clamp moves it (a mode that keeps the camera on
+    // its heading lets a forward offset go further), the view goes from the offset it showed to the new one over EASE_MS instead of jumping.
     let offset = offsetNow(bd, win);
+    let offsetFrom = offset;
+    let offsetEase = -Infinity;
+    const offsetShown = (t: number): number => offset + (offsetFrom - offset) * easeLeft(offsetEase, t);
     const poseAt = (card: number, t: number): CardPose =>
-      cardPose(bd.manifest, card, headingAt(t), phiAt(t), offset, win);
+      cardPose(bd.manifest, card, headingAt(t), shownPhiAt(t), offsetShown(t), win);
     const transform = (p: CardPose) => `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
     let issuedAt = 0;
     let live = true;
@@ -307,16 +321,26 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (!live) return;
       const t0 = clock();
       normalize(t0); // the angles of this stretch start within a turn of zero, so the transforms stay small however long the page has been open
-      offset = offsetNow(bd, win);
+      const next = offsetNow(bd, win);
+      if (next !== offset) {
+        offsetFrom = offsetShown(t0);
+        offset = next;
+        offsetEase = t0;
+      }
       issuedAt = t0;
       const frozen = reducedMotion?.matches === true;
+      // A stretch with an ease in it is keyed finely while the ease runs (its keyframes at explicit offsets of the stretch), a second apart after.
+      const easeMs = Math.min(SEGMENT_S * 1000, Math.max(0, easeEndsAt(), offsetEase + EASE_MS) - t0);
+      const times = easeMs > 0 && !frozen ? easeTimes(easeMs) : null;
       for (let i = 0; i < k; i += 1) {
-        const frames = frozen
+        const frames: Keyframe[] = frozen
           ? [{ transform: transform(poseAt(i, t0)) }, { transform: transform(poseAt(i, t0)) }]
-          : Array.from({ length: SEGMENT_S + 1 }, (_, n) => ({
-              transform: transform(poseAt(i, t0 + n * 1000)),
-            }));
-        boxes[i].style.transform = frames[0].transform;
+          : times
+            ? times.map((ms) => ({ transform: transform(poseAt(i, t0 + ms)), offset: ms / (SEGMENT_S * 1000) }))
+            : Array.from({ length: SEGMENT_S + 1 }, (_, n) => ({
+                transform: transform(poseAt(i, t0 + n * 1000)),
+              }));
+        boxes[i].style.transform = frames[0].transform as string;
         anims[i]?.cancel();
         anims[i] = boxes[i].animate?.(frames, {
           duration: SEGMENT_S * 1000,

@@ -12,9 +12,9 @@ import { parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
 import type { Arc, Backdrop, LitTile } from './Backdrop';
 import type { Mock } from 'vitest';
-import { cardArc, cardPose, FALLBACK_VIEW, maxSpeed, offsetRange, windowFor } from './view';
+import { cardArc, cardPose, FALLBACK_VIEW, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
 import { residentTiles } from './ring';
-import { anchor, headingAt, hold, phiAt, resetHeading } from './heading';
+import { anchor, EASE_MS, headingAt, hold, phiAt, resetHeading } from './heading';
 import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
 
 describe('noise', () => {
@@ -989,6 +989,7 @@ describe('the ridge cards in the scene', () => {
       expect(slow).toBeGreaterThan(0.6);
       expect(slow).toBeLessThan(12);
       setCamera({ mode: 'both', speedDegPerS: 50 }); // a stored or future-slider value
+      anchor(view.place.id, view.lookAzDeg, T0, (m) => maxSpeed(ring, m)); // what index.ts prepare does with the manifest, before the scene is made
       const { canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
       expect(getCamera().speedDegPerS).toBe(50);
@@ -1018,7 +1019,41 @@ describe('the ridge cards in the scene', () => {
       expect(getCamera().offsetM).toBe(200);
       setCamera({ mode: 'both' });
       expect(getCamera().offsetM).toBe(200);
-      expect(frame(rigOf(parent).children[2], 0)).toBe(posed(200));
+      const keys = live(rigOf(parent).children[2])[0].keyframes;
+      expect(keys[0].transform).toBe(posed(98.2)); // the view leaves from the offset it showed (the pick does not move it) ...
+      const p = cardPose(ring, 0, headingAt(T0 + EASE_MS), phiAt(T0 + EASE_MS), 200, w2);
+      expect(keys.find((f: any) => f.offset >= EASE_MS / (SEGMENT_S * 1000) - 1e-9).transform).toBe(`translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`); // ... and is at 200 when the ease is spent
+      s.dispose();
+    });
+
+    it('eases a mode pick: the view the viewer saw is the first frame, the new regime the frame an EASE_MS later, one animation and no timer of its own', () => {
+      const ring = fixtureRing();
+      const w2 = windowFor(ring.view, 400, 800);
+      setCamera({ mode: 'offset', speedDegPerS: 12, offsetM: 200 });
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
+      const at = T0 + 7_500; // 90 degrees round its circle at 12 degrees a second, at the offset 98.2 the mode clamps to
+      const tf = (ms: number, phi: number, offset: number) => {
+        const p = cardPose(ring, 0, headingAt(at + ms), phi, offset, w2);
+        return { text: `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`, scale: p.scale };
+      };
+      expect(phiAt(at)).toBeCloseTo(90, 6);
+      const seen = tf(0, phiAt(at), 98.2);
+      vi.mocked(performance.now).mockReturnValue(at);
+      setCamera({ mode: 'both' }, at); // phi goes to 0 and the clamp releases to 200: both used to land in one frame
+      const run = live(rigOf(parent).children[2])[0];
+      expect(run.keyframes[0].transform).toBe(seen.text);
+      const spent = EASE_MS / (SEGMENT_S * 1000);
+      const end = run.keyframes.find((f: any) => f.offset >= spent - 1e-9);
+      const there = tf(EASE_MS, 0, 200);
+      expect(end.transform).toBe(there.text);
+      const eased = run.keyframes.filter((f: any) => f.offset <= spent + 1e-9);
+      expect(eased.length).toBeGreaterThan(10); // keyed finely while it runs
+      const scale = (f: any) => parseFloat(/scale\(([^)]*)\)/.exec(f.transform)![1]);
+      const jump = Math.abs(there.scale - seen.scale);
+      expect(jump).toBeGreaterThan(0.05); // the pop this pick used to be
+      eased.slice(1).forEach((f: any, i: number) => expect(Math.abs(scale(f) - scale(eased[i]))).toBeLessThan(jump / 4));
+      expect(run.keyframes.at(-1).offset).toBe(1);
       s.dispose();
     });
 

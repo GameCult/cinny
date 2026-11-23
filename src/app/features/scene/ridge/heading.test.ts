@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { anchor, freeze, headingAt, hold, normalize, phiAt, resetHeading, setSpeedLimit, subscribe } from './heading';
-import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
+import { anchor, EASE_MS, easeEndsAt, freeze, headingAt, hold, normalize, phiAt, resetHeading, setSpeedLimit, shownPhiAt, subscribe } from './heading';
+import { effectiveMode, getCamera, isHeld, resetCamera, setCamera, subscribe as onCamera } from '../cameraState';
 import { maxSpeed } from './view';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
@@ -198,5 +198,51 @@ describe('the heading owner', () => {
     off();
     anchor('q', 0, 5);
     expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds the speed from the anchor, before anything has been told the place is loaded: a stored speed above the bound does not run over the load', () => {
+    const ring = parseManifest(wireManifest({}, 3, 32), '/d/');
+    const slow = maxSpeed(ring, 'both');
+    setCamera({ mode: 'both', speedDegPerS: 12 }, 0);
+    anchor('p', 214, 0, (m) => maxSpeed(ring, m)); // what a scene start does, then awaits the first tiles
+    expect(headingAt(5 * S)).toBeCloseTo(214 + 5 * slow, 9);
+    expect(slow).toBeLessThan(12);
+    anchor('p', 214, 5 * S, (m) => maxSpeed(ring, m)); // a rebuild keeps the heading and the bound
+    expect(headingAt(10 * S)).toBeCloseTo(214 + 10 * slow, 9);
+  });
+
+  it('settles before a listener that was added after it reads it, however often the place is anchored again', () => {
+    setCamera({ mode: 'both', speedDegPerS: 1 }, 0);
+    anchor('p', 214, 0);
+    let read = NaN;
+    const off = onCamera((_next, _prev, at) => (read = headingAt(at))); // the old rig: subscribed after the owner
+    anchor('p', 214, 1 * S); // a rebuild for a sky re-binds the owner: it must keep its place in the order
+    setCamera({ mode: 'still' }, 2 * S);
+    expect(read).toBeCloseTo(214 + 2, 9); // the heading at the change, not the one the last settle left
+    off();
+  });
+
+  it('eases a pick of the turning mode: the angle shown starts where the viewer saw it and ends where the camera goes, the kinematics never wait for it', () => {
+    anchor('p', 100, 0);
+    choose('offset', 12, 0);
+    expect(phiAt(7.5 * S)).toBeCloseTo(90, 9);
+    choose('both', 12, 7.5 * S);
+    const at = 7.5 * S;
+    expect(phiAt(at)).toBe(0); // where it is going
+    expect(shownPhiAt(at)).toBeCloseTo(90, 9); // what is seen at the instant of the pick
+    expect(easeEndsAt()).toBe(at + EASE_MS);
+    const shown = [0, 0.25, 0.5, 0.75, 1].map((x) => shownPhiAt(at + x * EASE_MS));
+    shown.slice(1).forEach((v, i) => expect(v).toBeLessThan(shown[i]));
+    expect(shown[4]).toBe(0);
+    expect(shownPhiAt(at + 10 * S)).toBe(0);
+    // The way round is the short one: 270 degrees on is a pick that eases 90 forward.
+    choose('offset', 12, at + 10 * S);
+    const t = at + 10 * S + 22.5 * S;
+    expect(phiAt(t) % 360).toBeCloseTo(270, 9);
+    choose('both', 12, t);
+    expect(shownPhiAt(t)).toBeCloseTo(phiAt(t) + (-90), 9);
+    // A pick that changes nothing the viewer sees eases nothing; a hold in the mode the camera circles in keeps its angle.
+    choose('both', 6, t + 10 * S);
+    expect(shownPhiAt(t + 10 * S + 1)).toBeCloseTo(0, 6);
   });
 });

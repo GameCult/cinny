@@ -6,7 +6,7 @@ import type { SkyChoice } from './ridge/skyMoment';
 import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
-import { FALLBACK_VIEW, HFOV_MAX_DEG } from './ridge/view';
+import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
 
 export type { Scene, SceneStats } from './Scene';
 export type { SceneStyle, SceneTier } from './tier';
@@ -35,6 +35,9 @@ interface Prepared {
   /** Why this scene is the sky alone, when the baked planes did not load; null when it has planes or none are asked for. */
   planesFail: Error | null;
 }
+
+/** How long a scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. */
+export const PREPARE_DEADLINE_MS = 6_000;
 
 async function prepare(
   config: BackgroundSceneConfig | undefined,
@@ -80,11 +83,23 @@ async function prepare(
           manifest,
           manifestSky.physical as NonNullable<typeof manifestSky.physical>
         );
-        // A place not shown before faces its rest azimuth; a rebuild for a sky keeps the heading the view has turned to.
+        // A place not shown before faces its rest azimuth; a rebuild for a sky keeps the heading the view has turned to. The speed is bounded from here on, not
+        // from the scene's first frame: the view does not turn further than the place sustains while the tiles load.
         const now = performance.now();
-        heading.anchor(manifest.view.place.id, manifest.view.lookAzDeg, now);
+        heading.anchor(manifest.view.place.id, manifest.view.lookAzDeg, now, (mode) => maxSpeed(manifest, mode));
         const h = heading.headingAt(now);
-        await backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 });
+        // The first arc, against a deadline: a slow or silent server must not hold the scene back. What is held by then is drawn and the rest fills in.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 }),
+            new Promise<void>((late) => {
+              timer = setTimeout(late, PREPARE_DEADLINE_MS);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
         if (backdrop.litTiles().length === 0) throw new Error('ridge cards did not load');
         lit = manifestSky;
       } catch (e) {
