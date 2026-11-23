@@ -11,7 +11,7 @@ import { setCamera } from '../../src/app/features/scene/cameraState';
 import { HFOV_MAX_DEG, windowFor } from '../../src/app/features/scene/ridge/view';
 import { paintSky } from '../../src/app/features/scene/ridge/physicalSky';
 import { nightBodies } from '../../src/app/features/scene/ridge/nightBodies';
-import { plateCamera, plateSize } from '../../src/app/features/scene/ridge/skyTurn';
+import { plateCamera, plateSize, SLACK_MIN_DEG } from '../../src/app/features/scene/ridge/skyTurn';
 
 const q = new URLSearchParams(location.search);
 /** The main-thread tasks over 50 ms the page saw, ms: `window.longTasks`. */
@@ -52,9 +52,9 @@ async function main() {
       const w = innerWidth;
       const h = innerHeight;
       const win = windowFor(view, w, h);
-      const { cssW } = plateSize(win, w, h, devicePixelRatio >= 2 ? 2 : 1);
+      const { cssW } = plateSize(win, w, h, devicePixelRatio >= 2 ? 2 : 1, SLACK_MIN_DEG);
       const t0 = performance.now();
-      for (let i = 0; i < n; i += 1) nightBodies(physical, paintSky(physical, cssW, h, plateCamera(win, 214 + i)), true);
+      for (let i = 0; i < n; i += 1) nightBodies(physical, paintSky(physical, cssW, h, plateCamera(win, 214 + i, SLACK_MIN_DEG)), true);
       return (performance.now() - t0) / n;
     },
     left: () => {
