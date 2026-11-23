@@ -88,7 +88,7 @@ async function prepare(
         // from the scene's first frame: the view does not turn further than the place sustains while the tiles load.
         const now = performance.now();
         heading.anchor(manifest.view.place.id, manifest.view.lookAzDeg, now, (mode) => maxSpeed(manifest, mode));
-        const h = heading.headingAt(now);
+        const { h } = heading.poseAt(now);
         // The first arc. The first scene of a page has nothing to show meanwhile, so it waits against a deadline (a slow or silent server must not hold it back):
         // what is held by then is drawn and the rest fills in. A rebuild has the old scene up and waits for its tiles as long as they take.
         let timer: ReturnType<typeof setTimeout> | undefined;

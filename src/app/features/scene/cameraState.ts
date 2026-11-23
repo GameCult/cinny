@@ -52,26 +52,14 @@ let current: CameraChoice | undefined;
 type Listener = (next: CameraChoice, prev: CameraChoice, at: number, wasHeld: boolean) => void;
 let held = false;
 const listeners = new Set<Listener>();
-
-/** A change of what turns the view (the mode, the speed or the hold), whole: the heading is integrated over the choices in force, so it takes them in the order they were made. */
-export interface CameraChange {
-  next: CameraChoice;
-  prev: CameraChoice;
-  at: number;
-  wasHeld: boolean;
-  /** Whether the view is held after the change. */
-  held: boolean;
-}
-/** The changes `ridge/heading.ts` has not taken yet: kept only once it has asked (a page with no ridge scene keeps none). */
-let changes: CameraChange[] | undefined;
-const NONE: readonly CameraChange[] = [];
-/** Hand over the changes of what turns the view since the last call, oldest first: the one reader is the heading owner, which computes the heading from them whenever it is read, so who listens and in what order is no business of its. */
-export function takeChanges(): readonly CameraChange[] {
-  changes ??= [];
-  return changes.length ? changes.splice(0) : NONE;
-}
-const record = (c: CameraChange): void => {
-  if (c.next.mode !== c.prev.mode || c.next.speedDegPerS !== c.prev.speedDegPerS || c.held !== c.wasHeld) changes?.push(c);
+/**
+ * The one reader that must have taken a change before anyone else hears of it: the heading owner (`ridge/heading.ts`), which starts a new segment of the view's
+ * motion at the clock `at`. Called synchronously by the change, before every listener, so no order of registration can put a listener ahead of it, and nothing is
+ * queued. Cleared by nothing: the owner outlives the scenes and the choice.
+ */
+let owner: ((at: number) => void) | undefined;
+export const bindOwner = (cb: ((at: number) => void) | undefined): void => {
+  owner = cb;
 };
 const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -110,7 +98,7 @@ export function setCamera(change: Partial<CameraChoice>, at: number = clock()): 
       // Storage is refused: the choice holds for this page load only.
     }
   }
-  record({ next, prev, at, wasHeld, held });
+  owner?.(at);
   [...listeners].forEach((cb) => cb(next, prev, at, wasHeld));
 }
 
@@ -125,7 +113,7 @@ export function holdCamera(at: number = clock()): void {
   if (held) return;
   held = true;
   const cam = getCamera();
-  record({ next: cam, prev: cam, at, wasHeld: false, held: true });
+  owner?.(at);
   [...listeners].forEach((cb) => cb(cam, cam, at, false));
 }
 
@@ -138,6 +126,5 @@ export function subscribe(cb: Listener): () => void {
 export function resetCamera(): void {
   current = undefined;
   held = false;
-  changes = undefined;
   listeners.clear();
 }

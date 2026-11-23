@@ -9,7 +9,7 @@ import { ridgeSkyFor } from './skyForState';
 import { forgetManifests } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
 import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
-import { headingAt, hold, resetHeading } from './ridge/heading';
+import { hold, poseAt, resetHeading } from './ridge/heading';
 import { resetCamera, setCamera } from './cameraState';
 import { sunAt } from './ridge/sunAt';
 import { ridgeWeather } from './ridge/weather';
@@ -431,7 +431,7 @@ describe('the ridge planes', () => {
     const d = loader();
     let seen = NaN;
     createRidgeScene.mockImplementation(() => {
-      seen = headingAt(performance.now());
+      seen = poseAt(performance.now()).h;
       return fakeScene();
     });
     d.ctl.hold = true;

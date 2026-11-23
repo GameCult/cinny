@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as camera from './cameraState';
 import {
+  bindOwner,
   CAMERA_KEY,
   DEFAULT_CAMERA,
   effectiveMode,
@@ -61,6 +63,23 @@ describe('the viewer camera', () => {
     subscribe(cb);
     setCamera({ mode: 'offset' }, 1234);
     expect(cb).toHaveBeenCalledWith({ ...DEFAULT_CAMERA, mode: 'offset' }, DEFAULT_CAMERA, 1234, false);
+  });
+
+  it('hands a change to the owner before any listener, at its clock, whenever the listeners registered, and keeps no log of it', () => {
+    const order: string[] = [];
+    subscribe(() => order.push('early'));
+    bindOwner((at) => order.push(`owner ${at}`));
+    subscribe(() => order.push('late'));
+    setCamera({ offsetM: 5 }, 42);
+    holdCamera(43);
+    setCamera({ mode: 'both' }, 44); // picking a mode ends the hold
+    setCamera({ offsetM: 5 }, 45); // nothing changed
+    expect(order).toEqual(['owner 42', 'early', 'late', 'owner 43', 'early', 'late', 'owner 44', 'early', 'late']);
+    resetCamera(); // a reload of the choice does not unbind the owner: it outlives the scenes
+    setCamera({ offsetM: 9 }, 50);
+    expect(order.at(-1)).toBe('owner 50');
+    expect(Object.keys(camera)).not.toContain('takeChanges');
+    bindOwner(undefined);
   });
 
   it('a hold is session state: the mode in effect is still, the chosen mode is untouched and stored as chosen, and a reload does not hold', () => {

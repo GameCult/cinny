@@ -1,189 +1,192 @@
-// The heading owner: which way the view faces (`h`) and where the camera stands on its circle against that (`phi`), as kinematics over a clock.
-// Module-level state so it outlives scene rebuilds: a sky change makes a new scene and the view keeps its direction. Angles are unwrapped compass
-// degrees between two `normalize` calls (the rig makes one before each stretch of motion, so they never grow with uptime); `ring.ts` is the one place
-// that reasons about 0 / 360. Nothing but this module advances `h` or `phi`.
+// The heading owner: the one place that knows where the view faces (`h`), where the camera stands on its circle against that (`phi`) and how far from the
+// centre (`r`), at any clock. Module-level state, so a sky change that makes a new scene keeps the pose. Angles are unwrapped compass degrees between two
+// `normalize` calls (the rig makes one before each stretch of motion); `ring.ts` is the one place that reasons about 0 / 360.
 //
-// The rotation mode, its speed and the hold are not held here: they are the viewer's choice and the session's hold, `cameraState.ts`, the one owner. This
-// module keeps only where the view and the camera were at the clock `t0` and integrates them under the mode in effect since (the chosen mode, 'still' while
-// held), with the speed bounded to what the baked place sustains in that mode (`setSpeedLimit`, derived at every read, never stored). It does not listen:
-// every read takes the changes the viewer made since the last one from `cameraState` (`takeChanges`) and folds them in, each at its own moment, before it answers,
-// so the heading is a function of the clock and of those changes whoever else listens to the camera and in whatever order. A rebuild keeps the hold; a reload
-// (a Return) does not.
+// The state is one SEGMENT: the pose at its start `t0`, the mode and bounded speed in force, and the ease that takes the pose to the one the inputs owe.
+// `poseAt(t)` is a pure function of the segment and `t`, ease included. Every change of an input (a mode pick, a hold, the speed, the offset, a bound, reduced
+// motion, a place) starts a new segment from `poseAt(now)`: no log of changes, no second copy of the ease, so whoever reads at any clock, a rebuilt scene
+// included, gets the pose the view has.
 //
-// The camera sits on its circle at angle `theta = h + phi`: with `phi` 0 it is pushed forward along its own heading (`view.ts` `cardPose`); rotating
-// the offset alone moves `phi` and leaves the view direction where it is (ruling ridge-scene-view-submenus). `phi` is 0 whenever the view direction turns
-// with the camera ('both'): picking that mode returns the camera to its heading. A change of mode eases the view over two stages of STAGE_MS, the camera's
-// angle and its offset one after the other, never together (the fit of a card's linear slide holds along the angle at a fixed offset, and along the offset at
-// the angle the mode keeps; blended, they leave it): `phiAt` is where the camera is going, `shownPhiAt` the angle the viewer sees while it gets there (the one
-// the rig poses the cards from), and `offsetFreeAt` the moment the offset may start. A pick that stands the camera on its heading turns it first and lets
-// the offset out after; a pick that takes it off the heading brings the offset in first and lets the camera go after.
-import { getCamera, holdCamera, isHeld, takeChanges } from '../cameraState';
-import type { CameraChange, CameraChoice } from '../cameraState';
+// The camera sits on its circle at angle `h + phi` and distance `r` (signed, forward positive): with `phi` 0 it is pushed forward along its own heading
+// (`view.ts` `cardPose`), and rotating the offset alone moves `phi` and leaves the view direction where it is (ruling ridge-scene-view-submenus). `phi` is 0
+// whenever the view direction turns with the camera ('both'). The bound on `r` is the baker's (`view.ts` `offsetRange`, given by the scene as `setRange`): a
+// forward offset past `rMaxM` fits only with the camera exactly on its heading. So an ease takes `phi` and `r` one after the other, STAGE_MS each, in the
+// order that keeps every pose inside it from wherever it starts: a camera going to stand on its heading turns first and lets the offset out after; one going
+// off it brings the offset in first and lets the camera go after.
+import { bindOwner, getCamera, holdCamera, isHeld } from '../cameraState';
 
 /** `still`: nothing turns. `offset`: the camera circles the centre, the view direction stays. `both`: the view direction turns and the camera with it. */
 export type RotationMode = 'still' | 'offset' | 'both';
 
-interface State {
-  h0: number;
-  phi0: number;
-  /** The clock (ms) at which `h0` and `phi0` held. */
-  t0: number;
-  /** What the heading was last anchored to: a baked place (its bake id), so a place change restarts at its rest azimuth and a sky change does not. */
-  anchor: string | undefined;
-  /**
-   * The ease a change of mode began at `at` (ms): the angle the viewer saw then, `from` (unwrapped, within half a turn of where the camera was going), and
-   * whether the angle goes in the first stage (the camera is going to stand on its heading) or the second. The kinematics never read it.
-   */
-  ease: { from: number; at: number; phiFirst: boolean } | undefined;
-  /** Nothing turns, whatever the viewer chose (the OS asks for reduced motion): an override of the environment, not a second copy of the choice. There is no ease then: the pose asked for is shown at once. */
-  frozen: boolean;
+/** Where the view faces, where the camera stands on its circle against that, and its offset (m, signed): the pose the rig lays the cards out from. */
+export interface Pose {
+  h: number;
+  phi: number;
+  r: number;
 }
 
-const initial = (): State => ({ h0: 0, phi0: 0, t0: 0, anchor: undefined, ease: undefined, frozen: false });
+/** What the baked place and the viewport allow: the speed (degrees per second, either way) a mode may turn at, and the offsets the camera may take at an angle in a mode. */
+type Speed = (mode: RotationMode) => number;
+type Range = (mode: RotationMode, phiDeg: number) => [number, number];
 
-/** How long one stage of the ease takes, ms, and the whole of it: the angle and the offset a stage each. */
-export const STAGE_MS = 300;
-export const EASE_MS = 2 * STAGE_MS;
-/** What is left of a stage that began at `at` (ms), from 1 down to 0 at `at + STAGE_MS` (smoothstep): the one curve of the view's easing, the rig's offset included. */
-export const easeLeft = (at: number, now: number): number => {
-  const x = Math.min(1, Math.max(0, (now - at) / STAGE_MS));
-  return 1 - x * x * (3 - 2 * x);
-};
-let state = initial();
+export const STAGE_MS = 300; // one stage of an ease, ms
+const EPS = 1e-9; // a pose this close to the one owed is there: nothing eases
+
+interface Segment extends Pose {
+  /** The clock (ms) at which `h`, `phi` and `r` hold. */
+  t0: number;
+  /** Degrees per second of whatever turns, signed and bounded, and what that is: the view direction ('both'), the camera on its circle ('offset') or nothing. */
+  rate: number;
+  turns: 'h' | 'phi' | undefined;
+  /** The camera's angle turns only from this clock (ms): after the offset has come in. */
+  turnsFrom: number;
+  /** The angle an ease takes `phi` to from `t0` (unwrapped, the nearest way round); undefined: `phi` is what `turns` makes it. */
+  phiTo: number | undefined;
+  /** The offset an ease takes `r` to, from `rAt`. */
+  rTo: number;
+  rAt: number;
+  /** The clock (ms) at which everything eased is home. */
+  endAt: number;
+}
+
+let seg: Segment | undefined;
+let frozen = false;
+let anchored: string | undefined;
+let speed: Speed | undefined;
+let range: Range | undefined;
 const listeners = new Set<() => void>();
 
-/** The largest speed a mode may turn at here: the baked place's bound (`view.ts` `maxSpeed`), set by the scene that knows the place; none until then. */
-type SpeedLimit = (mode: RotationMode) => number;
-let speedLimit: SpeedLimit | undefined;
-/** The mode in effect under a choice and a hold. */
-const turning = (cam: CameraChoice, held: boolean, frozen: boolean): RotationMode => (frozen || held ? 'still' : cam.mode);
-/** The speed the choice turns at, bounded for its mode at read: the stored value is the viewer's and is not rewritten. */
-const speedOf = (cam: CameraChoice): number => {
-  const limit = speedLimit?.(cam.mode) ?? Infinity;
-  return Math.sign(cam.speedDegPerS) * Math.min(Math.abs(cam.speedDegPerS), limit);
+/** 0 at `at`, 1 at `at + STAGE_MS` (smoothstep): the one curve of the view's easing. */
+const ease = (at: number, now: number): number => {
+  const x = Math.min(1, Math.max(0, (now - at) / STAGE_MS));
+  return x * x * (3 - 2 * x);
 };
-const advanced = (now: number, cam: CameraChoice): number => (speedOf(cam) * (now - state.t0)) / 1000;
-const headingUnder = (now: number, cam: CameraChoice, held: boolean): number =>
-  state.h0 + (turning(cam, held, state.frozen) === 'both' ? advanced(now, cam) : 0);
-const phiUnder = (now: number, cam: CameraChoice, held: boolean): number =>
-  state.phi0 + (turning(cam, held, state.frozen) === 'offset' ? advanced(now, cam) : 0);
-/** The angle shown at `now` under a choice: from the angle the viewer saw at the pick to where the camera is going by then, in the stage the ease gives the angle. */
-const shownUnder = (now: number, cam: CameraChoice, held: boolean): number => {
-  const phi = phiUnder(now, cam, held);
-  const e = state.ease;
-  if (!e) return phi;
-  const left = easeLeft(e.phiFirst ? e.at : e.at + STAGE_MS, now);
-  return e.from + (phi - e.from) * (1 - left);
-};
+const free: [number, number] = [-Infinity, Infinity];
+/** What each mode turns: the view direction, the camera on its circle, or nothing. */
+const TURNS: Record<RotationMode, Segment['turns']> = { both: 'h', offset: 'phi', still: undefined };
+const rangeOf = (mode: RotationMode, phi: number): [number, number] => range?.(mode, phi) ?? free;
 
+function pose(s: Segment, t: number): Pose {
+  const sec = (t - s.t0) / 1000;
+  return {
+    h: s.h + (s.turns === 'h' ? s.rate * sec : 0),
+    phi:
+      s.phiTo !== undefined
+        ? s.phi + (s.phiTo - s.phi) * ease(s.t0, t)
+        : s.phi + (s.turns === 'phi' ? (s.rate * Math.max(0, t - s.turnsFrom)) / 1000 : 0),
+    r: s.r + (s.rTo - s.r) * ease(s.rAt, t),
+  };
+}
+
+/**
+ * Start a segment at `now` from `from`, the pose the view has there, under the inputs in force: the viewer's choice, the hold, reduced motion and the bounds.
+ * What the inputs owe is where the camera must stand (on its heading when the view turns with it and is not held) and the offset the bound allows there; an
+ * ease is what takes `from` to it, none when `snap` (a place or a bound met for the first time) or while frozen.
+ */
+function begin(now: number, from: Pose, snap = false): void {
+  const cam = getCamera();
+  const held = isHeld();
+  const kin: RotationMode = frozen || held ? 'still' : cam.mode;
+  const toHeading = cam.mode === 'both' && !held;
+  const limit = speed?.(cam.mode) ?? Infinity;
+  const phiTo = toHeading ? 360 * Math.round(from.phi / 360) : undefined;
+  const landed = phiTo ?? from.phi;
+  const [lo, hi] = rangeOf(cam.mode, landed); // the bound is the chosen mode's, held or frozen or not: a hold does not move the offset
+  const rTo = Math.min(hi, Math.max(lo, cam.offsetM));
+  const easing = !snap && !frozen;
+  const turnsPhi = easing && phiTo !== undefined && Math.abs(phiTo - from.phi) > EPS;
+  const movesR = easing && Math.abs(rTo - from.r) > EPS;
+  // Going to circle with the offset out past the circle's bound: the camera stays on its heading until the offset is in.
+  const [circleLo, circleHi] = rangeOf('offset', from.phi);
+  const holdsPhi = movesR && kin === 'offset' && (from.r < circleLo || from.r > circleHi);
+  const rAt = turnsPhi ? now + STAGE_MS : now;
+  seg = {
+    t0: now,
+    h: from.h,
+    phi: turnsPhi ? from.phi : landed,
+    r: movesR ? from.r : rTo,
+    rate: Math.sign(cam.speedDegPerS) * Math.min(Math.abs(cam.speedDegPerS), limit),
+    turns: TURNS[kin],
+    turnsFrom: holdsPhi ? now + STAGE_MS : now,
+    phiTo: turnsPhi ? phiTo : undefined,
+    rTo,
+    rAt,
+    endAt: Math.max(turnsPhi ? now + STAGE_MS : now, movesR ? rAt + STAGE_MS : now),
+  };
+}
+
+const current = (now: number): Segment => {
+  if (!seg) begin(now, { h: 0, phi: 0, r: 0 }, true);
+  return seg as Segment;
+};
+/** The pose at `now` (ms): unwrapped degrees, bounded by the last `normalize` and the stretch since. */
+export function poseAt(now: number): Pose {
+  return pose(current(now), now);
+}
 const emit = () => [...listeners].forEach((cb) => cb());
-
-/** Take `h`, `phi` and the clock to `now` under the choice `cam` in force until now: the one way a value is replaced, so no change makes the view jump. */
-function settle(now: number, cam: CameraChoice, held: boolean, over: Partial<State> = {}, h = headingUnder(now, cam, held), phi = phiUnder(now, cam, held)): void {
-  state = { ...state, ...over, h0: h, phi0: phi, t0: now };
-}
-
-/**
- * A change of the viewer's choice lands on the anchor at the moment it is made, under the choice and hold in force until it. Picking 'both' puts the camera on
- * its heading; a change of mode or of the hold begins an ease from the angle the viewer saw (by the shortest way round), none under reduced motion.
- */
-function apply({ next, prev, at, wasHeld, held }: CameraChange): void {
-  const shown = shownUnder(at, prev, wasHeld);
-  const onHeading = next.mode === 'both' && !held;
-  settle(at, prev, wasHeld, {}, headingUnder(at, prev, wasHeld), onHeading ? 0 : phiUnder(at, prev, wasHeld));
-  if (next.mode === prev.mode && held === wasHeld) return; // a speed: the angle and the ease, if one is under way, go on
-  const gap = shown - state.phi0;
-  const from = state.phi0 + gap - 360 * Math.round(gap / 360);
-  state = { ...state, ease: state.frozen ? undefined : { from, at, phiFirst: onHeading } };
-}
-
-/** Fold in what the viewer changed since the last read, each at its own moment: every read answers from the choices in force, whatever listened to them first. */
-function catchUp(): void {
-  takeChanges().forEach(apply);
-}
-
-/** The view direction at `now` (ms): unwrapped degrees, bounded by the last `normalize` and the stretch since. */
-export function headingAt(now: number): number {
-  catchUp();
-  return headingUnder(now, getCamera(), isHeld());
-}
-/** The camera's angle on its circle against the heading at `now`, degrees, as `headingAt`: where it is going, which the offset's clamp follows. */
-export function phiAt(now: number): number {
-  catchUp();
-  return phiUnder(now, getCamera(), isHeld());
-}
-/** The angle the viewer sees at `now`: `phiAt` while the ease a change of mode began is not under way, between the angle seen at the pick and it while it is. The rig poses the cards from it. */
-export function shownPhiAt(now: number): number {
-  catchUp();
-  return shownUnder(now, getCamera(), isHeld());
-}
-/** The clock (ms) at which the last ease is spent; 0 when none was begun. */
-export function easeEndsAt(): number {
-  catchUp();
-  return state.ease ? state.ease.at + EASE_MS : 0;
-}
-/** The clock (ms) from which the offset may move for the last change of mode: its stage, after the angle's when the camera is going to stand on its heading, at once otherwise; 0 when none was begun. */
-export function offsetFreeAt(): number {
-  catchUp();
-  return state.ease ? state.ease.at + (state.ease.phiFirst ? STAGE_MS : 0) : 0;
-}
-
-/** Bound the speed in each mode to what the baked place sustains (`view.ts` `maxSpeed`); the anchor is taken to now first, so nothing jumps. */
-export function setSpeedLimit(limit: SpeedLimit | undefined, now: number): void {
-  catchUp();
-  settle(now, getCamera(), isHeld());
-  speedLimit = limit;
-}
-
-/**
- * Point the view at a place: the first time it is shown, or when it is not the place the heading was last anchored to, the view faces its rest azimuth
- * with the camera on its heading. The same place again changes nothing (a rebuild for a sky keeps the heading). Given `limit` (what the baked place sustains,
- * `view.ts` `maxSpeed`), it bounds the speed from this moment, before anything awaits the place's tiles.
- */
-export function anchor(key: string, restDeg: number, now: number, limit?: SpeedLimit): void {
-  catchUp();
-  if (limit) setSpeedLimit(limit, now); // before the view is let to turn: the bound is known from the first read
-  if (state.anchor === key) return;
-  settle(now, getCamera(), isHeld(), { anchor: key, ease: undefined }, restDeg, 0);
+/** A new segment at `now` from the pose the view has, told to the subscribers. */
+function restart(now: number, over: Partial<Pose> = {}, snap = false): void {
+  begin(now, { ...poseAt(now), ...over }, snap);
   emit();
 }
 
+/** The clock (ms) at which what the last change eased is home. */
+export const settledAt = (): number => seg?.endAt ?? 0;
+
+// The viewer's choice or hold changed: a new segment at that clock, before any listener hears of it.
+bindOwner((at) => restart(Math.max(at, seg?.t0 ?? at)));
+
 /**
- * A manual turn: the view direction becomes `h` now, in every mode, and the rotation stops where the viewer left it (ruling ridge-view-turn-handback): the
- * view is held in cameraState, which leaves the chosen mode as it is. A rebuild keeps the hold, a reload does not, and picking a rotation mode, the one
- * already chosen included, resumes it.
+ * Bound the speed in each mode to what the baked place sustains (`view.ts` `maxSpeed`), from this moment, before anything awaits the place's tiles, and point
+ * the view at a place: a place not shown before faces its rest azimuth, the camera on its heading, with no ease; the same place again keeps the pose.
+ */
+export function anchor(key: string, restDeg: number, now: number, limit?: Speed): void {
+  if (limit) speed = limit;
+  if (anchored === key) {
+    if (limit) restart(now);
+    return;
+  }
+  anchored = key;
+  range = undefined; // the bound belongs to the place before
+  restart(now, { h: restDeg, phi: 0 }, true);
+}
+
+/** The offsets the scene's place and viewport allow (`view.ts` `offsetRange`); the first one met takes the offset to its bound at once, a new one eases there. */
+export function setRange(limit: Range, now: number): void {
+  const first = range === undefined;
+  range = limit;
+  restart(now, {}, first);
+}
+
+/**
+ * A manual turn: the view direction becomes `h` now, in every mode, and the rotation stops where the viewer left it (ruling ridge-view-turn-handback): the view
+ * is held in cameraState, which leaves the chosen mode as it is; a rebuild keeps the hold, and picking a mode, the one already chosen included, resumes it.
  */
 export function hold(h: number, now: number): void {
-  catchUp();
-  const wasHeld = isHeld();
-  settle(now, getCamera(), wasHeld, {}, h);
-  if (wasHeld) emit();
-  else holdCamera(now); // the camera's listeners tell everyone, once
+  begin(now, { ...poseAt(now), h });
+  if (isHeld()) emit();
+  else holdCamera(now); // the owner starts the held segment, then the camera's listeners hear it, once
 }
 
-/** Nothing turns while `on` (reduced motion), whatever the viewer chose; the view stays where it is, and what was easing is shown where it is going. */
+/** Nothing turns while `on` (reduced motion), whatever the viewer chose; the view takes the pose owed at once and stays there. */
 export function freeze(on: boolean, now: number): void {
-  catchUp();
-  if (on === state.frozen) return;
-  settle(now, getCamera(), isHeld());
-  state = { ...state, frozen: on, ease: on ? undefined : state.ease };
+  if (on === frozen) return;
+  frozen = on;
+  restart(now);
 }
 
-/**
- * Bring `h` and `phi` into [0, 360) and the clock to `now`, changing nothing the view shows but the whole turns the unwrapped angles had gathered; tiles
- * are laid out from them, so their positions and the transforms stay small however long the page has been open. Silent: the caller lays out again.
- */
+/** Bring `h` and `phi` into [0, 360) at `now`, so the transforms stay small however long the page has been open: the whole turns are all that goes, and the ease and the motion go on. Silent: the caller lays out again. */
 export function normalize(now: number): void {
-  catchUp();
-  const cam = getCamera();
-  const held = isHeld();
-  const wrap = (x: number): number => x - 360 * Math.floor(x / 360);
-  const phi = phiUnder(now, cam, held);
-  const turns = wrap(phi) - phi;
-  settle(now, cam, held, { ease: state.ease && { ...state.ease, from: state.ease.from + turns } }, wrap(headingUnder(now, cam, held)), phi + turns);
+  const s = current(now);
+  const p = pose(s, now);
+  const dh = 360 * Math.floor(p.h / 360);
+  const dphi = 360 * Math.floor(p.phi / 360);
+  s.h -= dh;
+  s.phi -= dphi;
+  if (s.phiTo !== undefined) s.phiTo -= dphi;
 }
 
-/** Hear every change of the kinematics that the viewer's choice does not announce (a manual turn while still, a new place); returns the way to stop. */
+/** Hear every change of the pose's course: the viewer's choice or hold, a bound, reduced motion, a manual turn, a new place; returns the way to stop. */
 export function subscribe(cb: () => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
@@ -191,7 +194,10 @@ export function subscribe(cb: () => void): () => void {
 
 /** For tests: the state of a fresh page. */
 export function resetHeading(): void {
-  speedLimit = undefined;
-  state = initial();
+  seg = undefined;
+  frozen = false;
+  anchored = undefined;
+  speed = undefined;
+  range = undefined;
   listeners.clear();
 }

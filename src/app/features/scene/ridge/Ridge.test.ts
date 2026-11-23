@@ -15,9 +15,17 @@ import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
 import type { Arc, Backdrop, LitTile } from './Backdrop';
 import type { Mock } from 'vitest';
 import { cardArc, cardPose, FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
-import { residentTiles } from './ring';
-import { anchor, EASE_MS, headingAt, hold, phiAt, resetHeading, shownPhiAt } from './heading';
+import { norm, residentTiles } from './ring';
+import { anchor, hold, poseAt, resetHeading, settledAt, STAGE_MS } from './heading';
 import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
+
+/** The two stages of the ease of a mode pick (the angle, then the offset, or the other way round). */
+const EASE_MS = 2 * STAGE_MS;
+/** A card's pose as the heading owner has the view at `t`: what the rig lays the card out from. */
+const posed = (m: Parameters<typeof cardPose>[0], card: number, t: number, w: Parameters<typeof cardPose>[5]) => {
+  const p = poseAt(t);
+  return cardPose(m, card, p.h, p.phi, p.r, w);
+};
 
 describe('noise', () => {
   it('is deterministic and in [0, 1)', () => {
@@ -117,6 +125,8 @@ function fakeEl(tag = 'div') {
     animate: vi.fn((keyframes: any[], options: any) => {
       const a: any = {
         currentTime: 0,
+        /** The clock it was issued at (the mocked `performance.now`). */
+        at: performance.now(),
         keyframes,
         options,
         onfinish: null,
@@ -695,7 +705,7 @@ describe('the ridge cards in the scene', () => {
       expect(options).toEqual({ duration: 30000, easing: 'linear', fill: 'forwards' });
       expect(keyframes).toHaveLength(31);
       const pose = (t: number) =>
-        cardPose(manifest, card, headingAt(t), phiAt(t), clampOffset(), win);
+        posed(manifest, card, t, win);
       [0, 1, 17, 30].forEach((n) => {
         const p = pose(T0 + n * 1000);
         expect(keyframes[n]).toEqual({ transform: `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})` });
@@ -709,11 +719,6 @@ describe('the ridge cards in the scene', () => {
     s.dispose();
   });
 
-  const clampOffset = () => {
-    const [lo, hi] = offsetRange(manifest, win, getCamera().mode, phiAt(T0));
-    return Math.min(hi, Math.max(lo, getCamera().offsetM));
-  };
-
   it('a heading of 400 degrees places the tiles a heading of 40 does, a revolution on', () => {
     const at = (h: number) => {
       resetHeading();
@@ -725,7 +730,7 @@ describe('the ridge cards in the scene', () => {
       const out = {
         ids: mountedIds(rig),
         left: Number(rig.children[2].children[0].style.left.slice(0, -2)),
-        heading: headingAt(T0),
+        heading: poseAt(T0).h,
       };
       s.dispose();
       return out;
@@ -814,7 +819,7 @@ describe('the ridge cards in the scene', () => {
     motion.matches = true;
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
-    expect(headingAt(T0 + 10_000)).toBe(headingAt(T0)); // nothing turns, whatever the viewer chose
+    expect(poseAt(T0 + 10_000).h).toBe(poseAt(T0).h); // nothing turns, whatever the viewer chose
     expect(getCamera().mode).toBe('both'); // and the viewer's choice is not rewritten for it
     rigOf(parent).children.forEach((box: any) => {
       const { keyframes } = live(box)[0];
@@ -848,7 +853,7 @@ describe('the ridge cards in the scene', () => {
     resumed.forEach((a: any) => expect(a.play).toHaveBeenCalled());
     // Back in view the motion starts from the clock now, not from where it stopped.
     const frame0 = (box: any) => box.anims[box.anims.length - 1].keyframes[0].transform;
-    const p = cardPose(manifest, 0, headingAt(T0 + 60_000), phiAt(T0 + 60_000), clampOffset(), win);
+    const p = posed(manifest, 0, T0 + 60_000, win);
     expect(frame0(rig.children[2])).toBe(`translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`);
     s.dispose();
     resumed.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
@@ -886,17 +891,17 @@ describe('the ridge cards in the scene', () => {
       const { parent, canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
       hold(100, T0);
-      const at = headingAt(T0);
+      const at = poseAt(T0).h;
       window.dispatchEvent(new Event('resize'));
       vi.advanceTimersByTime(300); // the debounced rebuild: startRig runs again
       expect(effectiveMode()).toBe('still'); // held, and the chosen mode untouched
       expect(getCamera().mode).toBe('both');
-      expect(headingAt(T0 + 60_000)).toBe(at);
+      expect(poseAt(T0 + 60_000).h).toBe(at);
       rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).toBe(frame(box, 0)));
       s.dispose();
       // And a scene made afterwards, as a sky change makes one.
       const again = createRidgeScene({ canvas: host().canvas, tier: 'full', sky: night, backdrop: litCards() })!;
-      expect(headingAt(T0 + 60_000)).toBe(at);
+      expect(poseAt(T0 + 60_000).h).toBe(at);
       again.dispose();
       vi.useRealTimers();
     });
@@ -909,7 +914,7 @@ describe('the ridge cards in the scene', () => {
       expect(isHeld()).toBe(true);
       setCamera({ mode: 'both' }); // what the View's rotation picker sends: the mode the viewer had when they took the view
       expect(isHeld()).toBe(false);
-      expect(headingAt(T0 + 10_000)).toBeCloseTo(106, 9);
+      expect(poseAt(T0 + 10_000).h).toBeCloseTo(106, 9);
       rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).not.toBe(frame(box, 0)));
       s.dispose();
     });
@@ -924,14 +929,13 @@ describe('the ridge cards in the scene', () => {
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: bd })!;
       vi.advanceTimersByTime(500);
       const asked = bd.ensure.mock.calls[0][0];
-      const [, hi] = offsetRange(ring, w2, 'offset');
       let from = Infinity;
       let to = -Infinity;
       let endFrom = Infinity;
       let endTo = -Infinity;
       for (let ms = 0; ms <= 30_000; ms += 100) {
         for (let i = 0; i < 3; i += 1) {
-          const a = cardArc(ring.view, w2, 400, cardPose(ring, i, headingAt(T0 + ms), phiAt(T0 + ms), Math.min(hi, 98), w2));
+          const a = cardArc(ring.view, w2, 400, posed(ring, i, T0 + ms, w2));
           from = Math.min(from, a.fromDeg);
           to = Math.max(to, a.toDeg);
           if (ms === 0 || ms === 30_000) {
@@ -960,7 +964,7 @@ describe('the ridge cards in the scene', () => {
       vi.advanceTimersByTime(500);
       const [arc, first] = bd.ensure.mock.calls[0];
       expect(first).toBeDefined();
-      const now = [0, 1, 2].map((i) => cardArc(ring.view, w2, 400, cardPose(ring, i, headingAt(T0), phiAt(T0), 200, w2)));
+      const now = [0, 1, 2].map((i) => cardArc(ring.view, w2, 400, posed(ring, i, T0, w2)));
       expect(first!.fromDeg).toBeCloseTo(Math.min(...now.map((a) => a.fromDeg)), 6);
       expect(first!.toDeg).toBeCloseTo(Math.max(...now.map((a) => a.toDeg)), 6);
       expect(first!.toDeg - first!.fromDeg).toBeLessThan(arc.toDeg - arc.fromDeg);
@@ -972,6 +976,8 @@ describe('the ridge cards in the scene', () => {
       const ring = fixtureRing();
       const w2 = windowFor(ring.view, 400, 800);
       const keyframe0 = (mode: 'both' | 'offset') => {
+        resetHeading(); // a page of its own for each mode: the view starts where the choice puts it
+        anchor(view.place.id, view.lookAzDeg, T0);
         setCamera({ mode, speedDegPerS: 0.6, offsetM: 200 });
         const { parent, canvas } = host();
         const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
@@ -980,7 +986,7 @@ describe('the ridge cards in the scene', () => {
         return got;
       };
       const posed = (offset: number) => {
-        const p = cardPose(ring, 0, headingAt(T0), phiAt(T0), offset, w2);
+        const p = cardPose(ring, 0, poseAt(T0).h, poseAt(T0).phi, offset, w2);
         return `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
       };
       expect(keyframe0('both')).toBe(posed(200));
@@ -997,15 +1003,15 @@ describe('the ridge cards in the scene', () => {
       const { canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
       expect(getCamera().speedDegPerS).toBe(50);
-      expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(10 * slow, 9);
+      expect(poseAt(T0 + 10_000).h - poseAt(T0).h).toBeCloseTo(10 * slow, 9);
       setCamera({ speedDegPerS: -50 });
       expect(getCamera().speedDegPerS).toBe(-50);
-      expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(-10 * slow, 9);
+      expect(poseAt(T0 + 10_000).h - poseAt(T0).h).toBeCloseTo(-10 * slow, 9);
       setCamera({ mode: 'offset', speedDegPerS: 11 }); // the offset-only mode sweeps the circle the gate counts, whatever the speed
-      expect(phiAt(T0 + 10_000) - phiAt(T0)).toBeCloseTo(110, 9);
+      expect(poseAt(T0 + 20_000).phi - poseAt(T0 + 10_000).phi).toBeCloseTo(110, 9);
       setCamera({ mode: 'both' });
       expect(getCamera().speedDegPerS).toBe(11); // still the viewer's value
-      expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(10 * slow, 9);
+      expect(poseAt(T0 + 10_000).h - poseAt(T0).h).toBeCloseTo(10 * slow, 9);
       s.dispose();
     });
 
@@ -1016,7 +1022,7 @@ describe('the ridge cards in the scene', () => {
       const { parent, canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
       const posed = (offset: number) => {
-        const p = cardPose(ring, 0, headingAt(T0), phiAt(T0), offset, w2);
+        const p = cardPose(ring, 0, poseAt(T0).h, poseAt(T0).phi, offset, w2);
         return `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
       };
       expect(frame(rigOf(parent).children[2], 0)).toBe(posed(98.2));
@@ -1025,8 +1031,8 @@ describe('the ridge cards in the scene', () => {
       expect(getCamera().offsetM).toBe(200);
       const keys = live(rigOf(parent).children[2])[0].keyframes;
       expect(keys[0].transform).toBe(posed(98.2)); // the view leaves from the offset it showed (the pick does not move it) ...
-      const p = cardPose(ring, 0, headingAt(T0 + EASE_MS), phiAt(T0 + EASE_MS), 200, w2);
-      expect(keys.find((f: any) => f.offset >= EASE_MS / (SEGMENT_S * 1000) - 1e-9).transform).toBe(`translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`); // ... and is at 200 when the ease is spent
+      const p = cardPose(ring, 0, poseAt(T0 + STAGE_MS).h, 0, 200, w2);
+      expect(keys.find((f: any) => f.offset >= STAGE_MS / (SEGMENT_S * 1000) - 1e-9).transform).toBe(`translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`); // ... and is at 200 when the ease is spent
       s.dispose();
     });
 
@@ -1038,11 +1044,11 @@ describe('the ridge cards in the scene', () => {
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
       const at = T0 + 7_500; // 90 degrees round its circle at 12 degrees a second, at the offset 98.2 the mode clamps to
       const tf = (ms: number, phi: number, offset: number) => {
-        const p = cardPose(ring, 0, headingAt(at + ms), phi, offset, w2);
+        const p = cardPose(ring, 0, poseAt(at + ms).h, phi, offset, w2);
         return { text: `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`, scale: p.scale };
       };
-      expect(phiAt(at)).toBeCloseTo(90, 6);
-      const seen = tf(0, phiAt(at), 98.2);
+      expect(poseAt(at).phi).toBeCloseTo(90, 6);
+      const seen = tf(0, poseAt(at).phi, 98.2);
       vi.mocked(performance.now).mockReturnValue(at);
       setCamera({ mode: 'both' }, at); // phi goes to 0 and the clamp releases to 200: both used to land in one frame
       const run = live(rigOf(parent).children[2])[0];
@@ -1067,21 +1073,33 @@ describe('the ridge cards in the scene', () => {
       const dir = parseIndex(JSON.parse(readFileSync(join(root, 'index.json'), 'utf8'))).places.vienna;
       const vienna = parseManifest(JSON.parse(readFileSync(join(root, dir, 'manifest.json'), 'utf8')), `${dir}/`);
       const FIT_PX_MAX = 24; // scripts/ridge-bake/export.py
-      /** The baker's `fit_px` (export.py): the worst error, in card px, of a card at distance `d` metres seen from offset `r` at camera angle `phiDeg`, against its least-squares line over the widest field. */
-      const fitPx = (d: number, r: number, phiDeg: number): number => {
-        const n = 33;
-        const b = Array.from({ length: n }, (_, i) => ((-HFOV_MAX_DEG / 2 + (HFOV_MAX_DEG * i) / (n - 1)) * Math.PI) / 180);
+      /** The baker's `fit_px` (export.py): the worst error, in card px, of a card at distance `d` metres seen from offset `r` at camera angle `phiDeg`, against its best line over the widest field, the continuous error (the line by the trapezoid rule on 1025 samples, the error on the same). */
+      const fitPx = (d: number, r: number, phiDeg: number, n = 1025): number => {
         const phi = (phiDeg * Math.PI) / 180;
+        const half = (HFOV_MAX_DEG * Math.PI) / 360;
+        const b = Array.from({ length: n }, (_, i) => -half + (2 * half * i) / (n - 1));
         const a = b.map((x) => Math.atan2(d * Math.sin(x) - r * Math.sin(phi), d * Math.cos(x) - r * Math.cos(phi)));
-        const mean = (v: number[]) => v.reduce((x, y) => x + y, 0) / v.length;
-        const bc = b.map((x) => x - mean(b));
-        const s = a.reduce((acc, y, i) => acc + y * bc[i], 0) / bc.reduce((acc, y) => acc + y * y, 0);
-        const am = mean(a);
-        return (Math.max(...a.map((y, i) => Math.abs(y - (am + s * bc[i])))) * 180) / Math.PI * vienna.view.pxPerDegH;
+        const w = (i: number) => (i === 0 || i === n - 1 ? 0.5 : 1);
+        let sw = 0;
+        let sa = 0;
+        let sab = 0;
+        let sbb = 0;
+        a.forEach((y, i) => {
+          sw += w(i);
+          sa += w(i) * y;
+          sab += w(i) * y * b[i];
+          sbb += w(i) * b[i] * b[i];
+        });
+        const mean = sa / sw;
+        const s = sab / sbb;
+        return (Math.max(...a.map((y, i) => Math.abs(y - (mean + s * b[i])))) * 180) / Math.PI * vienna.view.pxPerDegH;
       };
       const distances = vienna.tiles.flatMap((row) => row.flatMap((e) => (e ? [e.distanceM] : [])));
       /** The worst of every card of the bake at the camera angle `phiDeg` and offset `r`. */
       const worstPx = (r: number, phiDeg: number): number => Math.max(...distances.map((d) => fitPx(d, r, phiDeg)));
+      /** The same over the six nearest cards and 129 samples (the trapezoid rule is exact to a few thousandths of a pixel there): the nearest cards bind, and a property run asks it thousands of times. */
+      const nearest = [...distances].sort((a, b) => a - b).slice(0, 6);
+      const quickPx = (r: number, phiDeg: number): number => Math.max(...nearest.map((d) => fitPx(d, r, phiDeg, 129)));
       const w2 = windowFor(vienna.view, 400, 800);
       /** The offset a keyframe's pose was made from: the one `cardPose` gives the transform at this heading and camera angle (a scan, then a finer one), with how far it is off. */
       const offsetOf = (transform: string, heading: number, phi: number): { r: number; miss: number } => {
@@ -1107,8 +1125,8 @@ describe('the ridge cards in the scene', () => {
         const keys = live(box)[0].keyframes;
         return keys.map((f: any, n: number) => {
           const ms = (f.offset ?? n / (keys.length - 1)) * SEGMENT_S * 1000;
-          const phi = shownPhiAt(at + ms);
-          return { phi, ms, ...offsetOf(f.transform, headingAt(at + ms), phi) };
+          const phi = poseAt(at + ms).phi;
+          return { phi, ms, ...offsetOf(f.transform, poseAt(at + ms).h, phi) };
         });
       };
       const pick = (from: { mode: 'both' | 'offset'; speed: number; waitS: number }, to: 'both' | 'offset') => {
@@ -1125,12 +1143,15 @@ describe('the ridge cards in the scene', () => {
 
       it('measures the fit as the baker does: Vienna sits at the bound at its two offsets, and above it past them', () => {
         const { rMaxM, rMaxForwardM } = vienna.camera;
-        expect([rMaxM, rMaxForwardM]).toEqual([98.2, 205.4]);
-        expect(Math.max(...[0, 15, 30, 45, 90, 135, 180, 270].map((phi) => worstPx(rMaxM, phi)))).toBeGreaterThan(FIT_PX_MAX - 0.5);
-        expect(Math.max(...[0, 15, 30, 45, 90, 135, 180, 270].map((phi) => worstPx(rMaxM, phi)))).toBeLessThanOrEqual(FIT_PX_MAX);
+        expect([rMaxM, rMaxForwardM]).toEqual([95.8, 198.4]);
+        const circle = Array.from({ length: 24 }, (_, i) => i * 15);
+        expect(Math.max(...circle.map((phi) => worstPx(rMaxM, phi)))).toBeGreaterThan(FIT_PX_MAX - 0.5);
+        expect(Math.max(...circle.map((phi) => worstPx(rMaxM, phi)))).toBeLessThanOrEqual(FIT_PX_MAX + 0.05);
         expect(worstPx(rMaxForwardM, 0)).toBeGreaterThan(FIT_PX_MAX - 0.5);
-        expect(worstPx(rMaxForwardM, 0)).toBeLessThanOrEqual(FIT_PX_MAX);
+        expect(worstPx(rMaxForwardM, 0)).toBeLessThanOrEqual(FIT_PX_MAX + 0.05);
         expect(worstPx(200, 90)).toBeGreaterThan(FIT_PX_MAX); // the blend the ease used to pass through
+        expect(worstPx(rMaxForwardM + 1, 0)).toBeGreaterThan(FIT_PX_MAX); // past the forward bound, and the circle's bound is not the forward one
+        expect(Math.max(...circle.map((phi) => worstPx(rMaxM + 1, phi)))).toBeGreaterThan(FIT_PX_MAX);
       });
 
       [
@@ -1152,15 +1173,208 @@ describe('the ridge cards in the scene', () => {
           const rs = got.map((g) => g.r);
           got.forEach((_, i) => expect(moving(phis, i) && moving(rs, i), `keyframe ${i}`).toBe(false));
           const last = got.at(-1)!;
-          expect(last.r).toBeCloseTo(to === 'both' ? 200 : vienna.camera.rMaxM, 1); // the offset owed: the default 200, or the bound of the circling mode
-          if (to === 'both') expect(last.phi).toBe(0);
+          expect(last.r).toBeCloseTo(to === 'both' ? Math.min(200, vienna.camera.rMaxForwardM) : vienna.camera.rMaxM, 1); // the offset owed: the default 200 or the forward bound, or the bound of the circling mode
+          if (to === 'both') expect(last.phi % 360).toBe(0);
         });
+      });
+
+      /** A transform's two numbers. */
+      const parsed = (transform: string): { shift: number; scale: number } => {
+        const m = /translate3d\((-?[\d.e+-]+)px,0,0\) scale\((-?[\d.e+-]+)\)/.exec(transform)!;
+        return { shift: Number(m[1]), scale: Number(m[2]) };
+      };
+      /** What the compositor shows `ms` into an animation: the keyframes' straight lines. */
+      const playedAt = (anim: any, ms: number): { shift: number; scale: number } => {
+        const keys: any[] = anim.keyframes;
+        const at = (k: number) => (keys[k].offset ?? k / (keys.length - 1)) * anim.options.duration;
+        let k = 1;
+        while (k < keys.length - 1 && at(k) < ms) k += 1;
+        const [a, b] = [parsed(keys[k - 1].transform), parsed(keys[k].transform)];
+        const x = Math.min(1, Math.max(0, (ms - at(k - 1)) / (at(k) - at(k - 1))));
+        return { shift: a.shift + (b.shift - a.shift) * x, scale: a.scale + (b.scale - a.scale) * x };
+      };
+
+      describe('a pick made while an ease is under way, and a rebuild in the middle of one', () => {
+        const picks: { name: string; from: 'both' | 'offset'; waitS: number; then: ['still' | 'offset' | 'both', number][] }[] = [
+          { name: 'offset-only to both, then to still a moment later', from: 'offset', waitS: 7.8, then: [['both', 0], ['still', 100]] },
+          { name: 'offset-only to both, then back to offset-only', from: 'offset', waitS: 7.8, then: [['both', 0], ['offset', 100]] },
+          { name: 'offset-only to both, to still, and to both again', from: 'offset', waitS: 7.8, then: [['both', 0], ['still', 100], ['both', 150]] },
+          { name: 'offset-only to both, then offset-only as the angle lands', from: 'offset', waitS: 7.8, then: [['both', 0], ['offset', 295]] },
+          { name: 'offset-only to both, then still with the offset on its way out', from: 'offset', waitS: 7.8, then: [['both', 0], ['still', 450]] },
+          { name: 'both to offset-only, then to both before the offset is in', from: 'both', waitS: 3, then: [['offset', 0], ['both', 150]] },
+          { name: 'both to offset-only, then to still, then to offset-only', from: 'both', waitS: 3, then: [['offset', 0], ['still', 100], ['offset', 120]] },
+        ];
+        picks.forEach(({ name, from, waitS, then }) => {
+          it(`${name}: every keyframe the last pick lays out is the pose of an angle and an offset inside the card fit`, () => {
+            setCamera({ mode: from, speedDegPerS: 12, offsetM: 200 });
+            const { parent, canvas } = host();
+            const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(vienna) })!;
+            let at = T0 + waitS * 1000;
+            for (const [mode, after] of then) {
+              at += after;
+              vi.mocked(performance.now).mockReturnValue(at);
+              setCamera({ mode }, at);
+            }
+            const got = pairsOf(rigOf(parent).children[2], at);
+            got.forEach((g) => expect(g.miss, `a pose of the camera at ${g.phi.toFixed(1)} degrees, ${g.r.toFixed(1)} m`).toBeLessThan(0.05));
+            const worst = Math.max(...got.map((g) => worstPx(g.r, g.phi)));
+            expect(worst).toBeLessThanOrEqual(FIT_PX_MAX + 0.05);
+            s.dispose();
+          });
+        });
+
+        it('a rebuild in the middle of an ease lands where the old scene was: the first frame of the new rig is the frame the old one showed', () => {
+          pending();
+          for (const gap of [100, 250, 400, 550]) {
+            resetHeading();
+            resetCamera();
+            vi.mocked(performance.now).mockReturnValue(T0);
+            anchor(vienna.view.place.id, vienna.view.lookAzDeg, T0);
+            setCamera({ mode: 'offset', speedDegPerS: 12, offsetM: 200 });
+            const { parent, canvas } = host();
+            const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(vienna) })!;
+            const at = T0 + 7_800;
+            vi.mocked(performance.now).mockReturnValue(at);
+            setCamera({ mode: 'both' }, at);
+            const old = rigOf(parent).children.map((box: any) => live(box)[0]);
+            vi.mocked(performance.now).mockReturnValue(at + gap);
+            window.dispatchEvent(new Event('resize'));
+            vi.advanceTimersByTime(300); // the debounced rebuild: a new rig at this clock
+            const now = rigOf(parent).children.map((box: any) => live(box)[0]);
+            now.forEach((a: any, i: number) => {
+              expect(a).not.toBe(old[i]);
+              const was = playedAt(old[i], gap);
+              const is = parsed(a.keyframes[0].transform);
+              expect(Math.abs(is.shift - was.shift), `card ${i} ${gap} ms into the ease`).toBeLessThan(2);
+              expect(Math.abs(is.scale - was.scale), `card ${i} ${gap} ms into the ease`).toBeLessThan(0.01);
+            });
+            s.dispose();
+          }
+          vi.useRealTimers();
+        });
+      });
+
+      describe('random sequences of picks, holds, speeds, offsets and rebuilds at random times', () => {
+        /** A seeded generator (mulberry32): a failing sequence is the seed it prints. */
+        const random = (seed: number) => () => {
+          seed = (seed + 0x6d2b79f5) | 0;
+          let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        const modes = ['still', 'offset', 'both'] as const;
+        const inside = ([lo, hi]: [number, number], v: number, slack = 1e-6) => v >= lo - slack && v <= hi + slack;
+
+        /** Every pose a laid-out stretch passes through is one the baker's bound allows, at the offset it has: whenever the camera angle moves, the circle's bound holds at both ends; and the keyframes are the poses the heading owner has. */
+        const checkLayout = (parent: any, label: string) => {
+          const boxes = rigOf(parent).children as any[];
+          boxes.forEach((box) => expect(live(box)).toHaveLength(1));
+          // The rig lays every card out from the owner's pose at the clock of each keyframe.
+          boxes.forEach((box) => {
+            const card = Number(box.id.slice(-1));
+            const { keyframes, options, at } = live(box)[0];
+            keyframes.forEach((f: any, n: number) => {
+              const t = at + (f.offset ?? n / (keyframes.length - 1)) * options.duration;
+              const p = poseAt(t);
+              const c = cardPose(vienna, card, p.h, p.phi, p.r, w2);
+              expect(f.transform, `${label}: card ${card} keyframe ${n}`).toBe(`translate3d(${c.shiftPx}px,0,0) scale(${c.scale})`);
+            });
+          });
+          // The pose itself, every 2 ms through the ease and every half second after.
+          const t0: number = live(boxes[0])[0].at;
+          const home = Math.max(t0, settledAt());
+          const times: number[] = [];
+          for (let t = t0; t <= home + 2; t += 2) times.push(t);
+          for (let t = home; t <= t0 + SEGMENT_S * 1000; t += 500) times.push(t);
+          let last = poseAt(times[0]);
+          times.forEach((t, i) => {
+            const p = poseAt(t);
+            expect(inside(offsetRange(vienna, w2, 'both', p.phi), p.r), `${label}: phi ${p.phi}, r ${p.r} at +${t - t0} ms`).toBe(true);
+            if (i && Math.abs(p.phi - last.phi) > 1e-9) {
+              const circle = offsetRange(vienna, w2, 'offset');
+              expect(inside(circle, p.r, 0.02) && inside(circle, last.r, 0.02), `${label}: the angle moves with r ${last.r} then ${p.r} at +${t - t0} ms`).toBe(true);
+            }
+            if (i % 40 === 0 || i === times.length - 1) expect(quickPx(p.r, p.phi), `${label}: fit at phi ${p.phi}, r ${p.r}`).toBeLessThanOrEqual(FIT_PX_MAX + 0.1);
+            last = p;
+          });
+        };
+
+        let inEase = 0;
+        const sequence = (seed: number): number => {
+          const next = random(seed);
+          const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(next() * xs.length)];
+          resetHeading();
+          resetCamera();
+          const clock = vi.mocked(performance.now);
+          let now = T0;
+          clock.mockReturnValue(now);
+          anchor(vienna.view.place.id, vienna.view.lookAzDeg, T0);
+          setCamera({ mode: pick(modes), speedDegPerS: pick([0.6, 3, 12, -12, 0]), offsetM: pick([200, 98, -60, 0, 999]) }, now);
+          let { parent, canvas } = host();
+          let scene = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(vienna) })!;
+          let rebuilds = 0;
+          for (let step = 0; step < 36; step += 1) {
+            const gap = pick([0, 20, 60, 100, 150, 299, 301, 450, 700, 3000, 24_500]);
+            now += gap;
+            clock.mockReturnValue(now);
+            vi.advanceTimersByTime(gap);
+            const label = `seed ${seed} step ${step}`;
+            const op = Math.floor(next() * 9);
+            const before = poseAt(now);
+            const fine = now <= settledAt(); // the old stretch is keyed every 50 ms here, a second apart after: the straight lines between keyframes are the pose only where they are close
+            const old = rigOf(parent).children.map((box: any) => live(box)[0]);
+            if (op <= 2) setCamera({ mode: pick(modes) }, now);
+            else if (op === 3) hold(next() * 1000 - 300, now);
+            else if (op === 4) setCamera({ speedDegPerS: pick([0.6, 3, 12, -12, 0, 7.5]) }, now);
+            else if (op === 5) setCamera({ offsetM: Math.round(next() * 600 - 300) }, now);
+            else if (op === 6) setCamera({ mode: pick(modes), speedDegPerS: pick([0.6, 12, -12]), offsetM: pick([200, 0, 50]) }, now);
+            else if (op === 7) {
+              window.dispatchEvent(new Event('resize'));
+              vi.advanceTimersByTime(300);
+            } else {
+              scene.dispose();
+              ({ parent, canvas } = host());
+              scene = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(vienna) })!;
+            }
+            if (op >= 7) {
+              rebuilds += 1;
+              if (fine) inEase += 1;
+              // A rebuild changes where nothing is: the owner's pose is the same before and after it, and the first frame laid out is the frame that was showing.
+              const after = poseAt(now);
+              expect(after.r, label).toBeCloseTo(before.r, 9);
+              expect(norm(after.phi), label).toBeCloseTo(norm(before.phi), 6);
+              expect(norm(after.h), label).toBeCloseTo(norm(before.h), 6);
+              rigOf(parent).children.forEach((box: any, i: number) => {
+                if (!fine) return;
+                const was = playedAt(old[i], now - old[i].at);
+                const is = parsed(live(box)[0].keyframes[0].transform);
+                // The new stretch is laid out from angles brought into [0, 360): a whole turn of the heading is a whole turn of the shift, the same picture.
+                const turn = is.scale * w2.plane.scale * vienna.view.pxPerDegH * 360;
+                const jump = Math.abs(is.shift - was.shift);
+                expect(Math.abs(jump - turn * Math.round(jump / turn)), `${label}: card ${i} popped at the rebuild`).toBeLessThan(3);
+                expect(Math.abs(is.scale - was.scale), `${label}: card ${i} popped at the rebuild`).toBeLessThan(0.02);
+              });
+            }
+            checkLayout(parent, label);
+          }
+          scene.dispose();
+          return rebuilds;
+        };
+
+        it('every pose laid out is inside the bound the baker set, and a rebuild never moves the view', () => {
+          pending();
+          let rebuilds = 0;
+          for (let seed = 1; seed <= 24; seed += 1) rebuilds += sequence(seed);
+          expect(rebuilds).toBeGreaterThan(100);
+          expect(inEase).toBeGreaterThan(10); // and some of them in the middle of eases, not only at rest
+          vi.useRealTimers();
+        }, 120_000);
       });
     });
 
     describe('under reduced motion there is no ease: the pose owed is the pose issued', () => {
       const owed = (ring: typeof manifest, offset: number, phi: number, at = T0) => {
-        const p = cardPose(ring, 0, headingAt(at), phi, offset, windowFor(ring.view, 400, 800));
+        const p = cardPose(ring, 0, poseAt(at).h, phi, offset, windowFor(ring.view, 400, 800));
         return `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
       };
 
@@ -1188,9 +1402,9 @@ describe('the ridge cards in the scene', () => {
         vi.mocked(performance.now).mockReturnValue(at);
         motion.matches = true;
         motion.addEventListener.mock.calls.filter((c: any) => c[0] === 'change').forEach((c: any) => c[1]());
-        expect(phiAt(at)).toBeCloseTo(90, 6);
+        expect(poseAt(at).phi).toBeCloseTo(90, 6);
         setCamera({ mode: 'both' }, at);
-        expect(phiAt(at + 10_000)).toBe(0);
+        expect(poseAt(at + 10_000).phi).toBe(0);
         expect(frame(rigOf(parent).children[2], 0)).toBe(owed(ring, 200, 0, at));
         s.dispose();
       });
@@ -1203,7 +1417,7 @@ describe('the ridge cards in the scene', () => {
       const fiveDays = 5 * 86_400_000;
       now.mockReturnValue(T0 + fiveDays);
       setCamera({ offsetM: 20 }); // any change issues the next stretch from the clock now
-      const h = headingAt(T0 + fiveDays);
+      const h = poseAt(T0 + fiveDays).h;
       expect(h).toBeGreaterThanOrEqual(0);
       expect(h).toBeLessThan(360 + 1);
       expect(h).toBeCloseTo((214 + 0.6 * (fiveDays / 1000)) % 360, 4); // the view is where five days of turning put it
@@ -1229,7 +1443,7 @@ describe('the ridge cards in the scene', () => {
     const dpr = 2;
     drawn.forEach((a) => {
       const card = Number(a[0].id.slice(-1));
-      const p = cardPose(manifest, card, headingAt(T0), phiAt(T0), clampOffset(), win);
+      const p = posed(manifest, card, T0, win);
       expect(a.k).toBe(p.scale);
       expect(a.t).toEqual([(200 + p.shiftPx) * dpr, horizonY * dpr]);
       const e = manifest.tiles[2][card]!;

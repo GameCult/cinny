@@ -7,8 +7,7 @@ import { cardArc, cardPose, offsetRange, SEGMENT_S, sweepArc, windowFor } from '
 import type { CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
-import { easeEndsAt, easeLeft, freeze, headingAt, normalize, offsetFreeAt, phiAt, shownPhiAt, STAGE_MS, subscribe as onHeading } from './heading';
-import { effectiveMode, getCamera, subscribe as onCamera } from '../cameraState';
+import { freeze, normalize, poseAt as headingPose, setRange, settledAt, subscribe as onHeading } from './heading';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
 import type { NightBodies } from './nightBodies';
@@ -257,12 +256,6 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     };
   };
 
-  /** The viewer's offset, clamped to the range this place, viewport, mode and camera angle allow (`view.ts` `offsetRange`, the one clamp). */
-  const offsetNow = (bd: Backdrop, win: ReturnType<typeof windowFor>): number => {
-    const [lo, hi] = offsetRange(bd.manifest, win, effectiveMode(), phiAt(clock()));
-    return Math.min(hi, Math.max(lo, getCamera().offsetM));
-  };
-
   /**
    * The ridge over the sky: one box per card, farthest first (DOM order is paint order, stacking is by order alone). A box spans the viewport with its
    * transform origin on the horizon centre and holds the resident tiles of its card at their azimuth; one animation per box carries its pose
@@ -304,17 +297,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     }
     const anims: (Animation | undefined)[] = new Array(k).fill(undefined);
     freeze(reducedMotion?.matches === true, clock()); // reduced motion turns nothing, whatever the viewer chose
-    // The offset the cards are posed at is eased, as the camera's angle is (`heading.ts` `shownPhiAt`) but not with it: when the clamp moves it (a mode that keeps the
-    // camera on its heading lets a forward offset go further), it goes from the offset it showed to the new one in a stage of its own, STAGE_MS from `offsetAt`, the
-    // moment the angle lets it. Every pose between is a pose of the camera at an angle and an offset the mode's bound holds, never a blend of two. Reduced motion has
-    // no ease: the offset asked for is the one shown.
-    let offset = offsetNow(bd, win);
-    let offsetFrom = offset;
-    let offsetAt = -Infinity;
-    const calm = (): boolean => reducedMotion?.matches === true;
-    const offsetShown = (t: number): number => (calm() ? offset : offset + (offsetFrom - offset) * easeLeft(offsetAt, t));
-    const poseAt = (card: number, t: number): CardPose =>
-      cardPose(bd.manifest, card, headingAt(t), shownPhiAt(t), offsetShown(t), win);
+    /** A card's pose at the clock `t`: the heading owner's pose (view direction, camera angle, offset), the one place any of them is decided. */
+    const poseAt = (card: number, t: number): CardPose => {
+      const p = headingPose(t);
+      return cardPose(bd.manifest, card, p.h, p.phi, p.r, win);
+    };
     const transform = (p: CardPose) => `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
     let issuedAt = 0;
     let live = true;
@@ -324,16 +311,10 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (!live) return;
       const t0 = clock();
       normalize(t0); // the angles of this stretch start within a turn of zero, so the transforms stay small however long the page has been open
-      const next = offsetNow(bd, win);
-      if (next !== offset) {
-        offsetFrom = offsetShown(t0);
-        offset = next;
-        offsetAt = Math.max(t0, offsetFreeAt());
-      }
       issuedAt = t0;
-      const frozen = calm();
+      const frozen = reducedMotion?.matches === true;
       // A stretch with an ease in it is keyed finely while the ease runs (its keyframes at explicit offsets of the stretch), a second apart after.
-      const easeMs = Math.min(SEGMENT_S * 1000, Math.max(0, easeEndsAt(), offsetAt + STAGE_MS) - t0);
+      const easeMs = Math.min(SEGMENT_S * 1000, Math.max(0, settledAt() - t0));
       const times = easeMs > 0 && !frozen ? easeTimes(easeMs) : null;
       for (let i = 0; i < k; i += 1) {
         const frames: Keyframe[] = frozen
@@ -407,8 +388,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       freeze(reducedMotion?.matches === true, clock());
       issue();
     };
-    const offHeading = onHeading(issue);
-    const offCamera = onCamera(sync);
+    const offHeading = onHeading(issue); // every change of the pose's course: the viewer's choice, a hold, a bound, a place
     timer = win0.setTimeout(residency, RESIDENCY_MS);
     return {
       el,
@@ -419,7 +399,6 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         live = false;
         win0.clearTimeout(timer);
         offHeading();
-        offCamera();
       },
     };
   };
@@ -431,12 +410,12 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const { view } = bd.manifest;
     const { w, h, scale: dpr } = viewSize();
     const win = windowFor(view, w, h);
-    const offset = offsetNow(bd, win);
     const t = clock();
+    const at = headingPose(t);
     const planeTop = h - win.plane.bottom - win.plane.h;
     const horizonY = planeTop + view.horizonRow * win.plane.scale;
     const poses = bd.manifest.cards.map((_, i) =>
-      cardPose(bd.manifest, i, headingAt(t), phiAt(t), offset, win)
+      cardPose(bd.manifest, i, at.h, at.phi, at.r, win)
     );
     const arcs = poses.map((p) => cardArc(view, win, w, p));
     const from = Math.min(...arcs.map((a) => a.fromDeg));
@@ -495,7 +474,13 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     }
     field = stars;
     built = { twinkle };
-    if (opts.backdrop && !still) built.rig = startRig(opts.backdrop, w, h);
+    if (opts.backdrop) {
+      // The offsets this place and viewport allow, to the one owner of the pose: a rebuild at another size is a new bound, and the view eases from the pose it has.
+      const { manifest } = opts.backdrop;
+      const win = windowFor(manifest.view, w, h);
+      setRange((mode, phi) => offsetRange(manifest, win, mode, phi), clock());
+      if (!still) built.rig = startRig(opts.backdrop, w, h);
+    }
     if (tier !== 'still' && sky.physical && sky.physical.weather.rain > 0)
       built.rain = startRain(sky.physical.weather.rain, sky.horizon, w, h, scale);
     syncPlayState();
