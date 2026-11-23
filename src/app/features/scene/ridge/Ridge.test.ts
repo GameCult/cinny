@@ -568,6 +568,7 @@ describe('the ridge cards in the scene', () => {
       manifest,
       ensure: vi.fn(async (_arc: Arc): Promise<void> => undefined),
       litTiles: () => lit,
+      onTile: () => () => undefined,
       dispose: vi.fn(),
     };
   };
@@ -867,6 +868,7 @@ describe('the ridge cards in the scene', () => {
         manifest: m,
         ensure: vi.fn(async (_arc: Arc, _first?: Arc): Promise<void> => undefined),
         litTiles: () => lit,
+        onTile: () => () => undefined,
         dispose: vi.fn(),
       };
     };
@@ -1104,6 +1106,93 @@ describe('the ridge cards in the scene', () => {
       expect([a.alpha, a.op]).toEqual([1, 'source-over']);
     });
     expect(parent.children).toEqual([canvas]);
+  });
+
+  describe('a still whose tiles arrive after its paint', () => {
+    /** A backdrop holding the tiles of `held`, and tiles that arrive afterwards: `arrive` holds one more and tells whoever listens, as the loader does. */
+    const ring = parseManifest(wireManifest({}, 3, 32), '/d/'); // 32 tiles of 11.25 degrees: the rest view shows tiles 16 to 21
+    const arriving = (held: number[]) => {
+      const all = ring.tiles.flatMap((row, tile) =>
+        row.flatMap((e, card) => {
+          if (!e) return [];
+          const canvas = fakeEl('canvas');
+          canvas.id = `t${String(tile).padStart(2, '0')}c${card}`;
+          canvas.width = 202;
+          return [{ tile, card, canvas: canvas as unknown as HTMLCanvasElement }];
+        })
+      );
+      const lit = all.filter((t) => held.includes(t.tile));
+      const heard = new Set<() => void>();
+      const bd = {
+        manifest: ring,
+        ensure: vi.fn(async (_arc: Arc): Promise<void> => undefined),
+        litTiles: () => lit,
+        onTile: (cb: () => void) => (heard.add(cb), () => void heard.delete(cb)),
+        dispose: vi.fn(),
+      };
+      const arrive = (tile: number) => {
+        lit.push(...all.filter((t) => t.tile === tile));
+        heard.forEach((cb) => cb());
+      };
+      return { bd, arrive, listeners: () => heard.size };
+    };
+    const drawnTiles = () => new Set(images.filter((a) => (a[0] as any).id).map((a: any) => a[0].id.slice(0, 3)));
+    const timers = () => {
+      vi.useFakeTimers();
+      (window as any).setTimeout = setTimeout;
+      (window as any).clearTimeout = clearTimeout;
+    };
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('repaints once for a burst of arrivals, with every tile held by then, asks for nothing, and is done when the tiles stop', () => {
+      timers();
+      const { bd, arrive } = arriving([18]);
+      const { canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'still', sky: DAY, backdrop: bd })!;
+      expect(drawnTiles()).toEqual(new Set(['t18']));
+      const first = images.length;
+      arrive(17);
+      vi.advanceTimersByTime(100);
+      arrive(19); // a burst: the wait starts again
+      vi.advanceTimersByTime(200);
+      expect(images.length).toBe(first); // not yet
+      vi.advanceTimersByTime(60);
+      expect(drawnTiles()).toEqual(new Set(['t18', 't17', 't19'])); // one paint, with all of them
+      const second = images.length;
+      expect(second).toBeGreaterThan(first);
+      vi.advanceTimersByTime(600_000);
+      expect(images.length).toBe(second); // no loop, no timer left
+      expect(bd.ensure).not.toHaveBeenCalled();
+      arrive(20);
+      vi.advanceTimersByTime(300);
+      expect(drawnTiles().has('t20')).toBe(true); // a straggler is drawn too
+      s.dispose();
+    });
+
+    it('is the same after a settle from the live tier, and stops listening with the scene', () => {
+      timers();
+      const { bd, arrive, listeners } = arriving([18]);
+      const { canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: bd })!;
+      arrive(17);
+      vi.advanceTimersByTime(1_000);
+      expect(images.length).toBe(0); // the live tier mounts tiles from its own timer: nothing is painted into the host canvas
+      runFrames(100, 400); // a poor frame rate: it settles to a still
+      const settled = images.length;
+      expect(drawnTiles()).toEqual(new Set(['t18', 't17']));
+      arrive(19);
+      vi.advanceTimersByTime(300);
+      expect(images.length).toBeGreaterThan(settled);
+      expect(drawnTiles().has('t19')).toBe(true);
+      s.dispose();
+      expect(listeners()).toBe(0);
+      const after = images.length;
+      arrive(20);
+      vi.advanceTimersByTime(1_000);
+      expect(images.length).toBe(after);
+    });
   });
 
   it('settles to a still with the tiles painted when the frame rate is poor', () => {

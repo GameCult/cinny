@@ -31,6 +31,8 @@ export interface Backdrop {
   ensure(arc: Arc, first?: Arc): Promise<void>;
   /** Every card of every tile held, in no order. */
   litTiles(): readonly LitTile[];
+  /** Hear each tile as it is made and held, however late (a still scene has no timer of its own and draws only what it held); not a tile that failed. Returns the way to stop. */
+  onTile(cb: () => void): () => void;
   /** Let go of everything, the lighting context included. Idempotent. */
   dispose(): void;
 }
@@ -83,6 +85,7 @@ export function createBackdrop(
   const held = new Map<number, LitTile[]>();
   /** Tiles that failed, when they may be asked for again and the pause after the next failure. */
   const failed = new Map<number, { until: number; pause: number }>();
+  const heard = new Set<() => void>();
   let disposed = false;
   let running: Promise<void> | null = null;
   let want: { arc: Arc; first?: Arc } | null = null;
@@ -173,6 +176,7 @@ export function createBackdrop(
       }
       held.set(tile, made);
       failed.delete(tile);
+      heard.forEach((cb) => cb());
     } catch {
       made.forEach((t) => (t.canvas.width = 0));
       const pause = Math.min(RETRY_MAX_MS, (failed.get(tile)?.pause ?? RETRY_FIRST_MS / 2) * 2);
@@ -234,9 +238,14 @@ export function createBackdrop(
       return running;
     },
     litTiles: () => [...held.values()].flat(),
+    onTile(cb) {
+      heard.add(cb);
+      return () => heard.delete(cb);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
+      heard.clear();
       want = null;
       current?.abort(); // a scene that did not wait for its tiles, or was replaced, leaves nothing asking for them
       [...held.keys()].forEach(drop);

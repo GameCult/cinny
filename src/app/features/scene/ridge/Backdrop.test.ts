@@ -240,6 +240,26 @@ describe('createBackdrop', () => {
     residentTiles(manifest.view, 220, 36 + LOAD_MARGIN_TILES * 11.25).forEach((t) => expect(held.has(t.tile)).toBe(true));
   });
 
+  it('tells a listener of each tile as it is made, not of a tile that failed, and no longer once it stops listening or the backdrop is disposed', async () => {
+    const r = rig((url) => tileOf(url) === 17);
+    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const seen: number[] = [];
+    const off = bd.onTile(() => seen.push(bd.litTiles().length));
+    await bd.ensure({ fromDeg: 180, toDeg: 181 }); // tiles 15 to 17 and the margin: 17 fails
+    const made = new Set(bd.litTiles().map((t) => t.tile));
+    expect(made.has(17)).toBe(false);
+    expect(seen).toHaveLength(made.size); // one call per tile held, each with its tile already held
+    seen.forEach((n, i) => expect(n).toBeGreaterThan(i));
+    off();
+    await bd.ensure({ fromDeg: 0, toDeg: 1 });
+    expect(seen).toHaveLength(made.size);
+    const late = vi.fn();
+    bd.onTile(late);
+    bd.dispose();
+    await bd.ensure({ fromDeg: 100, toDeg: 101 });
+    expect(late).not.toHaveBeenCalled();
+  });
+
   it('disposes: the canvases are dropped, the lighting context released, and a later ensure does nothing', async () => {
     const r = rig();
     const lighter = r.lighter();

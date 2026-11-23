@@ -610,7 +610,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     sampler.reset();
     wake();
   };
-  const onResize = () => {
+  /** Make the scene again at the size it has now and settle as it was: after a resize, and after tiles arrive into a still. A burst of either is one rebuild, 250 ms after the last. */
+  const rebuild = () => {
     clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(() => {
       if (disposed) return;
@@ -623,8 +624,13 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       }
     }, 250);
   };
+  // A still draws once and has no timer to ask for tiles, so it is told of each one that is made after its paint (the deadline of a scene start leaves the rest of the
+  // first arc loading); the live tier mounts them on its own timer. Nothing asks for more: a repaint adds no request, so the fill-in ends with the last tile.
+  const offTile = opts.backdrop?.onTile(() => {
+    if (still && !disposed) rebuild();
+  });
   document.addEventListener('visibilitychange', onVisibility);
-  window.addEventListener('resize', onResize);
+  window.addEventListener('resize', rebuild);
   const onMotionChange = () => {
     built?.rig?.sync();
     syncPlayState();
@@ -639,10 +645,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (disposed) return;
       disposed = true;
       cancelAnimationFrame(raf);
+      offTile?.();
       opts.backdrop?.dispose();
       clearTimeout(resizeTimer);
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', rebuild);
       reducedMotion?.removeEventListener?.('change', onMotionChange);
       teardown();
       readout?.remove();
