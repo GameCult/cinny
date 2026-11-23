@@ -1,7 +1,8 @@
 // How the viewer wants the ridge camera to move: the rotation mode, the speed and the parallax offset, per viewer in localStorage. The one owner of the
-// mode (a manual turn sets it to 'still': `ridge/heading.ts` `hold`) and of the speed and offset as the viewer chose them; `ridge/heading.ts` integrates the
-// view direction over it, the clamp on the offset is `ridge/view.ts` `offsetRange` and the bound on the speed `maxSpeed`, which a scene applies here when it
-// knows the place. Main-chunk safe (no ridge code is imported at runtime), as placeState and skyState are.
+// chosen mode, speed and offset (persisted, never rewritten by anything but the viewer: the clamp on the offset, `ridge/view.ts` `offsetRange`, and the bound
+// on the speed, `maxSpeed`, are derived from them at read for the mode and the bake in force) and of the hold: a manual turn (`ridge/heading.ts` `hold`) makes the
+// mode in effect 'still' until the viewer picks a mode, the one already chosen included. The hold is session state: a rebuild keeps it, a reload does not
+// (a reload is a Return). `ridge/heading.ts` integrates the view direction over the mode in effect. Main-chunk safe (no ridge code is imported at runtime), as placeState and skyState are.
 import type { RotationMode } from './ridge/heading';
 
 export const CAMERA_KEY = 'ratatoskr.camera';
@@ -47,7 +48,9 @@ const reducedMotion = (): boolean => {
 };
 
 let current: CameraChoice | undefined;
-type Listener = (next: CameraChoice, prev: CameraChoice, at: number) => void;
+/** Hears a change of the choice or of the hold: the choice now, what it was, the clock, and whether the view was held before. */
+type Listener = (next: CameraChoice, prev: CameraChoice, at: number, wasHeld: boolean) => void;
+let held = false;
 const listeners = new Set<Listener>();
 const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -72,14 +75,35 @@ export function setCamera(change: Partial<CameraChoice>, at: number = clock()): 
   const next = parseCamera({ ...getCamera(), ...change });
   if (!next) return;
   const prev = getCamera();
-  if (next.mode === prev.mode && next.speedDegPerS === prev.speedDegPerS && next.offsetM === prev.offsetM) return;
+  const wasHeld = held;
+  // Picking a mode, the one already chosen included, ends a hold: it is a change whenever a hold is on.
+  const resumes = wasHeld && change.mode !== undefined;
+  const same = next.mode === prev.mode && next.speedDegPerS === prev.speedDegPerS && next.offsetM === prev.offsetM;
+  if (same && !resumes) return;
   current = next;
-  try {
-    localStorage.setItem(CAMERA_KEY, JSON.stringify(next));
-  } catch {
-    // Storage is refused: the choice holds for this page load only.
+  if (resumes) held = false;
+  if (!same) {
+    try {
+      localStorage.setItem(CAMERA_KEY, JSON.stringify(next));
+    } catch {
+      // Storage is refused: the choice holds for this page load only.
+    }
   }
-  [...listeners].forEach((cb) => cb(next, prev, at));
+  [...listeners].forEach((cb) => cb(next, prev, at, wasHeld));
+}
+
+/** A manual turn is on: the mode in effect is 'still' whatever the viewer chose. Not stored. */
+export const isHeld = (): boolean => held;
+
+/** The mode in effect: the viewer's choice, 'still' while the view is held. */
+export const effectiveMode = (): RotationMode => (held ? 'still' : getCamera().mode);
+
+/** Take the view by hand: hold it. Listeners hear it only when it was not held already. */
+export function holdCamera(at: number = clock()): void {
+  if (held) return;
+  held = true;
+  const cam = getCamera();
+  [...listeners].forEach((cb) => cb(cam, cam, at, false));
 }
 
 export function subscribe(cb: Listener): () => void {
@@ -90,5 +114,6 @@ export function subscribe(cb: Listener): () => void {
 /** For tests: forget what was read, so the next read starts from storage again. */
 export function resetCamera(): void {
   current = undefined;
+  held = false;
   listeners.clear();
 }

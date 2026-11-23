@@ -24,8 +24,11 @@ export interface LitTile {
 
 export interface Backdrop {
   manifest: RidgeManifest;
-  /** Hold the tiles of `arc` and one tile beyond it each side; let go of those past two tiles. Resolves when every tile it could make is made. */
-  ensure(arc: Arc): Promise<void>;
+  /**
+   * Hold the tiles of `arc` and one tile beyond it each side; let go of those past two tiles. Resolves when every tile it could make is made. They are asked for
+   * and made nearest first to `first`, the arc the view shows now (the middle of `arc` when absent), so what is on screen comes before what the sweep reaches later.
+   */
+  ensure(arc: Arc, first?: Arc): Promise<void>;
   /** Every card of every tile held, in no order. */
   litTiles(): readonly LitTile[];
   /** Let go of everything, the lighting context included. Idempotent. */
@@ -82,7 +85,7 @@ export function createBackdrop(
   const failed = new Map<number, { until: number; pause: number }>();
   let disposed = false;
   let running: Promise<void> | null = null;
-  let want: Arc | null = null;
+  let want: { arc: Arc; first?: Arc } | null = null;
 
   const drop = (tile: number) => {
     held.get(tile)?.forEach((t) => {
@@ -175,18 +178,19 @@ export function createBackdrop(
     }
   }
 
-  async function pass(arc: Arc): Promise<void> {
+  async function pass(arc: Arc, first?: Arc): Promise<void> {
     const centre = (arc.fromDeg + arc.toDeg) / 2;
+    const from0 = first ? (first.fromDeg + first.toDeg) / 2 : centre;
     const half = (arc.toDeg - arc.fromDeg) / 2;
     const near = residentTiles(view, centre, half + LOAD_MARGIN_TILES * tileDeg);
     const keep = new Set(
       residentTiles(view, centre, half + KEEP_MARGIN_TILES * tileDeg).map((r) => r.tile)
     );
     [...held.keys()].filter((t) => !keep.has(t)).forEach(drop);
-    // The tile under the middle of the arc first: what the view needs now comes before what it needs next.
+    // The tile under the view first, then outward along the sweep: what the view needs now comes before what it needs next.
     const from = (r: { tile: number; turn: number }) => r.turn * 360 + r.tile * tileDeg + tileDeg / 2;
     const order = [...near]
-      .sort((a, b) => Math.abs(from(a) - centre) - Math.abs(from(b) - centre))
+      .sort((a, b) => Math.abs(from(a) - from0) - Math.abs(from(b) - from0))
       .map((r) => r.tile)
       .filter((t) => !held.has(t) && (failed.get(t)?.until ?? 0) <= now());
     // Every tile's files are asked for at once (the requests queue to FETCH_PARALLEL, in this order) and made one tile at a time as they arrive.
@@ -207,17 +211,17 @@ export function createBackdrop(
 
   async function loop(): Promise<void> {
     while (want && !disposed) {
-      const arc = want;
+      const { arc, first } = want;
       want = null;
-      await pass(arc);
+      await pass(arc, first);
     }
   }
 
   return {
     manifest,
-    ensure(arc) {
+    ensure(arc, first) {
       if (disposed) return Promise.resolve();
-      want = arc;
+      want = { arc, first };
       running ??= loop().finally(() => {
         running = null;
       });

@@ -7,8 +7,8 @@ import { cardArc, cardPose, maxSpeed, offsetRange, SEGMENT_S, sweepArc, windowFo
 import type { CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
-import { freeze, headingAt, normalize, phiAt, subscribe as onHeading } from './heading';
-import { getCamera, setCamera, subscribe as onCamera } from '../cameraState';
+import { freeze, headingAt, normalize, phiAt, setSpeedLimit, subscribe as onHeading } from './heading';
+import { effectiveMode, getCamera, subscribe as onCamera } from '../cameraState';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
 import type { NightBodies } from './nightBodies';
@@ -246,21 +246,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     };
   };
 
-  /**
-   * Take the viewer's choice to what this place can show: the speed the baked resident count sustains in the mode (`view.ts` `maxSpeed`; the stored value is
-   * clamped, so the choice and what turns agree). Returns true when it changed the choice, which comes back to its listeners.
-   */
-  const boundSpeed = (bd: Backdrop): boolean => {
-    const cam = getCamera();
-    const limit = maxSpeed(bd.manifest, cam.mode);
-    if (Math.abs(cam.speedDegPerS) <= limit) return false;
-    setCamera({ speedDegPerS: Math.sign(cam.speedDegPerS) * limit });
-    return true;
-  };
-
   /** The viewer's offset, clamped to the range this place, viewport, mode and camera angle allow (`view.ts` `offsetRange`, the one clamp). */
   const offsetNow = (bd: Backdrop, win: ReturnType<typeof windowFor>): number => {
-    const [lo, hi] = offsetRange(bd.manifest, win, getCamera().mode, phiAt(clock()));
+    const [lo, hi] = offsetRange(bd.manifest, win, effectiveMode(), phiAt(clock()));
     return Math.min(hi, Math.max(lo, getCamera().offsetM));
   };
 
@@ -305,7 +293,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     }
     const anims: (Animation | undefined)[] = new Array(k).fill(undefined);
     freeze(reducedMotion?.matches === true, clock()); // reduced motion turns nothing, whatever the viewer chose
-    boundSpeed(bd);
+    // The speed the baked resident count sustains is derived at every read in the heading owner; the viewer's stored speed is not touched.
+    setSpeedLimit((mode) => maxSpeed(bd.manifest, mode), clock());
     let offset = offsetNow(bd, win);
     const poseAt = (card: number, t: number): CardPose =>
       cardPose(bd.manifest, card, headingAt(t), phiAt(t), offset, win);
@@ -382,14 +371,14 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (t - issuedAt >= SEGMENT_S * 1000 * REISSUE_FRAC && moving()) issue();
       const arc = sweep(t);
       mount(arc);
-      void bd.ensure(arc).then(() => live && mount(arc));
+      void bd.ensure(arc, sweepArc(view, win, w, k, poseAt, t, 0)).then(() => live && mount(arc)); // the view now first, then along the sweep
       timer = win0.setTimeout(residency, RESIDENCY_MS);
     };
     parent.appendChild(el);
     issue();
     const sync = () => {
       freeze(reducedMotion?.matches === true, clock());
-      if (!boundSpeed(bd)) issue(); // a bounded speed is a change of the choice: it comes back here and issues once
+      issue();
     };
     const offHeading = onHeading(issue);
     const offCamera = onCamera(sync);

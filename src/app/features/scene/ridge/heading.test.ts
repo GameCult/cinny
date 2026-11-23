@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { anchor, freeze, headingAt, hold, normalize, phiAt, resetHeading, subscribe } from './heading';
-import { getCamera, resetCamera, setCamera } from '../cameraState';
+import { anchor, freeze, headingAt, hold, normalize, phiAt, resetHeading, setSpeedLimit, subscribe } from './heading';
+import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
+import { maxSpeed } from './view';
+import { parseManifest } from './manifest';
+import { wireManifest } from './manifest.fixture';
 
 const S = 1000;
 
@@ -83,14 +86,15 @@ describe('the heading owner', () => {
     expect(headingAt(20 * S)).toBe(40);
   });
 
-  it('a manual turn sets the view direction in every mode and stops the rotation: the mode is the viewer choice, still, the one fact', () => {
+  it('a manual turn sets the view direction in every mode and stops the rotation: the hold is the one fact, the chosen mode is left alone', () => {
     for (const mode of ['still', 'offset', 'both'] as const) {
       resetHeading();
       anchor('p', 0, 0);
       choose(mode, 1, 0);
       hold(300, 10 * S);
       expect(headingAt(10 * S)).toBe(300);
-      expect(getCamera().mode).toBe('still');
+      expect(getCamera().mode).toBe(mode);
+      expect(effectiveMode()).toBe('still');
       expect(headingAt(500 * S)).toBe(300);
       expect(phiAt(500 * S)).toBe(phiAt(10 * S));
       choose('both', 1, 500 * S); // a rotation mode chosen again resumes it
@@ -98,16 +102,39 @@ describe('the heading owner', () => {
     }
   });
 
-  it('a hold outlives a rebuild and a reload: nothing re-applies the mode the viewer had before it', () => {
+  it('a hold outlives a rebuild and not a reload: a reload is a Return, and rotation resumes in the chosen mode', () => {
     anchor('p', 0, 0);
     choose('both', 1, 0);
     hold(100, 10 * S);
     anchor('p', 0, 20 * S); // what every scene build does
     expect(headingAt(60 * S)).toBe(100);
+    expect(isHeld()).toBe(true);
     const stored = getCamera();
+    expect(stored.mode).toBe('both'); // what is stored is what the viewer chose
     resetCamera(); // a reload reads the stored choice
     expect(getCamera()).toEqual(stored);
-    expect(getCamera().mode).toBe('still');
+    expect(isHeld()).toBe(false);
+    expect(effectiveMode()).toBe('both');
+    resetHeading();
+    anchor('p', 0, 100 * S); // the new page faces its rest azimuth and turns
+    expect(headingAt(110 * S)).toBe(10);
+  });
+
+  it('bounds the speed at read for the mode and the place and never rewrites the stored one: switching to a mode with room restores it', () => {
+    const ring = parseManifest(wireManifest({}, 3, 32), '/d/');
+    const slow = maxSpeed(ring, 'both');
+    anchor('p', 0, 0);
+    choose('both', 50, 0);
+    setSpeedLimit((m) => maxSpeed(ring, m), 0);
+    expect(headingAt(10 * S)).toBeCloseTo(10 * slow, 9);
+    expect(getCamera().speedDegPerS).toBe(50); // the viewer's value
+    choose('offset', 50, 10 * S);
+    expect(phiAt(11 * S)).toBeCloseTo(12, 9); // the ceiling of that mode, not the turning mode's bound
+    choose('both', 50, 11 * S);
+    expect(headingAt(21 * S) - headingAt(11 * S)).toBeCloseTo(10 * slow, 9);
+    expect(getCamera().speedDegPerS).toBe(50);
+    setCamera({ speedDegPerS: -50 }, 21 * S);
+    expect(headingAt(31 * S) - headingAt(21 * S)).toBeCloseTo(-10 * slow, 9);
   });
 
   it('choosing the mode the viewer had before a hold resumes the view: the mode they had is not still any more, so the choice is a change', () => {
@@ -164,11 +191,9 @@ describe('the heading owner', () => {
     expect(cb).toHaveBeenCalledTimes(1);
     anchor('p', 0, 1);
     expect(cb).toHaveBeenCalledTimes(1);
-    hold(5, 2); // already still
-    expect(cb).toHaveBeenCalledTimes(2);
-    choose('both', 1, 3);
-    expect(cb).toHaveBeenCalledTimes(2); // the camera's listeners hear that
-    hold(6, 4); // takes the mode with it: told once, through the choice, not twice
+    hold(5, 2); // takes the hold: the camera's listeners hear that, once
+    expect(cb).toHaveBeenCalledTimes(1);
+    hold(6, 3); // turned again by hand while held: told here
     expect(cb).toHaveBeenCalledTimes(2);
     off();
     anchor('q', 0, 5);

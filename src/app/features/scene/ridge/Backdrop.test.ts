@@ -257,6 +257,22 @@ describe('createBackdrop', () => {
     expect(r.fetched).toHaveLength(n);
   });
 
+  it('asks for the tile under the view first and then outward, not outward from the middle of the sweep', async () => {
+    const r = rig();
+    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    // The sweep spans 144 to 216 degrees; the view is at its start, in tile 13 (146.25 to 157.5).
+    await bd.ensure({ fromDeg: 144, toDeg: 216 }, { fromDeg: 150, toDeg: 152 });
+    const order = [...new Set(r.fetched.map(tileOf))];
+    expect(order[0]).toBe(13);
+    const dist = (t: number) => Math.abs(t * 11.25 + 5.625 - 151);
+    expect(order.map(dist)).toEqual([...order.map(dist)].sort((a, b) => a - b));
+    // Without a view it is outward from the middle of the arc, as before.
+    const r2 = rig();
+    const bd2 = createBackdrop(manifest, sky, { ...r2, lighter: r2.lighter });
+    await bd2.ensure({ fromDeg: 144, toDeg: 216 });
+    expect([15, 16]).toContain(tileOf(r2.fetched[0])); // the two tiles either side of 180
+  });
+
   it('asks for the files of the tiles of an arc a few at a time, not one after another and not all at once', async () => {
     let active = 0;
     let most = 0;

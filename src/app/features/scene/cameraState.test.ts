@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CAMERA_KEY,
   DEFAULT_CAMERA,
+  effectiveMode,
   getCamera,
+  holdCamera,
+  isHeld,
   parseCamera,
   resetCamera,
   setCamera,
@@ -57,7 +60,41 @@ describe('the viewer camera', () => {
     const cb = vi.fn();
     subscribe(cb);
     setCamera({ mode: 'offset' }, 1234);
-    expect(cb).toHaveBeenCalledWith({ ...DEFAULT_CAMERA, mode: 'offset' }, DEFAULT_CAMERA, 1234);
+    expect(cb).toHaveBeenCalledWith({ ...DEFAULT_CAMERA, mode: 'offset' }, DEFAULT_CAMERA, 1234, false);
+  });
+
+  it('a hold is session state: the mode in effect is still, the chosen mode is untouched and stored as chosen, and a reload does not hold', () => {
+    setCamera({ mode: 'offset', speedDegPerS: 2 });
+    const cb = vi.fn();
+    subscribe(cb);
+    holdCamera(5);
+    expect(isHeld()).toBe(true);
+    expect(effectiveMode()).toBe('still');
+    expect(getCamera().mode).toBe('offset');
+    expect(JSON.parse(store.get(CAMERA_KEY) as string).mode).toBe('offset');
+    expect(cb).toHaveBeenCalledTimes(1);
+    holdCamera(6); // already held
+    expect(cb).toHaveBeenCalledTimes(1);
+    setCamera({ offsetM: 10 }); // a slider does not end a hold
+    expect(isHeld()).toBe(true);
+    resetCamera(); // a reload
+    expect(isHeld()).toBe(false);
+    expect(effectiveMode()).toBe('offset');
+  });
+
+  it('picking a mode ends a hold, the one already chosen included, and is heard as a change though nothing stored moved', () => {
+    setCamera({ mode: 'both' });
+    holdCamera(1);
+    const cb = vi.fn();
+    subscribe(cb);
+    setCamera({ mode: 'both' }, 9);
+    expect(isHeld()).toBe(false);
+    expect(effectiveMode()).toBe('both');
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb.mock.calls[0][2]).toBe(9);
+    expect(cb.mock.calls[0][3]).toBe(true); // it was held until this change
+    setCamera({ mode: 'both' }, 10); // nothing held, nothing changed
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a stored value that is not a choice, and a change that is not one', () => {

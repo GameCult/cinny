@@ -3,14 +3,15 @@
 // degrees between two `normalize` calls (the rig makes one before each stretch of motion, so they never grow with uptime); `ring.ts` is the one place
 // that reasons about 0 / 360. Nothing but this module advances `h` or `phi`.
 //
-// The rotation mode and its speed are not held here: they are the viewer's choice, `cameraState.ts`, the one owner. This module keeps only where the view
-// and the camera were at the clock `t0` and integrates them under the choice in force since, so it listens to the choice and takes the anchor to the moment
-// of each change (a manual turn is a change of the choice to 'still', which a rebuild or a reload therefore keeps).
+// The rotation mode, its speed and the hold are not held here: they are the viewer's choice and the session's hold, `cameraState.ts`, the one owner. This
+// module keeps only where the view and the camera were at the clock `t0` and integrates them under the mode in effect since (the chosen mode, 'still' while
+// held), with the speed bounded to what the baked place sustains in that mode (`setSpeedLimit`, derived at every read, never stored), so it listens to
+// cameraState and takes the anchor to the moment of each change. A rebuild keeps the hold; a reload (a Return) does not.
 //
 // The camera sits on its circle at angle `theta = h + phi`: with `phi` 0 it is pushed forward along its own heading (`view.ts` `cardPose`); rotating
 // the offset alone moves `phi` and leaves the view direction where it is (ruling ridge-scene-view-submenus). `phi` is 0 whenever the view direction turns
 // with the camera ('both'): picking that mode returns the camera to its heading.
-import { getCamera, setCamera, subscribe as onCamera } from '../cameraState';
+import { getCamera, holdCamera, isHeld, subscribe as onCamera } from '../cameraState';
 import type { CameraChoice } from '../cameraState';
 
 /** `still`: nothing turns. `offset`: the camera circles the centre, the view direction stays. `both`: the view direction turns and the camera with it. */
@@ -32,12 +33,20 @@ let state = initial();
 const listeners = new Set<() => void>();
 let unbind: (() => void) | undefined;
 
-const turning = (cam: CameraChoice, frozen: boolean): RotationMode => (frozen ? 'still' : cam.mode);
-const advanced = (now: number, cam: CameraChoice): number => (cam.speedDegPerS * (now - state.t0)) / 1000;
-const headingUnder = (now: number, cam: CameraChoice): number =>
-  state.h0 + (turning(cam, state.frozen) === 'both' ? advanced(now, cam) : 0);
-const phiUnder = (now: number, cam: CameraChoice): number =>
-  state.phi0 + (turning(cam, state.frozen) === 'offset' ? advanced(now, cam) : 0);
+/** The largest speed a mode may turn at here: the baked place's bound (`view.ts` `maxSpeed`), set by the scene that knows the place; none until then. */
+let speedLimit: ((mode: RotationMode) => number) | undefined;
+/** The mode in effect under a choice and a hold. */
+const turning = (cam: CameraChoice, held: boolean, frozen: boolean): RotationMode => (frozen || held ? 'still' : cam.mode);
+/** The speed the choice turns at, bounded for its mode at read: the stored value is the viewer's and is not rewritten. */
+const speedOf = (cam: CameraChoice): number => {
+  const limit = speedLimit?.(cam.mode) ?? Infinity;
+  return Math.sign(cam.speedDegPerS) * Math.min(Math.abs(cam.speedDegPerS), limit);
+};
+const advanced = (now: number, cam: CameraChoice): number => (speedOf(cam) * (now - state.t0)) / 1000;
+const headingUnder = (now: number, cam: CameraChoice, held = isHeld()): number =>
+  state.h0 + (turning(cam, held, state.frozen) === 'both' ? advanced(now, cam) : 0);
+const phiUnder = (now: number, cam: CameraChoice, held = isHeld()): number =>
+  state.phi0 + (turning(cam, held, state.frozen) === 'offset' ? advanced(now, cam) : 0);
 
 /** The view direction at `now` (ms): unwrapped degrees, bounded by the last `normalize` and the stretch since. */
 export const headingAt = (now: number): number => headingUnder(now, getCamera());
@@ -47,15 +56,22 @@ export const phiAt = (now: number): number => phiUnder(now, getCamera());
 const emit = () => [...listeners].forEach((cb) => cb());
 
 /** Take `h`, `phi` and the clock to `now` under the choice `cam` in force until now: the one way a value is replaced, so no change makes the view jump. */
-function settle(now: number, cam: CameraChoice, over: Partial<State> = {}, h = headingUnder(now, cam), phi = phiUnder(now, cam)): void {
+function settle(
+  now: number,
+  cam: CameraChoice,
+  over: Partial<State> = {},
+  h = headingUnder(now, cam),
+  phi = phiUnder(now, cam)
+): void {
   state = { ...state, ...over, h0: h, phi0: phi, t0: now };
 }
 
 /** Listen to the viewer's choice from now on (again, if a test cleared the listeners): a change of mode or speed lands on the anchor at the moment it is made. */
 function bind(): void {
   unbind?.();
-  unbind = onCamera((next, prev, at) => {
-    settle(at, prev, {}, undefined, next.mode === 'both' ? 0 : undefined);
+  unbind = onCamera((next, prev, at, wasHeld) => {
+    // Taken to the moment of the change under the choice and hold in force until it; picking 'both' puts the camera on its heading.
+    settle(at, prev, {}, headingUnder(at, prev, wasHeld), next.mode === 'both' && !isHeld() ? 0 : phiUnder(at, prev, wasHeld));
   });
 }
 
@@ -72,14 +88,20 @@ export function anchor(key: string, restDeg: number, now: number): void {
 
 /**
  * A manual turn: the view direction becomes `h` now, in every mode, and the rotation stops where the viewer left it (ruling ridge-view-turn-handback): the
- * viewer's mode becomes 'still', the one owner of it, so a rebuild or a reload keeps the hold and choosing a rotation mode again, the one already shown
- * included, resumes it.
+ * view is held in cameraState, which leaves the chosen mode as it is. A rebuild keeps the hold, a reload does not, and picking a rotation mode, the one
+ * already chosen included, resumes it.
  */
 export function hold(h: number, now: number): void {
-  const wasStill = getCamera().mode === 'still';
+  const wasHeld = isHeld();
   settle(now, getCamera(), {}, h);
-  if (wasStill) emit();
-  else setCamera({ mode: 'still' }, now); // the camera's listeners tell everyone, once
+  if (wasHeld) emit();
+  else holdCamera(now); // the camera's listeners tell everyone, once
+}
+
+/** Bound the speed in each mode to what the baked place sustains (`view.ts` `maxSpeed`); the anchor is taken to now first, so nothing jumps. */
+export function setSpeedLimit(limit: ((mode: RotationMode) => number) | undefined, now: number): void {
+  settle(now, getCamera());
+  speedLimit = limit;
 }
 
 /** Nothing turns while `on` (reduced motion), whatever the viewer chose; the view stays where it is. */
@@ -109,6 +131,7 @@ export function subscribe(cb: () => void): () => void {
 export function resetHeading(): void {
   unbind?.();
   unbind = undefined;
+  speedLimit = undefined;
   state = initial();
   listeners.clear();
 }

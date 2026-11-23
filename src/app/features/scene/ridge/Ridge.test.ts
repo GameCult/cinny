@@ -15,7 +15,7 @@ import type { Mock } from 'vitest';
 import { cardArc, cardPose, FALLBACK_VIEW, maxSpeed, offsetRange, windowFor } from './view';
 import { residentTiles } from './ring';
 import { anchor, headingAt, hold, phiAt, resetHeading } from './heading';
-import { getCamera, resetCamera, setCamera } from '../cameraState';
+import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
 
 describe('noise', () => {
   it('is deterministic and in [0, 1)', () => {
@@ -562,7 +562,7 @@ describe('the ridge cards in the scene', () => {
         return [{ tile, card, canvas: canvas as unknown as HTMLCanvasElement }];
       })
     );
-  const litCards = (): Backdrop & { ensure: Mock<[Arc], Promise<void>>; dispose: Mock<[], void> } => {
+  const litCards = (): Backdrop & { ensure: Mock<[Arc, Arc?], Promise<void>>; dispose: Mock<[], void> } => {
     const lit = tilesOf();
     return {
       manifest,
@@ -854,7 +854,7 @@ describe('the ridge cards in the scene', () => {
   describe('after the viewer takes the view by hand, and for the long run', () => {
     const fixtureRing = (camera: Record<string, number> = { r_max_m: 98.2, r_max_forward_m: 205.4 }) =>
       parseManifest(wireManifest({ camera }, 3, 32), '/d/'); // the ring as the baker cuts it, with Vienna's two offset bounds
-    const ringBackdrop = (m: typeof manifest): Backdrop & { ensure: Mock<[Arc], Promise<void>> } => {
+    const ringBackdrop = (m: typeof manifest): Backdrop & { ensure: Mock<[Arc, Arc?], Promise<void>> } => {
       const lit = m.tiles.flatMap((row, tile) =>
         row.flatMap((e, card) => {
           if (!e) return [];
@@ -865,7 +865,7 @@ describe('the ridge cards in the scene', () => {
       );
       return {
         manifest: m,
-        ensure: vi.fn(async (_arc: Arc): Promise<void> => undefined),
+        ensure: vi.fn(async (_arc: Arc, _first?: Arc): Promise<void> => undefined),
         litTiles: () => lit,
         dispose: vi.fn(),
       };
@@ -885,7 +885,8 @@ describe('the ridge cards in the scene', () => {
       const at = headingAt(T0);
       window.dispatchEvent(new Event('resize'));
       vi.advanceTimersByTime(300); // the debounced rebuild: startRig runs again
-      expect(getCamera().mode).toBe('still');
+      expect(effectiveMode()).toBe('still'); // held, and the chosen mode untouched
+      expect(getCamera().mode).toBe('both');
       expect(headingAt(T0 + 60_000)).toBe(at);
       rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).toBe(frame(box, 0)));
       s.dispose();
@@ -901,7 +902,9 @@ describe('the ridge cards in the scene', () => {
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
       hold(100, T0);
       rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).toBe(frame(box, 0)));
+      expect(isHeld()).toBe(true);
       setCamera({ mode: 'both' }); // what the View's rotation picker sends: the mode the viewer had when they took the view
+      expect(isHeld()).toBe(false);
       expect(headingAt(T0 + 10_000)).toBeCloseTo(106, 9);
       rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).not.toBe(frame(box, 0)));
       s.dispose();
@@ -943,6 +946,24 @@ describe('the ridge cards in the scene', () => {
       vi.useRealTimers();
     });
 
+    it('tells the loader where the view is now besides the arc it will sweep, so the tiles on screen are asked for first', () => {
+      pending();
+      const ring = fixtureRing();
+      const bd = ringBackdrop(ring);
+      const w2 = windowFor(ring.view, 400, 800);
+      const { canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: bd })!;
+      vi.advanceTimersByTime(500);
+      const [arc, first] = bd.ensure.mock.calls[0];
+      expect(first).toBeDefined();
+      const now = [0, 1, 2].map((i) => cardArc(ring.view, w2, 400, cardPose(ring, i, headingAt(T0), phiAt(T0), 200, w2)));
+      expect(first!.fromDeg).toBeCloseTo(Math.min(...now.map((a) => a.fromDeg)), 6);
+      expect(first!.toDeg).toBeCloseTo(Math.max(...now.map((a) => a.toDeg)), 6);
+      expect(first!.toDeg - first!.fromDeg).toBeLessThan(arc.toDeg - arc.fromDeg);
+      s.dispose();
+      vi.useRealTimers();
+    });
+
     it('takes the default 200 m where the camera stays on its heading and the bake allows it, and the worst-case bound where the camera circles', () => {
       const ring = fixtureRing();
       const w2 = windowFor(ring.view, 400, 800);
@@ -962,7 +983,7 @@ describe('the ridge cards in the scene', () => {
       expect(keyframe0('offset')).toBe(posed(98.2));
     });
 
-    it('bounds the speed to what the baked resident count sustains, in the stored choice itself, at the scene start and on every change', () => {
+    it('bounds the speed at read to what the baked resident count sustains, for the mode in force, and never rewrites the stored speed', () => {
       const ring = fixtureRing();
       const slow = maxSpeed(ring, 'both');
       expect(slow).toBeGreaterThan(0.6);
@@ -970,14 +991,34 @@ describe('the ridge cards in the scene', () => {
       setCamera({ mode: 'both', speedDegPerS: 50 }); // a stored or future-slider value
       const { canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
-      expect(getCamera().speedDegPerS).toBe(slow);
-      setCamera({ speedDegPerS: -50 });
-      expect(getCamera().speedDegPerS).toBe(-slow);
-      setCamera({ mode: 'offset', speedDegPerS: 11 }); // the offset-only mode sweeps the circle the gate counts, whatever the speed
-      expect(getCamera().speedDegPerS).toBe(11);
-      setCamera({ mode: 'both' }); // and back to the view turning: the bound of that mode holds
-      expect(getCamera().speedDegPerS).toBe(slow);
+      expect(getCamera().speedDegPerS).toBe(50);
       expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(10 * slow, 9);
+      setCamera({ speedDegPerS: -50 });
+      expect(getCamera().speedDegPerS).toBe(-50);
+      expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(-10 * slow, 9);
+      setCamera({ mode: 'offset', speedDegPerS: 11 }); // the offset-only mode sweeps the circle the gate counts, whatever the speed
+      expect(phiAt(T0 + 10_000) - phiAt(T0)).toBeCloseTo(110, 9);
+      setCamera({ mode: 'both' });
+      expect(getCamera().speedDegPerS).toBe(11); // still the viewer's value
+      expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(10 * slow, 9);
+      s.dispose();
+    });
+
+    it('derives the offset clamp at read and never writes it back: offset-only to a forward mode restores 200 m', () => {
+      const ring = fixtureRing();
+      const w2 = windowFor(ring.view, 400, 800);
+      setCamera({ mode: 'offset', speedDegPerS: 0.6, offsetM: 200 });
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
+      const posed = (offset: number) => {
+        const p = cardPose(ring, 0, headingAt(T0), phiAt(T0), offset, w2);
+        return `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
+      };
+      expect(frame(rigOf(parent).children[2], 0)).toBe(posed(98.2));
+      expect(getCamera().offsetM).toBe(200);
+      setCamera({ mode: 'both' });
+      expect(getCamera().offsetM).toBe(200);
+      expect(frame(rigOf(parent).children[2], 0)).toBe(posed(200));
       s.dispose();
     });
 
