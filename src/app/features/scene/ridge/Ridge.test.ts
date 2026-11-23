@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRidgeScene } from './Ridge';
 import { valueNoise, hash2 } from './noise';
@@ -8,13 +10,13 @@ import { sunAt } from './sunAt';
 import { makePhysicalSky, paintSky as paintPhysicalSky } from './physicalSky';
 import { sunOfBand } from './skyTestkit';
 import { startBackgroundScene } from '../index';
-import { parseManifest } from './manifest';
+import { parseIndex, parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
 import type { Arc, Backdrop, LitTile } from './Backdrop';
 import type { Mock } from 'vitest';
-import { cardArc, cardPose, FALLBACK_VIEW, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
+import { cardArc, cardPose, FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
 import { residentTiles } from './ring';
-import { anchor, EASE_MS, headingAt, hold, phiAt, resetHeading } from './heading';
+import { anchor, EASE_MS, headingAt, hold, phiAt, resetHeading, shownPhiAt } from './heading';
 import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
 
 describe('noise', () => {
@@ -1057,6 +1059,141 @@ describe('the ridge cards in the scene', () => {
       eased.slice(1).forEach((f: any, i: number) => expect(Math.abs(scale(f) - scale(eased[i]))).toBeLessThan(jump / 4));
       expect(run.keyframes.at(-1).offset).toBe(1);
       s.dispose();
+    });
+
+    describe('the ease of a mode pick stays inside the fit of the card slide', () => {
+      // The baked Vienna: its distances and its two bounds, as shipped.
+      const root = join(process.cwd(), 'public', 'ridge');
+      const dir = parseIndex(JSON.parse(readFileSync(join(root, 'index.json'), 'utf8'))).places.vienna;
+      const vienna = parseManifest(JSON.parse(readFileSync(join(root, dir, 'manifest.json'), 'utf8')), `${dir}/`);
+      const FIT_PX_MAX = 24; // scripts/ridge-bake/export.py
+      /** The baker's `fit_px` (export.py): the worst error, in card px, of a card at distance `d` metres seen from offset `r` at camera angle `phiDeg`, against its least-squares line over the widest field. */
+      const fitPx = (d: number, r: number, phiDeg: number): number => {
+        const n = 33;
+        const b = Array.from({ length: n }, (_, i) => ((-HFOV_MAX_DEG / 2 + (HFOV_MAX_DEG * i) / (n - 1)) * Math.PI) / 180);
+        const phi = (phiDeg * Math.PI) / 180;
+        const a = b.map((x) => Math.atan2(d * Math.sin(x) - r * Math.sin(phi), d * Math.cos(x) - r * Math.cos(phi)));
+        const mean = (v: number[]) => v.reduce((x, y) => x + y, 0) / v.length;
+        const bc = b.map((x) => x - mean(b));
+        const s = a.reduce((acc, y, i) => acc + y * bc[i], 0) / bc.reduce((acc, y) => acc + y * y, 0);
+        const am = mean(a);
+        return (Math.max(...a.map((y, i) => Math.abs(y - (am + s * bc[i])))) * 180) / Math.PI * vienna.view.pxPerDegH;
+      };
+      const distances = vienna.tiles.flatMap((row) => row.flatMap((e) => (e ? [e.distanceM] : [])));
+      /** The worst of every card of the bake at the camera angle `phiDeg` and offset `r`. */
+      const worstPx = (r: number, phiDeg: number): number => Math.max(...distances.map((d) => fitPx(d, r, phiDeg)));
+      const w2 = windowFor(vienna.view, 400, 800);
+      /** The offset a keyframe's pose was made from: the one `cardPose` gives the transform at this heading and camera angle (a scan, then a finer one), with how far it is off. */
+      const offsetOf = (transform: string, heading: number, phi: number): { r: number; miss: number } => {
+        const m = /translate3d\((-?[\d.e+-]+)px,0,0\) scale\((-?[\d.e+-]+)\)/.exec(transform)!;
+        const want = { shiftPx: Number(m[1]), scale: Number(m[2]) };
+        const miss = (r: number) => {
+          const p = cardPose(vienna, 0, heading, phi, r, w2);
+          return Math.hypot(p.shiftPx - want.shiftPx, (p.scale - want.scale) * 400);
+        };
+        let best = { r: 0, miss: Infinity };
+        for (const step of [0.5, 0.02, 0.001]) {
+          const from = best.miss === Infinity ? -300 : best.r - 20 * step;
+          const to = best.miss === Infinity ? 300 : best.r + 20 * step;
+          for (let r = from; r <= to; r += step) {
+            const e = miss(r);
+            if (e < best.miss) best = { r, miss: e };
+          }
+        }
+        return best;
+      };
+      /** Every (camera angle, offset) a stretch of keyframes poses card 0 from, recovered from the transforms, from the pick on. */
+      const pairsOf = (box: any, at: number): { phi: number; r: number; ms: number; miss: number }[] => {
+        const keys = live(box)[0].keyframes;
+        return keys.map((f: any, n: number) => {
+          const ms = (f.offset ?? n / (keys.length - 1)) * SEGMENT_S * 1000;
+          const phi = shownPhiAt(at + ms);
+          return { phi, ms, ...offsetOf(f.transform, headingAt(at + ms), phi) };
+        });
+      };
+      const pick = (from: { mode: 'both' | 'offset'; speed: number; waitS: number }, to: 'both' | 'offset') => {
+        setCamera({ mode: from.mode, speedDegPerS: from.speed, offsetM: 200 });
+        const { parent, canvas } = host();
+        const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(vienna) })!;
+        const at = T0 + from.waitS * 1000;
+        vi.mocked(performance.now).mockReturnValue(at);
+        setCamera({ mode: to }, at);
+        const got = pairsOf(rigOf(parent).children[2], at);
+        s.dispose();
+        return got;
+      };
+
+      it('measures the fit as the baker does: Vienna sits at the bound at its two offsets, and above it past them', () => {
+        const { rMaxM, rMaxForwardM } = vienna.camera;
+        expect([rMaxM, rMaxForwardM]).toEqual([98.2, 205.4]);
+        expect(Math.max(...[0, 15, 30, 45, 90, 135, 180, 270].map((phi) => worstPx(rMaxM, phi)))).toBeGreaterThan(FIT_PX_MAX - 0.5);
+        expect(Math.max(...[0, 15, 30, 45, 90, 135, 180, 270].map((phi) => worstPx(rMaxM, phi)))).toBeLessThanOrEqual(FIT_PX_MAX);
+        expect(worstPx(rMaxForwardM, 0)).toBeGreaterThan(FIT_PX_MAX - 0.5);
+        expect(worstPx(rMaxForwardM, 0)).toBeLessThanOrEqual(FIT_PX_MAX);
+        expect(worstPx(200, 90)).toBeGreaterThan(FIT_PX_MAX); // the blend the ease used to pass through
+      });
+
+      [
+        { name: 'offset-only to both from the camera a quarter round', from: { mode: 'offset', speed: 12, waitS: 7.5 }, to: 'both' },
+        { name: 'offset-only to both with the camera half way round', from: { mode: 'offset', speed: 12, waitS: 15 }, to: 'both' },
+        { name: 'offset-only to both with the camera just off its heading', from: { mode: 'offset', speed: 12, waitS: 1.25 }, to: 'both' },
+        { name: 'both to offset-only at the default speed', from: { mode: 'both', speed: 0.6, waitS: 3 }, to: 'offset' },
+        { name: 'both to offset-only at the fastest turn', from: { mode: 'both', speed: 12, waitS: 3 }, to: 'offset' },
+      ].forEach(({ name, from, to }) => {
+        it(`${name}: every keyframe is the pose of an angle and an offset inside the card fit, at Vienna's bounds`, () => {
+          const got = pick(from as any, to as any);
+          expect(got.length).toBeGreaterThan(12);
+          got.forEach((g) => expect(g.miss, `a pose of the camera at ${g.phi.toFixed(1)} degrees, ${g.r.toFixed(1)} m`).toBeLessThan(0.05));
+          const worst = Math.max(...got.map((g) => worstPx(g.r, g.phi)));
+          expect(worst).toBeLessThanOrEqual(FIT_PX_MAX + 0.05);
+          // The angle and the offset take a stage each: never both between their ends at once.
+          const moving = (v: number[], i: number) => i > 0 && Math.abs(v[i] - v[i - 1]) > 1e-3;
+          const phis = got.map((g) => g.phi);
+          const rs = got.map((g) => g.r);
+          got.forEach((_, i) => expect(moving(phis, i) && moving(rs, i), `keyframe ${i}`).toBe(false));
+          const last = got.at(-1)!;
+          expect(last.r).toBeCloseTo(to === 'both' ? 200 : vienna.camera.rMaxM, 1); // the offset owed: the default 200, or the bound of the circling mode
+          if (to === 'both') expect(last.phi).toBe(0);
+        });
+      });
+    });
+
+    describe('under reduced motion there is no ease: the pose owed is the pose issued', () => {
+      const owed = (ring: typeof manifest, offset: number, phi: number, at = T0) => {
+        const p = cardPose(ring, 0, headingAt(at), phi, offset, windowFor(ring.view, 400, 800));
+        return `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
+      };
+
+      it('lands on the offset the mode allows at the pick, each way, and the next pick starts from there', () => {
+        const ring = fixtureRing();
+        motion.matches = true;
+        setCamera({ mode: 'both', speedDegPerS: 0.6, offsetM: 200 });
+        const { parent, canvas } = host();
+        const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
+        const box = () => rigOf(parent).children[2];
+        expect(frame(box(), 0)).toBe(owed(ring, 200, 0));
+        setCamera({ mode: 'offset' });
+        expect(frame(box(), 0)).toBe(owed(ring, 98.2, 0)); // the clamp, at once: not the 200 m it showed
+        setCamera({ mode: 'both' });
+        expect(frame(box(), 0)).toBe(owed(ring, 200, 0)); // and back, not the 98.2 it was left at
+        s.dispose();
+      });
+
+      it('lands on the camera angle the mode owes when the setting arrives with the camera turned away from its heading', () => {
+        const ring = fixtureRing();
+        setCamera({ mode: 'offset', speedDegPerS: 12, offsetM: 200 });
+        const { parent, canvas } = host();
+        const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
+        const at = T0 + 7_500; // a quarter round
+        vi.mocked(performance.now).mockReturnValue(at);
+        motion.matches = true;
+        motion.addEventListener.mock.calls.filter((c: any) => c[0] === 'change').forEach((c: any) => c[1]());
+        expect(phiAt(at)).toBeCloseTo(90, 6);
+        setCamera({ mode: 'both' }, at);
+        expect(phiAt(at + 10_000)).toBe(0);
+        expect(frame(rigOf(parent).children[2], 0)).toBe(owed(ring, 200, 0, at));
+        s.dispose();
+      });
     });
 
     it('keeps the angles, the transforms and the tile positions bounded after days of uptime: the rig normalizes before each stretch', () => {

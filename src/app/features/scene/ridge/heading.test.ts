@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { anchor, EASE_MS, easeEndsAt, freeze, headingAt, hold, normalize, phiAt, resetHeading, setSpeedLimit, shownPhiAt, subscribe } from './heading';
+import { anchor, EASE_MS, easeEndsAt, freeze, headingAt, hold, normalize, offsetFreeAt, phiAt, resetHeading, setSpeedLimit, shownPhiAt, STAGE_MS, subscribe } from './heading';
 import { effectiveMode, getCamera, isHeld, resetCamera, setCamera, subscribe as onCamera } from '../cameraState';
 import { maxSpeed } from './view';
 import { parseManifest } from './manifest';
@@ -211,18 +211,35 @@ describe('the heading owner', () => {
     expect(headingAt(10 * S)).toBeCloseTo(214 + 10 * slow, 9);
   });
 
-  it('settles before a listener that was added after it reads it, however often the place is anchored again', () => {
+  it('answers the same to a listener of the camera whenever it registered: the heading is computed at read from the clock and the changes, not from state a listener may reach before it is settled', () => {
     setCamera({ mode: 'both', speedDegPerS: 1 }, 0);
+    const early: number[] = [];
+    const offEarly = onCamera((_n, _p, at) => early.push(headingAt(at))); // subscribed before the place is anchored: the first of the listeners, as a control mounted before the scene start is
     anchor('p', 214, 0);
-    let read = NaN;
-    const off = onCamera((_next, _prev, at) => (read = headingAt(at))); // the old rig: subscribed after the owner
-    anchor('p', 214, 1 * S); // a rebuild for a sky re-binds the owner: it must keep its place in the order
-    setCamera({ mode: 'still' }, 2 * S);
-    expect(read).toBeCloseTo(214 + 2, 9); // the heading at the change, not the one the last settle left
-    off();
+    const late: number[] = [];
+    const offLate = onCamera((_n, _p, at) => late.push(headingAt(at)));
+    anchor('p', 214, 1 * S); // a rebuild for a sky anchors the same place again
+    setCamera({ speedDegPerS: 4 }, 5 * S);
+    expect(headingAt(10 * S)).toBeCloseTo(214 + 5 + 20, 9);
+    setCamera({ mode: 'still' }, 11 * S);
+    expect(early).toEqual(late);
+    expect(early[0]).toBeCloseTo(214 + 5, 9); // the heading at the change, with the speed it had until it
+    expect(early[1]).toBeCloseTo(214 + 5 + 24, 9);
+    offEarly();
+    offLate();
   });
 
-  it('eases a pick of the turning mode: the angle shown starts where the viewer saw it and ends where the camera goes, the kinematics never wait for it', () => {
+  it('takes the changes made between two reads in order, each at its own moment', () => {
+    anchor('p', 100, 0);
+    choose('both', 2, 0);
+    choose('both', 4, 3 * S); // 6 degrees by then
+    choose('offset', 4, 5 * S); // 14 degrees: the view stops, the camera starts
+    choose('both', 1, 7 * S); // the camera went 8 degrees round, and is put back on its heading
+    expect(headingAt(9 * S)).toBeCloseTo(100 + 14 + 2, 9);
+    expect(phiAt(9 * S)).toBe(0);
+  });
+
+  it('eases a pick to a forward mode in two stages: the angle first, the offset let out after it, and the kinematics never wait for either', () => {
     anchor('p', 100, 0);
     choose('offset', 12, 0);
     expect(phiAt(7.5 * S)).toBeCloseTo(90, 9);
@@ -231,9 +248,11 @@ describe('the heading owner', () => {
     expect(phiAt(at)).toBe(0); // where it is going
     expect(shownPhiAt(at)).toBeCloseTo(90, 9); // what is seen at the instant of the pick
     expect(easeEndsAt()).toBe(at + EASE_MS);
-    const shown = [0, 0.25, 0.5, 0.75, 1].map((x) => shownPhiAt(at + x * EASE_MS));
+    expect(offsetFreeAt()).toBe(at + STAGE_MS); // the offset waits for the angle
+    const shown = [0, 0.25, 0.5, 0.75, 1].map((x) => shownPhiAt(at + x * STAGE_MS));
     shown.slice(1).forEach((v, i) => expect(v).toBeLessThan(shown[i]));
-    expect(shown[4]).toBe(0);
+    expect(shown[4]).toBe(0); // the angle is home when the offset starts
+    expect(shownPhiAt(at + EASE_MS)).toBe(0);
     expect(shownPhiAt(at + 10 * S)).toBe(0);
     // The way round is the short one: 270 degrees on is a pick that eases 90 forward.
     choose('offset', 12, at + 10 * S);
@@ -241,8 +260,40 @@ describe('the heading owner', () => {
     expect(phiAt(t) % 360).toBeCloseTo(270, 9);
     choose('both', 12, t);
     expect(shownPhiAt(t)).toBeCloseTo(phiAt(t) + (-90), 9);
-    // A pick that changes nothing the viewer sees eases nothing; a hold in the mode the camera circles in keeps its angle.
+    // A speed that changes nothing the viewer sees eases nothing.
     choose('both', 6, t + 10 * S);
     expect(shownPhiAt(t + 10 * S + 1)).toBeCloseTo(0, 6);
+  });
+
+  it('eases a pick to the offset-only mode in two stages the other way: the offset comes in first with the camera held where it stood, then the angle is let go', () => {
+    anchor('p', 100, 0);
+    choose('both', 12, 0);
+    choose('offset', 12, 10 * S);
+    const at = 10 * S;
+    expect(offsetFreeAt()).toBe(at); // the offset goes at once
+    expect(phiAt(at + 3 * S)).toBeCloseTo(36, 9); // the camera is going round ...
+    [0, 0.5, 1].forEach((x) => expect(shownPhiAt(at + x * STAGE_MS)).toBe(0)); // ... and is seen where it stood while the offset comes in
+    const after = [0, 0.25, 0.5, 0.75, 1].map((x) => shownPhiAt(at + STAGE_MS + x * STAGE_MS));
+    after.slice(1).forEach((v, i) => expect(v).toBeGreaterThan(after[i]));
+    expect(shownPhiAt(at + EASE_MS)).toBeCloseTo(phiAt(at + EASE_MS), 9); // and has caught up when the ease is spent
+    expect(shownPhiAt(at + 10 * S)).toBeCloseTo(phiAt(at + 10 * S), 9);
+  });
+
+  it('has no ease under reduced motion: the angle owed is the angle shown at once, and one begun before is cut short', () => {
+    anchor('p', 100, 0);
+    choose('offset', 12, 0);
+    freeze(true, 0);
+    hold(100, 1); // frozen: nothing turned
+    freeze(false, 2);
+    choose('offset', 12, 3);
+    const t = 10 * S;
+    choose('both', 12, t);
+    expect(shownPhiAt(t + 1)).not.toBeCloseTo(phiAt(t + 1), 3); // an ease is under way (the camera had turned)
+    freeze(true, t + 2);
+    expect(shownPhiAt(t + 3)).toBe(phiAt(t + 3));
+    setCamera({ mode: 'offset', speedDegPerS: 12 }, t + 4);
+    setCamera({ mode: 'both', speedDegPerS: 12 }, t + 5);
+    expect(shownPhiAt(t + 6)).toBe(0);
+    expect(easeEndsAt()).toBe(0);
   });
 });

@@ -7,7 +7,7 @@ import { cardArc, cardPose, offsetRange, SEGMENT_S, sweepArc, windowFor } from '
 import type { CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
-import { easeEndsAt, easeLeft, EASE_MS, freeze, headingAt, normalize, phiAt, shownPhiAt, subscribe as onHeading } from './heading';
+import { easeEndsAt, easeLeft, freeze, headingAt, normalize, offsetFreeAt, phiAt, shownPhiAt, STAGE_MS, subscribe as onHeading } from './heading';
 import { effectiveMode, getCamera, subscribe as onCamera } from '../cameraState';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
@@ -304,12 +304,15 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     }
     const anims: (Animation | undefined)[] = new Array(k).fill(undefined);
     freeze(reducedMotion?.matches === true, clock()); // reduced motion turns nothing, whatever the viewer chose
-    // The offset the cards are posed at is eased, as the camera's angle is (`heading.ts` `shownPhiAt`): when the clamp moves it (a mode that keeps the camera on
-    // its heading lets a forward offset go further), the view goes from the offset it showed to the new one over EASE_MS instead of jumping.
+    // The offset the cards are posed at is eased, as the camera's angle is (`heading.ts` `shownPhiAt`) but not with it: when the clamp moves it (a mode that keeps the
+    // camera on its heading lets a forward offset go further), it goes from the offset it showed to the new one in a stage of its own, STAGE_MS from `offsetAt`, the
+    // moment the angle lets it. Every pose between is a pose of the camera at an angle and an offset the mode's bound holds, never a blend of two. Reduced motion has
+    // no ease: the offset asked for is the one shown.
     let offset = offsetNow(bd, win);
     let offsetFrom = offset;
-    let offsetEase = -Infinity;
-    const offsetShown = (t: number): number => offset + (offsetFrom - offset) * easeLeft(offsetEase, t);
+    let offsetAt = -Infinity;
+    const calm = (): boolean => reducedMotion?.matches === true;
+    const offsetShown = (t: number): number => (calm() ? offset : offset + (offsetFrom - offset) * easeLeft(offsetAt, t));
     const poseAt = (card: number, t: number): CardPose =>
       cardPose(bd.manifest, card, headingAt(t), shownPhiAt(t), offsetShown(t), win);
     const transform = (p: CardPose) => `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
@@ -325,12 +328,12 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (next !== offset) {
         offsetFrom = offsetShown(t0);
         offset = next;
-        offsetEase = t0;
+        offsetAt = Math.max(t0, offsetFreeAt());
       }
       issuedAt = t0;
-      const frozen = reducedMotion?.matches === true;
+      const frozen = calm();
       // A stretch with an ease in it is keyed finely while the ease runs (its keyframes at explicit offsets of the stretch), a second apart after.
-      const easeMs = Math.min(SEGMENT_S * 1000, Math.max(0, easeEndsAt(), offsetEase + EASE_MS) - t0);
+      const easeMs = Math.min(SEGMENT_S * 1000, Math.max(0, easeEndsAt(), offsetAt + STAGE_MS) - t0);
       const times = easeMs > 0 && !frozen ? easeTimes(easeMs) : null;
       for (let i = 0; i < k; i += 1) {
         const frames: Keyframe[] = frozen
