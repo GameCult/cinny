@@ -68,14 +68,23 @@ const loader = () => {
     fail: false,
     calls: [] as any[],
     made: [] as any[],
+    /** The loader's retry succeeds: every backdrop that was asked while `fail` was set now holds a tile, and tells whoever listens. */
+    arrive: () => undefined as void,
   };
+  const heard = new Set<() => void>();
+  ctl.arrive = () => {
+    arrived = true;
+    [...heard].forEach((cb) => cb());
+  };
+  let arrived = false;
   createBackdrop.mockImplementation((manifest: unknown, physical: unknown) => {
     const fails = ctl.fail; // the outcome belongs to the request, whenever it settles
     let made = false;
     const bd = {
       manifest,
       dispose: vi.fn(),
-      litTiles: () => (made && !fails ? [{ tile: 0, card: 0, canvas: {} }] : []),
+      litTiles: () => (made && (!fails || arrived) ? [{ tile: 0, card: 0, canvas: {} }] : []),
+      onTile: vi.fn((cb: () => void) => (heard.add(cb), () => void heard.delete(cb))),
       ensure: vi.fn(
         () =>
           new Promise<void>((resolve) => {
@@ -1023,26 +1032,56 @@ describe('the ridge cards and the live scene', () => {
     scene?.dispose();
   });
 
-  it('a rebuild that ends with no tile keeps the scene that is up: nothing is swapped, nothing is told, its backdrop is disposed, and the next change of sky tries again', async () => {
+  it('a rebuild has no failure end: with no tile it stays pending beside the scene that is up (its loader asking again), replaces it the moment a tile is held, and the ink follows the sky drawn throughout', async () => {
     serve();
     const d = loader();
     const [first, second] = [fakeScene(), fakeScene()];
     createRidgeScene.mockReturnValueOnce(first).mockReturnValueOnce(second);
     const [onPlanesFail, onInactive, onActive] = [vi.fn(), vi.fn(), vi.fn()];
-    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onInactive, onActive });
-    d.ctl.fail = true; // the link blinks for the whole pass of the rebuild
     setSkyChoice(NOON);
+    const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail, onInactive, onActive });
+    expect(scene?.drawnSky).toBe('day');
+    d.ctl.fail = true; // the link blinks for the whole pass of the rebuild
+    setSkyChoice(NIGHT);
+    await flush();
     await flush();
     expect(createRidgeScene).toHaveBeenCalledOnce();
     expect(first.dispose).not.toHaveBeenCalled(); // the ridge that was fine is still up
-    expect(d.ctl.made[1].dispose).toHaveBeenCalledOnce();
+    expect(d.ctl.made[1].dispose).not.toHaveBeenCalled(); // and the build for the new sky is alive, not given up
+    expect(getResolvedSkyState()).toBe('night'); // the sky is announced as night
+    expect(scene?.drawnSky).toBe('day'); // the scene up draws day, and that is what the ink follows
     expect([onPlanesFail, onInactive, onActive].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
-    d.ctl.fail = false;
-    setSkyChoice(DUSK); // the next change of sky: the one that failed was never drawn, and this is built now
+    d.ctl.arrive(); // the loader's retry got a tile through
     await flush();
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
     expect(first.dispose).toHaveBeenCalledOnce();
     expect(onActive).toHaveBeenCalledOnce();
+    expect(onActive).toHaveBeenCalledWith('night');
+    expect(scene?.drawnSky).toBe('night');
+    expect(onPlanesFail).not.toHaveBeenCalled();
+    scene?.dispose();
+  });
+
+  it('a pending rebuild is superseded by a newer one, which is given up at once; the newest replaces the scene', async () => {
+    serve();
+    const d = loader();
+    const [first, second] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const onActive = vi.fn();
+    setSkyChoice(NOON);
+    const scene = await startBackgroundScene(config, caps, { canvas, onActive });
+    d.ctl.fail = true;
+    setSkyChoice(NIGHT);
+    await flush();
+    setSkyChoice(DUSK);
+    await flush();
+    expect(d.ctl.made[1].dispose).toHaveBeenCalledOnce();
+    expect(d.ctl.made[2].dispose).not.toHaveBeenCalled();
+    d.ctl.arrive();
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(onActive).toHaveBeenCalledOnce();
+    expect(onActive).toHaveBeenCalledWith('dusk');
     scene?.dispose();
   });
 
@@ -1085,11 +1124,15 @@ describe('the ridge cards and the live scene', () => {
     await flush();
     expect(onPlanesOk).toHaveBeenCalledOnce();
     expect(createRidgeScene.mock.calls[2][0].backdrop).toBeDefined();
-    d.ctl.fail = true; // a rebuild that ends with no tile does not take the planes from the scene that has them
+    d.ctl.fail = true; // a rebuild with no tile does not take the planes from the scene that has them: it waits
     setSkyChoice(NIGHT);
     await flush();
     expect(onPlanesFail).toHaveBeenCalledOnce();
     expect(createRidgeScene).toHaveBeenCalledTimes(3);
+    d.ctl.arrive();
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(4);
+    expect(onPlanesFail).toHaveBeenCalledOnce();
     scene?.dispose();
   });
 });

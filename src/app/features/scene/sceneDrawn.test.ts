@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SCENE_ACTIVE_ATTRIBUTE,
+  getDrawnSky,
   getSceneDrawn,
   setSceneDrawn,
   subscribeSceneDrawn,
@@ -33,5 +34,21 @@ describe('sceneDrawn: one store owns the flag and html[data-scene]', () => {
     off();
     setSceneDrawn(true);
     expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it('owns the sky the scene that is up draws: set with the scene, told to subscribers when it changes, gone with the scene', () => {
+    const cb = vi.fn();
+    const off = subscribeSceneDrawn(cb);
+    expect(getDrawnSky()).toBeUndefined();
+    setSceneDrawn(true, 'day');
+    expect(getDrawnSky()).toBe('day');
+    setSceneDrawn(true, 'day');
+    expect(cb).toHaveBeenCalledTimes(1);
+    setSceneDrawn(true, 'night'); // a rebuilt scene replaced the one shown
+    expect(getDrawnSky()).toBe('night');
+    expect(cb).toHaveBeenCalledTimes(2);
+    setSceneDrawn(false, 'night'); // no scene draws no sky
+    expect(getDrawnSky()).toBeUndefined();
+    off();
   });
 });

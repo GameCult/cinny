@@ -1,12 +1,13 @@
 import { startBackgroundScene } from './index';
-import type { Scene } from './index';
+import type { StartedScene } from './index';
+import type { FixedSkyState } from './ridge/skyMoment';
 import type { BackgroundSceneConfig, Capabilities } from './tier';
 
 export type HostOptions = {
   /** A Matrix session already exists, so the scene starts past its login moment. */
   loggedIn: boolean;
-  /** The scene is running: the host may now let it show through. Not called when there is none. */
-  onActive?: () => void;
+  /** The scene is running: the host may now let it show through, over the sky it draws. Not called when there is none. */
+  onActive?: (sky?: FixedSkyState) => void;
   /** The scene stopped because its GL context was lost: put the CSS ground back until it restores. */
   onInactive?: () => void;
   /** A shader failed to compile, the chunk failed to load, or starting threw. The CSS ground stays. */
@@ -30,7 +31,7 @@ export function mountBackgroundScene(
   { loggedIn, onActive, onInactive, onFail }: HostOptions
 ): () => void {
   let cancelled = false;
-  let scene: Scene | null = null;
+  let scene: StartedScene | null = null;
   let generation = 0;
 
   const start = () => {
@@ -57,7 +58,7 @@ export function mountBackgroundScene(
         }
         scene = started;
         if (!scene) return;
-        onActive?.();
+        onActive?.(scene.drawnSky);
         if (loggedIn) scene.login();
       },
       (e) => {

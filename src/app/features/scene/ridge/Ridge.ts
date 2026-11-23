@@ -413,7 +413,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     const { view } = bd.manifest;
     const { w, h, scale: dpr } = viewSize();
     const win = windowFor(view, w, h);
-    const at = (stillPose ??= headingPose(clock()));
+    stillPose ??= headingPose(clock());
+    const at = stillPose;
     const planeTop = h - win.plane.bottom - win.plane.h;
     const horizonY = planeTop + view.horizonRow * win.plane.scale;
     const poses = bd.manifest.cards.map((_, i) =>
@@ -614,7 +615,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         stillPose = undefined;
         if (wasStill && opts.backdrop) {
           const { h } = headingPose(clock());
-          void opts.backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 }).catch(() => undefined);
+          opts.backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 }).catch(() => undefined);
         }
       }
       freshPose = false;

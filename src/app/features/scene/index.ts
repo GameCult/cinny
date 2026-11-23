@@ -1,14 +1,19 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
 import { debugOverlaysAllowed } from './debugOverlays';
-import { getConstellationLines, getSkyChoice, subscribe } from './skyState';
-import type { SkyChoice } from './ridge/skyMoment';
+import { getConstellationLines, getResolvedSkyState, getSkyChoice, subscribe } from './skyState';
+import type { FixedSkyState, SkyChoice } from './ridge/skyMoment';
 import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
 import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
 
 export type { Scene, SceneStats } from './Scene';
+
+/** The scene the door returns: it also says which sky it draws now (the band of the scene that is up, not of the sky announced). */
+export interface StartedScene extends Scene {
+  readonly drawnSky: FixedSkyState | undefined;
+}
 export type { SceneStyle, SceneTier } from './tier';
 
 export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompileFail'> & {
@@ -16,8 +21,8 @@ export type StartOptions = Omit<SceneOptions, 'tier' | 'patchSource' | 'onCompil
   onCompileFail?: (e: Error) => void;
   /** A rebuild for a new sky made no scene: the host puts the CSS ground back (as on a lost context). */
   onInactive?: () => void;
-  /** A rebuild made a scene again: the host lets it show. */
-  onActive?: () => void;
+  /** A rebuild made a scene again: the host lets it show, over the sky that scene draws (what the page ink follows). */
+  onActive?: (sky?: FixedSkyState) => void;
   /** The live scene is the sky alone because the baked ridge cards did not load (no manifest, a missing or undecodable card, no WebGL2 to light them). The host may fill the ground. Told when the live scene changes to that state, never for a build that did not win. */
   onPlanesFail?: (e: Error) => void;
   /** The live scene has its planes after `onPlanesFail` said it had none: the host lets go of the ground it filled. */
@@ -34,15 +39,39 @@ interface Prepared {
   discard: () => void;
   /** Why this scene is the sky alone, when the baked planes did not load; null when it has planes or none are asked for. */
   planesFail: Error | null;
+  /** The band of the sky this scene is made with: what it draws once made. */
+  sky: FixedSkyState | undefined;
 }
 
-/** How long the first scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. A rebuild has no deadline: the scene it replaces stays up until the new one holds tiles. */
+/** How long the first scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. A rebuild over a scene with a ridge has no deadline and no failure end: the scene it replaces stays up until the new one holds tiles. */
 export const PREPARE_DEADLINE_MS = 6_000;
+
+/** Resolves when `backdrop` holds a tile (its loader retries a failed one on its own backoff) or `stop` aborts. */
+const holdsATile = (backdrop: Backdrop, stop: AbortSignal): Promise<void> =>
+  new Promise<void>((done) => {
+    if (backdrop.litTiles().length > 0 || stop.aborted) {
+      done();
+      return;
+    }
+    const off = backdrop.onTile(() => {
+      off();
+      done();
+    });
+    stop.addEventListener(
+      'abort',
+      () => {
+        off();
+        done();
+      },
+      { once: true }
+    );
+  });
 
 async function prepare(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier; debug?: boolean },
   choice: SkyChoice,
+  /** Nothing with a ridge is up to wait behind: the page's first scene, or a rebuild over a scene that is the sky alone. It waits against the deadline and, with no tile, is the sky alone. */
   first: boolean,
   superseded: AbortSignal
 ): Promise<Prepared> {
@@ -54,8 +83,10 @@ async function prepare(
     backdrop = null;
   };
   superseded.addEventListener('abort', release, { once: true });
+  let band: FixedSkyState | undefined;
   const guarded = (make: () => Scene | null): Prepared => ({
     planesFail: null,
+    sky: band,
     discard: release,
     make: () => {
       try {
@@ -85,6 +116,7 @@ async function prepare(
     if (manifest) {
       try {
         const manifestSky = ridgeSkyFor(choice, manifest.view);
+        band = getResolvedSkyState();
         const { createBackdrop } = await import('./ridge/Backdrop');
         const heading = await import('./ridge/heading');
         backdrop = createBackdrop(manifest, manifestSky.physical as NonNullable<typeof manifestSky.physical>);
@@ -94,7 +126,7 @@ async function prepare(
         heading.anchor(manifest.view.place.id, manifest.view.lookAzDeg, now, (mode) => maxSpeed(manifest, mode));
         const { h } = heading.poseAt(now);
         // The first arc. The first scene of a page has nothing to show meanwhile, so it waits against a deadline (a slow or silent server must not hold it back):
-        // what is held by then is drawn and the rest fills in. A rebuild has the old scene up and waits for its tiles as long as they take.
+        // what is held by then is drawn and the rest fills in. A rebuild has the old scene up and has no end: it waits for a tile as long as that takes, its loader asking again.
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
@@ -106,6 +138,7 @@ async function prepare(
         } finally {
           clearTimeout(timer);
         }
+        if (!first) await holdsATile(backdrop, superseded);
         if (superseded.aborted) throw new Error('ridge: superseded');
         if (backdrop.litTiles().length === 0) throw new Error('ridge cards did not load');
         lit = manifestSky;
@@ -117,6 +150,7 @@ async function prepare(
     const view = drawnView(backdrop ? manifest : null);
     if (!lit) await loadWeather(weatherUrl(), view.place);
     const sky = lit ?? ridgeSkyFor(choice, view);
+    if (!lit) band = getResolvedSkyState();
     const made = guarded(() =>
       createRidgeScene({
         ...options,
@@ -128,7 +162,7 @@ async function prepare(
     return { ...made, planesFail };
   } catch (e) {
     options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
-    return { make: () => null, discard: () => undefined, planesFail: null };
+    return { make: () => null, discard: () => undefined, planesFail: null, sky: undefined };
   }
 }
 
@@ -167,7 +201,7 @@ export async function startBackgroundScene(
   config: BackgroundSceneConfig | undefined,
   capabilities: Capabilities,
   options: StartOptions
-): Promise<Scene | null> {
+): Promise<StartedScene | null> {
   const tier = resolveTier(config, capabilities);
   if (tier === 'off') return null;
   const debug = debugOverlaysAllowed(config);
@@ -184,19 +218,22 @@ export async function startBackgroundScene(
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, choice);
   const firstReady = await prepared(choice, true, new AbortController().signal);
   const first = firstReady.make();
-  if (!first || config?.style === 'raymarch') return first;
+  if (!first) return null;
+  // The ray-march scene has one fixed dusk.
+  if (config?.style === 'raymarch') return Object.assign(first, { drawnSky: 'dusk' as const });
   announce(firstReady.planesFail);
 
   let inner: Scene | null = first;
   let built = key0;
   let shown = key0; // the sky key of the scene that is up
+  let drawnSky = firstReady.sky; // the band of the scene that is up
   let loggedIn = false;
   let disposed = false;
   let generation = 0;
   let building: AbortController | undefined;
   // A rebuild is for a different sky ('auto' crossing a boundary, a new choice), not for a repeat of the one drawn. What replaces the scene that is up: a new backdrop,
-  // once it holds tiles; a build a newer one supersedes is given up at once (its requests aborted); a build that ends with no tile never swaps a ridge for the sky alone,
-  // the next change of sky tries again. Only a first load that ends with no tile is the sky alone.
+  // the moment it holds tiles (its loader asks again on its own until it does; a rebuild has no failure end); a build a newer one supersedes is given up at once (its
+  // requests aborted). A rebuild never swaps a ridge for the sky alone; only a build with no ridge up behind it (the first load, or a rebuild over the sky alone) that ends with no tile is the sky alone.
   const rebuild = async () => {
     // The choice can move while the key is awaited; that change has its own rebuild, so this one stands down.
     const next = getSkyChoice();
@@ -210,7 +247,7 @@ export async function startBackgroundScene(
     const mineAborts = new AbortController();
     building = mineAborts;
     // The old scene stays up while the next one loads; a build that is stale or after dispose is never made, so it never speaks.
-    const ready = await prepared(next, false, mineAborts.signal);
+    const ready = await prepared(next, planesFailed, mineAborts.signal); // over a sky-only scene there is no ridge to protect: the new sky is drawn at once
     if (disposed || mine !== generation) {
       ready.discard();
       return;
@@ -226,10 +263,11 @@ export async function startBackgroundScene(
     const scene = ready.make();
     inner = scene;
     shown = key;
+    drawnSky = ready.sky;
     if (scene) announce(ready.planesFail);
     if (!scene) options.onInactive?.();
     else {
-      options.onActive?.();
+      options.onActive?.(ready.sky);
       if (loggedIn) scene.login();
     }
   };
@@ -237,6 +275,9 @@ export async function startBackgroundScene(
   // A change that landed while the first build was awaited was missed by the subscription.
   rebuild();
   return {
+    get drawnSky() {
+      return drawnSky;
+    },
     login() {
       loggedIn = true;
       inner?.login();
