@@ -3,6 +3,7 @@
 // them: the WebP container is walked and its stated dimensions (VP8X canvas, VP8 / VP8L frame header) must equal the tile's width (tile_w + 2 apron) and
 // its band height, which the resident budget is computed from; and the bake id is re-derived from the tile bytes as the baker derives it (tile-major, then
 // card, colour then geometry), so any corruption of a tile, same length or not, fails. No pixel decoder is in the tree; the baker's own check decodes pixels.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
@@ -115,9 +116,9 @@ export function webpFault(b: Uint8Array, w: number, h: number): string | undefin
 
 const BLANK_ID = '0'.repeat(12);
 
-/** The manifest text as the baker hashed it: LF line ends (a checkout may have made them CRLF) and the bake_id value blanked (an id cannot hash itself). */
+/** The manifest text as the baker hashed it: the bytes as committed, with the bake_id value blanked (an id cannot hash itself). */
 export function blankedManifest(text: string, bakeId: string): string {
-  return text.replace(/\r\n/g, '\n').replace(`"bake_id": "${bakeId}"`, `"bake_id": "${BLANK_ID}"`);
+  return text.replace(`"bake_id": "${bakeId}"`, `"bake_id": "${BLANK_ID}"`);
 }
 
 /** The baker's bake id (export.py `bake_id`): first 12 hex of sha256 over the blanked manifest text, then the tile files, tile-major then card, colour then geometry (a card absent from a tile writes none): the id addresses the whole bake. */
@@ -180,6 +181,16 @@ describe('the committed ridge assets', () => {
         expect(text).toContain(`"bake_id": "${BLANK_ID}"`);
         expect(bakeIdOf(text, ordered)).toBe(raw.bake_id);
         expect(bakeIdOf(text.replace('"r_max_forward_m"', '"r_max_forward_m "'), ordered), 'a changed manifest keeps its id').not.toBe(raw.bake_id);
+      });
+
+      it('is checked out as committed: git converts no line end of the manifest, the index or a tile, so the bytes served are the bytes the id was made from', () => {
+        const attr = (file: string) =>
+          execFileSync('git', ['check-attr', 'text', 'eol', '--', file], { encoding: 'utf8' }).replace(/\r/g, '').trim().split('\n');
+        const tile = files(raw.tiles[0].find((e) => e)!)[0].file;
+        [`public/ridge/${dir}/manifest.json`, 'public/ridge/index.json', `public/ridge/${dir}/${tile}`].forEach((f) =>
+          expect(attr(f), f).toEqual([`${f}: text: unset`, `${f}: eol: unspecified`])
+        );
+        expect(readFileSync(join(ROOT, dir, 'manifest.json'), 'utf8')).not.toContain('\r');
       });
 
       it('keeps the place inside the tile, place and resident budgets, computed from the manifest alone', () => {
