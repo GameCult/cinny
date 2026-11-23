@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import numpy as np, imagecodecs
 
-BAKER_VERSION = 4
+BAKER_VERSION = 5
 RING_W = 6400                          # the ring's columns (ridge.W, asserted in bake_place): column c is at azimuth (c + 0.5) / RING_W x 360, column 0 = north
 TILES = 32                             # azimuth tiles of the ring, each card cut into TILES files per kind (ruling ridge-camera-full-ring: the client loads the arc near its heading)
 TILE_W = RING_W // TILES               # 200 columns = 11.25 degrees owned by a tile
@@ -51,7 +51,7 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
         view=_obj(look_az_deg=_num, ring_w={'const': RING_W}, tile_w={'const': TILE_W}, tiles={'const': TILES}, apron={'const': APRON}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
-        camera=_obj(r_max_m=_num),
+        camera=_obj(r_max_m=_num, r_max_forward_m=_num),
         cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _obj(near_m=_numnull, far_m=_numnull),
             'description': "nearest first; the runtime paints the list last to first.  near_m and far_m are the median seam depths over the ring, null at the ends."},
         tiles={'type': 'array', 'minItems': TILES, 'maxItems': TILES, 'items': {'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _objnull(top=_int, h=_int, distance_m=_num, colour=_file, geometry=_file)},
@@ -139,20 +139,23 @@ def check_budget(n_cards, tile_bytes, bands, r_max_m, rmin_m):
     n = run_tiles(r_max_m, rmin_m); res = resident_bytes(bands, n)
     if res > RESIDENT_BYTES_MAX: raise ValueError(f'{n} consecutive tiles light to {res} bytes, above {RESIDENT_BYTES_MAX}')
 
-def fit_px(d, r, px_per_deg):
-    """The worst error, in card pixels, of a card tile's linear slide at offset r (m): over the camera's angle phi on its circle against its heading (PHI_STEPS) and the viewport (beta in +-HFOV_MAX_DEG / 2), the exact view angle of a cylinder point at the tile's
-    distance d, alpha = atan2(d sin beta - r sin phi, d cos beta - r cos phi), against the least-squares line a + s beta fitted to it (ruling ridge-offset-range-fit)."""
-    b = np.radians(np.linspace(-HFOV_MAX_DEG / 2, HFOV_MAX_DEG / 2, 33))[None, :]; p = np.linspace(0, 2 * math.pi, PHI_STEPS, endpoint=False)[:, None]
-    A = np.arctan2(d * np.sin(b) - r * np.sin(p), d * np.cos(b) - r * np.cos(p)); bc = b - b.mean(); s = (A * bc).sum(-1, keepdims=True) / (bc * bc).sum(); line = A.mean(-1, keepdims=True) + s * bc
-    return math.degrees(float(np.abs(A - line).max())) * px_per_deg
-def fit_table(dist, r, px_per_deg):
+FIT_QUAD = 48                          # Gauss-Legendre nodes for the least-squares line (exact for the smooth alpha(beta) to far below a card pixel)
+FIT_GRID = 513                         # points the worst error is looked for on, ends included: the error is smooth between them, so the maximum found is within 0.01 card px of the continuous one
+def fit_px(d, r, px_per_deg, phis=None):
+    """The worst error, in card pixels, of a card tile's linear slide at offset r (m): over the camera's angle phi on its circle against its heading (`phis` steps, PHI_STEPS by default; 1 is phi = 0 alone, the camera pushed forward along its heading) and the viewport (beta in +-HFOV_MAX_DEG / 2), the exact view angle of a cylinder point at the tile's
+    distance d, alpha = atan2(d sin beta - r sin phi, d cos beta - r cos phi), against the continuous least-squares line a + s beta over the viewport (ruling ridge-offset-range-fit; the line by quadrature, the error on FIT_GRID points: it is the continuous worst error, not the error of a few samples)."""
+    half = math.radians(HFOV_MAX_DEG) / 2; p = np.linspace(0, 2 * math.pi, PHI_STEPS if phis is None else phis, endpoint=False)[:, None]
+    alpha = lambda b: np.arctan2(d * np.sin(b) - r * np.sin(p), d * np.cos(b) - r * np.cos(p)); x, w = np.polynomial.legendre.leggauss(FIT_QUAD); bq = half * x[None, :]; A = alpha(bq)
+    a0 = (A * w).sum(-1, keepdims=True) / 2; s = (A * bq * w).sum(-1, keepdims=True) / (bq * bq * w).sum(); b = np.linspace(-half, half, FIT_GRID)[None, :]
+    return math.degrees(float(np.abs(alpha(b) - (a0 + s * b)).max())) * px_per_deg
+def fit_table(dist, r, px_per_deg, phis=None):
     """(tiles, cards) fit_px of every card tile at offset r; nan where the card is null in that tile."""
-    return np.array([[np.nan if d is None else fit_px(d, r, px_per_deg) for d in row] for row in dist])
-def solve_r_max(dist, bands, px_per_deg):
-    """The largest offset r (m, down to 0.1 m) at which every card tile fits within FIT_PX_MAX and the resident gate holds: never above half the nearest card's smallest tile distance.  Scans r upward from 0 on 128 steps to the first failure, then bisects that step.
+    return np.array([[np.nan if d is None else fit_px(d, r, px_per_deg, phis) for d in row] for row in dist])
+def solve_r_max(dist, bands, px_per_deg, phis=None):
+    """The largest offset r (m, down to 0.1 m) at which every card tile fits within FIT_PX_MAX over `phis` camera angles (PHI_STEPS: the whole circle, the offset-only rotation mode; 1: phi = 0 alone, the modes where the offset turns with the view) and the resident gate holds: never above half the nearest card's smallest tile distance.  Scans r upward from 0 on 128 steps to the first failure, then bisects that step.
     Refuses (naming the card and tile that bind) a bake whose r_max_m is below R_MAX_FLOOR_M."""
     near = min((row[0], t) for t, row in enumerate(dist) if row[0] is not None); rmin = near[0]; cap = 0.5 * rmin
-    ok = lambda r: bool(np.nanmax(fit_table(dist, r, px_per_deg)) <= FIT_PX_MAX) and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX
+    ok = lambda r: bool(np.nanmax(fit_table(dist, r, px_per_deg, phis)) <= FIT_PX_MAX) and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX
     lo, hi = 0.0, None
     for r in np.linspace(0, cap, 129)[1:]:
         if ok(r): lo = float(r)
@@ -166,20 +169,22 @@ def solve_r_max(dist, bands, px_per_deg):
     r_max = math.floor(lo * 10) / 10
     if r_max < R_MAX_FLOOR_M:
         if cap < R_MAX_FLOOR_M: raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card 0 stands {rmin:.0f} m away in tile {near[1]} and the offset stays under half of that')
-        tb = fit_table(dist, R_MAX_FLOOR_M, px_per_deg); t, i = np.unravel_index(int(np.nanargmax(tb)), tb.shape)
+        tb = fit_table(dist, R_MAX_FLOOR_M, px_per_deg, phis); t, i = np.unravel_index(int(np.nanargmax(tb)), tb.shape)
         if tb[t, i] > FIT_PX_MAX: raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card {i} in tile {t} errs {tb[t, i]:.1f} card px at {R_MAX_FLOOR_M:g} m (the bound is {FIT_PX_MAX:g})')
         n = run_tiles(R_MAX_FLOOR_M, rmin); raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: at {R_MAX_FLOOR_M:g} m, {n} consecutive tiles light to {resident_bytes(bands, n)} bytes, above {RESIDENT_BYTES_MAX}')
     return r_max
 
-def bake_id(files):
-    """First 12 hex of sha256 over the tile files, tile-major then card, colour then geometry (a null card tile writes none).  files: [(colour bytes, geometry bytes)] in that order."""
-    h = hashlib.sha256()
+BAKE_ID_BLANK = '0' * 12
+def bake_id(manifest_text, files):
+    """First 12 hex of sha256 over the whole bake: the manifest.json text as written with its bake_id value BAKE_ID_BLANK (the id cannot hash itself), then the tile files, tile-major then card, colour then geometry (a null card tile writes none), so any change to the manifest or a tile is a new directory.
+    files: [(colour bytes, geometry bytes)] in that order."""
+    h = hashlib.sha256(); h.update(manifest_text.encode('utf-8'))
     for colour, geometry in files: h.update(colour); h.update(geometry)
     return h.hexdigest()[:12]
 
 def write_bake(out, place, view, meta, packed, opaque, default=None):
-    """Write out/<place>-<bake_id>/ (tile WebPs + manifest.json), rewrite out/index.json, delete the place's previous dir.  packed: dict(cards [dict(near_m, far_m)], tiles [TILES][cards] of dict(top, colour bytes, geometry bytes, distance_m) or None,
-    camera dict(r_max_m)); opaque: TILES arrays (plane_h, TILE_W + 2 APRON), each the opaque view's coverage over a tile's columns.  Refuses before writing a bake whose files decode to the wrong size, leave the frame, break a budget (the resident gate at r_max_m) or composite
+    """Write out/<place>-<bake_id>/ (tile WebPs + manifest.json; the id addresses both), rewrite out/index.json, delete the place's previous dir.  packed: dict(cards [dict(near_m, far_m)], tiles [TILES][cards] of dict(top, colour bytes, geometry bytes, distance_m) or None,
+    camera dict(r_max_m, r_max_forward_m)); opaque: TILES arrays (plane_h, TILE_W + 2 APRON), each the opaque view's coverage over a tile's columns.  Refuses before writing a bake whose files decode to the wrong size, leave the frame, break a budget (the resident gate at r_max_m and at r_max_forward_m) or composite
     away from the opaque view in any tile.  meta: dict(curvature, encoding).  Returns the directory."""
     cards, tiles, camera = packed['cards'], packed['tiles'], packed['camera']; k = len(cards); h = view['plane_h']; w = TILE_W + 2 * APRON
     if len(tiles) != TILES or len(opaque) != TILES or any(len(row) != k for row in tiles): raise ValueError(f'the bake needs {TILES} tiles of {k} cards each')
@@ -195,25 +200,29 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
             if c.shape[1] != w: raise ValueError(f'tile {t} card {i} is {c.shape[1]} columns wide, not {w} (tile {TILE_W} + 2 apron {APRON})')
             if c.shape[0] < 1 or e['top'] < 0 or e['top'] + c.shape[0] > h: raise ValueError(f'tile {t} card {i} leaves the {h} rows of the frame')
         if opaque[t].shape != (h, w): raise ValueError(f'tile {t}: the opaque view is {opaque[t].shape}, the frame {(h, w)}')
-    rmin = min(row[0]['distance_m'] for row in tiles if row[0]); check_budget(k, tile_bytes, bands, camera['r_max_m'], rmin)
+    rmin = min(row[0]['distance_m'] for row in tiles if row[0])
+    if camera['r_max_forward_m'] < camera['r_max_m']: raise ValueError(f"r_max_forward_m {camera['r_max_forward_m']:g} is below r_max_m {camera['r_max_m']:g}: phi = 0 is one of the angles r_max_m holds for")
+    for r in (camera['r_max_m'], camera['r_max_forward_m']): check_budget(k, tile_bytes, bands, r, rmin)
     for t, (row, drow) in enumerate(zip(tiles, dec)):
         try: check_cover([(e['top'], pair[0][..., 3] / 255.0) for e, pair in zip(row, drow) if e], opaque[t])
         except ValueError as ex: raise ValueError(f'tile {t}: {ex}')
-    bid = bake_id([(e['colour'], e['geometry']) for row in tiles for e in row if e]); name = f"{place['id']}-{bid}"; out = Path(out); dest = out / name
-    manifest = dict(schema=3, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'), camera=dict(r_max_m=camera['r_max_m']),
+    out = Path(out)
+    manifest = dict(schema=3, baker_version=BAKER_VERSION, bake_id=BAKE_ID_BLANK, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'), camera=dict(r_max_m=camera['r_max_m'], r_max_forward_m=camera['r_max_forward_m']),
                     cards=[dict(near_m=c['near_m'], far_m=c['far_m']) for c in cards],
                     tiles=[[None if e is None else dict(top=e['top'], h=pair[0].shape[0], distance_m=e['distance_m'], colour=dict(file=tile_file(i, t, 'colour'), bytes=len(e['colour'])), geometry=dict(file=tile_file(i, t, 'geometry'), bytes=len(e['geometry'])))
                              for i, (e, pair) in enumerate(zip(row, drow))] for t, (row, drow) in enumerate(zip(tiles, dec))], bytes=sum(tile_bytes), attribution=ATTRIBUTION)
-    validate_manifest(manifest); out.mkdir(parents=True, exist_ok=True); tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
+    validate_manifest(manifest); text = json.dumps(manifest, indent=1) + '\n'; blank = f'"bake_id": "{BAKE_ID_BLANK}"'; assert text.count(blank) == 1
+    bid = bake_id(text, [(e['colour'], e['geometry']) for row in tiles for e in row if e]); name = f"{place['id']}-{bid}"; dest = out / name; text = text.replace(blank, f'"bake_id": "{bid}"')
+    out.mkdir(parents=True, exist_ok=True); tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
     for t, row in enumerate(tiles):
         for i, e in enumerate(row):
             if e: (tmp / tile_file(i, t, 'colour')).write_bytes(e['colour']); (tmp / tile_file(i, t, 'geometry')).write_bytes(e['geometry'])
-    (tmp / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
+    (tmp / 'manifest.json').write_bytes(text.encode('utf-8'))   # bytes, so the platform's newline cannot move the file under its id
     idx_path = out / 'index.json'; idx = json.loads(idx_path.read_text()) if idx_path.exists() else dict(schema=1, default=place['id'], places={})
     old = idx['places'].get(place['id']); idx['places'][place['id']] = name; idx['default'] = default or (idx['default'] if idx['default'] in idx['places'] else place['id'])
     validate(idx, SCHEMA['$defs']['index'])
     if dest.exists(): shutil.rmtree(dest)
-    os.rename(tmp, dest); (out / '.index.tmp').write_text(json.dumps(idx, indent=1) + '\n'); os.replace(out / '.index.tmp', idx_path)
+    os.rename(tmp, dest); (out / '.index.tmp').write_bytes((json.dumps(idx, indent=1) + '\n').encode('utf-8')); os.replace(out / '.index.tmp', idx_path)
     if old and old != name: shutil.rmtree(out / old, ignore_errors=True)
     return dest
 
@@ -238,7 +247,7 @@ def bake_place(pid):
 
 def pack(bake):
     """The tiles of a bake as bytes plus their manifest facts.  Per card tile: distance_m = exp(median ln d) over the solid (alpha >= 0.5) pixels that are not wall of the interior TILE_W columns (a tile with none falls back to its non-wall, then any, lit pixels);
-    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the card tiles' distances.  Refuses a card empty in every tile (naming the splits) and a card with
+    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the card tiles' distances and every camera angle on its circle (the offset-only rotation mode), camera.r_max_forward_m: the same at phi = 0 alone (the modes where the offset turns with the view).  Refuses a card empty in every tile (naming the splits) and a card with
     no solid terrain apart from its wall in any tile.  Returns dict(cards, tiles, camera, report) (report is printed, not written)."""
     sm = bake['seams']; sp = bake['splits_km']; k = len(sp) + 1; ppd = bake['view']['px_per_deg_h']; inner = slice(APRON, APRON + TILE_W); enc = bake['meta']['encoding']
     for i in range(k):
@@ -255,9 +264,9 @@ def pack(bake):
         tiles.append(row); dist.append(drow); bands.append(brow)
     for i in range(k):
         if not any_solid[i]: raise ValueError(f'card {i} holds no solid terrain apart from its wall rows')
-    r_max = solve_r_max(dist, bands, ppd); rmin = min(row[0] for row in dist if row[0] is not None); n = run_tiles(r_max, rmin); worst = np.nanmax(fit_table(dist, r_max, ppd), axis=0)
+    r_max = solve_r_max(dist, bands, ppd); r_fwd = solve_r_max(dist, bands, ppd, phis=1); rmin = min(row[0] for row in dist if row[0] is not None); n = run_tiles(r_fwd, rmin); worst = np.nanmax(fit_table(dist, r_max, ppd), axis=0)
     cards = [dict(near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None) for i in range(k)]
-    return dict(cards=cards, tiles=tiles, camera=dict(r_max_m=r_max), report=dict(fit_px=[float(x) for x in worst], run_tiles=n, resident_bytes=resident_bytes(bands, n), nearest_m=rmin))
+    return dict(cards=cards, tiles=tiles, camera=dict(r_max_m=r_max, r_max_forward_m=r_fwd), report=dict(fit_px=[float(x) for x in worst], run_tiles=n, resident_bytes=resident_bytes(bands, n), nearest_m=rmin))
 
 def lit(c):
     """albedo x (0.35 + 0.65 max(n.L, 0)) under the fixed sheet light, with the card's alpha: (rgb, alpha).  Wall pixels are lit with the face up, as the runtime reads their code."""
@@ -286,13 +295,13 @@ def sheet(bake):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0]); ap.add_argument('place', nargs='?'); ap.add_argument('--tiles'); ap.add_argument('--out'); ap.add_argument('--work'); ap.add_argument('--sheet'); ap.add_argument('--write-schema', action='store_true')
     a = ap.parse_args(argv)
-    if a.write_schema: (HERE / 'ridge-bake.schema.json').write_text(json.dumps(SCHEMA, indent=1, ensure_ascii=False) + '\n'); return 0
+    if a.write_schema: (HERE / 'ridge-bake.schema.json').write_bytes((json.dumps(SCHEMA, indent=1, ensure_ascii=False) + '\n').encode('utf-8')); return 0
     if not (a.place and a.tiles and a.out): ap.error('place, --tiles and --out are required')
     os.environ['RIDGE_TILES'] = a.tiles; os.environ['RIDGE_WORK'] = a.work or os.path.join(os.environ.get('TMPDIR', tempfile.gettempdir()), 'ridge-bake-work'); os.makedirs(os.environ['RIDGE_WORK'], exist_ok=True)
     bake = bake_place(a.place)
     if a.sheet: Path(a.sheet).write_bytes(sheet(bake))
     packed = pack(bake); rp = packed['report']
-    print(f"r_max_m {packed['camera']['r_max_m']:g}  nearest card {rp['nearest_m']:.0f} m  resident run {rp['run_tiles']} tiles = {rp['resident_bytes']} bytes  worst fit error per card (card px, bound {FIT_PX_MAX:g}) {[round(x, 1) for x in rp['fit_px']]}", file=sys.stderr, flush=True)
+    print(f"r_max_m {packed['camera']['r_max_m']:g}  r_max_forward_m {packed['camera']['r_max_forward_m']:g}  nearest card {rp['nearest_m']:.0f} m  resident run {rp['run_tiles']} tiles = {rp['resident_bytes']} bytes  worst fit error per card (card px, bound {FIT_PX_MAX:g}) {[round(x, 1) for x in rp['fit_px']]}", file=sys.stderr, flush=True)
     dest = write_bake(a.out, bake['place'], bake['view'], bake['meta'], packed, bake['opaque']); print(dest); return 0
 
 if __name__ == '__main__': sys.exit(main())

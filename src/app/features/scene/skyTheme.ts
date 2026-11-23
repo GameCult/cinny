@@ -1,5 +1,5 @@
 // Which theme the drawn sky lights the page with. While a scene is on, the sky being drawn (the
-// choice at the place; `useResolvedSkyState`) alone decides the theme and, with it, the ink: Day and Dusk
+// scene that is up draws; `useDrawnSky`) alone decides the theme and, with it, the ink: Day and Dusk
 // wear Noonday Sky, Night wears Midnight Sky. A person's own theme (the theme menu) stands only where no sky is
 // drawn, that is with the scene off.
 import type { FixedSkyState } from './ridge/skyMoment';

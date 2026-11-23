@@ -1,4 +1,8 @@
-// Look sheet for the lit ridge cards: the Vienna bake lit for a grid of sky states (or pinned moments) x looks, each cell a small canvas at heading 0. Not shipped.
+// Look sheet for the lit ridge cards: a baked place lit for a grid of sky states (or pinned moments) x looks, each cell a small canvas drawn by the app's own still path
+// (`createRidgeScene` at tier 'still', the tiles of the arc round the heading, each card at `cardPose`). Not shipped.
+// `?views=214:0:200,0:0:200,100:0:200,214:90:98.2`  one column per view `heading:phi:offset` (degrees, degrees, metres) at one sky (`?sky=2`, an index of SKIES, noon by default); a heading
+//               of 360 or 0 is across north. The offset is clamped to the place's range as the app does (phi 0: the bake's forward bound, any other phi: the worst-case bound), and a phi other than 0 is the offset-only rotation mode, the camera circling the centre.
+// `?place=vienna`  the baked place (index.json's default if absent)
 // `?preset=all|physical|swiss|poster|painterly|painterly-cel-2|painterly-cel-3|painterly-cel-4` (default all: one row each; painterly is DEFAULT_LOOK); `?looks=<JSON array, url-encoded or base64>` replaces the rows with
 // the given `{label, ...partial RidgeLook}` entries (inkKeep and reliefLight merge by key). `?w=480` sets the cell width, 16:9 unless `?h=` gives the height (`?w=375&h=812` is a phone).
 // The sky behind a cell is the app's own: `makePhysicalSky` + `paintSky` upscaled smoothly, with the real stars and the moon (`nightBodies`),
@@ -8,18 +12,21 @@
 //               (`?hours=18,21,0,4` UTC), plus deep dusk (sun at -10 degrees) of the evening of the full moon
 //   `?labels=1` DEBUG: label each constellation chain in frame with its d3-celestial abbreviation (fetched from the source repository at run time; not shipped)
 //   `?lines=1`  constellation lines over the stars, as the Sky menu's hidden toggle does (night cells only)
-import { DEFAULT_LOOK, PHYSICAL_LOOK, lightCards } from '../../src/app/features/scene/ridge/lightCards';
+import { DEFAULT_LOOK, PHYSICAL_LOOK, createLighter } from '../../src/app/features/scene/ridge/lightCards';
 import type { RidgeLook } from '../../src/app/features/scene/ridge/lightCards';
-import { parseManifest } from '../../src/app/features/scene/ridge/manifest';
-import { makePhysicalSky, paintSky } from '../../src/app/features/scene/ridge/physicalSky';
-import { windowFor } from '../../src/app/features/scene/ridge/view';
-import { nightBodies, onScreen, paintNightBodies } from '../../src/app/features/scene/ridge/nightBodies';
+import { parseIndex, parseManifest } from '../../src/app/features/scene/ridge/manifest';
+import { makePhysicalSky } from '../../src/app/features/scene/ridge/physicalSky';
+import { HFOV_MAX_DEG, windowFor } from '../../src/app/features/scene/ridge/view';
+import { onScreen } from '../../src/app/features/scene/ridge/nightBodies';
+import { createBackdrop } from '../../src/app/features/scene/ridge/Backdrop';
+import { createRidgeScene } from '../../src/app/features/scene/ridge/Ridge';
+import { anchor, hold } from '../../src/app/features/scene/ridge/heading';
+import { setCamera } from '../../src/app/features/scene/cameraState';
 import { sunAt } from '../../src/app/features/scene/ridge/sunAt';
 import { linesAt } from '../../src/app/features/scene/ridge/starCatalogue';
 import { moonPhase } from '../../src/sky/moon.js';
 import { MOMENT_IDS, momentFor } from '../../src/app/features/scene/ridge/skyMoment';
 
-const DIR = '/public/ridge/vienna-6815bb9dca99/';
 
 type Override = Partial<Omit<RidgeLook, 'inkKeep' | 'reliefLight'>> & {
   label: string;
@@ -35,6 +42,8 @@ interface Column {
   azimuth?: number;
   /** A moment: the sun is the real one of it. */
   time?: Date;
+  /** Where the view faces and the camera stands: heading and phi in degrees, offset in metres. Absent: the rest azimuth, phi 0, the app's default offset. */
+  view?: { h: number; phi: number; r: number };
 }
 
 /** Sun elevation and compass azimuth of each column; the cards look at 214 +- 36. The band of the elevation (`skyBand`) picks the display budget. */
@@ -162,6 +171,16 @@ function momentsFrom(params: URLSearchParams, place: Parameters<typeof sunAt>[0]
   });
   return cols;
 }
+/** `?views=h:phi:r,...`: one column per view, all at the sky `?sky=` (default noon). */
+function viewsFrom(params: URLSearchParams): Column[] | undefined {
+  const list = params.get('views');
+  if (!list) return undefined;
+  const sky = SKIES[Number(params.get('sky') ?? 2)];
+  return list.split(',').map((v) => {
+    const [h, phi, r] = v.split(':').map(Number);
+    return { ...sky, label: `h ${h} phi ${phi} r ${r}`, view: { h, phi, r } };
+  });
+}
 const preset = q.get('preset');
 const pinned = q.get('moments') || q.get('night');
 const rows = (q.get('looks')
@@ -184,19 +203,13 @@ const H = q.get('h') ? Number(q.get('h')) : Math.round((W * 9) / 16);
 const root = document.getElementById('sheet') as HTMLElement;
 
 async function main() {
+  const index = parseIndex(await (await fetch('/public/ridge/index.json')).json());
+  const DIR = `/public/ridge/${index.places[q.get('place') ?? index.default] ?? index.places[index.default]}/`;
   const manifest = parseManifest(await (await fetch(`${DIR}manifest.json`)).json(), DIR);
-  const blobs = await Promise.all(
-    manifest.cards.map(async (c) => ({
-      colour: await (await fetch(`${DIR}${c.colour}`)).blob(),
-      geometry: await (await fetch(`${DIR}${c.geometry}`)).blob(),
-    }))
-  );
-  const decode = (b: Blob) =>
-    createImageBitmap(b, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   const { view } = manifest;
   const win = windowFor(view, W, H);
   const now = new Date();
-  const columns = momentsFrom(q, view.place) ?? SKIES;
+  const columns = viewsFrom(q) ?? momentsFrom(q, view.place) ?? SKIES;
   const ids = q.get('labels') === '1' ? await chainIds() : undefined;
 
   const table = document.createElement('table');
@@ -218,33 +231,32 @@ async function main() {
         ? sunAt(view.place, col.time)
         : { elevation: col.elevation as number, azimuth: col.azimuth as number, time };
     const physical = makePhysicalSky(sun, 0, view);
-    const px = paintSky(physical, W, H, win.camera);
-    const bodies = nightBodies(physical, px, withLines);
-    const small = document.createElement('canvas');
-    small.width = px.w;
-    small.height = px.h;
-    const sctx = small.getContext('2d') as CanvasRenderingContext2D;
-    const img = sctx.createImageData(px.w, px.h);
-    img.data.set(px.data);
-    sctx.putImageData(img, 0, 0);
+    const sky = { ...physical.stops, physical };
+    const v = col.view ?? { h: view.lookAzDeg, phi: 0, r: 200 };
 
     for (let r = 0; r < rows.length; r += 1) {
-      const bitmaps = await Promise.all(
-        blobs.map(async (b) => ({
-          colour: await decode(b.colour),
-          geometry: await decode(b.geometry),
-        }))
-      );
-      const cards = lightCards(manifest, bitmaps, physical, rows[r].look);
+      // A host as the page has one: a positioned box of the cell's size holding the canvas the scene paints.
+      const host = document.createElement('div');
+      Object.assign(host.style, { position: 'relative', width: `${W}px`, height: `${H}px`, overflow: 'hidden' });
       const cell = document.createElement('canvas');
-      cell.width = W;
-      cell.height = H;
-      const ctx = cell.getContext('2d') as CanvasRenderingContext2D;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(small, 0, 0, W, H);
-      paintNightBodies(ctx, bodies, W, H, 1);
+      Object.assign(cell.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%' });
+      host.append(cell);
+      tr[r].insertCell().append(host);
+
+      // The heading owner as the app leaves it: this view's heading, the camera on its circle at phi (offset-only rotation), the offset the viewer chose.
+      const t0 = performance.now() - 3_600_000;
+      anchor(`sheet-${manifest.bakeId}-${columns.indexOf(col)}-${r}`, v.h, t0); // a key of its own: every cell starts from phi 0
+      setCamera({ mode: 'offset', speedDegPerS: 1, offsetM: v.r }, t0); // the offset-only rotation mode for phi seconds at 1 degree per second ...
+      hold(v.h, t0 + v.phi * 1000); // ... then the view is held at h: the mode is still, the camera stays at phi (phi 0 is the camera on its heading)
+
+      const backdrop = createBackdrop(manifest, physical, { lighter: (m, s) => createLighter(m, s, rows[r].look) });
+      await backdrop.ensure({ fromDeg: v.h - HFOV_MAX_DEG, toDeg: v.h + HFOV_MAX_DEG });
+      const scene = createRidgeScene({ canvas: cell, tier: 'still', sky, backdrop, lines: withLines });
+      scene?.dispose();
+
       if (ids) {
         // Debug labels: each chain's id at the mean of its vertices that lie in the frame.
+        const ctx = cell.getContext('2d') as CanvasRenderingContext2D;
         ctx.font = '11px monospace';
         ctx.fillStyle = '#ffd24a';
         linesAt(physical.sun.time, view.place.lat, view.place.lon).forEach((chain, i) => {
@@ -255,26 +267,6 @@ async function main() {
           ctx.fillText(`${ids[i]} ${pts.length}/${chain.length}`, mx * W, my * H);
         });
       }
-      // As Ridge.ts paintCards at heading 0: farthest first, each card at its own scale about the horizon row of the plane.
-      const s = win.plane.scale;
-      const x0 = (W - win.plane.w) / 2;
-      const planeTop = H - (win.plane.h + win.plane.bottom);
-      const ox = x0 + win.plane.w / 2;
-      const oy = planeTop + view.horizonRow * s;
-      for (let k = cards.length - 1; k >= 0; k -= 1) {
-        ctx.save();
-        ctx.translate(ox, oy);
-        ctx.scale(cards[k].scale, cards[k].scale);
-        ctx.drawImage(
-          cards[k].canvas,
-          x0 - ox,
-          planeTop + cards[k].top * s - oy,
-          win.plane.w,
-          cards[k].h * s
-        );
-        ctx.restore();
-      }
-      tr[r].insertCell().append(cell);
     }
   }
   document.title = 'ridge look sheet: done';

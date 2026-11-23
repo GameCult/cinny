@@ -24,7 +24,7 @@ export function BackgroundScene() {
     if (!enabled || !canvas) return undefined;
     const dispose = mountBackgroundScene(config, readCapabilities(navigator), canvas, {
       loggedIn: !!getFallbackSession(),
-      onActive: () => setSceneDrawn(true),
+      onActive: (sky) => setSceneDrawn(true, sky),
       onInactive: () => setSceneDrawn(false),
       // eslint-disable-next-line no-console
       onFail: (e) => console.warn('Background scene unavailable:', e),

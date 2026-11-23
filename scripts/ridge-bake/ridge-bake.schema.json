@@ -161,11 +161,15 @@
     "camera": {
      "type": "object",
      "required": [
-      "r_max_m"
+      "r_max_m",
+      "r_max_forward_m"
      ],
      "additionalProperties": false,
      "properties": {
       "r_max_m": {
+       "type": "number"
+      },
+      "r_max_forward_m": {
        "type": "number"
       }
      }

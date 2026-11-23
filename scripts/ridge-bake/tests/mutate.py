@@ -35,7 +35,9 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'tile: the apron is shifted (a tile starts at its own first column)': ("ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON)", "ridge.ring_cols(x, t * TILE_W, TILE_W + 2 * APRON)"),
  'tile: the seams are cut from tile 0 for every tile': ("cols(sm, t), tuple(cols(x, t) for x in nrm)", "cols(sm, 0), tuple(cols(x, t) for x in nrm)"),
  'view: the vertical anchors read the first 72 degrees only (the old window)': ("sk = np.asarray(skyline); sky", "sk = np.asarray(skyline)[:1280]; sky"),
- 'bake_id: card-major instead of tile-major': ("bake_id([(e['colour'], e['geometry']) for row in tiles for e in row if e])", "bake_id([(row[i]['colour'], row[i]['geometry']) for i in range(k) for row in tiles if row[i]])"),
+ 'bake_id: card-major instead of tile-major': ("bake_id(text, [(e['colour'], e['geometry']) for row in tiles for e in row if e])", "bake_id(text, [(row[i]['colour'], row[i]['geometry']) for i in range(k) for row in tiles if row[i]])"),
+ 'bake_id: the manifest is not hashed (a manifest moves under its id)': ("h = hashlib.sha256(); h.update(manifest_text.encode('utf-8'))", "h = hashlib.sha256()"),
+ 'bake_id: the manifest is hashed with the id already in it (the blank is skipped)': ("bid = bake_id(text, [", "bid = bake_id(text.replace(BAKE_ID_BLANK, '111111111111'), ["),
  'write: the per-tile cover check is dropped': ("except ValueError as ex: raise ValueError(f'tile {t}: {ex}')", "except ValueError as ex: pass"),
  'write: the apron width is not checked': ("if c.shape[1] != w: raise", "if False: raise"),
  'budget: the tile cap is ignored': ("if b > TILE_BYTES_MAX: raise", "if False: raise"),
@@ -44,7 +46,14 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'budget: the resident run does not wrap the ring': ("sum(per[(t + k) % TILES] for k in range(n))", "sum(per[t + k] for k in range(n) if t + k < TILES)"),
  'budget: the run length forgets the margin tiles': ("math.ceil(arc / TILE_DEG) + 1 + 4", "math.ceil(arc / TILE_DEG)"),
  'r_max: the camera sweeps forward only (phi = 0)': ("PHI_STEPS = 24 ", "PHI_STEPS = 1 "),
- 'r_max: every card of a tile is fitted at the nearest card distance': ("fit_px(d, r, px_per_deg) for d in row", "fit_px(row[0] if row[0] is not None else d, r, px_per_deg) for d in row"),
+ 'r_max: every card of a tile is fitted at the nearest card distance': ("fit_px(d, r, px_per_deg, phis) for d in row", "fit_px(row[0] if row[0] is not None else d, r, px_per_deg, phis) for d in row"),
+ 'r_max_forward: the forward offset is searched over the whole circle': ("r_fwd = solve_r_max(dist, bands, ppd, phis=1)", "r_fwd = solve_r_max(dist, bands, ppd)"),
+ 'r_max_forward: the resident gate is not checked at the forward offset': ("for r in (camera['r_max_m'], camera['r_max_forward_m']): check_budget", "for r in (camera['r_max_m'],): check_budget"),
+ 'r_max_forward: a forward offset below r_max_m is accepted': ("if camera['r_max_forward_m'] < camera['r_max_m']: raise", "if False: raise"),
+ 'fit: the line is the least squares of 33 uniform samples, as the first gate drew it': ("x, w = np.polynomial.legendre.leggauss(FIT_QUAD)", "x = np.linspace(-1, 1, 33); w = np.full(33, 2 / 33)"),
+ 'fit: the line is a two-node quadrature': ("FIT_QUAD = 48 ", "FIT_QUAD = 2 "),
+ 'write: the manifest is written as platform text (CRLF on Windows)': ("(tmp / 'manifest.json').write_bytes(text.encode('utf-8'))", "(tmp / 'manifest.json').write_text(text)"),
+ 'write: the index is written as platform text (CRLF on Windows)': ("(out / '.index.tmp').write_bytes((json.dumps(idx, indent=1) + '\\n').encode('utf-8'))", "(out / '.index.tmp').write_text(json.dumps(idx, indent=1) + '\\n')"),
  'r_max: not capped at half the nearest distance': ("cap = 0.5 * rmin", "cap = 5.0 * rmin"),
  'r_max: the resident gate is not part of the search': (" and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX\n", "\n"),
  'r_max: a bake below the floor is accepted': ("if r_max < R_MAX_FLOOR_M:", "if False:"),
@@ -56,7 +65,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'rays cache key ignores the eye elevation': ("round(float(P['eye_m']), 3), ", ""),
  'mosaic cache key ignores the tile list': ("sorted(tiles_for(p)), 3600", "3600"),
 }
-EQUIVALENT = {}        # mutant name -> one line on why it is behaviourally equivalent (reported, not run)
+EQUIVALENT = {'fit: the error is looked for between four points': "the worst error of the best line is at the viewport's two ends for every distance and offset the bound is searched over (checked against a 20001-sample brute force in test_fit_px_is_the_continuous_error); the grid only guards a shape where it is not"}        # mutant name -> one line on why it is behaviourally equivalent (reported, not run)
 def run(item):
     name, (a, b) = item; d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__')); p = next(q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()); s = open(p).read(); assert a in s, name
     open(p, 'w').write(s.replace(a, b))

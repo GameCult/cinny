@@ -1,7 +1,9 @@
-// The one lighting pass of the ridge cards (ruling ridge-cards-runtime-lit): each baked G-buffer card (colour with straight alpha, geometry with the
+// The one lighting pass of the ridge cards (ruling ridge-cards-runtime-lit): each baked G-buffer card tile (colour with straight alpha, geometry with the
 // 'rt8' normal and log-distance, `scripts/ridge-bake/export.py`) is lit once, for the sky this scene build was made for, in one WebGL2 context on a
-// canvas of its own, and copied into a 2D canvas of the card's size. After the last card the context is released: there is no per-frame WebGL, and the
-// host canvas stays 2D (`Ridge.ts`). A sky change rebuilds the scene and lights again; nothing patches the lit canvases.
+// canvas of its own (a lighter, one per sky), and copied into a 2D canvas of the tile's interior plus one overlap column each side. The sun and the sky's
+// haze are tables over the whole ring in absolute azimuth, so a tile is lit from its own files alone and the apron (the neighbours' real columns, read for
+// the ink pass and dropped) makes its edges equal what a lit neighbour would give. There is no per-frame WebGL, and the host canvas stays 2D
+// (`Ridge.ts`). A sky change rebuilds the scene and makes a new lighter; nothing patches the lit canvases.
 //
 // Per pixel: the normal from the geometry card in the column's frame (r along the ray, t across it, up), the sun brought into that frame per column;
 // radiance = albedo x (sun transmittance x max(n.s, 0) + ambient irradiance) / pi; aerial perspective L T(d) + Lsky (1 - T(d)) with d from the
@@ -17,23 +19,11 @@ import { ACES_FIT, ACES_IN, ACES_OUT, KNOTS, SCOTOPIC } from './toneMap';
 import type { Curve } from './toneMap';
 import type { View } from './view';
 
-export interface CardBitmaps {
-  colour: ImageBitmap;
-  geometry: ImageBitmap;
-}
-
-/** A lit card: its pixels, premultiplied by the card's alpha, at the card's own size, and where the card sits in the plane. */
-export interface LitCard {
-  canvas: HTMLCanvasElement;
-  top: number;
-  h: number;
-  scale: number;
-}
 
 /** A real normal has r2 + t2 at most 0.998 (probe on the Vienna bake); the wall code is 2. A code of the data, not of the look. */
 export const WALL_RT2 = 1.02;
-/** The lookup of the sky's radiance for the haze: azimuth columns by plane rows, filtered in the shader. */
-export const SKY_LUT = { w: 64, h: 64 } as const;
+/** The lookup of the sky's radiance for the haze: azimuth columns over the whole ring (the angular density of 64 over a 72 degree window) by plane rows, filtered in the shader. */
+export const SKY_LUT = { w: 320, h: 64 } as const;
 
 /**
  * The look: every number of the art pass (ratatoskr:follow_up:ridge-art-quality-rework), the one owner of them. None is a rule of the machine.
@@ -165,9 +155,8 @@ export function sunInColumn(
   return [Math.cos(el) * Math.cos(d), Math.cos(el) * Math.sin(d), Math.sin(el)];
 }
 
-/** The azimuth of plane column `x` of `w` (the card is the whole baked window wide). */
-export const columnAzimuth = (view: View, x: number, w: number): number =>
-  view.lookAzDeg + ((x + 0.5) / w - 0.5) * view.windowDeg;
+/** The compass azimuth of ring column `col` of `w` columns (column 0 = north), taken at the column's centre. */
+export const ringAzimuth = (col: number, w: number): number => ((col + 0.5) / w) * 360;
 
 /** A geometry texel's red and green bytes as the shader reads them: a wall, or the unit normal (along the ray, across it, up). */
 export function decodeNormal(
@@ -184,7 +173,7 @@ export function decodeNormal(
 
 /** Everything the lighting reads of the sky and the manifest, as the numbers the shader's uniforms hold. */
 export interface Lighting {
-  planeW: number;
+  ringW: number;
   planeH: number;
   logDMin: number;
   logDSpan: number;
@@ -249,7 +238,7 @@ export function lightingOf(
   look: RidgeLook = DEFAULT_LOOK
 ): Lighting {
   return {
-    planeW: manifest.view.planeW,
+    ringW: manifest.view.ringW,
     planeH: manifest.view.planeH,
     logDMin: manifest.encoding.logDMin,
     logDSpan: manifest.encoding.logDMax - manifest.encoding.logDMin,
@@ -261,18 +250,18 @@ export function lightingOf(
   };
 }
 
-/** The sun in every column's frame, RGBA32F texels (a, b, c, 0), one row of `planeW`. */
+/** The sun in every column's frame, RGBA32F texels (a, b, c, 0), one row of `ringW`: absolute azimuth, so every tile reads the same table. */
 export function sunColumns(view: View, sun: { azimuth: number; elevation: number }): Float32Array {
-  const out = new Float32Array(view.planeW * 4);
-  for (let x = 0; x < view.planeW; x += 1) {
-    const [r, t, u] = sunInColumn(sun, columnAzimuth(view, x, view.planeW));
+  const out = new Float32Array(view.ringW * 4);
+  for (let x = 0; x < view.ringW; x += 1) {
+    const [r, t, u] = sunInColumn(sun, ringAzimuth(x, view.ringW));
     out.set([r, t, u, 0], x * 4);
   }
   return out;
 }
 
 /**
- * The sky's radiance (per unit of sun irradiance) as the haze needs it: a small grid over the window's azimuths and the plane's rows, the view
+ * The sky's radiance (per unit of sun irradiance) as the haze needs it: a small grid over the ring's azimuths and the plane's rows, the view
  * direction of each texel's centre. Rows below the horizon take the horizon's radiance (the haze in front of a ridge is the air at its foot).
  */
 export function skyLut(sky: PhysicalSky, view: View, w: number, h: number): Float32Array {
@@ -281,7 +270,7 @@ export function skyLut(sky: PhysicalSky, view: View, w: number, h: number): Floa
   for (let j = 0; j < h; j += 1) {
     const elDeg = Math.max(0, (view.horizonRow - ((j + 0.5) / h) * view.planeH) / view.pxPerDegV);
     for (let i = 0; i < w; i += 1) {
-      const az = columnAzimuth(view, ((i + 0.5) / w) * view.planeW - 0.5, view.planeW);
+      const az = ((i + 0.5) / w) * 360;
       sky.atm.radiance(Math.sin(elDeg * RAD), Math.cos((az - sky.sun.azimuth) * RAD), rgb);
       addNightRadiance(sky.night, Math.sin(elDeg * RAD), az * RAD, rgb);
       out.set([rgb[0], rgb[1], rgb[2], 0], (j * w + i) * 4);
@@ -304,7 +293,9 @@ uniform sampler2D uSky;
 uniform ivec2 uSize;
 uniform ivec2 uSkySize;
 uniform int uTop;
-uniform vec2 uPlane;
+uniform int uCol0; // the ring column of the file's first texel (a tile's first column less its apron; may be below 0)
+uniform int uRingW;
+uniform float uPlaneH;
 uniform vec2 uLogD;
 uniform vec3 uExt;
 uniform vec3 uTSun;
@@ -326,7 +317,6 @@ uniform vec2 uCard; // value of this card, gradient
 uniform vec2 uGround; // groundNoise, cloudShadows
 uniform vec4 uCel; // bands (0 = Lambert), softness, ambientAway, ambientEdge
 uniform float uBandLevels[${CEL_MAX}];
-uniform float uRadPerPx; // radians of azimuth per plane pixel
 out vec4 outColor;
 
 const float PI = 3.14159265358979;
@@ -397,12 +387,14 @@ float cel(float x) {
   return l;
 }
 
+// The sky's table spans the ring: it wraps in azimuth (x) and clamps in elevation (y).
 vec3 skyAt(vec2 uv) {
   vec2 f = uv * vec2(uSkySize) - 0.5;
   vec2 b = floor(f);
   vec2 t = f - b;
-  ivec2 lo = clamp(ivec2(b), ivec2(0), uSkySize - 1);
-  ivec2 hi = clamp(ivec2(b) + 1, ivec2(0), uSkySize - 1);
+  int w = uSkySize.x;
+  ivec2 lo = ivec2((int(b.x) % w + w) % w, clamp(int(b.y), 0, uSkySize.y - 1));
+  ivec2 hi = ivec2((int(b.x) + 1) % w, clamp(int(b.y) + 1, 0, uSkySize.y - 1));
   vec3 a = mix(texelFetch(uSky, ivec2(lo.x, lo.y), 0).rgb, texelFetch(uSky, ivec2(hi.x, lo.y), 0).rgb, t.x);
   vec3 c = mix(texelFetch(uSky, ivec2(lo.x, hi.y), 0).rgb, texelFetch(uSky, ivec2(hi.x, hi.y), 0).rgb, t.x);
   return mix(a, c, t.y);
@@ -444,10 +436,13 @@ void main() {
   if (c.a <= 0.0) { outColor = vec4(0.0); return; }
   Geo g = geoAt(p);
 
-  vec3 s = texelFetch(uSun, ivec2(p.x, 0), 0).xyz;
+  int col = ((uCol0 + p.x) % uRingW + uRingW) % uRingW;
+  vec3 s = texelFetch(uSun, ivec2(col, 0), 0).xyz;
   if (uRelief.y > 0.0) s = normalize(mix(s, uFixedLight, uRelief.y));
   float dist = exp(g.logD);
-  vec2 world = vec2(float(p.x) * uRadPerPx, 1.0) * dist;
+  // The ground's noise is a function of the ground point, dist x (sin psi, cos psi) for the column's absolute azimuth psi, so it is periodic over the wrap.
+  float psi = (float(col) + 0.5) / float(uRingW) * 2.0 * PI;
+  vec2 world = vec2(sin(psi), cos(psi)) * dist;
   vec3 albedo = toLinear(c.rgb);
   if (uGround.x > 0.0) albedo *= max(1.0 + uGround.x * (2.0 * fbm(world / 250.0) - 1.0), 0.0);
   float cloud = uGround.y > 0.0 ? 1.0 - uGround.y * smoothstep(0.5, 0.72, fbm(world / 4000.0 + 17.0)) : 1.0;
@@ -462,7 +457,7 @@ void main() {
   }
   radiance *= mix(vec3(1.0), NEAR_WARM, uDist.x * (1.0 - dn));
   vec3 T = exp(-uExt * (dist / 1000.0));
-  vec2 uv = vec2((float(p.x) + 0.5) / uPlane.x, (float(uTop + p.y) + 0.5) / uPlane.y);
+  vec2 uv = vec2((float(col) + 0.5) / float(uRingW), (float(uTop + p.y) + 0.5) / uPlaneH);
   vec3 haze = skyAt(uv);
   haze += uHazeTint * dot(haze, LUMA);
   radiance = radiance * T + haze * (1.0 - T);
@@ -544,16 +539,35 @@ function bitmapTexture(gl: WebGL2RenderingContext, unit: number, bmp: ImageBitma
   return t;
 }
 
+/** A tile of a card as its two files decoded: the colour with straight alpha and the geometry, each tileW + 2 apron columns by the band's rows. */
+export interface CardBitmaps {
+  colour: ImageBitmap;
+  geometry: ImageBitmap;
+}
+
+/** One sky's lighting of the ring's tiles. */
+export interface Lighter {
+  /**
+   * Light card `card` of tile `tile` from its decoded files: a 2D canvas of the tile's interior columns plus one overlap column each side (the apron is
+   * read and dropped; the overlap hides the hairline between adjacent canvases at a fractional scale), premultiplied by the card's alpha. The bitmaps
+   * stay the caller's to close. Throws when the context is lost or the tile holds no such card.
+   */
+  light(bitmaps: CardBitmaps, tile: number, card: number): HTMLCanvasElement;
+  /** True once the GL context was lost: this lighter is spent and the next ensure makes another. */
+  readonly lost: boolean;
+  /** Let go of the GL context and its tables. */
+  release(): void;
+}
+
 /**
- * Light the cards of `manifest` for `sky`, nearest first, as the manifest lists them. Throws without WebGL2 or when the shader will not link;
- * the caller (`loadBackdrop`) turns any throw into the sky alone. Closes the bitmaps, and releases the context after the last card.
+ * The lighter for `sky`: one WebGL2 context on a canvas of its own, the program, the ring-wide sun columns and the sky's lookup uploaded once, a tile lit
+ * per call. Throws without WebGL2 or when the shader will not link; the caller (`Backdrop.ts`) turns any throw into the sky alone.
  */
-export function lightCards(
+export function createLighter(
   manifest: RidgeManifest,
-  bitmaps: CardBitmaps[],
   sky: PhysicalSky,
   look: RidgeLook = DEFAULT_LOOK
-): LitCard[] {
+): Lighter {
   const glCanvas = document.createElement('canvas');
   const gl = glCanvas.getContext('webgl2', {
     alpha: true,
@@ -563,6 +577,18 @@ export function lightCards(
     stencil: false,
   });
   if (!gl) throw new Error('ridge: no WebGL2');
+  let lost = false;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  };
+  glCanvas.addEventListener?.('webglcontextlost', () => {
+    lost = true;
+  });
+  const { view } = manifest;
+  const litW = view.tileW + 2;
   try {
     const lit = lightingOf(manifest, sky, look);
     const prog = program(gl);
@@ -572,7 +598,8 @@ export function lightCards(
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     ['uColour', 'uGeo', 'uSun', 'uSky'].forEach((n, i) => gl.uniform1i(u(n), i));
-    gl.uniform2f(u('uPlane'), lit.planeW, lit.planeH);
+    gl.uniform1i(u('uRingW'), lit.ringW);
+    gl.uniform1f(u('uPlaneH'), lit.planeH);
     gl.uniform2f(u('uLogD'), lit.logDMin, lit.logDSpan);
     gl.uniform3f(u('uExt'), ...lit.extinction);
     gl.uniform3f(u('uTSun'), ...lit.key.direct);
@@ -599,49 +626,49 @@ export function lightCards(
     gl.uniform2f(u('uGround'), look.groundNoise, look.cloudShadows);
     gl.uniform4f(u('uCel'), look.celBands, look.celSoftness, look.celAmbientAway, look.celAmbientEdge);
     gl.uniform1fv(u('uBandLevels'), celLevels(look.celBands, look.celBandLevels));
-    gl.uniform1f(u('uRadPerPx'), (manifest.view.windowDeg * RAD) / lit.planeW);
     gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
-    const sunTex = floatTexture(gl, 2, lit.planeW, 1, sunColumns(manifest.view, lit.key));
-    const skyTex = floatTexture(
-      gl,
-      3,
-      SKY_LUT.w,
-      SKY_LUT.h,
-      skyLut(sky, manifest.view, SKY_LUT.w, SKY_LUT.h)
-    );
-    const out = manifest.cards.map((card, i): LitCard => {
-      const { colour, geometry } = bitmaps[i];
-      glCanvas.width = colour.width;
-      glCanvas.height = colour.height;
-      gl.viewport(0, 0, colour.width, colour.height);
-      const colourTex = bitmapTexture(gl, 0, colour);
-      const geoTex = bitmapTexture(gl, 1, geometry);
-      gl.uniform2i(u('uSize'), colour.width, colour.height);
-      gl.uniform1i(u('uTop'), card.top);
-      gl.uniform2f(
-        u('uCard'),
-        1 + look.cardToneStep * (i - (manifest.cards.length - 1) / 2),
-        look.cardGradient
-      );
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-      const canvas = document.createElement('canvas');
-      canvas.width = colour.width;
-      canvas.height = colour.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('ridge: no 2D context for a lit card');
-      ctx.drawImage(glCanvas, 0, 0);
-      gl.deleteTexture(colourTex);
-      gl.deleteTexture(geoTex);
-      colour.close();
-      geometry.close();
-      return { canvas, top: card.top, h: card.h, scale: card.scale };
-    });
-    gl.deleteTexture(sunTex);
-    gl.deleteTexture(skyTex);
-    return out;
-  } finally {
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    floatTexture(gl, 2, lit.ringW, 1, sunColumns(view, lit.key));
+    floatTexture(gl, 3, SKY_LUT.w, SKY_LUT.h, skyLut(sky, view, SKY_LUT.w, SKY_LUT.h));
+    return {
+      get lost() {
+        return lost;
+      },
+      release,
+      light(bitmaps, tile, card) {
+        const entry = manifest.tiles[tile]?.[card];
+        if (!entry) throw new Error(`ridge: tile ${tile} holds no card ${card}`);
+        if (lost || released) throw new Error('ridge: the lighting context is gone');
+        const { colour, geometry } = bitmaps;
+        glCanvas.width = colour.width;
+        glCanvas.height = colour.height;
+        gl.viewport(0, 0, colour.width, colour.height);
+        const colourTex = bitmapTexture(gl, 0, colour);
+        const geoTex = bitmapTexture(gl, 1, geometry);
+        gl.uniform2i(u('uSize'), colour.width, colour.height);
+        gl.uniform1i(u('uTop'), entry.top);
+        gl.uniform1i(u('uCol0'), tile * view.tileW - view.apron);
+        gl.uniform2f(
+          u('uCard'),
+          1 + look.cardToneStep * (card - (manifest.cards.length - 1) / 2),
+          look.cardGradient
+        );
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        const canvas = document.createElement('canvas');
+        canvas.width = litW;
+        canvas.height = colour.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('ridge: no 2D context for a lit tile');
+        // The file's columns apron - 1 .. apron + tileW (inclusive): the interior and one overlap column each side.
+        ctx.drawImage(glCanvas, view.apron - 1, 0, litW, colour.height, 0, 0, litW, colour.height);
+        gl.deleteTexture(colourTex);
+        gl.deleteTexture(geoTex);
+        return canvas;
+      },
+    };
+  } catch (e) {
+    release();
+    throw e;
   }
 }
