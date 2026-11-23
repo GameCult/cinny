@@ -1,7 +1,7 @@
 // Look sheet for the lit ridge cards: a baked place lit for a grid of sky states (or pinned moments) x looks, each cell a small canvas drawn by the app's own still path
 // (`createRidgeScene` at tier 'still', the tiles of the arc round the heading, each card at `cardPose`). Not shipped.
 // `?views=214:0:200,0:0:200,100:0:200,214:90:98.2`  one column per view `heading:phi:offset` (degrees, degrees, metres) at one sky (`?sky=2`, an index of SKIES, noon by default); a heading
-//               of 360 or 0 is across north. The offset is clamped to the place's range as the app does (phi 0: the bake's forward bound, any other phi: the worst-case bound), and a phi other than 0 is the offset-only rotation mode, the camera circling the centre.
+//               of 360 or 0 is across north. `&sun=100:6` puts the sun of that sky at azimuth 100, 6 degrees up (the stars are always those of the moment the sheet is opened). The offset is clamped to the place's range as the app does (phi 0: the bake's forward bound, any other phi: the worst-case bound), and a phi other than 0 is the offset-only rotation mode, the camera circling the centre.
 // `?place=vienna`  the baked place (index.json's default if absent)
 // `?preset=all|physical|swiss|poster|painterly|painterly-cel-2|painterly-cel-3|painterly-cel-4` (default all: one row each; painterly is DEFAULT_LOOK); `?looks=<JSON array, url-encoded or base64>` replaces the rows with
 // the given `{label, ...partial RidgeLook}` entries (inkKeep and reliefLight merge by key). `?w=480` sets the cell width, 16:9 unless `?h=` gives the height (`?w=375&h=812` is a phone).
@@ -171,11 +171,12 @@ function momentsFrom(params: URLSearchParams, place: Parameters<typeof sunAt>[0]
   });
   return cols;
 }
-/** `?views=h:phi:r,...`: one column per view, all at the sky `?sky=` (default noon). */
+/** `?views=h:phi:r,...`: one column per view, all at the sky `?sky=` (default noon), whose sun `?sun=az:el` may put elsewhere (compass degrees, degrees above the horizon). */
 function viewsFrom(params: URLSearchParams): Column[] | undefined {
   const list = params.get('views');
   if (!list) return undefined;
-  const sky = SKIES[Number(params.get('sky') ?? 2)];
+  const [az, el] = (params.get('sun') ?? '').split(':').map(Number);
+  const sky = { ...SKIES[Number(params.get('sky') ?? 2)], ...(Number.isFinite(az) && Number.isFinite(el) ? { azimuth: az, elevation: el } : {}) };
   return list.split(',').map((v) => {
     const [h, phi, r] = v.split(':').map(Number);
     return { ...sky, label: `h ${h} phi ${phi} r ${r}`, view: { h, phi, r } };
