@@ -391,6 +391,7 @@ def test_pack_distance_and_r_max_in_the_bake():
     pk = export.pack(dict(b, cards=cs)); inner = (slice(None), slice(2, -2)); want = float(np.exp(np.median(ld[inner][~wall[inner]]))); with_wall = float(np.exp(np.median(ld[inner]))); assert abs(with_wall - want) > 0.05 * want, 'the fixture cannot tell wall rows from ground'
     assert abs(pk['tiles'][10][1]['distance_m'] - want) < 1e-9 * want, ('the distance counted wall rows or the apron', pk['tiles'][10][1]['distance_m'], want); assert set(pk['tiles'][10][1]) == {'top', 'colour', 'geometry', 'distance_m'} and set(pk['cards'][0]) == {'near_m', 'far_m'}
     base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and base['camera']['r_max_forward_m'] >= base['camera']['r_max_m'] and abs(base['report']['nearest_m'] - min(e[0]['distance_m'] for e in base['tiles'])) < 1e-9 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
+    near = export.pack(_toy(dists=(1500.0, 15000.0, 50000.0))); assert near['camera']['r_max_forward_m'] > near['camera']['r_max_m'] + 5, ('the forward offset was searched over the whole circle', near['camera'])
     assert abs(base['cards'][0]['far_m'] - 1500.0) < 1e-6 and base['cards'][0]['near_m'] is None and base['cards'][1]['near_m'] == base['cards'][0]['far_m']
 def test_the_sheet_draws_the_ring():
     """The contact sheet is the ring at 1/4 width (1600 px) with a mark on each of the 32 tile boundaries, in the composite, every card's strip and the depth image, stacked: composite, K cards, depth."""
