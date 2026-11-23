@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { anchor, freeze, hold, normalize, poseAt, resetHeading, setRange, settledAt, STAGE_MS, subscribe } from './heading';
+import { anchor, freeze, hold, normalize, poseAt, resetHeading, setRange, settledAt, STAGE_MS, subscribe, turnRate } from './heading';
 import type { RotationMode } from './heading';
 import * as camera from '../cameraState';
 import { effectiveMode, getCamera, isHeld, resetCamera, setCamera, subscribe as onCamera } from '../cameraState';
@@ -35,6 +35,25 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('turnRate', () => {
+  it('is the speed the view direction turns at: the viewer sets, bounded by the place, and nothing while it does not turn', () => {
+    anchor('p', 0, 0, (mode) => (mode === 'both' ? 5 : 12));
+    expect(turnRate()).toBe(0); // still
+    choose('both', 3, 0);
+    expect(turnRate()).toBe(3);
+    choose('both', -12, 0);
+    expect(turnRate()).toBe(5); // the place sustains 5, not the ceiling
+    choose('offset', 12, 0);
+    expect(turnRate()).toBe(0); // the camera circles: the view direction stays
+    choose('both', 3, 0);
+    freeze(true, 0);
+    expect(turnRate()).toBe(0);
+    freeze(false, 0);
+    hold(40, 0);
+    expect(turnRate()).toBe(0); // held by hand
+  });
 });
 
 describe('the heading owner', () => {

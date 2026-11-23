@@ -7,10 +7,11 @@ import { cardArc, cardPose, HFOV_MAX_DEG, offsetRange, SEGMENT_S, sweepArc, wind
 import type { Camera, CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
-import { freeze, normalize, poseAt as headingPose, setRange, settledAt, subscribe as onHeading } from './heading';
+import { freeze, normalize, poseAt as headingPose, setRange, settledAt, subscribe as onHeading, turnRate } from './heading';
 import type { Pose } from './heading';
-import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
-import { alignTurns, panPx, plateCamera, plateSize, recentre } from './skyTurn';
+import { activeAt, drawTwinkle as paintTwinkle, slotsFor, Star } from './stars';
+import { STAR_COUNT } from './nightSkyData';
+import { alignTurns, panPx, plateCamera, plateSize, recentre, slackFor } from './skyTurn';
 import { nightBodies, paintNightBodies } from './nightBodies';
 import type { NightBodies } from './nightBodies';
 import { drawRainTile, RAIN_TILES } from './rain';
@@ -118,18 +119,25 @@ interface Plate {
   el: HTMLElement;
   /** The twinkle canvas of this plate, over its sky; absent in a day sky. */
   twinkle?: HTMLCanvasElement;
-  /** The stars this plate was painted with, which the twinkle schedule indexes. */
-  field: Star[];
+  /** The stars this plate was painted with, by catalogue index: the identity the twinkle schedule is keyed by. */
+  stars: ReadonlyMap<number, Star>;
   /** Device pixels per CSS px of the plate's canvases (capped by `PLATE_MAX_PX`). */
   ratio: number;
+  /** Degrees of sky it holds beyond the viewport each side (`skyTurn.ts` `slackFor`, at the speed it was painted for). */
+  slack: number;
   /** The compass azimuth the plate is centred on, unwrapped to the heading owner's turn. */
   centre: number;
   /** The one animation that slides it. */
   anim?: Animation;
-  /** Key the slide from `t0` (ms) after the heading owner's pose, painting a new plate first when the heading is near this one's edge; `play`: the motion runs. */
-  issue: (t0: number, frozen: boolean, play: boolean) => void;
-  /** The residency tick: paint a new plate and key it from now when the heading is near the edge. */
-  tend: (t: number) => void;
+  /**
+   * Paint a new plate about the heading in this one's place when the heading is near its edge, or the speed in force needs more slack than it has; `periodMs`:
+   * the real period of the residency tick. True when it did, and then the slide is not keyed yet: `key` it, from a clock read after this.
+   */
+  refit: (periodMs: number) => boolean;
+  /** Key the slide from `t0` (ms), the heading owner's clock read after the plate was last painted; `play`: the motion runs. */
+  key: (t0: number, frozen: boolean, play: boolean) => void;
+  /** The residency tick: refit, and key from the clock after the paint if it painted. */
+  tend: (periodMs: number) => void;
   stop: () => void;
 }
 
@@ -197,6 +205,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   let built: Built | undefined;
   let twRaf = 0;
   let twLast = 0;
+  /** Paint a plate's twinkle canvas at t seconds, or clear it (set by the plate the scene is up with). */
+  let paintTwinkleOf: (of: Pick<Plate, 'twinkle' | 'stars' | 'ratio'>, t?: number) => void = () => undefined;
   let still = tier === 'still';
   let disposed = false;
   let raf = 0;
@@ -347,8 +357,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     /** The next stretch of every card's motion, from now: it replaces the one running, which agrees with it where they meet. */
     const issue = () => {
       if (!live) return;
+      normalize(clock()); // the angles of this stretch start within a turn of zero, so the transforms stay small however long the page has been open
+      plate?.refit(tickMs); // a new plate costs a paint: whatever it costs, the cards and the sky are keyed from the clock after it, so none of it is lag
       const t0 = clock();
-      normalize(t0); // the angles of this stretch start within a turn of zero, so the transforms stay small however long the page has been open
       issuedAt = t0;
       const frozen = reducedMotion?.matches === true;
       const play = moving();
@@ -363,7 +374,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         });
         if (!play) anims[i]?.pause();
       }
-      plate?.issue(t0, frozen, play); // the sky turns on the same keyframes, from the same poses
+      plate?.key(t0, frozen, play); // the sky turns on the same keyframes, from the same poses
       mount(sweep(t0)); // laid out from the same angles as the keyframes, in the same tick
     };
 
@@ -403,13 +414,18 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     // The one timer: ask for the arc ahead, mount what is made, and issue the next stretch once this one is mostly spent.
     const win0 = window;
     let timer = 0;
+    let lastTick: number | undefined;
+    /** The real period of the tick, ms: what the last two began apart (a tick is a timeout chain, so its work and its lateness are in it), never less than RESIDENCY_MS. */
+    let tickMs = RESIDENCY_MS;
     const residency = () => {
       timer = 0;
       if (!live) return;
       const t = clock();
+      if (lastTick !== undefined) tickMs = Math.max(RESIDENCY_MS, t - lastTick);
+      lastTick = t;
       const play = moving();
       if (play && t - issuedAt >= SEGMENT_S * 1000 * REISSUE_FRAC) issue();
-      else if (play) plate?.tend(t);
+      else if (play) plate?.tend(tickMs);
       const arc = sweep(t);
       mount(arc);
       void bd.ensure(arc, sweepArc(view, win, w, k, poseAt, t, 0)).then(() => live && mount(arc)); // the view now first, then along the sweep
@@ -491,8 +507,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
    */
   const startPlate = (physical: NonNullable<SkyColours['physical']>, w: number, h: number, dpr: number): Plate | undefined => {
     const win = windowFor(physical.view, w, h);
-    const { cssW, ratio, pxPerDeg } = plateSize(win, w, h, dpr);
-    const paint = (centre: number) => {
+    const pxPerDeg = w / win.camera.hfovDeg;
+    /** Slots of the twinkle schedule, fixed by the first plate: the schedule runs over the catalogue, so every plate of this sky twinkles the same stars in the same phase. */
+    let slots = 0;
+    const paint = (centre: number, slack: number) => {
+      const { cssW, ratio } = plateSize(win, w, h, dpr, slack);
       const el = document.createElement('div');
       el.setAttribute('aria-hidden', 'true');
       Object.assign(el.style, {
@@ -514,15 +533,30 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         return c;
       };
       const skyEl = layer();
-      const painted = paintSky(skyEl, sky, plateCamera(win, centre), cssW, h, makeCanvas);
+      const painted = paintSky(skyEl, sky, plateCamera(win, centre, slack), cssW, h, makeCanvas);
       const skyCtx = context2d(skyEl);
       if (!painted.ok || !painted.px || !skyCtx) return undefined;
       const bodies: NightBodies = nightBodies(physical, painted.px, opts.lines === true);
       paintNightBodies(skyCtx, bodies, skyEl.width, skyEl.height, ratio);
-      return { el, twinkle: bodies.stars.length ? layer() : undefined, field: bodies.stars };
+      slots ||= slotsFor(STAR_COUNT, bodies.stars.length);
+      return {
+        el,
+        twinkle: bodies.stars.length ? layer() : undefined,
+        stars: new Map(bodies.stars.map((star) => [star.id, star])),
+        ratio,
+        slack,
+      };
+    };
+    /** The overlay of `of` at `t` seconds: the stars of the catalogue that twinkle then, those of them this plate has. */
+    paintTwinkleOf = (of, t) => {
+      const el = of.twinkle;
+      const ctx = el && context2d(el);
+      if (!el || !ctx) return;
+      const active = t === undefined ? [] : activeAt(STAR_COUNT, t, slots);
+      paintTwinkle(ctx, of.stars, active, el.width, el.height, of.ratio);
     };
     const facing = opts.backdrop ? headingPose(clock()).h : physical.view.lookAzDeg; // with no ridge there is no heading: the place's rest azimuth
-    const first = paint(facing);
+    const first = paint(facing, slackFor(turnRate(), RESIDENCY_MS));
     if (!first) return undefined;
     parent.appendChild(first.el);
     /** The slide from `t0` of a plate centred on `centre`: its pan at every instant of the stretch is the heading owner's `h` there against that centre. */
@@ -533,29 +567,31 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (!play) anim?.pause();
       return anim;
     };
-    /** A plate about `centre` in the place of `old`: the same sky at the same place on the screen, so nothing moves. Undefined (the old one stays) if it cannot be painted. */
-    const renew = (old: Plate, centre: number) => {
-      const next = paint(centre);
-      if (!next) return undefined;
-      parent.insertBefore(next.el, old.el);
-      old.anim?.cancel();
-      old.el.remove();
-      return next;
-    };
     const plate: Plate = {
       ...first,
-      ratio,
       centre: facing,
-      issue: (t0, frozen, play) => {
-        const at = headingPose(t0).h;
+      refit: (periodMs) => {
+        const at = headingPose(clock()).h;
         plate.centre = alignTurns(plate.centre, at);
-        const next = recentre(at, plate.centre) ? renew(plate, at) : undefined;
-        if (next) Object.assign(plate, next, { centre: at, anim: undefined });
+        const rate = turnRate();
+        const slack = slackFor(rate, RESIDENCY_MS);
+        if (slack <= plate.slack && !recentre(at, plate.centre, plate.slack, rate, periodMs)) return false;
+        // A plate about the heading, in the place of this one: the same sky at the same place on the screen, so nothing moves. Undefined (this one stays) if it cannot be painted.
+        const next = paint(at, slack);
+        if (!next) return false;
+        if (moving()) paintTwinkleOf(next, clock() / 1000); // its twinkles as the old one's are now: shown with the stars already swinging
+        parent.insertBefore(next.el, plate.el);
+        plate.anim?.cancel();
+        plate.el.remove();
+        Object.assign(plate, next, { centre: at, anim: undefined });
+        return true;
+      },
+      key: (t0, frozen, play) => {
         plate.anim?.cancel();
         plate.anim = key(plate.el, plate.centre, t0, frozen, play);
       },
-      tend: (t) => {
-        if (recentre(headingPose(t).h, plate.centre)) plate.issue(t, false, true); // ticks run only while moving
+      tend: (periodMs) => {
+        if (plate.refit(periodMs)) plate.key(clock(), false, true); // ticks run only while moving
       },
       stop: () => {
         plate.anim?.cancel();
@@ -601,14 +637,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     !(reducedMotion?.matches ?? false) &&
     document.visibilityState === 'visible';
 
-  /** Paint the overlay at t seconds (stars away from base), or just clear it with no t (all at base). */
+  /** Paint the overlay of the plate that is up at t seconds (stars away from base), or just clear it with no t (all at base). */
   const drawTwinkle = (t?: number) => {
-    const plate = built?.plate;
-    const el = plate?.twinkle;
-    const ctx = el && context2d(el);
-    if (!plate || !el || !ctx) return;
-    const active = t === undefined ? [] : activeAt(plate.field.length, t);
-    paintTwinkle(ctx, plate.field, active, el.width, el.height, plate.ratio);
+    if (built?.plate) paintTwinkleOf(built.plate, t);
   };
 
   // The same guard as the drift: not still, not disposed, not reduced motion, tab visible. Not moving

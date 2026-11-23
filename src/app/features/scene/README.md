@@ -6,10 +6,10 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
 
 - `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky?, backdrop? })` returns `{ login, dispose }` or
   null (tier `off`, no 2D context). It paints the sky (`ridge/physicalSky.ts`, from the `SkyColours` the host passes) into a sky plate (`ridge/skyTurn.ts`): one element over the host
-  canvas, the viewport's width plus 20 degrees of sky each side, centred on the heading `heading.ts` owns, holding the sky with the real stars, the moon and the lines baked into it and a
+  canvas, the viewport's width plus its slack of sky each side (20 degrees, more as the turn speeds up: the margin of the speed in force over a tick and 2 s of lateness, and 14 degrees of travel), centred on the heading `heading.ts` owns, holding the sky with the real stars, the moon and the lines baked into it and a
   twinkle canvas for the swinging stars (`ridge/stars.ts`) over it. The sky is at infinity, so one animation slides the plate by the heading's turn at the cards' px per degree, on the
-  same keyframes as the cards; a residency tick or a reissue paints a new plate about the heading once it is within 14 degrees of the plate's edge and swaps it in the same tick
-  (the same sky at the same screen place, so nothing moves; the plate's backing store is capped at 3 Mpx, the pixel ratio lowering before the plate shrinks). Then come the lit ridge
+  same keyframes as the cards; a residency tick or a reissue paints a new plate about the heading once it is within that margin of the plate's edge (or the speed asks for more slack) and swaps it in the same tick,
+  keyed from the clock after the paint (the same sky at the same screen place, so nothing moves; the twinkle schedule runs over the catalogue, so a swap keeps which stars swing; the plate's backing store is capped at 3 Mpx, the pixel ratio lowering before the plate shrinks). Then come the lit ridge
   cards (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`). A sky with no physical model is a gradient in the host canvas.
   With no cards (the load failed) the scene shows the sky, stars and weather only, the plate facing the place's rest azimuth and staying. No script runs per frame except the twinkle, at most every 50 ms.
   The host canvas and its parent must be positioned and the parent must clip (the plate is wider than the viewport); the canvas should fill the parent. A resize rebuilds it; so does a sky change

@@ -6,6 +6,7 @@ import {
   TWINKLE_PERIOD,
   activeAt,
   slotCount,
+  slotsFor,
   slotOffset,
   slotPeriod,
   twinkleGain,
@@ -17,6 +18,28 @@ const N = 1200;
 function hash2(a: number, b: number) {
   return ((a * 7919 + b * 104729) % 1000) / 1000;
 }
+
+describe('the schedule over a universe of which a plate shows a share', () => {
+  const U = 2887;
+  const shown = 90; // stars on the plate: the first of the universe's, as any plate's are some of them
+
+  it('twinkles SLOTS of the shown stars on average, and is the same schedule whichever plate asks', () => {
+    const slots = slotsFor(U, shown);
+    let on = 0;
+    const ts = Array.from({ length: 300 }, (_, i) => i * 0.53);
+    for (const t of ts) on += activeAt(U, t, slots).filter((a) => a.star < shown).length;
+    expect(on / ts.length).toBeGreaterThan(SLOTS * 0.7);
+    expect(on / ts.length).toBeLessThan(SLOTS * 1.3);
+    // a star's twinkle is keyed by its identity: asked again, by another plate, the same star has the same phase and gain
+    expect(activeAt(U, 41.3, slots)).toEqual(activeAt(U, 41.3, slots));
+  });
+
+  it('never has more slots than half the universe, nor fewer than one', () => {
+    expect(slotsFor(U, 1)).toBe(Math.floor(U / 2));
+    expect(slotsFor(U, 0)).toBe(Math.floor(U / 2));
+    expect(slotsFor(2, 5)).toBe(1);
+  });
+});
 
 describe('twinkle schedule', () => {
   const times = Array.from({ length: 400 }, (_, i) => i * 0.37);

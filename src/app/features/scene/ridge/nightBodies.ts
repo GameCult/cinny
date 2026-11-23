@@ -181,6 +181,7 @@ export function nightBodies(p: PhysicalSky, px: SkyPixels, withLines: boolean): 
     if (Math.max(Math.abs(base[0] - out[0]), Math.abs(base[1] - out[1]), Math.abs(base[2] - out[2])) < 3) continue;
     const { base: r0, perMag } = NIGHT_LOOK.starRadius;
     stars.push({
+      id: s.index,
       x: at.x,
       y: at.y,
       r: r0 + perMag * Math.max(0, MAG_LIMIT - m),
