@@ -113,9 +113,17 @@ export function webpFault(b: Uint8Array, w: number, h: number): string | undefin
   return bad ? `states ${bad}, the manifest ${w}x${h}` : undefined;
 }
 
-/** The baker's bake id (export.py `bake_id`): first 12 hex of sha256 over the tile files, tile-major then card, colour then geometry (a card absent from a tile writes none). */
-export function bakeIdOf(tileFiles: Uint8Array[]): string {
+const BLANK_ID = '0'.repeat(12);
+
+/** The manifest text as the baker hashed it: LF line ends (a checkout may have made them CRLF) and the bake_id value blanked (an id cannot hash itself). */
+export function blankedManifest(text: string, bakeId: string): string {
+  return text.replace(/\r\n/g, '\n').replace(`"bake_id": "${bakeId}"`, `"bake_id": "${BLANK_ID}"`);
+}
+
+/** The baker's bake id (export.py `bake_id`): first 12 hex of sha256 over the blanked manifest text, then the tile files, tile-major then card, colour then geometry (a card absent from a tile writes none): the id addresses the whole bake. */
+export function bakeIdOf(blankManifest: string, tileFiles: Uint8Array[]): string {
   const h = createHash('sha256');
+  h.update(blankManifest, 'utf8');
   tileFiles.forEach((b) => h.update(b));
   return h.digest('hex').slice(0, 12);
 }
@@ -166,9 +174,12 @@ describe('the committed ridge assets', () => {
         );
       });
 
-      it('holds the bytes its bake id was made from', () => {
+      it('holds the manifest and the bytes its bake id was made from', () => {
         const ordered = raw.tiles.flatMap((row) => row.flatMap(files)).map(read);
-        expect(bakeIdOf(ordered)).toBe(raw.bake_id);
+        const text = blankedManifest(readFileSync(join(ROOT, dir, 'manifest.json'), 'utf8'), raw.bake_id);
+        expect(text).toContain(`"bake_id": "${BLANK_ID}"`);
+        expect(bakeIdOf(text, ordered)).toBe(raw.bake_id);
+        expect(bakeIdOf(text.replace('"r_max_forward_m"', '"r_max_forward_m "'), ordered), 'a changed manifest keeps its id').not.toBe(raw.bake_id);
       });
 
       it('keeps the place inside the tile, place and resident budgets, computed from the manifest alone', () => {
@@ -230,14 +241,15 @@ describe('the tile gates refuse a tile that is not what the manifest says', () =
     const bad = Buffer.from(real);
     bad.fill(0xab, 100, 108);
     expect(bad.length).toBe(real.length);
-    expect(bakeIdOf([bad])).not.toBe(bakeIdOf([real]));
+    expect(bakeIdOf('m', [bad])).not.toBe(bakeIdOf('m', [real]));
   });
   it('derives the id over the files in the order the baker writes them: any other order is another id', () => {
     const [a, b, c] = [Buffer.from('t0-c0-colour'), Buffer.from('t0-c0-geometry'), Buffer.from('t1-c0-colour')];
-    const want = createHash('sha256').update(a).update(b).update(c).digest('hex').slice(0, 12);
-    expect(bakeIdOf([a, b, c])).toBe(want);
-    expect(bakeIdOf([a, c, b])).not.toBe(want);
-    expect(bakeIdOf([b, a, c])).not.toBe(want);
+    const want = createHash('sha256').update('manifest').update(a).update(b).update(c).digest('hex').slice(0, 12);
+    expect(bakeIdOf('manifest', [a, b, c])).toBe(want);
+    expect(bakeIdOf('manifest', [a, c, b])).not.toBe(want);
+    expect(bakeIdOf('manifest', [b, a, c])).not.toBe(want);
+    expect(bakeIdOf('manifest!', [a, b, c])).not.toBe(want);
   });
 });
 
