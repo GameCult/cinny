@@ -36,25 +36,32 @@ interface Prepared {
   planesFail: Error | null;
 }
 
-/** How long the first scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. A rebuild has no deadline: the scene it replaces stays up until it has its tiles. */
+/** How long the first scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. A rebuild has no deadline: the scene it replaces stays up until the new one holds tiles. */
 export const PREPARE_DEADLINE_MS = 6_000;
 
 async function prepare(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier; debug?: boolean },
   choice: SkyChoice,
-  first: boolean
+  first: boolean,
+  superseded: AbortSignal
 ): Promise<Prepared> {
   // Whatever throws in making the scene is a compile failure, as whatever throws in loading it.
   let backdrop: Backdrop | null = null;
+  /** Give up the backdrop this build made, once: when a newer build supersedes it, or when it is not the scene's. */
+  const release = () => {
+    backdrop?.dispose();
+    backdrop = null;
+  };
+  superseded.addEventListener('abort', release, { once: true });
   const guarded = (make: () => Scene | null): Prepared => ({
     planesFail: null,
-    discard: () => backdrop?.dispose(),
+    discard: release,
     make: () => {
       try {
         return make();
       } catch (e) {
-        backdrop?.dispose();
+        release();
         options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
         return null;
       }
@@ -80,10 +87,7 @@ async function prepare(
         const manifestSky = ridgeSkyFor(choice, manifest.view);
         const { createBackdrop } = await import('./ridge/Backdrop');
         const heading = await import('./ridge/heading');
-        backdrop = createBackdrop(
-          manifest,
-          manifestSky.physical as NonNullable<typeof manifestSky.physical>
-        );
+        backdrop = createBackdrop(manifest, manifestSky.physical as NonNullable<typeof manifestSky.physical>);
         // A place not shown before faces its rest azimuth; a rebuild for a sky keeps the heading the view has turned to. The speed is bounded from here on, not
         // from the scene's first frame: the view does not turn further than the place sustains while the tiles load.
         const now = performance.now();
@@ -102,11 +106,11 @@ async function prepare(
         } finally {
           clearTimeout(timer);
         }
+        if (superseded.aborted) throw new Error('ridge: superseded');
         if (backdrop.litTiles().length === 0) throw new Error('ridge cards did not load');
         lit = manifestSky;
       } catch (e) {
-        backdrop?.dispose();
-        backdrop = null;
+        release();
         planesFail = e instanceof Error ? e : new Error(String(e));
       }
     }
@@ -174,21 +178,25 @@ export async function startBackgroundScene(
     if (!planesFail && planesFailed) options.onPlanesOk?.();
     planesFailed = planesFail !== null;
   };
-  const prepared = (choice: SkyChoice, first: boolean) => prepare(config, { ...options, tier, debug }, choice, first);
+  const prepared = (choice: SkyChoice, first: boolean, stop: AbortSignal) => prepare(config, { ...options, tier, debug }, choice, first, stop);
   resetSkyPlanes();
   const choice = getSkyChoice();
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, choice);
-  const firstReady = await prepared(choice, true);
+  const firstReady = await prepared(choice, true, new AbortController().signal);
   const first = firstReady.make();
   if (!first || config?.style === 'raymarch') return first;
   announce(firstReady.planesFail);
 
   let inner: Scene | null = first;
   let built = key0;
+  let shown = key0; // the sky key of the scene that is up
   let loggedIn = false;
   let disposed = false;
   let generation = 0;
-  // A rebuild is for a different sky ('auto' crossing a boundary, a new choice), not for a repeat of the one drawn.
+  let building: AbortController | undefined;
+  // A rebuild is for a different sky ('auto' crossing a boundary, a new choice), not for a repeat of the one drawn. What replaces the scene that is up: a new backdrop,
+  // once it holds tiles; a build a newer one supersedes is given up at once (its requests aborted); a build that ends with no tile never swaps a ridge for the sky alone,
+  // the next change of sky tries again. Only a first load that ends with no tile is the sky alone.
   const rebuild = async () => {
     // The choice can move while the key is awaited; that change has its own rebuild, so this one stands down.
     const next = getSkyChoice();
@@ -198,16 +206,26 @@ export async function startBackgroundScene(
     generation += 1;
     const mine = generation;
     built = key;
+    building?.abort();
+    const mineAborts = new AbortController();
+    building = mineAborts;
     // The old scene stays up while the next one loads; a build that is stale or after dispose is never made, so it never speaks.
-    const ready = await prepared(next, false);
+    const ready = await prepared(next, false, mineAborts.signal);
     if (disposed || mine !== generation) {
       ready.discard();
+      return;
+    }
+    building = undefined;
+    if (ready.planesFail && !planesFailed) {
+      ready.discard();
+      built = shown;
       return;
     }
     inner?.dispose();
     inner = null;
     const scene = ready.make();
     inner = scene;
+    shown = key;
     if (scene) announce(ready.planesFail);
     if (!scene) options.onInactive?.();
     else {
@@ -227,6 +245,7 @@ export async function startBackgroundScene(
       if (disposed) return;
       disposed = true;
       off();
+      building?.abort();
       inner?.dispose();
       inner = null;
     },
