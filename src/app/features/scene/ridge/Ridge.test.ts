@@ -15,6 +15,8 @@ import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
 import type { Arc, Backdrop, LitTile } from './Backdrop';
 import type { Mock } from 'vitest';
 import { cardArc, cardPose, FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
+import { plateCamera, plateSize } from './skyTurn';
+import { ringAzimuth, sunColumns, sunInColumn } from './lightCards';
 import { norm, residentTiles } from './ring';
 import { anchor, hold, poseAt, resetHeading, settledAt, STAGE_MS } from './heading';
 import { effectiveMode, getCamera, isHeld, resetCamera, setCamera } from '../cameraState';
@@ -122,6 +124,11 @@ function fakeEl(tag = 'div') {
       this.children.push(c);
       return c;
     },
+    insertBefore(c: any, before: any) {
+      c.parentElement = this;
+      this.children.splice(this.children.indexOf(before), 0, c);
+      return c;
+    },
     animate: vi.fn((keyframes: any[], options: any) => {
       const a: any = {
         currentTime: 0,
@@ -157,6 +164,9 @@ const draws: string[] = [];
 const images: unknown[][] = [];
 /** Every RGBA grid the host canvas was painted from (the small canvas's putImageData). */
 const painted: Uint8ClampedArray[] = [];
+/** Where each sun disc (its gradient's centre) and each body (an arc) was drawn into a sky canvas, in that canvas's device px, in paint order. */
+const suns: number[][] = [];
+const arcs: number[][] = [];
 function ctx() {
   const c: any = {
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
@@ -191,7 +201,10 @@ function ctx() {
     stroke() {
       draws.push('line');
     },
-    createRadialGradient: () => ({ addColorStop: vi.fn() }),
+    createRadialGradient: (x: number, y: number) => {
+      suns.push([x, y]);
+      return { addColorStop: vi.fn() };
+    },
     lineTo() {},
     closePath() {},
     // Stars: arc+fill is one draw. A context that has cleared a rect is the twinkle overlay's.
@@ -199,8 +212,9 @@ function ctx() {
       c.overlay = true;
       draws.push('clear');
     },
-    arc() {
+    arc(x: number, y: number) {
       draws.push(c.overlay ? 'twinkle' : 'star');
+      if (!c.overlay) arcs.push([x, y]);
       c.arcing = true;
     },
     fill: () => {
@@ -230,6 +244,8 @@ beforeEach(() => {
   draws.length = 0;
   images.length = 0;
   painted.length = 0;
+  suns.length = 0;
+  arcs.length = 0;
   search = '';
   motion = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
   doc = Object.assign(new EventTarget(), {
@@ -303,7 +319,9 @@ describe('createRidgeScene', () => {
     const { canvas } = host();
     const physical = makePhysicalSky(sunOfBand(ELSEWHERE_VIEW.place, 'day', new Date('2026-06-21T10:40:00Z')), 0, ELSEWHERE_VIEW);
     const s = createRidgeScene({ canvas, tier: 'full', sky: { ...DAY, physical } })!;
-    const want = paintPhysicalSky(physical, 400, 800, windowFor(ELSEWHERE_VIEW, 400, 800).camera);
+    // a live sky is a plate about the heading, which with no ridge is the View's rest azimuth
+    const win = windowFor(ELSEWHERE_VIEW, 400, 800);
+    const want = paintPhysicalSky(physical, plateSize(win, 400, 800, 2).cssW, 800, plateCamera(win, ELSEWHERE_VIEW.lookAzDeg));
     expect(painted).toHaveLength(1);
     expect(Array.from(painted[0])).toEqual(Array.from(want.data));
     s.dispose();
@@ -405,9 +423,12 @@ describe('the starfield in the scene', () => {
   const t = new Date('2026-12-04T00:00:00Z');
   const physical = makePhysicalSky(sunAt(FALLBACK_VIEW.place, t), 0, FALLBACK_VIEW);
   const night: SkyColours = { ...DAY, physical };
-  const N = nightBodies(
+  const view400 = windowFor(FALLBACK_VIEW, 400, 800);
+  /** The stars of a still, painted through the viewport's own camera, and of a live plate, painted through the viewport's plus the slack each side. */
+  const N = nightBodies(physical, paintPhysicalSky(physical, 400, 800, view400.camera), false).stars.length;
+  const NPLATE = nightBodies(
     physical,
-    paintPhysicalSky(physical, 400, 800, windowFor(FALLBACK_VIEW, 400, 800).camera),
+    paintPhysicalSky(physical, plateSize(view400, 400, 800, 2).cssW, 800, plateCamera(view400, FALLBACK_VIEW.lookAzDeg)),
     false
   ).stars.length;
   const hear = (name: string) => {
@@ -420,9 +441,10 @@ describe('the starfield in the scene', () => {
   it('bakes every star once into the sky; per frame only the overlay is touched', () => {
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: night })!;
-    expect(count('star')).toBe(N);
+    expect(count('star')).toBe(NPLATE);
     expect(painted).toHaveLength(1); // the physical sky's one grid
-    expect(parent.children[1].anims).toHaveLength(0); // the overlay, above the sky
+    const plate = parent.children[1]; // one element over the host canvas: the sky and, above it, the twinkle canvas
+    expect(plate.children.map((c: any) => c.tag)).toEqual(['canvas', 'canvas']);
     expect(parent.children).toHaveLength(2);
     const before = baked();
     runFrames(16.7, 300); // 5 s at 60 fps; the overlay repaints at 20 fps
@@ -504,7 +526,7 @@ describe('the starfield in the scene', () => {
     const s = createRidgeScene({ canvas, tier: 'full', sky: night })!;
     runFrames(100, 100);
     expect(parent.children).toEqual([canvas]);
-    expect(count('star')).toBe(N);
+    expect(count('star')).toBe(NPLATE + N); // the plate's, then the still's own in the host canvas
     expect(rafQueue).toHaveLength(0);
     s.dispose();
   });
@@ -523,7 +545,7 @@ describe('rain in the scene', () => {
     ...DAY,
     physical: makePhysicalSky(sunOfBand(FALLBACK_VIEW.place, 'day', new Date('2026-06-21T10:40:00Z')), w, FALLBACK_VIEW),
   });
-  const rainEls = (parent: any) => parent.children.filter((c: any) => c.tag === 'div');
+  const rainEls = (parent: any) => parent.children.filter((c: any) => c.tag === 'div' && c.style.backgroundImage);
 
   it('lays one falling tile per rain layer over the sky when it rains, each slid by its own height on the compositor', () => {
     const { parent, canvas } = host();
@@ -631,14 +653,15 @@ describe('the ridge cards in the scene', () => {
     expect(Math.max(...bodies)).toBeLessThan(Math.min(...cards));
   });
 
-  it('keeps the live sky canvas, with every body baked into it, under the twinkle canvas and the rig', () => {
+  it('keeps the live sky, with every body baked into it, and the twinkle canvas in one plate under the rig; the host canvas is not painted', () => {
     const { parent, canvas } = host();
     createRidgeScene({ canvas, tier: 'full', sky: { ...night }, backdrop: litCards(), lines: true });
     const rig = rigOf(parent);
-    const twinkle = parent.children.findIndex((c: any) => c.tag === 'canvas');
-    expect(twinkle).toBeGreaterThanOrEqual(0);
-    expect(parent.children.indexOf(rig)).toBeGreaterThan(twinkle);
-    expect(draws.filter((d) => d === 'image')).toHaveLength(1); // only the sky's own upscale is in the host canvas: the cards are DOM above it
+    const plate = parent.children.find((c: any) => c.children.some((g: any) => g.tag === 'canvas'));
+    expect(plate.children.map((c: any) => c.tag)).toEqual(['canvas', 'canvas']); // the sky, then the twinkle canvas over it
+    expect(parent.children.indexOf(rig)).toBeGreaterThan(parent.children.indexOf(plate));
+    expect(draws.filter((d) => d === 'image')).toHaveLength(1); // only the plate's sky upscale: nothing in the host canvas, the cards are DOM above the plate
+    expect(live(plate)).toHaveLength(1); // one animation slides it
   });
 
   it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position, and disposes the backdrop with itself', () => {
@@ -646,7 +669,7 @@ describe('the ridge cards in the scene', () => {
     const bd = litCards();
     const s = createRidgeScene({ canvas, tier: 'full', sky: night, backdrop: bd })!;
     const kinds = parent.children.map((c: any) => c.tag);
-    expect(kinds).toEqual(['canvas', 'canvas', 'div', 'div', 'div']);
+    expect(kinds).toEqual(['canvas', 'div', 'div', 'div', 'div']); // the host canvas, the sky plate, the rig, the rain
     expect(parent.children[2].children).toHaveLength(3);
     parent.children.forEach((c: any) => {
       expect(c.style.zIndex).toBeUndefined();
@@ -717,6 +740,209 @@ describe('the ridge cards in the scene', () => {
     const shift = (kf: any) => Number(/translate3d\((-?[\d.e-]+)px/.exec(kf.transform)?.[1]);
     expect(Math.abs(shift(near[30]) - shift(near[0]))).toBeGreaterThan(Math.abs(shift(far[30]) - shift(far[0])));
     s.dispose();
+  });
+
+  describe('the sky turns with the heading', () => {
+    const W = 400;
+    const SUN_ABOVE_REST = 5; // the sun stands this many degrees clockwise of the rest azimuth, 15 degrees up
+    const sunSky = (): SkyColours => ({
+      ...DAY,
+      physical: makePhysicalSky({ azimuth: view.lookAzDeg + SUN_ABOVE_REST, elevation: 15, time: new Date('2026-06-21T10:40:00Z') }, 0, view),
+    });
+    const nightSky = (): SkyColours => ({
+      ...DAY,
+      physical: makePhysicalSky(sunOfBand(view.place, 'night', new Date('2026-12-04T00:00:00Z')), 0, view),
+    });
+    const px = (v: string) => parseFloat(v);
+    const plateOf = (parent: any) => parent.children.find((c: any) => c.children.some((g: any) => g.tag === 'canvas'));
+    /** The plate's pan (px) at the clock `t`, read from its running animation: its keyframes are a second apart. */
+    const panAt = (plate: any, t: number): number => {
+      const a = live(plate)[0];
+      const at = (n: number) => px(/translate3d\((-?[\d.e+-]+)px/.exec(a.keyframes[n].transform)![1]);
+      const s = Math.max(0, (t - a.at) / 1000);
+      const i = Math.min(Math.floor(s), a.keyframes.length - 2);
+      return at(i) * (1 - (s - i)) + at(i + 1) * (s - i);
+    };
+    /** Where a point drawn at `x` device px of the plate's sky canvas is on the viewport at `t`, CSS px from its left edge. */
+    const onViewport = (plate: any, x: number, t: number): number => {
+      const ratio = plate.children[0].width / px(plate.style.width);
+      return px(plate.style.left) + x / ratio + panAt(plate, t);
+    };
+    const ticking = () => {
+      vi.useFakeTimers();
+      (window as any).setTimeout = setTimeout;
+      (window as any).clearTimeout = clearTimeout;
+    };
+
+    it('paints the plate about the heading the view has, not the rest azimuth, and holds it still there', () => {
+      hold(100, T0);
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!;
+      const sky = sunSky().physical!;
+      const wn = windowFor(view, W, 800);
+      const want = paintPhysicalSky(sky, plateSize(wn, W, 800, 2).cssW, 800, plateCamera(wn, 100));
+      expect(Array.from(painted[0])).toEqual(Array.from(want.data));
+      expect(painted).toHaveLength(1); // the host canvas has none: the plate is the sky
+      const plate = plateOf(parent);
+      expect(px(plate.style.left)).toBeCloseTo((W - plateSize(wn, W, 800, 2).cssW) / 2, 9); // centred on the viewport
+      expect(panAt(plate, T0)).toBeCloseTo(0, 9);
+      s.dispose();
+    });
+
+    it('moves the sun and a catalogue star by exactly the turn times the px per degree between a plate centred on h and one centred on h + delta', () => {
+      const first = host();
+      const a = createRidgeScene({ canvas: first.canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!;
+      const sunA = [...suns[0]];
+      const plateA = plateOf(first.parent);
+      const xA = onViewport(plateA, sunA[0], T0);
+      expect(xA).toBeCloseTo(W / 2 + SUN_ABOVE_REST * k, 0); // the sun at its true azimuth against the heading
+      a.dispose();
+      suns.length = 0;
+      hold(view.lookAzDeg + 10, T0);
+      const second = host();
+      const b = createRidgeScene({ canvas: second.canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!;
+      const xB = onViewport(plateOf(second.parent), suns[0][0], T0);
+      expect(xA - xB).toBeCloseTo(10 * k, 0);
+      expect(suns[0][1]).toBe(sunA[1]); // the sun does not climb: only the azimuth turns
+      b.dispose();
+
+    });
+
+    it('moves a catalogue star by exactly the turn times the px per degree too, and the stars that stay in sight are the same ones', () => {
+      const starsAt = (heading: number) => {
+        resetHeading();
+        anchor(view.place.id, heading, T0);
+        arcs.length = 0;
+        const h = host();
+        createRidgeScene({ canvas: h.canvas, tier: 'full', sky: nightSky(), backdrop: litCards() })!.dispose();
+        return arcs.map((p) => [p[0], p[1]]);
+      };
+      const plateX = (device: number) => {
+        const wn = windowFor(view, W, 800);
+        const size = plateSize(wn, W, 800, 2);
+        return (device / Math.floor(size.cssW * size.ratio)) * size.cssW + (W - size.cssW) / 2;
+      };
+      const here = starsAt(view.lookAzDeg).map(([x, y]) => [plateX(x), y]);
+      const turned = starsAt(view.lookAzDeg + 10).map(([x, y]) => [plateX(x), y]);
+      const inSight = here.filter(([x]) => x - 10 * k > 0 && x - 10 * k < W && x > 0 && x < W);
+      expect(inSight.length).toBeGreaterThan(3);
+      inSight.forEach(([x, y]) => {
+        // pan 0 in both: the viewport position is the plate's, and it moved left by ten degrees of pixels
+        const found = turned.find(([tx, ty]) => ty === y && Math.abs(tx - (x - 10 * k)) < 0.75);
+        expect(found).toBeDefined();
+      });
+    });
+
+    it('keeps the sun and every star where the view faces them across a re-centre: the old plate goes, a new one stands in its place, the sun moves by less than a pixel', () => {
+      ticking();
+      const now = vi.mocked(performance.now);
+      setCamera({ speedDegPerS: 4 }); // the view turns 4 degrees a second: the plate runs to 14 degrees off its centre in 3.5 s
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!;
+      const first = plateOf(parent);
+      const kinds = parent.children.map((c: any) => c.tag);
+      const seen = new Set<any>([first]);
+      let last = onViewport(first, suns[suns.length - 1][0], T0);
+      for (let ms = 500; ms <= 9_000; ms += 500) {
+        now.mockReturnValue(T0 + ms);
+        vi.advanceTimersByTime(500);
+        const plate = plateOf(parent);
+        seen.add(plate);
+        const x = onViewport(plate, suns[suns.length - 1][0], T0 + ms);
+        const want = W / 2 + (view.lookAzDeg + SUN_ABOVE_REST - poseAt(T0 + ms).h) * k; // the sun's true place on the viewport
+        expect(Math.abs(x - want)).toBeLessThan(1);
+        expect(Math.abs(x - last + 4 * 0.5 * k)).toBeLessThan(1); // it moved only as the view turned (half a second of it)
+        last = x;
+        expect(parent.children.map((c: any) => c.tag)).toEqual(kinds); // the plate is replaced in its place: nothing stacks up
+      }
+      expect(seen.size).toBe(3); // 36 degrees of turn: replaced at 16 and at 32 degrees
+      expect([...seen].filter((p) => p.parentElement).length).toBe(1);
+      expect(live(plateOf(parent))).toHaveLength(1);
+      s.dispose();
+      expect(parent.children).toEqual([canvas]);
+      vi.useRealTimers();
+    });
+
+    it('does not repaint a plate for a view that stays or turns within its slack', () => {
+      ticking();
+      const now = vi.mocked(performance.now);
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!; // 0.6 degrees a second
+      const first = plateOf(parent);
+      for (let ms = 500; ms <= 20_000; ms += 500) {
+        now.mockReturnValue(T0 + ms);
+        vi.advanceTimersByTime(500);
+      }
+      expect(plateOf(parent)).toBe(first); // 12 degrees of turn: inside the 14
+      expect(painted).toHaveLength(1);
+      s.dispose();
+      vi.useRealTimers();
+    });
+
+    it('re-centres on a reissue too: a turn by hand past the edge paints a plate about where the view now faces', () => {
+      ticking();
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!;
+      const first = plateOf(parent);
+      hold(view.lookAzDeg + 60, T0);
+      const plate = plateOf(parent);
+      expect(plate).not.toBe(first);
+      expect(panAt(plate, T0)).toBeCloseTo(0, 6);
+      expect(live(plate)).toHaveLength(1);
+      s.dispose();
+      vi.useRealTimers();
+    });
+
+    it('puts the twinkle canvas in the plate, over the sky, and nothing animates but the plate', () => {
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: nightSky(), backdrop: litCards() })!;
+      const plate = plateOf(parent);
+      expect(plate.children.map((c: any) => c.tag)).toEqual(['canvas', 'canvas']);
+      expect([plate.children[1].width, plate.children[1].height]).toEqual([plate.children[0].width, plate.children[0].height]);
+      plate.children.forEach((c: any) => expect(c.anims).toHaveLength(0)); // they ride the plate
+      expect(parent.children.filter((c: any) => c.tag === 'canvas')).toEqual([canvas]); // no twinkle canvas of the page's own
+      s.dispose();
+    });
+
+    it('paints a plate that stays under the pixel cap and pans by the same px per degree as the cards', () => {
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: sunSky(), backdrop: litCards() })!;
+      const plate = plateOf(parent);
+      expect(plate.children[0].width * plate.children[0].height).toBeLessThanOrEqual(3_000_000);
+      expect(px(plate.style.width) / (win.camera.hfovDeg + 40)).toBeCloseTo(k, 9);
+      hold(view.lookAzDeg + 10, T0); // a turn by hand inside the slack: the same plate slides ten degrees of pixels
+      expect(panAt(plateOf(parent), T0)).toBeCloseTo(-10 * k, 6);
+      s.dispose();
+    });
+
+    it('shows the sun at the azimuth the ridge is lit from: facing it the sky puts it on the centre column and the ridge faces it; facing away it is off the plate and the ridge is in shade', () => {
+      const sun = { azimuth: view.lookAzDeg + 17, elevation: 12 };
+      const lit = { ...DAY, physical: makePhysicalSky({ ...sun, time: new Date('2026-06-21T10:40:00Z') }, 0, view) };
+      // The ridge's own: the column whose face looks at the sun is the one the lit table gives most to.
+      const cols = sunColumns(view, sun);
+      let best = 0;
+      for (let c = 0; c < view.ringW; c += 1) if (cols[c * 4] > cols[best * 4]) best = c;
+      expect(Math.abs(ringAzimuth(best, view.ringW) - sun.azimuth)).toBeLessThanOrEqual(360 / view.ringW);
+
+      resetHeading();
+      anchor(view.place.id, sun.azimuth, T0);
+      const facing = host();
+      createRidgeScene({ canvas: facing.canvas, tier: 'full', sky: lit, backdrop: litCards() })!.dispose();
+      expect(suns).toHaveLength(1);
+      const wn = windowFor(view, W, 800);
+      const size = plateSize(wn, W, 800, 2);
+      const centreCol = (suns[0][0] / Math.floor(size.cssW * size.ratio)) * size.cssW + (W - size.cssW) / 2;
+      expect(Math.abs(centreCol - W / 2)).toBeLessThan(1); // the sky's sun is on the column the view centres, whose face the ridge lights fullest
+      expect(sunInColumn(sun, sun.azimuth)[0]).toBeCloseTo(Math.cos((sun.elevation * Math.PI) / 180), 12);
+
+      suns.length = 0;
+      resetHeading();
+      anchor(view.place.id, sun.azimuth + 180, T0);
+      const away = host();
+      createRidgeScene({ canvas: away.canvas, tier: 'full', sky: lit, backdrop: litCards() })!.dispose();
+      expect(suns).toHaveLength(0); // the sun is behind the camera: no disc anywhere on the plate
+      expect(sunInColumn(sun, sun.azimuth + 180)[0]).toBeLessThan(0); // and the ridge faces it away
+    });
   });
 
   it('a heading of 400 degrees places the tiles a heading of 40 does, a revolution on', () => {
