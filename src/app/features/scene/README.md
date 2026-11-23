@@ -5,14 +5,17 @@ config says `backgroundScene.style: 'raymarch'`; the tier flag still defaults to
 means "keep the CSS ground". Everything below this section describes the opt-in ray-march scene.
 
 - `ridge/Ridge.ts` `createRidgeScene({ canvas, tier, probe?, onProbe?, sky?, backdrop? })` returns `{ login, dispose }` or
-  null (tier `off`, no 2D context). It paints the sky (`ridge/physicalSky.ts`, from the `SkyColours` the host passes) on the host
-  canvas at the viewport's size in canvas pixels, then the stars baked into it, a twinkle overlay canvas for the swinging ones
-  (`ridge/stars.ts`), the lit ridge cards (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`).
-  With no cards (the load failed) the scene shows sky, stars and weather only. No script runs per frame except the twinkle, at most every 50 ms.
-  The host canvas and its parent must be positioned and the canvas should fill the parent. A resize rebuilds it; so does a sky change
+  null (tier `off`, no 2D context). It paints the sky (`ridge/physicalSky.ts`, from the `SkyColours` the host passes) into a sky plate (`ridge/skyTurn.ts`): one element over the host
+  canvas, the viewport's width plus its slack of sky each side (20 degrees, more as the turn speeds up: the margin of the speed in force over a tick and 2 s of lateness, and 14 degrees of travel), centred on the heading `heading.ts` owns, holding the sky with the real stars, the moon and the lines baked into it and a
+  twinkle canvas for the swinging stars (`ridge/stars.ts`) over it. The sky is at infinity, so one animation slides the plate by the heading's turn at the cards' px per degree, on the
+  same keyframes as the cards; a residency tick or a reissue paints a new plate about the heading once it is within that margin of the plate's edge (or the speed asks for more slack) and swaps it in the same tick,
+  keyed from the clock after the paint (the same sky at the same screen place, so nothing moves; the twinkle schedule runs over the catalogue, so a swap keeps which stars swing; the plate's backing store is capped at 3 Mpx, the pixel ratio lowering before the plate shrinks). Then come the lit ridge
+  cards (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`). A sky with no physical model is a gradient in the host canvas.
+  With no cards (the load failed) the scene shows the sky, stars and weather only, the plate facing the place's rest azimuth and staying. No script runs per frame except the twinkle, at most every 50 ms.
+  The host canvas and its parent must be positioned and the parent must clip (the plate is wider than the viewport); the canvas should fill the parent. A resize rebuilds it; so does a sky change
   (`index.ts`).
 - Paused when the tab is hidden; under `prefers-reduced-motion` the rain is paused and the stars stay at base brightness.
-  `tier: 'still'` paints the sky and stars and adds no overlay, no rain and no loop.
+  `tier: 'still'` paints the sky (facing the heading its pose froze at) and stars into the host canvas and adds no plate, no rain and no loop.
 - Cadence guard: for the first 2 s after start (after 5 warm-up frames) rAF intervals are sampled; if their p95 is over
   33 ms the scene settles to a still image (`ridge/probe.ts`) and stops. `?probe=1` (or `probe: true`) keeps sampling
   and shows `n / median / p95` in a corner readout.
@@ -37,7 +40,7 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   what the baked resident count sustains, applied to the stored choice). `cameraState.ts` is the one owner of the viewer's mode, speed and offset in `ratatoskr.camera`; `heading.ts` owns the view's pose, the direction, the camera's angle over it and its offset, as one segment (module
   state: the pose at a clock, the mode and speed in force and the ease to the pose the choices owe; any change of a choice, a hold, a bound or reduced motion starts a new segment from the pose it has at that clock, `poseAt(t)` is a pure function of it, and a mode pick eases the angle and the offset one after the other, 300 ms each, in the order that keeps every pose inside the bound; `cameraState.ts` hands it each change synchronously before its listeners and keeps no log; `view.ts` `offsetRange`, given to it by the scene, is the one clamp; angles are normalized into [0, 360) before each stretch so nothing grows with uptime; a manual `hold` sets the mode to still, so a rebuild or a reload keeps it). The motion is one `Element.animate` per card (transform only, a
   keyframe each second for 30 s and every 50 ms while an ease runs, reissued at 80% and on any change; paused when the tab is hidden or motion is reduced, then constant); a 500 ms timer asks the backdrop for
-  the arc every pose of the next 30 s passes over (`view.ts` `sweepArc`, sampled four times a second, not its two ends) and mounts the tiles it has made. A still draws the tiles of the arc into the host canvas at the heading now. The sky does not turn with the heading. A failure
+  the arc every pose of the next 30 s passes over (`view.ts` `sweepArc`, sampled four times a second, not its two ends) and mounts the tiles it has made. A still draws the sky and the tiles of the arc into the host canvas at the heading now. A failure
   anywhere (404, a manifest that is not schema 3, no tile that will decode, no WebGL2, a lighting pass that throws) is the sky-only scene on `FALLBACK_VIEW`,
   told to the host by the live scene alone, through `onPlanesFail` when the live scene has no cards and `onPlanesOk` when a later one has them (never from a stale
   or disposed build); it is never `onCompileFail`. `vite.config.js` copies `public/ridge` into `dist/public/`.

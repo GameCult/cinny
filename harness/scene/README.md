@@ -21,6 +21,12 @@ directory whose ancestors hold no empty `package.json` (esbuild reads them).
 Timings from SwiftShader are CPU time: use them for the split between passes and for before and
 after of one change, never as a phone frame time.
 
+## Ridge live scene
+
+`ridgeLive.html` is one live scene (tier 'full', the sky plate and the cards on the compositor) filling the window, for a driver to turn and screenshot: `?h=214&sun=232:22&speed=6` (start heading, the sun's azimuth and elevation, degrees a second of rotation),
+`?sky=night&lines=1`. `window.live` offers `hold(h)`, `pose()`, `plate()`, `left()` (the plate's left edge on the page) and `plateCost()` (ms of main thread to paint one plate here); `window.longTasks` lists the tasks over 50 ms.
+A held heading's sun lands within a tenth of a pixel of the column the heading owner says, across re-centres of the plate.
+
 ## Ridge look sheet
 
 Renders a baked place (`?place=`, the index default otherwise) lit for six sky states (dawn 2, morning 15, noon 55, golden 6, dusk -3, night -30 degrees of sun)
@@ -29,6 +35,8 @@ path (`createRidgeScene` at tier 'still' over a `createBackdrop` of the tiles ro
 behind a cell is the app's own, without clouds. Not shipped.
 
     ...ridgeSheet.html?views=214:0:200,0:0:200,214:90:98.2&sky=2      # one column per view heading:phi:offset (degrees, degrees, metres) at one sky (an index of SKIES)
+
+`&sun=100:6` puts the sun of that sky at compass azimuth 100, 6 degrees up (the stars are those of the moment the sheet is opened): a sun at the heading's side shows where the turned sky puts it, `&sky=5&lines=1` is the night.
 
 A heading of 0 or 360 is across north; a phi other than 0 is the offset-only rotation mode (the camera circling the centre, the view direction staying); the offset is
 clamped to the place's range as the app does (phi 0: `camera.r_max_forward_m`, another phi: `camera.r_max_m`).

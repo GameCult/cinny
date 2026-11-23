@@ -130,6 +130,13 @@ function restart(now: number, over: Partial<Pose> = {}, snap = false): void {
   emit();
 }
 
+/**
+ * Degrees per second the view direction turns at under the inputs in force: the viewer's speed bounded by what the place sustains in the mode picked (`anchor`'s
+ * limit), and nothing while the view does not turn (a mode that turns the camera on its circle, a hold, reduced motion). Every change of any of these starts a
+ * segment and is heard by `subscribe`, so a reader that sizes something to this speed learns when it must size again.
+ */
+export const turnRate = (): number => (seg?.turns === 'h' ? Math.abs(seg.rate) : 0);
+
 /** The clock (ms) at which what the last change eased is home. */
 export const settledAt = (): number => seg?.endAt ?? 0;
 
