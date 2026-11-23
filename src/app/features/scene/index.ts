@@ -36,13 +36,14 @@ interface Prepared {
   planesFail: Error | null;
 }
 
-/** How long a scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. */
+/** How long the first scene start waits for the first tiles, ms: past it the scene draws with the tiles it has and the rest arrive into it; with none, it is the sky alone. A rebuild has no deadline: the scene it replaces stays up until it has its tiles. */
 export const PREPARE_DEADLINE_MS = 6_000;
 
 async function prepare(
   config: BackgroundSceneConfig | undefined,
   options: StartOptions & { tier: SceneTier; debug?: boolean },
-  choice: SkyChoice
+  choice: SkyChoice,
+  first: boolean
 ): Promise<Prepared> {
   // Whatever throws in making the scene is a compile failure, as whatever throws in loading it.
   let backdrop: Backdrop | null = null;
@@ -88,13 +89,14 @@ async function prepare(
         const now = performance.now();
         heading.anchor(manifest.view.place.id, manifest.view.lookAzDeg, now, (mode) => maxSpeed(manifest, mode));
         const h = heading.headingAt(now);
-        // The first arc, against a deadline: a slow or silent server must not hold the scene back. What is held by then is drawn and the rest fills in.
+        // The first arc. The first scene of a page has nothing to show meanwhile, so it waits against a deadline (a slow or silent server must not hold it back):
+        // what is held by then is drawn and the rest fills in. A rebuild has the old scene up and waits for its tiles as long as they take.
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
             backdrop.ensure({ fromDeg: h - HFOV_MAX_DEG / 2, toDeg: h + HFOV_MAX_DEG / 2 }),
             new Promise<void>((late) => {
-              timer = setTimeout(late, PREPARE_DEADLINE_MS);
+              if (first) timer = setTimeout(late, PREPARE_DEADLINE_MS);
             }),
           ]);
         } finally {
@@ -172,11 +174,11 @@ export async function startBackgroundScene(
     if (!planesFail && planesFailed) options.onPlanesOk?.();
     planesFailed = planesFail !== null;
   };
-  const prepared = (choice: SkyChoice) => prepare(config, { ...options, tier, debug }, choice);
+  const prepared = (choice: SkyChoice, first: boolean) => prepare(config, { ...options, tier, debug }, choice, first);
   resetSkyPlanes();
   const choice = getSkyChoice();
   const key0 = config?.style === 'raymarch' ? null : await skyKey(config, choice);
-  const firstReady = await prepared(choice);
+  const firstReady = await prepared(choice, true);
   const first = firstReady.make();
   if (!first || config?.style === 'raymarch') return first;
   announce(firstReady.planesFail);
@@ -197,7 +199,7 @@ export async function startBackgroundScene(
     const mine = generation;
     built = key;
     // The old scene stays up while the next one loads; a build that is stale or after dispose is never made, so it never speaks.
-    const ready = await prepared(next);
+    const ready = await prepared(next, false);
     if (disposed || mine !== generation) {
       ready.discard();
       return;

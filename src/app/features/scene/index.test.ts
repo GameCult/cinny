@@ -489,6 +489,59 @@ describe('the ridge planes', () => {
       scene?.dispose();
     });
 
+    it('a rebuild has no deadline: the scene it replaces stays up, planes are not told to fail, and the new scene is swapped in when its tiles arrive', async () => {
+      served();
+      resetHeading();
+      const scenes: any[] = [];
+      createRidgeScene.mockImplementation(() => {
+        const s = fakeScene();
+        scenes.push(s);
+        return s;
+      });
+      const onPlanesFail = vi.fn();
+      loader();
+      const scene = await startBackgroundScene(config, caps, { canvas, onPlanesFail });
+      expect(scenes).toHaveLength(1);
+      let held = 0;
+      let arrive = () => undefined as void;
+      const made: any[] = [];
+      createBackdrop.mockImplementation((manifest: unknown) => {
+        const bd = {
+          manifest,
+          dispose: vi.fn(),
+          litTiles: () => Array.from({ length: held }, (_, tile) => ({ tile, card: 0, canvas: {} })),
+          ensure: vi.fn(
+            () =>
+              new Promise<void>((resolve) => {
+                arrive = () => {
+                  held = 1;
+                  resolve();
+                };
+              })
+          ),
+        };
+        made.push(bd);
+        return bd;
+      });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      setSkyChoice(NOON);
+      for (let i = 0; i < 20; i += 1) await real();
+      expect(made).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(10 * PREPARE_DEADLINE_MS);
+      for (let i = 0; i < 5; i += 1) await real();
+      expect(createRidgeScene).toHaveBeenCalledOnce(); // still the first scene
+      expect(scenes[0].dispose).not.toHaveBeenCalled();
+      expect(made[0].dispose).not.toHaveBeenCalled();
+      expect(onPlanesFail).not.toHaveBeenCalled();
+      arrive();
+      for (let i = 0; i < 20; i += 1) await real();
+      expect(createRidgeScene).toHaveBeenCalledTimes(2);
+      expect(createRidgeScene.mock.calls[1][0].backdrop).toBe(made[0]);
+      expect(scenes[0].dispose).toHaveBeenCalledOnce();
+      expect(onPlanesFail).not.toHaveBeenCalled();
+      scene?.dispose();
+    });
+
     it('is the sky alone, told once, when the deadline passes with no tile held, and lets go of the backdrop and its requests', async () => {
       served();
       resetHeading();
