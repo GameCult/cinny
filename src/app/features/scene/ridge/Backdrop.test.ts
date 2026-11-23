@@ -380,6 +380,68 @@ describe('createBackdrop', () => {
     expect(bd.litTiles().some((t) => t.tile === 19)).toBe(false);
   });
 
+  describe('the loader asks again on its own', () => {
+    /** Nothing waits on a timer but the retry: files and decodes settle at once. */
+    const quick = (fail: (url: string) => boolean) => {
+      const r = rig(fail);
+      const decode = vi.fn(async (blob: Blob) => ({ url: (blob as unknown as { url: string }).url, close: () => undefined }) as unknown as ImageBitmap);
+      return { r, deps: { ...r, decode, lighter: r.lighter } };
+    };
+    const tile = (r: ReturnType<typeof rig>, t: number) => r.fetched.filter((u) => tileOf(u) === t && u.includes('card-1-') && u.endsWith('colour.webp')).length;
+
+    it('a tile that failed is asked for again at the end of its pause with no one asking, and the listener hears it arrive', async () => {
+      vi.useFakeTimers();
+      let broken = true;
+      const { r, deps } = quick((u) => broken && tileOf(u) === 16 && u.includes('card-1-'));
+      const bd = createBackdrop(manifest, sky, deps);
+      const heard = vi.fn();
+      bd.onTile(heard);
+      await bd.ensure({ fromDeg: 180, toDeg: 181 }); // the only ask: a still has no timer to make another
+      expect(bd.litTiles().some((t) => t.tile === 16)).toBe(false);
+      const arrived = heard.mock.calls.length;
+      broken = false;
+      r.tick(RETRY_FIRST_MS - 1);
+      await vi.advanceTimersByTimeAsync(RETRY_FIRST_MS - 1);
+      expect(tile(r, 16)).toBe(1); // not before its pause
+      r.tick(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(bd.litTiles().filter((t) => t.tile === 16).map((t) => t.card).sort()).toEqual([0, 1, 2]);
+      expect(heard.mock.calls.length).toBe(arrived + 1);
+      const n = r.fetched.length;
+      r.tick(10 * RETRY_MAX_MS);
+      await vi.advanceTimersByTimeAsync(10 * RETRY_MAX_MS);
+      expect(r.fetched.length).toBe(n); // nothing is left to ask for
+      bd.dispose();
+    });
+
+    it('keeps asking, on a pause that doubles, while the arc wants the tile, and stops when the arc has moved on or the backdrop is gone', async () => {
+      vi.useFakeTimers();
+      const { r, deps } = quick((u) => tileOf(u) === 19);
+      const bd = createBackdrop(manifest, sky, deps);
+      await bd.ensure({ fromDeg: 215, toDeg: 216 });
+      expect(tile(r, 19)).toBe(1);
+      for (let s = 0; s < 120; s += 1) {
+        r.tick(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      expect(tile(r, 19)).toBeGreaterThan(3);
+      expect(tile(r, 19)).toBeLessThanOrEqual(8); // 1 s, 2 s, 4 s, 8 s, 16 s, 32 s: a few a minute, not one a second
+      await bd.ensure({ fromDeg: 0, toDeg: 1 }); // the view has gone the other way: tile 19 is no longer wanted
+      const asked = tile(r, 19);
+      for (let s = 0; s < 300; s += 1) {
+        r.tick(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+      expect(tile(r, 19)).toBe(asked);
+      await bd.ensure({ fromDeg: 215, toDeg: 216 });
+      bd.dispose();
+      const n = r.fetched.length;
+      r.tick(10 * RETRY_MAX_MS);
+      await vi.advanceTimersByTimeAsync(10 * RETRY_MAX_MS);
+      expect(r.fetched.length).toBe(n); // a disposed backdrop asks for nothing
+    });
+  });
+
   it('does not ask again for a file the server does not have: the tile is drawn with the cards that came', async () => {
     const r = rig(
       () => false,

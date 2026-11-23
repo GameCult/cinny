@@ -1,8 +1,9 @@
 // The ridge cards the scene composes, lit, kept resident by tile: the one owner of which tiles of the ring are in memory. `ensure` is told the arc of
 // azimuth the view is about to need; it fetches and decodes the tiles of that arc it does not hold, one tile at a time, lights each card of a tile
 // (`lightCards.ts`, one lighter for the one sky this backdrop was made for) and drops the tiles beyond the arc and its margin. The files of the tiles to make
-// are fetched a few at a time, each against a timeout. A tile that fails is a tile the scene draws as absence, asked for again after a growing pause; a file
-// the server says is not there (404) is not asked for again while its tile stays: the scene draws the cards of the tile that came. Nothing is thrown into the scene.
+// are fetched a few at a time, each against a timeout. A tile that fails is a tile the scene draws as absence, asked for again by the loader itself after a growing
+// pause, for as long as the arc last asked for wants it (whoever asked, a scene's timer or none: a still has no timer); a file the server says is not there (404) is
+// not asked for again while its tile stays: the scene draws the cards of the tile that came. Nothing is thrown into the scene.
 import type { RidgeManifest } from './manifest';
 import type { PhysicalSky } from './physicalSky';
 import { createLighter } from './lightCards';
@@ -89,6 +90,11 @@ export function createBackdrop(
   let disposed = false;
   let running: Promise<void> | null = null;
   let want: { arc: Arc; first?: Arc } | null = null;
+  /** The arc last asked for: what the loader keeps its tiles for and retries for. */
+  let wanted: { arc: Arc; first?: Arc } | null = null;
+  /** Ask for the arc wanted once more: a pass ends in `schedule`, which is defined before the backdrop that can be asked. */
+  let askAgain: () => void = () => undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
   /** The pass that is on the wire: dispose gives up its requests, as a newer arc does. */
   let current: AbortController | null = null;
 
@@ -219,19 +225,38 @@ export function createBackdrop(
     }
   }
 
+  /** When the arc wanted holds a tile that failed, ask for it again at the end of its pause: the loader's own retry, the same for every tier. */
+  function schedule(): void {
+    clearTimeout(retry);
+    retry = undefined;
+    if (disposed || !wanted) return;
+    const { arc } = wanted;
+    const half = (arc.toDeg - arc.fromDeg) / 2 + LOAD_MARGIN_TILES * tileDeg;
+    const due = residentTiles(view, (arc.fromDeg + arc.toDeg) / 2, half)
+      .filter((r) => !held.has(r.tile) && failed.has(r.tile))
+      .map((r) => (failed.get(r.tile) as { until: number }).until);
+    if (!due.length) return;
+    retry = setTimeout(() => {
+      retry = undefined;
+      askAgain();
+    }, Math.max(0, Math.min(...due) - now()));
+  }
+
   async function loop(): Promise<void> {
     while (want && !disposed) {
       const { arc, first } = want;
       want = null;
       await pass(arc, first);
     }
+    schedule();
   }
 
-  return {
+  const api: Backdrop = {
     manifest,
     ensure(arc, first) {
       if (disposed) return Promise.resolve();
-      want = { arc, first };
+      wanted = { arc, first };
+      want = wanted;
       running ??= loop().finally(() => {
         running = null;
       });
@@ -246,10 +271,16 @@ export function createBackdrop(
       if (disposed) return;
       disposed = true;
       heard.clear();
+      wanted = null;
       want = null;
+      clearTimeout(retry);
       current?.abort(); // a scene that did not wait for its tiles, or was replaced, leaves nothing asking for them
       [...held.keys()].forEach(drop);
       lighter.release();
     },
   };
+  askAgain = () => {
+    if (wanted) api.ensure(wanted.arc, wanted.first).catch(() => undefined);
+  };
+  return api;
 }
