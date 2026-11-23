@@ -171,14 +171,16 @@ def solve_r_max(dist, bands, px_per_deg, phis=None):
         n = run_tiles(R_MAX_FLOOR_M, rmin); raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: at {R_MAX_FLOOR_M:g} m, {n} consecutive tiles light to {resident_bytes(bands, n)} bytes, above {RESIDENT_BYTES_MAX}')
     return r_max
 
-def bake_id(files):
-    """First 12 hex of sha256 over the tile files, tile-major then card, colour then geometry (a null card tile writes none).  files: [(colour bytes, geometry bytes)] in that order."""
-    h = hashlib.sha256()
+BAKE_ID_BLANK = '0' * 12
+def bake_id(manifest_text, files):
+    """First 12 hex of sha256 over the whole bake: the manifest.json text as written with its bake_id value BAKE_ID_BLANK (the id cannot hash itself), then the tile files, tile-major then card, colour then geometry (a null card tile writes none), so any change to the manifest or a tile is a new directory.
+    files: [(colour bytes, geometry bytes)] in that order."""
+    h = hashlib.sha256(); h.update(manifest_text.encode('utf-8'))
     for colour, geometry in files: h.update(colour); h.update(geometry)
     return h.hexdigest()[:12]
 
 def write_bake(out, place, view, meta, packed, opaque, default=None):
-    """Write out/<place>-<bake_id>/ (tile WebPs + manifest.json), rewrite out/index.json, delete the place's previous dir.  packed: dict(cards [dict(near_m, far_m)], tiles [TILES][cards] of dict(top, colour bytes, geometry bytes, distance_m) or None,
+    """Write out/<place>-<bake_id>/ (tile WebPs + manifest.json; the id addresses both), rewrite out/index.json, delete the place's previous dir.  packed: dict(cards [dict(near_m, far_m)], tiles [TILES][cards] of dict(top, colour bytes, geometry bytes, distance_m) or None,
     camera dict(r_max_m, r_max_forward_m)); opaque: TILES arrays (plane_h, TILE_W + 2 APRON), each the opaque view's coverage over a tile's columns.  Refuses before writing a bake whose files decode to the wrong size, leave the frame, break a budget (the resident gate at r_max_m and at r_max_forward_m) or composite
     away from the opaque view in any tile.  meta: dict(curvature, encoding).  Returns the directory."""
     cards, tiles, camera = packed['cards'], packed['tiles'], packed['camera']; k = len(cards); h = view['plane_h']; w = TILE_W + 2 * APRON
@@ -201,16 +203,18 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
     for t, (row, drow) in enumerate(zip(tiles, dec)):
         try: check_cover([(e['top'], pair[0][..., 3] / 255.0) for e, pair in zip(row, drow) if e], opaque[t])
         except ValueError as ex: raise ValueError(f'tile {t}: {ex}')
-    bid = bake_id([(e['colour'], e['geometry']) for row in tiles for e in row if e]); name = f"{place['id']}-{bid}"; out = Path(out); dest = out / name
-    manifest = dict(schema=3, baker_version=BAKER_VERSION, bake_id=bid, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'), camera=dict(r_max_m=camera['r_max_m'], r_max_forward_m=camera['r_max_forward_m']),
+    out = Path(out)
+    manifest = dict(schema=3, baker_version=BAKER_VERSION, bake_id=BAKE_ID_BLANK, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'), camera=dict(r_max_m=camera['r_max_m'], r_max_forward_m=camera['r_max_forward_m']),
                     cards=[dict(near_m=c['near_m'], far_m=c['far_m']) for c in cards],
                     tiles=[[None if e is None else dict(top=e['top'], h=pair[0].shape[0], distance_m=e['distance_m'], colour=dict(file=tile_file(i, t, 'colour'), bytes=len(e['colour'])), geometry=dict(file=tile_file(i, t, 'geometry'), bytes=len(e['geometry'])))
                              for i, (e, pair) in enumerate(zip(row, drow))] for t, (row, drow) in enumerate(zip(tiles, dec))], bytes=sum(tile_bytes), attribution=ATTRIBUTION)
-    validate_manifest(manifest); out.mkdir(parents=True, exist_ok=True); tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
+    validate_manifest(manifest); text = json.dumps(manifest, indent=1) + '\n'; blank = f'"bake_id": "{BAKE_ID_BLANK}"'; assert text.count(blank) == 1
+    bid = bake_id(text, [(e['colour'], e['geometry']) for row in tiles for e in row if e]); name = f"{place['id']}-{bid}"; dest = out / name; text = text.replace(blank, f'"bake_id": "{bid}"')
+    out.mkdir(parents=True, exist_ok=True); tmp = Path(tempfile.mkdtemp(dir=out, prefix='.bake-'))
     for t, row in enumerate(tiles):
         for i, e in enumerate(row):
             if e: (tmp / tile_file(i, t, 'colour')).write_bytes(e['colour']); (tmp / tile_file(i, t, 'geometry')).write_bytes(e['geometry'])
-    (tmp / 'manifest.json').write_text(json.dumps(manifest, indent=1) + '\n')
+    (tmp / 'manifest.json').write_text(text)
     idx_path = out / 'index.json'; idx = json.loads(idx_path.read_text()) if idx_path.exists() else dict(schema=1, default=place['id'], places={})
     old = idx['places'].get(place['id']); idx['places'][place['id']] = name; idx['default'] = default or (idx['default'] if idx['default'] in idx['places'] else place['id'])
     validate(idx, SCHEMA['$defs']['index'])

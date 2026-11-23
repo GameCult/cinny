@@ -244,10 +244,12 @@ def test_manifest_v3_writer():
     d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); pk2 = export.pack(b); files = lambda p: [(e['colour'], e['geometry']) for row in p['tiles'] for e in row if e]; assert files(pk) == files(pk2), 'two packs gave different bytes'
-        a = _write(d + '/a', b, pk); assert a.name == 'toy-' + export.bake_id(files(pk)) and sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name]); m = json.load(open(a / 'manifest.json')); export.validate_manifest(m)
-        import hashlib; want = hashlib.sha256(b''.join(c + g for c, g in files(pk))).hexdigest()[:12]; assert export.bake_id(files(pk)) == want, 'bake_id is not the sha256 of the tile files, tile-major then card, colour then geometry'
-        assert export.bake_id([(g, c) for c, g in files(pk)]) != want and export.bake_id(files(pk)[::-1]) != want and export.bake_id([f for i, f in enumerate(files(pk)) if i % 3 != 1] + [f for i, f in enumerate(files(pk)) if i % 3 == 1]) != want, 'bake_id ignores the file order'
-        pk3 = [list(f) for f in files(pk)]; pk3[40][1] += b'x'; assert export.bake_id([tuple(f) for f in pk3]) != want, 'a changed byte kept the bake_id'
+        a = _write(d + '/a', b, pk); m = json.load(open(a / 'manifest.json')); export.validate_manifest(m); text = open(a / 'manifest.json', encoding='utf-8').read(); blank = text.replace(f'"bake_id": "{m["bake_id"]}"', f'"bake_id": "{export.BAKE_ID_BLANK}"'); assert blank != text and a.name == 'toy-' + m['bake_id'] and sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name])
+        import hashlib; want = hashlib.sha256(blank.encode() + b''.join(c + g for c, g in files(pk))).hexdigest()[:12]; assert m['bake_id'] == want and export.bake_id(blank, files(pk)) == want, 'bake_id is not the sha256 of the manifest with its id blanked, then the tile files tile-major, then card, colour then geometry'
+        assert export.bake_id(blank, [(g, c) for c, g in files(pk)]) != want and export.bake_id(blank, files(pk)[::-1]) != want and export.bake_id(blank, [f for i, f in enumerate(files(pk)) if i % 3 != 1] + [f for i, f in enumerate(files(pk)) if i % 3 == 1]) != want, 'bake_id ignores the file order'
+        pk3 = [list(f) for f in files(pk)]; pk3[40][1] += b'x'; assert export.bake_id(blank, [tuple(f) for f in pk3]) != want, 'a changed byte kept the bake_id'
+        assert export.bake_id(blank.replace('"r_max_forward_m"', '"r_max_forward_m "', 1), files(pk)) != want and export.bake_id(blank + ' ', files(pk)) != want, 'a changed manifest kept the bake_id'
+        pk4 = dict(pk, camera=dict(pk['camera'], r_max_forward_m=pk['camera']['r_max_forward_m'] + 0.1)); a4 = _write(d + '/d', b, pk4); assert a4.name != a.name and [(e['colour'], e['geometry']) for row in pk4['tiles'] for e in row if e] == files(pk), 'a manifest moved under the same bake id (tile bytes identical, camera differs)'
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and len(m['cards']) == 3
         for t, row in enumerate(m['tiles']):
             for i, e in enumerate(row):
