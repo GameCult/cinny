@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { createBackdrop, KEEP_MARGIN_TILES, LOAD_MARGIN_TILES } from './Backdrop';
+import {
+  createBackdrop,
+  FETCH_PARALLEL,
+  FETCH_TIMEOUT_MS,
+  NotFound,
+  RETRY_FIRST_MS,
+  RETRY_MAX_MS,
+} from './Backdrop';
 import type { CardBitmaps, Lighter } from './lightCards';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import type { PhysicalSky } from './physicalSky';
-import { residentTiles, runTiles } from './ring';
+import { KEEP_MARGIN_TILES, LOAD_MARGIN_TILES, residentTiles, runTiles } from './ring';
 import { HFOV_MAX_DEG } from './view';
 
 const sky = {} as PhysicalSky;
@@ -13,14 +20,16 @@ const manifest = parseManifest(wireManifest({}, 3, 32), '/d/'); // the ring as t
 const tileOf = (url: string) => Number(/-t(\d\d)-/.exec(url)?.[1]);
 
 /** A decoder that keeps count: which bitmaps are open, which tiles are being decoded at once. */
-const rig = (fail: (url: string) => boolean = () => false) => {
+const rig = (fail: (url: string) => boolean = () => false, missing: (url: string) => boolean = () => false) => {
   const fetched: string[] = [];
   const bitmaps: { url: string; closed: boolean; close: () => void }[] = [];
   let inFlight = new Map<number, number>();
   let mostTiles = 0;
-  const fetchBlob = vi.fn(async (url: string) => {
+  let clock = 0;
+  const fetchBlob = vi.fn(async (url: string, _signal?: AbortSignal) => {
     fetched.push(url);
-    if (fail(url)) throw new Error('ridge: 404');
+    if (missing(url)) throw new NotFound('ridge: 404');
+    if (fail(url)) throw new Error('ridge: 503');
     return { url } as unknown as Blob;
   });
   const decode = vi.fn(async (blob: Blob) => {
@@ -45,7 +54,17 @@ const rig = (fail: (url: string) => boolean = () => false) => {
       return c as unknown as HTMLCanvasElement;
     }),
   });
-  return { fetched, bitmaps, fetchBlob, decode, canvases, lighter, mostTiles: () => mostTiles };
+  return {
+    fetched,
+    bitmaps,
+    fetchBlob,
+    decode,
+    canvases,
+    lighter,
+    mostTiles: () => mostTiles,
+    now: () => clock,
+    tick: (ms: number) => void (clock += ms),
+  };
 };
 
 const urlsOfTiles = (tiles: number[]) =>
@@ -167,6 +186,7 @@ describe('createBackdrop', () => {
     expect(bd.litTiles().some((t) => t.tile === 15)).toBe(true);
     r.bitmaps.forEach((b) => expect(b.closed).toBe(true));
     broken = false;
+    r.tick(RETRY_FIRST_MS); // after its pause
     await bd.ensure({ fromDeg: 180, toDeg: 181 });
     expect(bd.litTiles().filter((t) => t.tile === 16).map((t) => t.card).sort()).toEqual([0, 1, 2]);
   });
@@ -235,5 +255,96 @@ describe('createBackdrop', () => {
     const n = r.fetched.length;
     await bd.ensure({ fromDeg: 100, toDeg: 101 });
     expect(r.fetched).toHaveLength(n);
+  });
+
+  it('asks for the files of the tiles of an arc a few at a time, not one after another and not all at once', async () => {
+    let active = 0;
+    let most = 0;
+    const r = rig();
+    const fetchBlob = vi.fn(async (url: string) => {
+      active += 1;
+      most = Math.max(most, active);
+      await new Promise((go) => setTimeout(go, 5));
+      active -= 1;
+      return { url } as unknown as Blob;
+    });
+    const bd = createBackdrop(manifest, sky, { ...r, fetchBlob, lighter: r.lighter });
+    await bd.ensure(arc72(180)); // ten tiles of up to six files each
+    expect(most).toBeGreaterThan(1); // the files are not asked for one after another
+    expect(most).toBe(FETCH_PARALLEL); // and the pipe is kept full while there is more to ask, and no fuller
+    expect(bd.litTiles().length).toBeGreaterThan(20);
+  });
+
+  it('gives up on a request that never answers, draws absence and goes on, and aborts it', async () => {
+    vi.useFakeTimers();
+    const r = rig();
+    const signals: AbortSignal[] = [];
+    const fetchBlob = vi.fn((url: string, signal?: AbortSignal) => {
+      if (tileOf(url) === 17) {
+        signals.push(signal as AbortSignal);
+        return new Promise<Blob>(() => undefined); // never settles, and ignores its signal
+      }
+      return Promise.resolve({ url } as unknown as Blob);
+    });
+    const bd = createBackdrop(manifest, sky, { ...r, fetchBlob, lighter: r.lighter });
+    const done = bd.ensure({ fromDeg: 200, toDeg: 201 });
+    await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS + 10);
+    await done;
+    expect(signals.length).toBeGreaterThan(0);
+    signals.forEach((s) => expect(s.aborted).toBe(true));
+    expect(bd.litTiles().some((t) => t.tile === 17)).toBe(false);
+    expect(bd.litTiles().some((t) => t.tile === 16 || t.tile === 18)).toBe(true);
+  });
+
+  it('does not ask again at once for a tile that failed: the pause doubles to a cap, so a tile that keeps failing is a few requests a minute', async () => {
+    const r = rig((u) => tileOf(u) === 19);
+    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const tile19 = () =>
+      r.fetched.filter((u) => tileOf(u) === 19 && u.includes('card-0-') && u.endsWith('colour.webp')).length;
+    await bd.ensure({ fromDeg: 215, toDeg: 216 });
+    expect(tile19()).toBe(1);
+    // The scene asks every half second for a minute: the broken tile is asked for about as often as its pauses allow.
+    for (let t = 0; t < 120; t += 1) {
+      r.tick(500);
+      await bd.ensure({ fromDeg: 215, toDeg: 216 });
+    }
+    expect(tile19()).toBeGreaterThan(3);
+    expect(tile19()).toBeLessThanOrEqual(8); // 1 s, 2 s, 4 s, 8 s, 16 s, 32 s: not 121
+    expect(RETRY_MAX_MS).toBeGreaterThanOrEqual(32_000);
+    expect(bd.litTiles().some((t) => t.tile === 19)).toBe(false);
+  });
+
+  it('does not ask again for a file the server does not have: the tile is drawn with the cards that came', async () => {
+    const r = rig(
+      () => false,
+      (u) => tileOf(u) === 19 && u.includes('card-1-')
+    );
+    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const tile19 = () => r.fetched.filter((u) => tileOf(u) === 19).length;
+    await bd.ensure({ fromDeg: 215, toDeg: 216 });
+    const first = tile19();
+    expect(first).toBeGreaterThan(0);
+    expect(bd.litTiles().filter((t) => t.tile === 19).map((t) => t.card)).toEqual([0, 2]); // card 1 is absent, the others are there
+    for (let t = 0; t < 40; t += 1) {
+      r.tick(5_000);
+      await bd.ensure({ fromDeg: 215, toDeg: 216 });
+    }
+    expect(tile19()).toBe(first); // not once more while the tile stays
+    r.bitmaps.forEach((b) => expect(b.closed).toBe(true));
+  });
+
+  it('gives up on a tile every file of which is gone, without a retry loop, and draws its neighbours', async () => {
+    const r = rig(
+      () => false,
+      (u) => tileOf(u) === 19
+    );
+    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    await bd.ensure({ fromDeg: 215, toDeg: 216 });
+    const n = r.fetched.length;
+    r.tick(RETRY_MAX_MS * 2);
+    await bd.ensure({ fromDeg: 215, toDeg: 216 });
+    expect(r.fetched.length).toBe(n);
+    expect(bd.litTiles().some((t) => t.tile === 19)).toBe(false);
+    expect(bd.litTiles().some((t) => t.tile === 18)).toBe(true);
   });
 });

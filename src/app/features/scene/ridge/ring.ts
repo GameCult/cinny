@@ -3,6 +3,10 @@
 import type { RidgeManifest } from './manifest';
 import type { View } from './view';
 
+/** Tiles fetched beyond the arc each side, and tiles kept beyond it each side (the baker's resident gate counts the keep: `export.py` `run_tiles`; `view.ts` `maxSpeed` spends what it leaves). */
+export const LOAD_MARGIN_TILES = 1;
+export const KEEP_MARGIN_TILES = 2;
+
 /** A compass angle brought into [0, 360). */
 export const norm = (deg: number): number => ((deg % 360) + 360) % 360;
 

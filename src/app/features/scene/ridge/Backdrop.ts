@@ -1,12 +1,13 @@
 // The ridge cards the scene composes, lit, kept resident by tile: the one owner of which tiles of the ring are in memory. `ensure` is told the arc of
 // azimuth the view is about to need; it fetches and decodes the tiles of that arc it does not hold, one tile at a time, lights each card of a tile
-// (`lightCards.ts`, one lighter for the one sky this backdrop was made for) and drops the tiles beyond the arc and its margin. A tile that fails is a
-// tile the scene draws as absence, retried at the next `ensure`; it is never thrown into the scene.
+// (`lightCards.ts`, one lighter for the one sky this backdrop was made for) and drops the tiles beyond the arc and its margin. The files of the tiles to make
+// are fetched a few at a time, each against a timeout. A tile that fails is a tile the scene draws as absence, asked for again after a growing pause; a file
+// the server says is not there (404) is not asked for again while its tile stays: the scene draws the cards of the tile that came. Nothing is thrown into the scene.
 import type { RidgeManifest } from './manifest';
 import type { PhysicalSky } from './physicalSky';
 import { createLighter } from './lightCards';
 import type { CardBitmaps, Lighter } from './lightCards';
-import { residentTiles } from './ring';
+import { KEEP_MARGIN_TILES, LOAD_MARGIN_TILES, residentTiles } from './ring';
 
 /** A range of unwrapped compass azimuth, degrees, `fromDeg <= toDeg`. */
 export interface Arc {
@@ -32,17 +33,26 @@ export interface Backdrop {
 }
 
 export interface BackdropDeps {
-  fetchBlob: (url: string) => Promise<Blob>;
+  /** Rejects with `NotFound` when the server has no such file, with anything else for a failure that may pass. `signal` aborts it. */
+  fetchBlob: (url: string, signal?: AbortSignal) => Promise<Blob>;
   decode: (blob: Blob) => Promise<ImageBitmap>;
   lighter: (manifest: RidgeManifest, sky: PhysicalSky) => Lighter;
+  /** The clock (ms) the pauses between a tile's attempts run on. */
+  now: () => number;
 }
 
-/** Tiles fetched beyond the arc each side, and tiles kept beyond it each side (the baker's resident gate counts the keep: `export.py` `run_tiles`). */
-export const LOAD_MARGIN_TILES = 1;
-export const KEEP_MARGIN_TILES = 2;
+/** A file the server answered 404 or 410 for: asking again will not make it appear. */
+export class NotFound extends Error {}
 
-const fetchBlob = async (url: string): Promise<Blob> => {
-  const res = await fetch(url);
+/** Requests in flight at once, over all tiles; how long one may take; the pause before a failed tile is asked for again (doubled each failure, to the cap). */
+export const FETCH_PARALLEL = 6;
+export const FETCH_TIMEOUT_MS = 15_000;
+export const RETRY_FIRST_MS = 1_000;
+export const RETRY_MAX_MS = 60_000;
+
+const fetchBlob = async (url: string, signal?: AbortSignal): Promise<Blob> => {
+  const res = await fetch(url, { signal });
+  if (res.status === 404 || res.status === 410) throw new NotFound(`ridge: ${url} answered ${res.status}`);
   if (!res.ok) throw new Error(`ridge: ${url} answered ${res.status}`);
   return res.blob();
 };
@@ -63,10 +73,13 @@ export function createBackdrop(
   const get = deps.fetchBlob ?? fetchBlob;
   const open = deps.decode ?? decode;
   const makeLighter = deps.lighter ?? createLighter;
+  const now = deps.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
   const { view } = manifest;
   const tileDeg = 360 / view.tiles;
   let lighter = makeLighter(manifest, sky);
   const held = new Map<number, LitTile[]>();
+  /** Tiles that failed, when they may be asked for again and the pause after the next failure. */
+  const failed = new Map<number, { until: number; pause: number }>();
   let disposed = false;
   let running: Promise<void> | null = null;
   let want: Arc | null = null;
@@ -79,32 +92,84 @@ export function createBackdrop(
     held.delete(tile);
   };
 
-  /** Fetch, decode and light every card of a tile; a tile that is only partly made is not kept. */
-  async function make(tile: number): Promise<void> {
+  // At most FETCH_PARALLEL requests at once over every tile, each with its own timeout (the signal is passed on, and a fetch that ignores it is still given up on).
+  let active = 0;
+  const queue: (() => void)[] = [];
+  const request = async (url: string, signal: AbortSignal): Promise<Blob> => {
+    if (active >= FETCH_PARALLEL) await new Promise<void>((go) => queue.push(go));
+    active += 1;
+    try {
+      if (signal.aborted) throw new Error('ridge: aborted');
+      return await new Promise<Blob>((resolve, reject) => {
+        const ctl = new AbortController();
+        const stop = () => {
+          ctl.abort();
+          reject(new Error(`ridge: ${url} ${signal.aborted ? 'aborted' : 'timed out'}`));
+        };
+        const timer = setTimeout(stop, FETCH_TIMEOUT_MS);
+        signal.addEventListener('abort', stop, { once: true });
+        get(url, ctl.signal).then(resolve, reject).finally(() => {
+          clearTimeout(timer);
+          signal.removeEventListener('abort', stop);
+        });
+      });
+    } finally {
+      active -= 1;
+      queue.shift()?.();
+    }
+  };
+
+  /** The files of a tile, each settled on its own: a blob, or what became of it (`gone`: the server has none; `failed`: it may pass). */
+  type Fetched = { blob: Blob } | 'gone' | 'failed';
+  async function fetchTile(tile: number, signal: AbortSignal): Promise<{ card: number; files: Fetched[] }[]> {
     const cards = manifest.tiles[tile].flatMap((e, card) => (e ? [{ e, card }] : []));
+    return Promise.all(
+      cards.map(async ({ e, card }) => ({
+        card,
+        files: await Promise.all(
+          [e.colour, e.geometry].map(
+            (f): Promise<Fetched> =>
+              request(`${manifest.dir}${f}`, signal).then(
+                (blob) => ({ blob }),
+                (err: unknown) => (err instanceof NotFound ? 'gone' : 'failed')
+              )
+          )
+        ),
+      }))
+    );
+  }
+
+  /**
+   * Decode and light what a tile's fetch brought, one card at a time, and hold the tile. A card with a file the server does not have is left out (the scene
+   * draws the others); a tile with any file that failed otherwise is not kept (it is lit whole or not at all) and is asked for again after a pause.
+   */
+  async function make(tile: number, fetched: { card: number; files: Fetched[] }[]): Promise<void> {
     const made: LitTile[] = [];
     const bitmaps: ImageBitmap[] = [];
     try {
+      if (fetched.some((f) => f.files.includes('failed'))) throw new Error('ridge: a file of the tile failed');
       if (lighter.lost) {
         lighter.release();
         lighter = makeLighter(manifest, sky);
       }
-      const pairs: CardBitmaps[] = [];
-      for (const { e } of cards) {
+      for (const { card, files } of fetched) {
+        if (files.includes('gone')) continue;
         const [colour, geometry] = await Promise.all(
-          [e.colour, e.geometry].map(async (f) => {
-            const b = await open(await get(`${manifest.dir}${f}`));
+          files.map(async (f) => {
+            const b = await open((f as { blob: Blob }).blob);
             bitmaps.push(b);
             return b;
           })
         );
-        pairs.push({ colour, geometry });
+        if (disposed) return;
+        made.push({ tile, card, canvas: lighter.light({ colour, geometry }, tile, card) });
       }
-      if (disposed) return;
-      cards.forEach(({ card }, i) => made.push({ tile, card, canvas: lighter.light(pairs[i], tile, card) }));
       held.set(tile, made);
+      failed.delete(tile);
     } catch {
       made.forEach((t) => (t.canvas.width = 0));
+      const pause = Math.min(RETRY_MAX_MS, (failed.get(tile)?.pause ?? RETRY_FIRST_MS / 2) * 2);
+      failed.set(tile, { until: now() + pause, pause });
     } finally {
       bitmaps.forEach((b) => b.close?.());
     }
@@ -120,13 +185,23 @@ export function createBackdrop(
     [...held.keys()].filter((t) => !keep.has(t)).forEach(drop);
     // The tile under the middle of the arc first: what the view needs now comes before what it needs next.
     const from = (r: { tile: number; turn: number }) => r.turn * 360 + r.tile * tileDeg + tileDeg / 2;
-    const order = [...near].sort((a, b) => Math.abs(from(a) - centre) - Math.abs(from(b) - centre));
-    for (const { tile } of order) {
-      if (disposed) return;
-      if (held.has(tile)) continue;
-      await make(tile);
-      // A newer arc is waiting: take it up now, with this tile made, instead of finishing an arc the view has left.
-      if (want && held.has(tile)) return;
+    const order = [...near]
+      .sort((a, b) => Math.abs(from(a) - centre) - Math.abs(from(b) - centre))
+      .map((r) => r.tile)
+      .filter((t) => !held.has(t) && (failed.get(t)?.until ?? 0) <= now());
+    // Every tile's files are asked for at once (the requests queue to FETCH_PARALLEL, in this order) and made one tile at a time as they arrive.
+    const stop = new AbortController();
+    try {
+      const asked = order.map((tile) => fetchTile(tile, stop.signal));
+      for (const [i, tile] of order.entries()) {
+        const fetched = await asked[i];
+        if (disposed) return;
+        await make(tile, fetched);
+        // A newer arc is waiting: take it up now, with this tile made, instead of finishing an arc the view has left.
+        if (want && held.has(tile)) return;
+      }
+    } finally {
+      stop.abort(); // what is still on the wire is for an arc the view has left
     }
   }
 
