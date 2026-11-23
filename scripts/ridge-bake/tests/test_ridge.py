@@ -244,11 +244,16 @@ def test_manifest_v3_writer():
     d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); pk2 = export.pack(b); files = lambda p: [(e['colour'], e['geometry']) for row in p['tiles'] for e in row if e]; assert files(pk) == files(pk2), 'two packs gave different bytes'
-        a = _write(d + '/a', b, pk); m = json.load(open(a / 'manifest.json')); export.validate_manifest(m); text = open(a / 'manifest.json', encoding='utf-8').read(); blank = text.replace(f'"bake_id": "{m["bake_id"]}"', f'"bake_id": "{export.BAKE_ID_BLANK}"'); assert blank != text and a.name == 'toy-' + m['bake_id'] and sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name])
+        a = _write(d + '/a', b, pk); m = json.load(open(a / 'manifest.json')); export.validate_manifest(m); text = (a / 'manifest.json').read_bytes().decode('utf-8'); blank = text.replace(f'"bake_id": "{m["bake_id"]}"', f'"bake_id": "{export.BAKE_ID_BLANK}"'); assert blank != text and a.name == 'toy-' + m['bake_id'] and sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name])
         import hashlib; want = hashlib.sha256(blank.encode() + b''.join(c + g for c, g in files(pk))).hexdigest()[:12]; assert m['bake_id'] == want and export.bake_id(blank, files(pk)) == want, 'bake_id is not the sha256 of the manifest with its id blanked, then the tile files tile-major, then card, colour then geometry'
         assert export.bake_id(blank, [(g, c) for c, g in files(pk)]) != want and export.bake_id(blank, files(pk)[::-1]) != want and export.bake_id(blank, [f for i, f in enumerate(files(pk)) if i % 3 != 1] + [f for i, f in enumerate(files(pk)) if i % 3 == 1]) != want, 'bake_id ignores the file order'
         pk3 = [list(f) for f in files(pk)]; pk3[40][1] += b'x'; assert export.bake_id(blank, [tuple(f) for f in pk3]) != want, 'a changed byte kept the bake_id'
         assert export.bake_id(blank.replace('"r_max_forward_m"', '"r_max_forward_m "', 1), files(pk)) != want and export.bake_id(blank + ' ', files(pk)) != want, 'a changed manifest kept the bake_id'
+        import pathlib; was = pathlib.Path.write_text; pathlib.Path.write_text = lambda self, data, *a, **k: open(self, 'wb').write(data.replace('\n', '\r\n').encode('utf-8'))    # a platform whose text files end lines with CRLF
+        try: w = _write(d + '/crlf', b, pk)
+        finally: pathlib.Path.write_text = was
+        raw = (w / 'manifest.json').read_bytes(); idx_raw = open(d + '/crlf/index.json', 'rb').read(); assert w.name == a.name and b'\r' not in raw and b'\r' not in idx_raw, 'the manifest or the index was written with the platform newline: the bytes served are not the bytes the id was hashed from'
+        assert hashlib.sha256(raw.replace(m['bake_id'].encode(), export.BAKE_ID_BLANK.encode()) + b''.join(c + g for c, g in files(pk))).hexdigest()[:12] == m['bake_id']
         pk4 = dict(pk, camera=dict(pk['camera'], r_max_forward_m=pk['camera']['r_max_forward_m'] + 0.1)); a4 = _write(d + '/d', b, pk4); assert a4.name != a.name and [(e['colour'], e['geometry']) for row in pk4['tiles'] for e in row if e] == files(pk), 'a manifest moved under the same bake id (tile bytes identical, camera differs)'
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and len(m['cards']) == 3
         for t, row in enumerate(m['tiles']):
@@ -363,6 +368,16 @@ def test_budgets():
     assert export.run_tiles(0.0, 1000.0) == math.ceil(export.HFOV_MAX_DEG / 11.25) + 5 and export.run_tiles(250.0, 20000.0) > export.run_tiles(25.0, 20000.0) and export.run_tiles(1e9, 1.0) == 32, 'N = ceil(arc_max / 11.25) + 1 + 4'
     rows_t = [[10, 20] if t in (30, 31, 0, 1) else [] for t in range(32)]; assert export.resident_bytes(rows_t, 4) == 4 * export.LIT_W * 120 and export.resident_bytes(rows_t, 3) == 4 * export.LIT_W * 90 and export.resident_bytes(rows_t, 40) == 4 * export.LIT_W * 120
 def _fit(d, r, phis=None): return export.fit_px(d, r, ridge.HPX_DEG, phis)
+def _brute_fit(d, r, phis, ppd, n=20001):
+    """The worst error of the best line, by brute force: the least-squares line over n uniform samples (the integral to within 1e-4 of itself), the error on the same n."""
+    half = math.radians(export.HFOV_MAX_DEG) / 2; b = np.linspace(-half, half, n)[None, :]; p = np.linspace(0, 2 * math.pi, phis, endpoint=False)[:, None]; A = np.arctan2(d * np.sin(b) - r * np.sin(p), d * np.cos(b) - r * np.cos(p))
+    bc = b - b.mean(); s = (A * bc).sum(-1, keepdims=True) / (bc * bc).sum(); return math.degrees(float(np.abs(A - (A.mean(-1, keepdims=True) + s * bc)).max())) * ppd
+def test_fit_px_is_the_continuous_error():
+    """fit_px is the worst error of the best line over the whole viewport, not of a few samples of it: it equals a brute-force measure (20001 samples, line and error) within 0.1 card px at the offsets the bound is set at (an offset a few samples undercount by more than that), over the whole circle and at phi = 0."""
+    ppd = ridge.HPX_DEG; seen = 0
+    for d, r, phis in ((410.0, 205.0, 1), (410.0, 98.0, export.PHI_STEPS), (1500.0, 600.0, 1), (1500.0, 300.0, export.PHI_STEPS), (60.0, 30.0, export.PHI_STEPS), (20000.0, 9000.0, 1)):
+        got, want = _fit(d, r, phis), _brute_fit(d, r, phis, ppd); assert abs(got - want) < 0.1, ('fit_px is not the continuous error', d, r, phis, got, want); seen += want > 5
+    assert seen >= 4, 'the cases are too tame to tell a coarse measure from the continuous one'
 def test_r_max():
     """On a card at 1.5 km: r_max_m falls as FIT_PX_MAX falls and is at most half the distance; it is the largest offset within the bound (the fit error at r_max is within it, a little more is not); a forward-only sweep of phi finds a larger r_max than the whole circle (the error is in the phi
     that is not forward); the binding card tile is the nearest one (each tile's line is fitted at its own distance_m); the resident gate binds when its tiles are heavy; a place whose r_max_m is below 25 refuses and names the card and tile."""

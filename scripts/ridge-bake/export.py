@@ -139,12 +139,15 @@ def check_budget(n_cards, tile_bytes, bands, r_max_m, rmin_m):
     n = run_tiles(r_max_m, rmin_m); res = resident_bytes(bands, n)
     if res > RESIDENT_BYTES_MAX: raise ValueError(f'{n} consecutive tiles light to {res} bytes, above {RESIDENT_BYTES_MAX}')
 
+FIT_QUAD = 48                          # Gauss-Legendre nodes for the least-squares line (exact for the smooth alpha(beta) to far below a card pixel)
+FIT_GRID = 513                         # points the worst error is looked for on, ends included: the error is smooth between them, so the maximum found is within 0.01 card px of the continuous one
 def fit_px(d, r, px_per_deg, phis=None):
     """The worst error, in card pixels, of a card tile's linear slide at offset r (m): over the camera's angle phi on its circle against its heading (`phis` steps, PHI_STEPS by default; 1 is phi = 0 alone, the camera pushed forward along its heading) and the viewport (beta in +-HFOV_MAX_DEG / 2), the exact view angle of a cylinder point at the tile's
-    distance d, alpha = atan2(d sin beta - r sin phi, d cos beta - r cos phi), against the least-squares line a + s beta fitted to it (ruling ridge-offset-range-fit)."""
-    b = np.radians(np.linspace(-HFOV_MAX_DEG / 2, HFOV_MAX_DEG / 2, 33))[None, :]; p = np.linspace(0, 2 * math.pi, PHI_STEPS if phis is None else phis, endpoint=False)[:, None]
-    A = np.arctan2(d * np.sin(b) - r * np.sin(p), d * np.cos(b) - r * np.cos(p)); bc = b - b.mean(); s = (A * bc).sum(-1, keepdims=True) / (bc * bc).sum(); line = A.mean(-1, keepdims=True) + s * bc
-    return math.degrees(float(np.abs(A - line).max())) * px_per_deg
+    distance d, alpha = atan2(d sin beta - r sin phi, d cos beta - r cos phi), against the continuous least-squares line a + s beta over the viewport (ruling ridge-offset-range-fit; the line by quadrature, the error on FIT_GRID points: it is the continuous worst error, not the error of a few samples)."""
+    half = math.radians(HFOV_MAX_DEG) / 2; p = np.linspace(0, 2 * math.pi, PHI_STEPS if phis is None else phis, endpoint=False)[:, None]
+    alpha = lambda b: np.arctan2(d * np.sin(b) - r * np.sin(p), d * np.cos(b) - r * np.cos(p)); x, w = np.polynomial.legendre.leggauss(FIT_QUAD); bq = half * x[None, :]; A = alpha(bq)
+    a0 = (A * w).sum(-1, keepdims=True) / 2; s = (A * bq * w).sum(-1, keepdims=True) / (bq * bq * w).sum(); b = np.linspace(-half, half, FIT_GRID)[None, :]
+    return math.degrees(float(np.abs(alpha(b) - (a0 + s * b)).max())) * px_per_deg
 def fit_table(dist, r, px_per_deg, phis=None):
     """(tiles, cards) fit_px of every card tile at offset r; nan where the card is null in that tile."""
     return np.array([[np.nan if d is None else fit_px(d, r, px_per_deg, phis) for d in row] for row in dist])
@@ -214,12 +217,12 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
     for t, row in enumerate(tiles):
         for i, e in enumerate(row):
             if e: (tmp / tile_file(i, t, 'colour')).write_bytes(e['colour']); (tmp / tile_file(i, t, 'geometry')).write_bytes(e['geometry'])
-    (tmp / 'manifest.json').write_text(text)
+    (tmp / 'manifest.json').write_bytes(text.encode('utf-8'))   # bytes, so the platform's newline cannot move the file under its id
     idx_path = out / 'index.json'; idx = json.loads(idx_path.read_text()) if idx_path.exists() else dict(schema=1, default=place['id'], places={})
     old = idx['places'].get(place['id']); idx['places'][place['id']] = name; idx['default'] = default or (idx['default'] if idx['default'] in idx['places'] else place['id'])
     validate(idx, SCHEMA['$defs']['index'])
     if dest.exists(): shutil.rmtree(dest)
-    os.rename(tmp, dest); (out / '.index.tmp').write_text(json.dumps(idx, indent=1) + '\n'); os.replace(out / '.index.tmp', idx_path)
+    os.rename(tmp, dest); (out / '.index.tmp').write_bytes((json.dumps(idx, indent=1) + '\n').encode('utf-8')); os.replace(out / '.index.tmp', idx_path)
     if old and old != name: shutil.rmtree(out / old, ignore_errors=True)
     return dest
 
@@ -292,7 +295,7 @@ def sheet(bake):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0]); ap.add_argument('place', nargs='?'); ap.add_argument('--tiles'); ap.add_argument('--out'); ap.add_argument('--work'); ap.add_argument('--sheet'); ap.add_argument('--write-schema', action='store_true')
     a = ap.parse_args(argv)
-    if a.write_schema: (HERE / 'ridge-bake.schema.json').write_text(json.dumps(SCHEMA, indent=1, ensure_ascii=False) + '\n'); return 0
+    if a.write_schema: (HERE / 'ridge-bake.schema.json').write_bytes((json.dumps(SCHEMA, indent=1, ensure_ascii=False) + '\n').encode('utf-8')); return 0
     if not (a.place and a.tiles and a.out): ap.error('place, --tiles and --out are required')
     os.environ['RIDGE_TILES'] = a.tiles; os.environ['RIDGE_WORK'] = a.work or os.path.join(os.environ.get('TMPDIR', tempfile.gettempdir()), 'ridge-bake-work'); os.makedirs(os.environ['RIDGE_WORK'], exist_ok=True)
     bake = bake_place(a.place)
