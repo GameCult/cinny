@@ -291,6 +291,36 @@ describe('createBackdrop', () => {
     expect(bd.litTiles().length).toBeGreaterThan(20);
   });
 
+  it('keeps the cap while the arc changes under it: aborted passes hand their slots on, and a pass begun at once takes none of them', async () => {
+    vi.useFakeTimers();
+    let live = 0;
+    let most = 0;
+    const r = rig();
+    const fetchBlob = vi.fn(
+      (url: string, signal?: AbortSignal) =>
+        new Promise<Blob>((resolve, reject) => {
+          live += 1;
+          most = Math.max(most, live);
+          const timer = setTimeout(() => {
+            live -= 1;
+            resolve({ url } as unknown as Blob);
+          }, 300);
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            live -= 1;
+            reject(new Error('aborted'));
+          });
+        })
+    );
+    const bd = createBackdrop(manifest, sky, { ...r, fetchBlob, lighter: r.lighter });
+    for (let i = 0; i < 60; i += 1) {
+      void bd.ensure({ fromDeg: 100 + i * 2, toDeg: 180 + i * 2 }); // a turning view: a new arc every half second, each one aborting the last
+      await vi.advanceTimersByTimeAsync(500);
+    }
+    expect(fetchBlob.mock.calls.length).toBeGreaterThan(FETCH_PARALLEL * 3); // the loader worked the whole time
+    expect(most).toBeLessThanOrEqual(FETCH_PARALLEL);
+  });
+
   it('gives up on a request that never answers, draws absence and goes on, and aborts it', async () => {
     vi.useFakeTimers();
     const r = rig();

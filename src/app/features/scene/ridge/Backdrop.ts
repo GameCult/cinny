@@ -86,6 +86,8 @@ export function createBackdrop(
   let disposed = false;
   let running: Promise<void> | null = null;
   let want: { arc: Arc; first?: Arc } | null = null;
+  /** The pass that is on the wire: dispose gives up its requests, as a newer arc does. */
+  let current: AbortController | null = null;
 
   const drop = (tile: number) => {
     held.get(tile)?.forEach((t) => {
@@ -96,11 +98,12 @@ export function createBackdrop(
   };
 
   // At most FETCH_PARALLEL requests at once over every tile, each with its own timeout (the signal is passed on, and a fetch that ignores it is still given up on).
+  // A slot is handed straight to the next waiter, so `active` never dips for a request issued in between to slip into; it falls only when nobody waits.
   let active = 0;
   const queue: (() => void)[] = [];
   const request = async (url: string, signal: AbortSignal): Promise<Blob> => {
-    if (active >= FETCH_PARALLEL) await new Promise<void>((go) => queue.push(go));
-    active += 1;
+    if (active < FETCH_PARALLEL) active += 1;
+    else await new Promise<void>((go) => queue.push(go));
     try {
       if (signal.aborted) throw new Error('ridge: aborted');
       return await new Promise<Blob>((resolve, reject) => {
@@ -117,8 +120,9 @@ export function createBackdrop(
         });
       });
     } finally {
-      active -= 1;
-      queue.shift()?.();
+      const next = queue.shift();
+      if (next) next();
+      else active -= 1;
     }
   };
 
@@ -195,6 +199,7 @@ export function createBackdrop(
       .filter((t) => !held.has(t) && (failed.get(t)?.until ?? 0) <= now());
     // Every tile's files are asked for at once (the requests queue to FETCH_PARALLEL, in this order) and made one tile at a time as they arrive.
     const stop = new AbortController();
+    current = stop;
     try {
       const asked = order.map((tile) => fetchTile(tile, stop.signal));
       for (const [i, tile] of order.entries()) {
@@ -206,6 +211,7 @@ export function createBackdrop(
       }
     } finally {
       stop.abort(); // what is still on the wire is for an arc the view has left
+      if (current === stop) current = null;
     }
   }
 
@@ -232,6 +238,7 @@ export function createBackdrop(
       if (disposed) return;
       disposed = true;
       want = null;
+      current?.abort(); // a scene that did not wait for its tiles, or was replaced, leaves nothing asking for them
       [...held.keys()].forEach(drop);
       lighter.release();
     },
