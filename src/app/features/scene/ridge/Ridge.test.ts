@@ -12,8 +12,9 @@ import { parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
 import type { Arc, Backdrop, LitTile } from './Backdrop';
 import type { Mock } from 'vitest';
-import { cardPose, FALLBACK_VIEW, offsetRange, windowFor } from './view';
-import { anchor, getMode, headingAt, hold, phiAt, resetHeading } from './heading';
+import { cardArc, cardPose, FALLBACK_VIEW, maxSpeed, offsetRange, windowFor } from './view';
+import { residentTiles } from './ring';
+import { anchor, headingAt, hold, phiAt, resetHeading } from './heading';
 import { getCamera, resetCamera, setCamera } from '../cameraState';
 
 describe('noise', () => {
@@ -706,7 +707,7 @@ describe('the ridge cards in the scene', () => {
   });
 
   const clampOffset = () => {
-    const [lo, hi] = offsetRange(manifest, win);
+    const [lo, hi] = offsetRange(manifest, win, getCamera().mode, phiAt(T0));
     return Math.min(hi, Math.max(lo, getCamera().offsetM));
   };
 
@@ -718,15 +719,21 @@ describe('the ridge cards in the scene', () => {
       const { parent, canvas } = host();
       const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
       const rig = rigOf(parent);
-      const out = { ids: mountedIds(rig), left: Number(rig.children[2].children[0].style.left.slice(0, -2)) };
+      const out = {
+        ids: mountedIds(rig),
+        left: Number(rig.children[2].children[0].style.left.slice(0, -2)),
+        heading: headingAt(T0),
+      };
       s.dispose();
       return out;
     };
-    // Manual turns leave the rotation off; the default is 'both', which the scene applies over the hold, so the view keeps turning from the held angle.
+    // A manual turn leaves the rotation off, and a scene made over it keeps it off.
     const a = at(40);
     const b = at(400);
     expect(b.ids).toEqual(a.ids);
-    expect(b.left - a.left).toBeCloseTo(360 * k, 4);
+    // The rig lays out from the heading brought into [0, 360): a revolution on is the same picture, with nothing grown.
+    expect(b.heading).toBeCloseTo(a.heading, 9);
+    expect(b.left).toBeCloseTo(a.left, 6);
   });
 
   it('asks the backdrop for the arc between now and the end of the stretch, at once and every half second, and mounts what it has made', async () => {
@@ -804,7 +811,8 @@ describe('the ridge cards in the scene', () => {
     motion.matches = true;
     const { parent, canvas } = host();
     const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
-    expect(getMode()).toBe('still');
+    expect(headingAt(T0 + 10_000)).toBe(headingAt(T0)); // nothing turns, whatever the viewer chose
+    expect(getCamera().mode).toBe('both'); // and the viewer's choice is not rewritten for it
     rigOf(parent).children.forEach((box: any) => {
       const { keyframes } = live(box)[0];
       expect(keyframes.length).toBeGreaterThan(0);
@@ -841,6 +849,160 @@ describe('the ridge cards in the scene', () => {
     expect(frame0(rig.children[2])).toBe(`translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`);
     s.dispose();
     resumed.forEach((a: any) => expect(a.cancel).toHaveBeenCalled());
+  });
+
+  describe('after the viewer takes the view by hand, and for the long run', () => {
+    const fixtureRing = (camera: Record<string, number> = { r_max_m: 98.2, r_max_forward_m: 205.4 }) =>
+      parseManifest(wireManifest({ camera }, 3, 32), '/d/'); // the ring as the baker cuts it, with Vienna's two offset bounds
+    const ringBackdrop = (m: typeof manifest): Backdrop & { ensure: Mock<[Arc], Promise<void>> } => {
+      const lit = m.tiles.flatMap((row, tile) =>
+        row.flatMap((e, card) => {
+          if (!e) return [];
+          const canvas = fakeEl('canvas');
+          canvas.id = `t${tile}c${card}`;
+          return [{ tile, card, canvas: canvas as unknown as HTMLCanvasElement }];
+        })
+      );
+      return {
+        manifest: m,
+        ensure: vi.fn(async (_arc: Arc): Promise<void> => undefined),
+        litTiles: () => lit,
+        dispose: vi.fn(),
+      };
+    };
+    const frame = (box: any, n: number) => live(box)[0].keyframes[n].transform as string;
+    const pending = () => {
+      vi.useFakeTimers();
+      (window as any).setTimeout = setTimeout;
+      (window as any).clearTimeout = clearTimeout;
+    };
+
+    it('a manual turn holds through a rebuild: a resize makes a new scene and the view stays where the viewer left it', () => {
+      pending();
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+      hold(100, T0);
+      const at = headingAt(T0);
+      window.dispatchEvent(new Event('resize'));
+      vi.advanceTimersByTime(300); // the debounced rebuild: startRig runs again
+      expect(getCamera().mode).toBe('still');
+      expect(headingAt(T0 + 60_000)).toBe(at);
+      rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).toBe(frame(box, 0)));
+      s.dispose();
+      // And a scene made afterwards, as a sky change makes one.
+      const again = createRidgeScene({ canvas: host().canvas, tier: 'full', sky: night, backdrop: litCards() })!;
+      expect(headingAt(T0 + 60_000)).toBe(at);
+      again.dispose();
+      vi.useRealTimers();
+    });
+
+    it('picking the mode they already had after a hold resumes the turn, and the rig moves again', () => {
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+      hold(100, T0);
+      rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).toBe(frame(box, 0)));
+      setCamera({ mode: 'both' }); // what the View's rotation picker sends: the mode the viewer had when they took the view
+      expect(headingAt(T0 + 10_000)).toBeCloseTo(106, 9);
+      rigOf(parent).children.forEach((box: any) => expect(frame(box, 30)).not.toBe(frame(box, 0)));
+      s.dispose();
+    });
+
+    it('mounts and asks for the tiles of every pose a stretch passes through, not those at its ends: offset-only turning swings the near card out and back', () => {
+      pending();
+      const ring = fixtureRing();
+      const bd = ringBackdrop(ring);
+      const w2 = windowFor(ring.view, 400, 800);
+      setCamera({ mode: 'offset', speedDegPerS: 12, offsetM: 98 });
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: bd })!;
+      vi.advanceTimersByTime(500);
+      const asked = bd.ensure.mock.calls[0][0];
+      const [, hi] = offsetRange(ring, w2, 'offset');
+      let from = Infinity;
+      let to = -Infinity;
+      let endFrom = Infinity;
+      let endTo = -Infinity;
+      for (let ms = 0; ms <= 30_000; ms += 100) {
+        for (let i = 0; i < 3; i += 1) {
+          const a = cardArc(ring.view, w2, 400, cardPose(ring, i, headingAt(T0 + ms), phiAt(T0 + ms), Math.min(hi, 98), w2));
+          from = Math.min(from, a.fromDeg);
+          to = Math.max(to, a.toDeg);
+          if (ms === 0 || ms === 30_000) {
+            endFrom = Math.min(endFrom, a.fromDeg);
+            endTo = Math.max(endTo, a.toDeg);
+          }
+        }
+      }
+      expect(endTo - endFrom).toBeLessThan(to - from - 5); // the ends alone miss degrees of it (a whole turn of the camera comes back to where it began)
+      expect(asked.fromDeg).toBeLessThanOrEqual(from + 0.01);
+      expect(asked.toDeg).toBeGreaterThanOrEqual(to - 0.01);
+      const need = new Set(residentTiles(ring.view, (from + to) / 2, (to - from) / 2 - 0.02).map((r) => r.tile));
+      const mounted = new Set(mountedIds(rigOf(parent)).map((id) => Number(/^t(\d+)c/.exec(id)?.[1])));
+      need.forEach((t) => expect(mounted.has(t), `tile ${t}`).toBe(true));
+      s.dispose();
+      vi.useRealTimers();
+    });
+
+    it('takes the default 200 m where the camera stays on its heading and the bake allows it, and the worst-case bound where the camera circles', () => {
+      const ring = fixtureRing();
+      const w2 = windowFor(ring.view, 400, 800);
+      const keyframe0 = (mode: 'both' | 'offset') => {
+        setCamera({ mode, speedDegPerS: 0.6, offsetM: 200 });
+        const { parent, canvas } = host();
+        const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
+        const got = frame(rigOf(parent).children[2], 0);
+        s.dispose();
+        return got;
+      };
+      const posed = (offset: number) => {
+        const p = cardPose(ring, 0, headingAt(T0), phiAt(T0), offset, w2);
+        return `translate3d(${p.shiftPx}px,0,0) scale(${p.scale})`;
+      };
+      expect(keyframe0('both')).toBe(posed(200));
+      expect(keyframe0('offset')).toBe(posed(98.2));
+    });
+
+    it('bounds the speed to what the baked resident count sustains, in the stored choice itself, at the scene start and on every change', () => {
+      const ring = fixtureRing();
+      const slow = maxSpeed(ring, 'both');
+      expect(slow).toBeGreaterThan(0.6);
+      expect(slow).toBeLessThan(12);
+      setCamera({ mode: 'both', speedDegPerS: 50 }); // a stored or future-slider value
+      const { canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: ringBackdrop(ring) })!;
+      expect(getCamera().speedDegPerS).toBe(slow);
+      setCamera({ speedDegPerS: -50 });
+      expect(getCamera().speedDegPerS).toBe(-slow);
+      setCamera({ mode: 'offset', speedDegPerS: 11 }); // the offset-only mode sweeps the circle the gate counts, whatever the speed
+      expect(getCamera().speedDegPerS).toBe(11);
+      setCamera({ mode: 'both' }); // and back to the view turning: the bound of that mode holds
+      expect(getCamera().speedDegPerS).toBe(slow);
+      expect(headingAt(T0 + 10_000) - headingAt(T0)).toBeCloseTo(10 * slow, 9);
+      s.dispose();
+    });
+
+    it('keeps the angles, the transforms and the tile positions bounded after days of uptime: the rig normalizes before each stretch', () => {
+      const now = vi.mocked(performance.now);
+      const { parent, canvas } = host();
+      const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: litCards() })!;
+      const fiveDays = 5 * 86_400_000;
+      now.mockReturnValue(T0 + fiveDays);
+      setCamera({ offsetM: 20 }); // any change issues the next stretch from the clock now
+      const h = headingAt(T0 + fiveDays);
+      expect(h).toBeGreaterThanOrEqual(0);
+      expect(h).toBeLessThan(360 + 1);
+      expect(h).toBeCloseTo((214 + 0.6 * (fiveDays / 1000)) % 360, 4); // the view is where five days of turning put it
+      const rig = rigOf(parent);
+      const shifts = rig.children.flatMap((box: any) =>
+        live(box)[0].keyframes.map((f: any) => Math.abs(Number(/translate3d\((-?[\d.e+-]+)px/.exec(f.transform)?.[1])))
+      );
+      expect(Math.max(...shifts)).toBeLessThan(100_000); // days of turning would be millions of px
+      rig.children.forEach((box: any) =>
+        box.children.forEach((c: any) => expect(Math.abs(parseFloat(c.style.left))).toBeLessThan(100_000))
+      );
+      expect(mountedIds(rig).length).toBeGreaterThan(0); // the tiles the heading shows are mounted, not lost in the wrap
+      s.dispose();
+    });
   });
 
   it('a still draws the tiles of the arc in the host canvas, farthest card first, each card at its pose about the rig’s origin, at the heading now', () => {

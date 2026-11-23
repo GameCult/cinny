@@ -5,10 +5,15 @@ import {
   FALLBACK_VIEW,
   HFOV_MAX_DEG,
   HORIZON_AT,
+  maxSpeed,
   offsetRange,
   RIDGE_BAND_FRAC,
+  SEGMENT_S,
+  SPEED_CEILING_DEG_S,
+  sweepArc,
   windowFor,
 } from './view';
+import { KEEP_MARGIN_TILES, residentTiles, runTiles } from './ring';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
 import type { View } from './view';
@@ -149,12 +154,47 @@ describe('cardArc', () => {
 });
 
 describe('offsetRange', () => {
-  it('never exceeds the bake, and is symmetric while the nearest card keeps its foot under the viewport bottom', () => {
+  it('is the bake worst-case bound either way round in the offset-only mode, whose camera circles the whole ring of angles', () => {
     for (const [w, h] of VIEWPORTS) {
-      const [lo, hi] = offsetRange(manifest, windowFor(manifest.view, w, h));
-      expect(hi).toBe(manifest.camera.rMaxM);
-      expect(lo).toBe(-manifest.camera.rMaxM);
+      const win = windowFor(manifest.view, w, h);
+      expect(offsetRange(manifest, win, 'offset')).toEqual([-manifest.camera.rMaxM, manifest.camera.rMaxM]);
+      // The angle the camera stands at does not matter there: it is going to all of them.
+      expect(offsetRange(manifest, win, 'offset', 0)).toEqual(offsetRange(manifest, win, 'offset', 123));
     }
+  });
+
+  it('lets a forward offset go as far as the bake phi 0 bound where the offset turns with the view, and a backward one only as far as the worst case', () => {
+    for (const [w, h] of VIEWPORTS) {
+      const win = windowFor(manifest.view, w, h);
+      for (const mode of ['both', 'still'] as const) {
+        const [lo, hi] = offsetRange(manifest, win, mode);
+        expect(hi).toBe(manifest.camera.rMaxForwardM);
+        expect(lo).toBe(-manifest.camera.rMaxM);
+      }
+    }
+    expect(manifest.camera.rMaxForwardM).toBeGreaterThan(manifest.camera.rMaxM);
+  });
+
+  it('a camera held at an angle of its circle is bounded as the circle is: the bound follows where the camera stands, not only the mode', () => {
+    const win = windowFor(manifest.view, 1920, 1080);
+    expect(offsetRange(manifest, win, 'still', 0)[1]).toBe(manifest.camera.rMaxForwardM);
+    expect(offsetRange(manifest, win, 'still', 360)[1]).toBe(manifest.camera.rMaxForwardM);
+    expect(offsetRange(manifest, win, 'still', 137)).toEqual([-manifest.camera.rMaxM, manifest.camera.rMaxM]);
+  });
+
+  it('keeps a default +200 m where phi stays 0 and the bake allows it, and takes it to the worst-case bound where the camera circles', () => {
+    const vienna = parseManifest(
+      wireManifest({ camera: { r_max_m: 98.2, r_max_forward_m: 205.4 } }),
+      '/d/'
+    );
+    const win = windowFor(vienna.view, 1920, 1080);
+    const clamp = (mode: 'both' | 'offset' | 'still') => {
+      const [lo, hi] = offsetRange(vienna, win, mode);
+      return Math.min(hi, Math.max(lo, 200));
+    };
+    expect(clamp('both')).toBe(200);
+    expect(clamp('still')).toBe(200);
+    expect(clamp('offset')).toBe(98.2);
   });
 
   it('gives up part of its backward half where the nearest card shrunk by R / (R + r) would lift its foot above the viewport bottom, and all of it past that', () => {
@@ -162,13 +202,104 @@ describe('offsetRange', () => {
     const scale = windowFor(manifest.view, 1920, 1080).plane.scale;
     const near = withView({ horizon_row: 600 - (0.15 * 1080) / 0.95 / scale });
     const win = windowFor(near.view, 1920, 1080);
-    const [lo, hi] = offsetRange(near, win);
-    expect(hi).toBe(100);
+    const [lo, hi] = offsetRange(near, win, 'both');
+    expect(hi).toBe(180);
     expect(lo).toBeCloseTo(-1000 * (1 / 0.95 - 1), 6);
     // At that offset the card's foot is exactly at the viewport bottom.
     const s = 1000 / (1000 - lo);
     expect(s * win.plane.scale * (near.view.planeH - near.view.horizonRow)).toBeCloseTo(0.15 * 1080, 6);
     const none = withView({ horizon_row: 599 });
-    expect(offsetRange(none, windowFor(none.view, 1920, 1080))).toEqual([-0, 100]);
+    expect(offsetRange(none, windowFor(none.view, 1920, 1080), 'both')).toEqual([-0, 180]);
+  });
+
+  it('gives up the same part of its forward half in the offset-only mode: the camera circles round to phi 180 and the nearest card shrinks as it does for a backward offset', () => {
+    const scale = windowFor(manifest.view, 1920, 1080).plane.scale;
+    const near = withView({ horizon_row: 600 - (0.15 * 1080) / 0.95 / scale });
+    const win = windowFor(near.view, 1920, 1080);
+    const [lo, hi] = offsetRange(near, win, 'offset');
+    expect(hi).toBeCloseTo(1000 * (1 / 0.95 - 1), 6);
+    expect(lo).toBe(-hi);
+    // The camera at phi 180 and offset hi puts the nearest card at the scale that leaves its foot on the bottom edge.
+    const R = 1000;
+    const p = cardPose(near, 0, near.view.lookAzDeg, 180, hi, win);
+    expect(Math.abs(p.scale - R / (R + hi))).toBeLessThan(0.02); // the fitted line is within a hair of the tangent the clamp uses
+    const none = withView({ horizon_row: 599 });
+    expect(offsetRange(none, windowFor(none.view, 1920, 1080), 'offset')).toEqual([-0, 0]);
+  });
+});
+
+describe('maxSpeed', () => {
+  const ring = parseManifest(wireManifest({}, 3, 32), '/d/'); // the ring as the baker cuts it: 32 tiles of 11.25 degrees, rmin 1000 m, r_max 100, forward 180
+  const win = windowFor(ring.view, 1920, 1080);
+  const poses = (v: number, h: number, off: number) => (card: number, ms: number) =>
+    cardPose(ring, card, h + (v * ms) / 1000, 0, off, win);
+  /** The most tiles the loader would hold for a view turning at v, over a sweep of headings and the offsets the mode allows. */
+  const mostHeld = (v: number): number => {
+    const [lo, hi] = offsetRange(ring, win, 'both');
+    let most = 0;
+    for (const off of [lo, 0, hi]) {
+      for (let h = 0; h < 360; h += 3.7) {
+        const arc = sweepArc(ring.view, win, 1920, 3, poses(v, h, off), 0);
+        const keep = residentTiles(
+          ring.view,
+          (arc.fromDeg + arc.toDeg) / 2,
+          (arc.toDeg - arc.fromDeg) / 2 + KEEP_MARGIN_TILES * 11.25
+        );
+        most = Math.max(most, keep.length);
+      }
+    }
+    return most;
+  };
+  const N = runTiles(ring.view, HFOV_MAX_DEG, ring.camera.rMaxForwardM, 1000);
+
+  it('is what the baked resident count leaves in the mode where the view turns, and the ceiling where it does not', () => {
+    const v = maxSpeed(ring, 'both');
+    expect(v).toBeGreaterThan(0);
+    expect(v).toBeLessThan(SPEED_CEILING_DEG_S);
+    expect(maxSpeed(ring, 'offset')).toBe(SPEED_CEILING_DEG_S);
+    expect(maxSpeed(ring, 'still')).toBe(SPEED_CEILING_DEG_S);
+    // Held to N by the sweep of SEGMENT_S seconds at the bound, and over it a little above.
+    expect(mostHeld(v)).toBeLessThanOrEqual(N);
+    expect(mostHeld(v * 1.6)).toBeGreaterThan(N);
+    expect(SEGMENT_S).toBe(30);
+  });
+
+  it('is never above the ceiling, whatever room the ring has, and never below 0', () => {
+    const open = parseManifest(wireManifest({ camera: { r_max_m: 0.1, r_max_forward_m: 0.1 } }, 3, 32), '/d/');
+    expect(maxSpeed(open, 'both')).toBeLessThanOrEqual(SPEED_CEILING_DEG_S);
+    const tight = parseManifest(wireManifest({ camera: { r_max_m: 100, r_max_forward_m: 100 } }, 3, 32), '/d/');
+    expect(maxSpeed(tight, 'both')).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('sweepArc', () => {
+  const ring = parseManifest(wireManifest({}, 3, 32), '/d/');
+  const win = windowFor(ring.view, 1920, 1080);
+  // The offset-only mode at 12 degrees a second and the offset own bound: the nearest card swings out and back over the stretch.
+  const v = 12;
+  const [, hi] = offsetRange(ring, win, 'offset');
+  const poseAt = (card: number, ms: number) => cardPose(ring, card, 100, 30 + (v * ms) / 1000, hi, win);
+
+  it('covers every pose the stretch passes through, not the two it begins and ends with', () => {
+    const swept = sweepArc(ring.view, win, 1920, 3, poseAt, 0);
+    let from = Infinity;
+    let to = -Infinity;
+    for (let ms = 0; ms <= SEGMENT_S * 1000; ms += 50) {
+      for (let i = 0; i < 3; i += 1) {
+        const a = cardArc(ring.view, win, 1920, poseAt(i, ms));
+        from = Math.min(from, a.fromDeg);
+        to = Math.max(to, a.toDeg);
+      }
+    }
+    // Within a hundredth of a degree of the dense answer, either side: it covers the swing and is not the whole ring.
+    expect(Math.abs(swept.fromDeg - from)).toBeLessThan(0.01);
+    expect(Math.abs(swept.toDeg - to)).toBeLessThan(0.01);
+    // The two ends alone fall short of the dense answer by whole degrees.
+    const ends = [0, SEGMENT_S * 1000].flatMap((ms) =>
+      [0, 1, 2].map((i) => cardArc(ring.view, win, 1920, poseAt(i, ms)))
+    );
+    const endFrom = Math.min(...ends.map((a) => a.fromDeg));
+    const endTo = Math.max(...ends.map((a) => a.toDeg));
+    expect(endFrom - from > 1 || to - endTo > 1).toBe(true);
   });
 });

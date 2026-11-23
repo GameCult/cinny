@@ -22,21 +22,22 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   unknown or absent: the index default), then the place's `manifest.json` (schema 3, written by `scripts/ridge-bake/export.py`; it is the one JSON
   the backdrop reads): the whole 360 degree ring, K G-buffer cards nearest first, each cut into azimuth tiles (32 of 11.25 degrees) of a colour WebP (albedo,
   straight alpha) and a geometry WebP (the normal as 'rt8', the log-distance, and the wall code R = G = 255 for the extruded face under a ridge), each tile
-  with the card's distance there; `camera.r_max_m` bounds the parallax offset. Schema 2 is refused with a message naming the stale deploy. `index.ts`
+  with the card's distance there; `camera.r_max_m` bounds the parallax offset over every angle of the camera on its circle and `camera.r_max_forward_m` with the camera on its heading alone. Schema 2 is refused with a message naming the stale deploy. `index.ts`
   `prepare()` loads the manifest, anchors the heading (`ridge/heading.ts`) and, with the scene chunk, `ridge/Backdrop.ts` `createBackdrop`: `ensure(arc)`
-  fetches and decodes the tiles of an arc of azimuth it does not hold, one tile at a time (no premultiply, no colour management), and `ridge/lightCards.ts`
+  asks for the files of the tiles of an arc of azimuth it does not hold a few at a time (6 requests, each with a timeout) and decodes them one tile at a time (no premultiply, no colour management), and `ridge/lightCards.ts`
   `createLighter` lights each card of a tile in WebGL2 for the sky of this build (sun and ambient from the atmosphere in absolute azimuth, aerial perspective from the
   geometry's distance, ink on occluding edges and creases, the sky's own display so terrain and sky share an exposure) into a 2D canvas of the tile's interior and one
-  overlap column each side. The backdrop holds the arc ahead and two tiles beyond and lets go of the rest; a tile that fails is absent and tried again. A sky change is a
+  overlap column each side. The backdrop holds the arc ahead and two tiles beyond and lets go of the rest; a tile that fails is absent and asked for again after a pause that doubles to a minute, and a file the server answers 404 is not asked for again (the tile is drawn with the cards that came). A sky change is a
   rebuild, so it makes a new lighter; nothing is lit per frame, and the host canvas is only ever asked for 2d.
   `createRidgeScene({ backdrop })` stays synchronous (`prepare()` awaits the first arc), and a rebuild keeps the old scene up until the new one is lit, then swaps; the
   heading survives it. The rig is one div of K boxes, one per card (farthest first; DOM order is paint order; no z-index, no fixed position, nothing outside the scene's
   parent), each holding that card's resident tiles at their unwrapped azimuth. A card's pose (scale and shift) is derived by `view.ts` `cardPose` from its distance at
   the heading (`ring.ts`), the viewer's offset and the camera's angle on its circle, as a camera on a circle round the bake centre sees it (ruling ridge-camera-on-circle;
-  the offset is signed and clamped by `offsetRange`, the one clamp). `heading.ts` owns the view direction and the camera's angle (unwrapped degrees, module state, a manual
-  `hold` stops the rotation); `cameraState.ts` holds the viewer's mode, speed and offset in `ratatoskr.camera`. The motion is one `Element.animate` per card (transform only, a
+  the offset is signed and clamped by `offsetRange`, the one clamp, by the mode: the forward bound with the camera on its heading, the worst-case bound where it circles; the speed by `maxSpeed`,
+  what the baked resident count sustains, applied to the stored choice). `cameraState.ts` is the one owner of the viewer's mode, speed and offset in `ratatoskr.camera`; `heading.ts` owns the view direction and the camera's angle over it (module
+  state, normalized into [0, 360) before each stretch so nothing grows with uptime; a manual `hold` sets the mode to still, so a rebuild or a reload keeps it). The motion is one `Element.animate` per card (transform only, a
   keyframe each second for 30 s, reissued at 80% and on any change; paused when the tab is hidden or motion is reduced, then constant); a 500 ms timer asks the backdrop for
-  the arc ahead and mounts the tiles it has made. A still draws the tiles of the arc into the host canvas at the heading now. The sky does not turn with the heading. A failure
+  the arc every pose of the next 30 s passes over (`view.ts` `sweepArc`, sampled four times a second, not its two ends) and mounts the tiles it has made. A still draws the tiles of the arc into the host canvas at the heading now. The sky does not turn with the heading. A failure
   anywhere (404, a manifest that is not schema 3, no tile that will decode, no WebGL2, a lighting pass that throws) is the sky-only scene on `FALLBACK_VIEW`,
   told to the host by the live scene alone, through `onPlanesFail` when the live scene has no cards and `onPlanesOk` when a later one has them (never from a stale
   or disposed build); it is never `onCompileFail`. `vite.config.js` copies `public/ridge` into `dist/public/`.

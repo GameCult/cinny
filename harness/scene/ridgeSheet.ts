@@ -1,7 +1,7 @@
 // Look sheet for the lit ridge cards: a baked place lit for a grid of sky states (or pinned moments) x looks, each cell a small canvas drawn by the app's own still path
 // (`createRidgeScene` at tier 'still', the tiles of the arc round the heading, each card at `cardPose`). Not shipped.
 // `?views=214:0:200,0:0:200,100:0:200,214:90:98.2`  one column per view `heading:phi:offset` (degrees, degrees, metres) at one sky (`?sky=2`, an index of SKIES, noon by default); a heading
-//               of 360 or 0 is across north. The offset is clamped to the place's range as the app does, and a phi other than 0 is the offset-only rotation mode, the camera circling the centre.
+//               of 360 or 0 is across north. The offset is clamped to the place's range as the app does (phi 0: the bake's forward bound, any other phi: the worst-case bound), and a phi other than 0 is the offset-only rotation mode, the camera circling the centre.
 // `?place=vienna`  the baked place (index.json's default if absent)
 // `?preset=all|physical|swiss|poster|painterly|painterly-cel-2|painterly-cel-3|painterly-cel-4` (default all: one row each; painterly is DEFAULT_LOOK); `?looks=<JSON array, url-encoded or base64>` replaces the rows with
 // the given `{label, ...partial RidgeLook}` entries (inkKeep and reliefLight merge by key). `?w=480` sets the cell width, 16:9 unless `?h=` gives the height (`?w=375&h=812` is a phone).
@@ -20,7 +20,7 @@ import { HFOV_MAX_DEG, windowFor } from '../../src/app/features/scene/ridge/view
 import { onScreen } from '../../src/app/features/scene/ridge/nightBodies';
 import { createBackdrop } from '../../src/app/features/scene/ridge/Backdrop';
 import { createRidgeScene } from '../../src/app/features/scene/ridge/Ridge';
-import { anchor, hold, setMode, setRate } from '../../src/app/features/scene/ridge/heading';
+import { anchor, hold } from '../../src/app/features/scene/ridge/heading';
 import { setCamera } from '../../src/app/features/scene/cameraState';
 import { sunAt } from '../../src/app/features/scene/ridge/sunAt';
 import { linesAt } from '../../src/app/features/scene/ridge/starCatalogue';
@@ -244,12 +244,10 @@ async function main() {
       tr[r].insertCell().append(host);
 
       // The heading owner as the app leaves it: this view's heading, the camera on its circle at phi (offset-only rotation), the offset the viewer chose.
-      const t0 = performance.now();
-      anchor(`sheet-${manifest.bakeId}-${columns.indexOf(col)}-${r}`, v.h, t0 - 1); // a key of its own: every cell starts from phi 0
-      setMode('offset', t0 - 3_600_000);
-      setRate(1, t0 - 3_600_000);
-      hold(v.h, t0 - 3_600_000 + v.phi * 1000); // phi seconds of offset rotation, at 1 degree per second, then the view is held at h
-      setCamera({ offsetM: v.r, mode: 'still' });
+      const t0 = performance.now() - 3_600_000;
+      anchor(`sheet-${manifest.bakeId}-${columns.indexOf(col)}-${r}`, v.h, t0); // a key of its own: every cell starts from phi 0
+      setCamera({ mode: 'offset', speedDegPerS: 1, offsetM: v.r }, t0); // the offset-only rotation mode for phi seconds at 1 degree per second ...
+      hold(v.h, t0 + v.phi * 1000); // ... then the view is held at h: the mode is still, the camera stays at phi (phi 0 is the camera on its heading)
 
       const backdrop = createBackdrop(manifest, physical, { lighter: (m, s) => createLighter(m, s, rows[r].look) });
       await backdrop.ensure({ fromDeg: v.h - HFOV_MAX_DEG, toDeg: v.h + HFOV_MAX_DEG });

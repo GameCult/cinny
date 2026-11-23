@@ -1,6 +1,7 @@
-// How the viewer wants the ridge camera to move: the rotation mode, the speed and the parallax offset, per viewer in localStorage. Intent only: the
-// kinematics are `ridge/heading.ts`, the one clamp on the offset is `ridge/view.ts` `offsetRange`, and a scene applies this to both. Main-chunk safe
-// (no ridge code is imported at runtime), as placeState and skyState are.
+// How the viewer wants the ridge camera to move: the rotation mode, the speed and the parallax offset, per viewer in localStorage. The one owner of the
+// mode (a manual turn sets it to 'still': `ridge/heading.ts` `hold`) and of the speed and offset as the viewer chose them; `ridge/heading.ts` integrates the
+// view direction over it, the clamp on the offset is `ridge/view.ts` `offsetRange` and the bound on the speed `maxSpeed`, which a scene applies here when it
+// knows the place. Main-chunk safe (no ridge code is imported at runtime), as placeState and skyState are.
 import type { RotationMode } from './ridge/heading';
 
 export const CAMERA_KEY = 'ratatoskr.camera';
@@ -46,7 +47,9 @@ const reducedMotion = (): boolean => {
 };
 
 let current: CameraChoice | undefined;
-const listeners = new Set<(c: CameraChoice) => void>();
+type Listener = (next: CameraChoice, prev: CameraChoice, at: number) => void;
+const listeners = new Set<Listener>();
+const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 function load(): CameraChoice {
   try {
@@ -64,8 +67,8 @@ export const getCamera = (): CameraChoice => {
   return current;
 };
 
-/** Change any of the three; listeners hear it only when something moved. */
-export function setCamera(change: Partial<CameraChoice>): void {
+/** Change any of the three, at the clock `at` (ms, `performance.now()` by default); listeners hear it, with what it was and `at`, only when something moved. */
+export function setCamera(change: Partial<CameraChoice>, at: number = clock()): void {
   const next = parseCamera({ ...getCamera(), ...change });
   if (!next) return;
   const prev = getCamera();
@@ -76,10 +79,10 @@ export function setCamera(change: Partial<CameraChoice>): void {
   } catch {
     // Storage is refused: the choice holds for this page load only.
   }
-  [...listeners].forEach((cb) => cb(next));
+  [...listeners].forEach((cb) => cb(next, prev, at));
 }
 
-export function subscribe(cb: (c: CameraChoice) => void): () => void {
+export function subscribe(cb: Listener): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }

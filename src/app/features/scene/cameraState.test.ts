@@ -53,6 +53,13 @@ describe('the viewer camera', () => {
     expect(getCamera()).toEqual({ mode: 'offset', speedDegPerS: 2, offsetM: 50 });
   });
 
+  it('tells listeners what the choice was and the clock it changed at, so the kinematics can be taken to that moment', () => {
+    const cb = vi.fn();
+    subscribe(cb);
+    setCamera({ mode: 'offset' }, 1234);
+    expect(cb).toHaveBeenCalledWith({ ...DEFAULT_CAMERA, mode: 'offset' }, DEFAULT_CAMERA, 1234);
+  });
+
   it('ignores a stored value that is not a choice, and a change that is not one', () => {
     store.set(CAMERA_KEY, '{"mode":"spin","speedDegPerS":1,"offsetM":0}');
     expect(getCamera()).toEqual(DEFAULT_CAMERA);

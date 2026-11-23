@@ -3,12 +3,12 @@ import { overlayRequested } from '../debugOverlays';
 import { FrameSampler, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
-import { cardArc, cardPose, offsetRange, windowFor } from './view';
+import { cardArc, cardPose, maxSpeed, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
 import type { CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
-import { headingAt, phiAt, setMode, setRate, subscribe as onHeading } from './heading';
-import { getCamera, subscribe as onCamera } from '../cameraState';
+import { freeze, headingAt, normalize, phiAt, subscribe as onHeading } from './heading';
+import { getCamera, setCamera, subscribe as onCamera } from '../cameraState';
 import { activeAt, drawTwinkle as paintTwinkle, Star } from './stars';
 import { nightBodies, paintNightBodies } from './nightBodies';
 import type { NightBodies } from './nightBodies';
@@ -126,10 +126,9 @@ interface Built {
 const TWINKLE_FRAME_MS = 50;
 
 /**
- * A card's motion is issued as one animation of this many seconds, a keyframe each second sampled from the heading owner (`heading.ts`) and the
+ * A card's motion is issued as one animation of SEGMENT_S seconds (`view.ts`), a keyframe each second sampled from the heading owner (`heading.ts`) and the
  * viewer's offset, and issued again once REISSUE_FRAC of it has run, so the compositor always has the next stretch before it needs it. Authored.
  */
-const SEGMENT_S = 30;
 const REISSUE_FRAC = 0.8;
 /** How often the arc of tiles ahead is asked for and the mounted tiles are brought up to date. */
 const RESIDENCY_MS = 500;
@@ -248,20 +247,20 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   };
 
   /**
-   * Hand the viewer's mode and speed to the heading owner: when the scene starts, when the viewer changes the camera and when reduced motion is switched. Not on
-   * every issue: a manual turn stops the rotation until the viewer chooses one again (ruling ridge-view-turn-handback), and a later issue must not undo that.
+   * Take the viewer's choice to what this place can show: the speed the baked resident count sustains in the mode (`view.ts` `maxSpeed`; the stored value is
+   * clamped, so the choice and what turns agree). Returns true when it changed the choice, which comes back to its listeners.
    */
-  const syncKinematics = () => {
+  const boundSpeed = (bd: Backdrop): boolean => {
     const cam = getCamera();
-    const t = clock();
-    // Reduced motion turns nothing, whatever the viewer asked for.
-    setMode(reducedMotion?.matches ? 'still' : cam.mode, t);
-    setRate(cam.speedDegPerS, t);
+    const limit = maxSpeed(bd.manifest, cam.mode);
+    if (Math.abs(cam.speedDegPerS) <= limit) return false;
+    setCamera({ speedDegPerS: Math.sign(cam.speedDegPerS) * limit });
+    return true;
   };
 
-  /** The viewer's offset, clamped to the range this place and viewport allow (`view.ts` `offsetRange`, the one clamp). */
+  /** The viewer's offset, clamped to the range this place, viewport, mode and camera angle allow (`view.ts` `offsetRange`, the one clamp). */
   const offsetNow = (bd: Backdrop, win: ReturnType<typeof windowFor>): number => {
-    const [lo, hi] = offsetRange(bd.manifest, win);
+    const [lo, hi] = offsetRange(bd.manifest, win, getCamera().mode, phiAt(clock()));
     return Math.min(hi, Math.max(lo, getCamera().offsetM));
   };
 
@@ -305,7 +304,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       boxes[i] = box;
     }
     const anims: (Animation | undefined)[] = new Array(k).fill(undefined);
-    syncKinematics();
+    freeze(reducedMotion?.matches === true, clock()); // reduced motion turns nothing, whatever the viewer chose
+    boundSpeed(bd);
     let offset = offsetNow(bd, win);
     const poseAt = (card: number, t: number): CardPose =>
       cardPose(bd.manifest, card, headingAt(t), phiAt(t), offset, win);
@@ -316,8 +316,9 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     /** The next stretch of every card's motion, from now: it replaces the one running, which agrees with it where they meet. */
     const issue = () => {
       if (!live) return;
-      offset = offsetNow(bd, win);
       const t0 = clock();
+      normalize(t0); // the angles of this stretch start within a turn of zero, so the transforms stay small however long the page has been open
+      offset = offsetNow(bd, win);
       issuedAt = t0;
       const frozen = reducedMotion?.matches === true;
       for (let i = 0; i < k; i += 1) {
@@ -335,21 +336,11 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
         });
         if (!moving()) anims[i]?.pause();
       }
+      mount(sweep(t0)); // laid out from the same angles as the keyframes, in the same tick
     };
 
-    /** The arc of azimuth any card shows between two instants. */
-    const arcBetween = (t0: number, t1: number): Arc => {
-      let fromDeg = Infinity;
-      let toDeg = -Infinity;
-      for (const t of [t0, t1]) {
-        for (let i = 0; i < k; i += 1) {
-          const a = cardArc(view, win, w, poseAt(i, t));
-          fromDeg = Math.min(fromDeg, a.fromDeg);
-          toDeg = Math.max(toDeg, a.toDeg);
-        }
-      }
-      return { fromDeg, toDeg };
-    };
+    /** The arc of azimuth any card shows at any instant of the stretch from `t0`: every pose it passes through, not its ends. */
+    const sweep = (t0: number): Arc => sweepArc(view, win, w, k, poseAt, t0, SEGMENT_S);
 
     const mounted = new Map<HTMLCanvasElement, number>();
     /** Put the made tiles the arc shows into their card's box at their azimuth, and take the others out. */
@@ -389,17 +380,16 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (!live) return;
       const t = clock();
       if (t - issuedAt >= SEGMENT_S * 1000 * REISSUE_FRAC && moving()) issue();
-      const arc = arcBetween(t, t + SEGMENT_S * 1000);
+      const arc = sweep(t);
       mount(arc);
       void bd.ensure(arc).then(() => live && mount(arc));
       timer = win0.setTimeout(residency, RESIDENCY_MS);
     };
     parent.appendChild(el);
     issue();
-    mount(arcBetween(issuedAt, issuedAt + SEGMENT_S * 1000));
     const sync = () => {
-      syncKinematics();
-      issue();
+      freeze(reducedMotion?.matches === true, clock());
+      if (!boundSpeed(bd)) issue(); // a bounded speed is a change of the choice: it comes back here and issues once
     };
     const offHeading = onHeading(issue);
     const offCamera = onCamera(sync);

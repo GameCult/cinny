@@ -31,7 +31,7 @@ behind a cell is the app's own, without clouds. Not shipped.
     ...ridgeSheet.html?views=214:0:200,0:0:200,214:90:98.2&sky=2      # one column per view heading:phi:offset (degrees, degrees, metres) at one sky (an index of SKIES)
 
 A heading of 0 or 360 is across north; a phi other than 0 is the offset-only rotation mode (the camera circling the centre, the view direction staying); the offset is
-clamped to the place's range as the app does.
+clamped to the place's range as the app does (phi 0: `camera.r_max_forward_m`, another phi: `camera.r_max_m`).
 
     npx vite --port 5199          # from the repo root; the app's vite config serves the page and public/
     http://localhost:5199/harness/scene/ridgeSheet.html                # four presets x six skies

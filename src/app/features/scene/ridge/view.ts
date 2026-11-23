@@ -3,8 +3,9 @@
 // registration between sky and ridge: one View and a viewport in, the sky Camera and the plane's placement out. `offsetRange` is the one
 // clamp on the camera's offset and `cardPose` the one place a card's scale and shift are derived (ruling ridge-camera-on-circle). Nothing
 // else chooses a field of view, a horizon row, an azimuth, a scale or a shift.
-import { distanceAt } from './ring';
+import { distanceAt, KEEP_MARGIN_TILES, norm, runTiles } from './ring';
 import type { RidgeManifest } from './manifest';
+import type { RotationMode } from './heading';
 
 /** Where the observer stands. `id` names the baked place (it keys a rebuild); `altitudeKm` is the ground height, eye height excluded. */
 export interface Place {
@@ -104,19 +105,60 @@ export function windowFor(view: View, viewportW: number, viewportH: number): Win
   };
 }
 
+/** Nearest card's nearest tile distance, metres: where the camera first meets a card. */
+const nearestM = (manifest: RidgeManifest): number =>
+  Math.min(...manifest.tiles.map((row) => row[0]?.distanceM ?? Infinity));
+
+/** Whether the camera stands on its heading (phi 0, a whole turn off it included): a mode where the offset turns with the view puts it there. */
+const onHeading = (mode: RotationMode, phiDeg: number): boolean =>
+  mode !== 'offset' && Math.abs(norm(phiDeg + 180) - 180) < 1e-6;
+
 /**
- * The offsets the camera may take on its circle, metres, forward positive: the one clamp (ruling ridge-offset-range-fit). Forward is the bake's
- * `rMaxM`, the largest offset every card's linear slide fits. Backward is the same, until the nearest card, shrunk by R / (R + r) about the horizon,
- * would lift its foot above the viewport bottom and show the sky under it: the baker's nearest-card-off-the-bottom refusal as a clamp.
+ * The offsets the camera may take on its circle, metres, forward positive: the one clamp (ruling ridge-offset-range-fit, "the slider stops where the linear
+ * map holds"). How well a card's linear slide fits depends on the camera's angle `phiDeg` on its circle, so the bound depends on where the mode keeps it. With
+ * the camera on its heading (modes 'still' and 'both', `phi` 0) a forward offset goes to the bake's `rMaxForwardM`, the largest every card fits at phi 0;
+ * everywhere else (the offset-only mode swings the camera round the whole circle, and a backward offset at phi 0 is the camera at phi 180) the bound is
+ * `rMaxM`, the worst over every phi. The nearest card, shrunk by R / (R + r) about the horizon, would lift its foot above the viewport bottom and show the
+ * sky under it past the point where `1 / keep - 1` of its distance is the offset: the baker's nearest-card-off-the-bottom refusal as a clamp, applied to
+ * every position the camera can reach at the offset's sign (backward always, forward too where the circle takes it round to phi 180).
  */
-export function offsetRange(manifest: RidgeManifest, win: Window): [number, number] {
-  const { rMaxM } = manifest.camera;
+export function offsetRange(
+  manifest: RidgeManifest,
+  win: Window,
+  mode: RotationMode,
+  phiDeg = 0
+): [number, number] {
+  const { rMaxM, rMaxForwardM } = manifest.camera;
   const { planeH, horizonRow } = manifest.view;
   const below = win.plane.scale * (planeH - horizonRow);
   const keep = 1 + win.plane.bottom / below; // the smallest scale at which the foot stays under the viewport bottom
-  const nearest = Math.min(...manifest.tiles.map((row) => row[0]?.distanceM ?? Infinity));
-  const back = keep >= 1 ? 0 : Math.min(rMaxM, nearest * (1 / keep - 1));
-  return [-back, rMaxM];
+  const foot = keep >= 1 ? 0 : nearestM(manifest) * (1 / keep - 1);
+  const back = Math.min(rMaxM, foot);
+  return onHeading(mode, phiDeg) ? [-back, rMaxForwardM] : [-back, back];
+}
+
+/** The longest stretch of motion the rig issues at once, seconds: the loader holds the tiles it passes over, so it also bounds how far a turn may sweep. */
+export const SEGMENT_S = 30;
+/** The fastest the view or the camera may turn, degrees per second, whatever the loader holds: a keyframe a second must not skip a whole tile (11.25 degrees at 32 tiles). */
+export const SPEED_CEILING_DEG_S = 12;
+
+/**
+ * The largest speed (degrees per second, either direction) the baked resident count sustains in `mode`: the loader holds the tiles of the arc a card shows
+ * over the next SEGMENT_S seconds and two tiles beyond it each side, and the bake's gate (`ring.ts` `runTiles`, `export.py`) priced N of them. Turning the view
+ * widens that arc by speed x SEGMENT_S, so in 'both' the speed is what N leaves after the widest card arc (the viewport over the smallest slide rate, at the
+ * backward offset `rMaxM`) and the margin tiles. The offset-only mode sweeps the camera over a circle the gate already counts whatever the speed, and a still
+ * view has none: those take the ceiling, as does a ring the gate priced whole.
+ */
+export function maxSpeed(manifest: RidgeManifest, mode: RotationMode): number {
+  if (mode !== 'both') return SPEED_CEILING_DEG_S;
+  const { view, camera } = manifest;
+  const tileDeg = 360 / view.tiles;
+  const rmin = nearestM(manifest);
+  const n = runTiles(view, HFOV_MAX_DEG, camera.rMaxForwardM, rmin);
+  if (n >= view.tiles) return SPEED_CEILING_DEG_S; // the gate counted the whole ring: nothing the loader holds can exceed it
+  const sMin = rmin / (rmin + camera.rMaxM);
+  const room = (n - 1 - 2 * KEEP_MARGIN_TILES) * tileDeg - HFOV_MAX_DEG / sMin;
+  return Math.min(SPEED_CEILING_DEG_S, Math.max(0, room / SEGMENT_S));
 }
 
 /** What a card does on screen: its scale about the horizon and how far it is shifted sideways, viewport px, at a heading and camera angle. */
@@ -184,4 +226,35 @@ export function cardArc(
     fromDeg: view.lookAzDeg + (-viewportW / 2 - pose.shiftPx) / per,
     toDeg: view.lookAzDeg + (viewportW / 2 - pose.shiftPx) / per,
   };
+}
+
+/** How often the pose is sampled to find the arc a stretch of motion passes over, seconds: finer than the rig's keyframe a second, so no swing between two keyframes is missed. */
+const SWEEP_STEP_S = 0.25;
+
+/**
+ * The arc of azimuth any of `cards` cards shows at any instant of the `seconds` after `t0` (ms), by `poseAt(card, ms)`: the union of `cardArc` over the whole
+ * stretch, not its ends. A pose is not monotone in time (offset-only rotation carries the nearest card out and back as the camera circles), so a card's reach
+ * peaks mid-stretch, and the tiles it needs there are the ones to mount and to ask the loader for.
+ */
+export function sweepArc(
+  view: View,
+  win: Window,
+  viewportW: number,
+  cards: number,
+  poseAt: (card: number, ms: number) => CardPose,
+  t0: number,
+  seconds: number = SEGMENT_S
+): { fromDeg: number; toDeg: number } {
+  let fromDeg = Infinity;
+  let toDeg = -Infinity;
+  const steps = Math.ceil(seconds / SWEEP_STEP_S);
+  for (let n = 0; n <= steps; n += 1) {
+    const t = t0 + Math.min(seconds, n * SWEEP_STEP_S) * 1000;
+    for (let i = 0; i < cards; i += 1) {
+      const a = cardArc(view, win, viewportW, poseAt(i, t));
+      fromDeg = Math.min(fromDeg, a.fromDeg);
+      toDeg = Math.max(toDeg, a.toDeg);
+    }
+  }
+  return { fromDeg, toDeg };
 }
