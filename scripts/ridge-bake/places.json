@@ -24,7 +24,7 @@
   {
    "id": "matterhorn",
    "tz": "Europe/Zurich",
-   "name": "Matterhorn from the Gornergrat (photo cell, 9.7 km)",
+   "name": "Matterhorn from the Gornergrat",
    "kind": "lone horn, close, 27 deg of relief",
    "lat": 45.983139,
    "lon": 7.782466,
@@ -149,12 +149,17 @@
      45.97639,
      7.65833
     ]
-   }
+   },
+   "card_split_km": [
+    18,
+    28,
+    43
+   ]
   },
   {
    "id": "fuji",
    "tz": "Asia/Tokyo",
-   "name": "Fuji from the Shiraito Falls side, 13.8 km WSW (photo cell)",
+   "name": "Fuji from Shiraito Falls",
    "kind": "lone cone, smooth",
    "lat": 35.312467222222494,
    "lon": 138.587223194445,
@@ -296,7 +301,11 @@
      35.36061,
      138.72731
     ]
-   }
+   },
+   "card_split_km": [
+    1.5,
+    16
+   ]
   },
   {
    "id": "halfdome",
@@ -459,7 +468,7 @@
   {
    "id": "amadablam",
    "tz": "Asia/Kathmandu",
-   "name": "Ama Dablam and the Everest massif, 4 km WSW of Tengboche near Khumjung (photo cell)",
+   "name": "Ama Dablam and Everest from Khumjung",
    "kind": "far high range behind a near spire",
    "lat": 27.822000000000003,
    "lon": 86.722666666667,
@@ -529,7 +538,12 @@
      27.8617,
      86.8614
     ]
-   }
+   },
+   "card_split_km": [
+    2,
+    18,
+    34
+   ]
   },
   {
    "id": "trecime",
@@ -637,6 +651,25 @@
      46.6186,
      12.3025
     ]
+   }
+  },
+  {
+   "id": "grandcanyon",
+   "tz": "America/Phoenix",
+   "name": "Grand Canyon from Unkar and Cardenas",
+   "kind": "inner canyon from the river: walls rise above the horizon, layered strata",
+   "lat": 36.0817,
+   "lon": -111.8551,
+   "eye_h_m": 1.6,
+   "az_deg": 290,
+   "rmax_km": 30,
+   "card_split_km": [
+    11.5,
+    17.3,
+    28.2
+   ],
+   "viewpoint_source": {
+    "status": "chosen from three scanned river candidates (Nankoweap, Unkar/Cardenas, Phantom Ranch) by the operator, ruling ridge-grandcanyon-spot-unkar; the camera stands by the Colorado River inside the canyon (ruling ridge-grandcanyon-camera-inside); the preset is the cand-unkar preset of the candidate bakes (36.0817, -111.8551, az 290), whose camera_r_m -100 is not a field of the ring baker"
    }
   }
  ]
