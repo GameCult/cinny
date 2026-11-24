@@ -99,6 +99,14 @@ describe('parseManifest', () => {
     expect(parseManifest({ ...w, place: { ...w.place, tz: 'Asia/Kathmandu' } }, '/').view.place.tz).toBe('Asia/Kathmandu');
   });
 
+  it('refuses a plane that leaves fewer rows under the horizon than the runtime needs to reach the viewport bottom, and takes exactly that many', () => {
+    const w = wireManifest() as any;
+    const at = (row: number) => ({ ...w, view: { ...w.view, horizon_row: row } });
+    expect(() => parseManifest(at(451), '/')).toThrow(/short plane.*150/);
+    expect(parseManifest(at(450), '/').view.horizonRow).toBe(450);
+    expect(parseManifest(at(357), '/').view.horizonRow).toBe(357);
+  });
+
   it('never echoes a value it refused', () => {
     const w = wireManifest() as any;
     const refusal = (bad: unknown) => {

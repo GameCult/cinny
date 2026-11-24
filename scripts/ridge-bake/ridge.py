@@ -117,8 +117,9 @@ def detail_height(E, N, dist):
     return cfg['amp_m'] * fade * (s / nrm - 0.3)
 
 # ====================================================================== stage 0: march
+NEAR_CLIP_M = 500.0                    # authored: the march's first sample.  Nothing nearer is baked as terrain; the ground under it is card 0's skirt (cards)
 def schedule(detail):
-    d = [500.0]
+    d = [NEAR_CLIP_M]
     while d[-1] < P['rmax_km'] * 1000:
         d.append(d[-1] + min(250.0, max(10.0 if detail else 40.0, 0.004 * d[-1])))
     return np.array(d)
@@ -181,15 +182,21 @@ def normals(d, h):
     return -sr * nz, -st * nz, nz
 
 # ====================================================================== the authored Y mapping
+GROUND_ROWS_MIN = 150                  # rows every bake keeps under the horizon: (1 - HORIZON_AT) x plane_h / RIDGE_BAND_FRAC of the runtime (view.ts groundRowsNeeded; ridgeAssets.test pins the two together)
+E_MIN = 0.5                            # the vertical exaggeration may go down to this to keep GROUND_ROWS_MIN (ruling ridge-ground-rows-below-horizon)
 def set_view(skyline, sky_row=0.04, near_row=0.66):
     """AUTHORED vertical mapping, linear in elevation angle: row = (TOP_DEG - angle) * PXDEG_V over the whole 600-row frame (cylindrical, horizontal 17.78 px/deg).  skyline is the highest angle any sample reaches in each
-    ring column (W,), straight from the march.  Two anchors on the whole ring (ruling ridge-ring-vertical-anchors): the highest skyline angle of the ring sits at `sky_row` (4%) of the frame height, the LOWEST sits at `near_row` (66%);
-    everything below is body and ground.  PXDEG_V = (near_row - sky_row) * 600 / (highest - lowest), clamped to [17.78, 178] px/deg = vertical exaggeration 1x..10x.  TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V."""
+    ring column (W,), straight from the march.  Three anchors on the whole ring (rulings ridge-ring-vertical-anchors, ridge-ground-rows-below-horizon): the highest skyline angle of the ring sits at `sky_row` (4%) of the frame height, the LOWEST sits at
+    `near_row` (66%) where the scale allows, and the horizon keeps GROUND_ROWS_MIN rows under it.  PXDEG_V = the lesser of (near_row - sky_row) * 600 / (highest - lowest) and (600 - GROUND_ROWS_MIN - sky_row * 600) / highest, clamped to
+    [E_MIN, 10] x 17.78 px/deg = vertical exaggeration 0.5x..10x; a skyline whose highest angle cannot keep the ground rows even at E_MIN refuses (ValueError naming sky_deg, the scale needed and the floor).
+    TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V.  Returns the view, with `binds` naming the anchor that set the scale: 'skyline', 'horizon', 'floor' or 'ceiling'."""
     global rowang, PXDEG_V, TOP_DEG, BOTTOM_DEG
-    sk = np.asarray(skyline); sky = float(sk.max()); low = float(sk.min())
-    ppd = float(np.clip((near_row - sky_row) * H / max(sky - low, 0.05), HPX_DEG, 10 * HPX_DEG))
+    sk = np.asarray(skyline); sky = float(sk.max()); low = float(sk.min()); lo, hi = E_MIN * HPX_DEG, 10 * HPX_DEG
+    fit = (near_row - sky_row) * H / max(sky - low, 0.05); hold = (H - GROUND_ROWS_MIN - sky_row * H) / sky if sky > 0 else math.inf
+    if hold < lo: raise ValueError(f"the whole-ring skyline reaches {sky:.2f} degrees: holding {GROUND_ROWS_MIN} rows under the horizon needs {hold:.2f} px/deg, below the floor {lo:.2f} px/deg ({E_MIN:g}x)")
+    ppd = float(np.clip(min(fit, hold), lo, hi)); binds = 'horizon' if hold < fit and ppd == hold else 'floor' if ppd == lo else 'ceiling' if ppd == hi else 'skyline'
     PXDEG_V = ppd; TOP_DEG = sky + sky_row * H / ppd; BOTTOM_DEG = TOP_DEG - H / ppd; rowang = TOP_DEG - (np.arange(H) + 0.5) / PXDEG_V
-    return dict(top_deg=TOP_DEG, bottom_deg=BOTTOM_DEG, px_per_deg=PXDEG_V, exaggeration=PXDEG_V / HPX_DEG, horizon_row=TOP_DEG * PXDEG_V, sky_deg=sky, low_deg=low, sky_row=sky_row, near_row=near_row)
+    return dict(top_deg=TOP_DEG, bottom_deg=BOTTOM_DEG, px_per_deg=PXDEG_V, exaggeration=PXDEG_V / HPX_DEG, horizon_row=TOP_DEG * PXDEG_V, sky_deg=sky, low_deg=low, sky_row=sky_row, near_row=near_row, binds=binds)
 
 # ====================================================================== coverage and seams
 COV_BINS = 160                         # log-distance bins between the first and the last sample
@@ -241,13 +248,17 @@ def albedo(h, n_up):
     t = lambda a, b: np.clip((h - a) / (b - a), 0, 1)[..., None]; c = np.asarray(GRASS) + (np.asarray(FOREST) - GRASS) * t(150, 900); c = c + (np.asarray(ROCK) - c) * t(1300, 2000)
     c = c + (np.asarray(ROCK) - c) * np.clip((0.93 - n_up) / 0.25, 0, 1)[..., None]; return c + (np.asarray(SNOW) - c) * (t(1900, 2300) * np.clip((n_up - 0.55) / 0.3, 0, 1)[..., None])
 
-def cards(d, a, h, seams, nrm=None):
+SKIRT_BLUR_DEG = 4.0                   # Gaussian sigma, degrees of azimuth, of the sample-0 height the skirt's colour is read at (71 columns): no colour edge narrower than this survives down the rows.  Authored, tuned by eye
+def skirt_height(h):
+    """(W,) height, metres, of the first sample of the ring march h (K, W) blurred round the ring (periodic, Gaussian, SKIRT_BLUR_DEG): what card 0's skirt takes its material from.  Needs the whole ring: a tile's columns would blur against a false edge."""
+    return blurw(np.asarray(h)[0], SKIRT_BLUR_DEG * HPX_DEG)
+def cards(d, a, h, seams, nrm=None, *, skirt):
     """K+1 cards, nearest first, from the angles a and heights h (samples, n) of n columns and the (K, n) seams (m).  Card i holds per pixel the FIRST VISIBLE hit at or beyond seam i-1 (less XF): layered depth, so a farther
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
-    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of a card i > 0 below the angle of its first sample (hit and idx == 0) are the extruded wall of the ridge the card starts at: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
-    and `wall` flags them (card 0 has no wall: its rows below the first sample are the ground).  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool)."""
+    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
+    and `wall` flags them.  Card 0's wall is the skirt, the extruded face of the near clip (NEAR_CLIP_M): nothing nearer is baked, so its rows take the material of `skirt` (n,), the sample-0 height blurred round the ring (skirt_height of the whole ring, cut to these columns), not one column's own height.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
     n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p
     ks0 = [np.searchsorted(d, seams[i - 1] * math.exp(-XF)) for i in range(1, nc)]; ks1 = [np.searchsorted(d, seams[i] * math.exp(XF)) for i in range(nc - 1)]
@@ -262,7 +273,7 @@ def cards(d, a, h, seams, nrm=None):
             t = np.where(idx > 0, np.clip((rowang - prev) / np.maximum(rm[idx] - prev, 1e-9), 0, 1), 1.0); mix = lambda arr: arr[kp, x] + t * (arr[kk, x] - arr[kp, x])
             F[i, :, x] = np.where(hit, np.clip((rm[-1] - lo) / p, 0, 1), 0); lh = mix(ld)
             G[i, :, :, x] = np.where(hit, np.stack([lh, mix(h), mix(n_r), mix(n_t), mix(n_u)]), 0)
-            if i: Wl[i, :, x] = hit & (idx == 0)           # rows below the card's first sample: the extruded wall (card 0's are the ground)
+            Wl[i, :, x] = hit & (idx == 0)           # rows below the card's first sample: the extruded wall (card 0's the skirt)
             if i < nc - 1: s = np.clip((lh - (math.log(seams[i, x]) - XF)) / (2 * XF), 0, 1); X[i, :, x] = 1 - s * s * (3 - 2 * s)
     out = []; A = np.zeros((H, n))
     for i in range(nc):
@@ -270,5 +281,5 @@ def cards(d, a, h, seams, nrm=None):
         rows = np.flatnonzero(al.max(1) > 0)
         if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
-        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy()))
+        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(np.where(Wl[i, sl] & (i == 0), np.asarray(skirt, np.float64)[None, :], g[1]), np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy()))
     return out

@@ -1,7 +1,7 @@
 {
  "schema": 3,
- "baker_version": 5,
- "bake_id": "2aac8e6fee59",
+ "baker_version": 6,
+ "bake_id": "5c02a10ec4c7",
  "place": {
   "id": "vienna",
   "name": "Vienna, looking SW to Rax/Schneeberg",
@@ -35,8 +35,8 @@
   "normal": "rt8"
  },
  "camera": {
-  "r_max_m": 95.8,
-  "r_max_forward_m": 198.4
+  "r_max_m": 95.9,
+  "r_max_forward_m": 198.6
  },
  "cards": [
   {
@@ -57,14 +57,14 @@
    {
     "top": 337,
     "h": 263,
-    "distance_m": 603.4103393554688,
+    "distance_m": 612.7647094726562,
     "colour": {
      "file": "card-0-t00-colour.webp",
-     "bytes": 842
+     "bytes": 878
     },
     "geometry": {
      "file": "card-0-t00-geometry.webp",
-     "bytes": 7318
+     "bytes": 7386
     }
    },
    {
@@ -1082,14 +1082,14 @@
    {
     "top": 229,
     "h": 371,
-    "distance_m": 933.5433349609375,
+    "distance_m": 1073.8558349609375,
     "colour": {
      "file": "card-0-t25-colour.webp",
      "bytes": 808
     },
     "geometry": {
      "file": "card-0-t25-geometry.webp",
-     "bytes": 12278
+     "bytes": 12284
     }
    },
    {
@@ -1123,14 +1123,14 @@
    {
     "top": 250,
     "h": 350,
-    "distance_m": 673.9866943359375,
+    "distance_m": 766.68505859375,
     "colour": {
      "file": "card-0-t26-colour.webp",
-     "bytes": 680
+     "bytes": 676
     },
     "geometry": {
      "file": "card-0-t26-geometry.webp",
-     "bytes": 9514
+     "bytes": 9612
     }
    },
    {
@@ -1164,14 +1164,14 @@
    {
     "top": 278,
     "h": 322,
-    "distance_m": 533.818603515625,
+    "distance_m": 715.7683715820312,
     "colour": {
      "file": "card-0-t27-colour.webp",
-     "bytes": 714
+     "bytes": 708
     },
     "geometry": {
      "file": "card-0-t27-geometry.webp",
-     "bytes": 6664
+     "bytes": 6716
     }
    },
    {
@@ -1205,14 +1205,14 @@
    {
     "top": 309,
     "h": 291,
-    "distance_m": 500.0000305175781,
+    "distance_m": 851.5679321289062,
     "colour": {
      "file": "card-0-t28-colour.webp",
-     "bytes": 562
+     "bytes": 570
     },
     "geometry": {
      "file": "card-0-t28-geometry.webp",
-     "bytes": 3694
+     "bytes": 3766
     }
    },
    {
@@ -1246,14 +1246,14 @@
    {
     "top": 327,
     "h": 273,
-    "distance_m": 500.0000305175781,
+    "distance_m": 591.9729614257812,
     "colour": {
      "file": "card-0-t29-colour.webp",
-     "bytes": 612
+     "bytes": 618
     },
     "geometry": {
      "file": "card-0-t29-geometry.webp",
-     "bytes": 3196
+     "bytes": 3238
     }
    },
    {
@@ -1287,14 +1287,14 @@
    {
     "top": 324,
     "h": 276,
-    "distance_m": 500.0000305175781,
+    "distance_m": 592.1824951171875,
     "colour": {
      "file": "card-0-t30-colour.webp",
-     "bytes": 476
+     "bytes": 484
     },
     "geometry": {
      "file": "card-0-t30-geometry.webp",
-     "bytes": 3626
+     "bytes": 3714
     }
    },
    {
@@ -1328,14 +1328,14 @@
    {
     "top": 330,
     "h": 270,
-    "distance_m": 548.6560668945312,
+    "distance_m": 597.7586059570312,
     "colour": {
      "file": "card-0-t31-colour.webp",
-     "bytes": 478
+     "bytes": 506
     },
     "geometry": {
      "file": "card-0-t31-geometry.webp",
-     "bytes": 4738
+     "bytes": 4866
     }
    },
    {
@@ -1366,7 +1366,7 @@
    }
   ]
  ],
- "bytes": 1198740,
+ "bytes": 1199370,
  "attribution": {
   "credit_line": "Contains modified Copernicus data: DEM \u00a9 DLR e.V. 2010-2014 and \u00a9 Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
   "licence": "Copernicus DEM licence: free, full and open access, with the credit line shown",

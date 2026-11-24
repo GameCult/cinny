@@ -3,6 +3,7 @@ import {
   cardArc,
   cardPose,
   FALLBACK_VIEW,
+  groundRowsNeeded,
   HFOV_MAX_DEG,
   HORIZON_AT,
   maxSpeed,
@@ -198,24 +199,49 @@ describe('offsetRange', () => {
   });
 
   it('gives up part of its backward half where the nearest card shrunk by R / (R + r) would lift its foot above the viewport bottom, and all of it past that', () => {
-    // 1920 x 1080: keep = (1 - HORIZON_AT) 1080 / (scale (planeH - horizonRow)). Put the horizon row so that keep is 0.95, and the nearest card is 1000 m away.
-    const scale = windowFor(manifest.view, 1920, 1080).plane.scale;
-    const near = withView({ horizon_row: 600 - (0.15 * 1080) / 0.95 / scale });
-    const win = windowFor(near.view, 1920, 1080);
+    // A phone, 390 x 844, where the plane is only as tall as the band needs: keep = (1 - HORIZON_AT) 844 / (scale (planeH - horizonRow)). Put the horizon row so that keep is 0.95 (158 rows under it, above the 150 the manifest guarantees), and the nearest card is 1000 m away.
+    const scale = windowFor(manifest.view, 390, 844).plane.scale;
+    const near = withView({ horizon_row: 600 - (0.15 * 844) / 0.95 / scale });
+    const win = windowFor(near.view, 390, 844);
     const [lo, hi] = offsetRange(near, win, 'both');
     expect(hi).toBe(180);
     expect(lo).toBeCloseTo(-1000 * (1 / 0.95 - 1), 6);
     // At that offset the card's foot is exactly at the viewport bottom.
     const s = 1000 / (1000 - lo);
-    expect(s * win.plane.scale * (near.view.planeH - near.view.horizonRow)).toBeCloseTo(0.15 * 1080, 6);
-    const none = withView({ horizon_row: 599 });
-    expect(offsetRange(none, windowFor(none.view, 1920, 1080), 'both')).toEqual([-0, 180]);
+    expect(s * win.plane.scale * (near.view.planeH - near.view.horizonRow)).toBeCloseTo(0.15 * 844, 6);
+    // A plane with exactly the ground rows the manifest guarantees (keep 1): the backward bound is 0 from the same formula, with no case of its own.
+    const exact = withView({ horizon_row: 600 - groundRowsNeeded(600) });
+    const [elo, ehi] = offsetRange(exact, windowFor(exact.view, 390, 844), 'both');
+    expect(elo).toBeCloseTo(0, 9);
+    expect(ehi).toBe(180);
+  });
+
+  it('on a desktop viewport, where the width binds the scale and keep is well under 1, the backward offset stops where the nearest card shrunk by R / (R + r) lifts its foot to the bottom edge', () => {
+    // 1920 x 1080 with the ground rows the manifest guarantees: scale 1.65 (the width term), so keep = 0.15 x 1080 / (1.65 x 150) = 0.65, far under the 0.75 a clamped keep would stop at. The bake's r_max is made large enough that the foot, not r_max, binds.
+    const wide = parseManifest(wireManifest({ view: { ...(wireManifest().view as object), horizon_row: 450 }, camera: { r_max_m: 600, r_max_forward_m: 700 } }), '/d/');
+    const win = windowFor(wide.view, 1920, 1080);
+    const keep = (0.15 * 1080) / (win.plane.scale * 150);
+    expect(keep).toBeGreaterThan(0.6);
+    expect(keep).toBeLessThan(0.7);
+    const [lo, hi] = offsetRange(wide, win, 'both');
+    expect(lo).toBeCloseTo(-1000 * (1 / keep - 1), 6); // about -538 m
+    expect(-lo).toBeLessThan(600);
+    expect(hi).toBe(700);
+    expect(offsetRange(wide, win, 'offset')).toEqual([lo, -lo]);
+  });
+
+  it('reads the ground rows from the runtime constants: 150 of 600, so the plane reaches the bottom of every viewport at rest', () => {
+    expect(groundRowsNeeded(600)).toBeCloseTo(150, 9);
+    const exact = withView({ horizon_row: 600 - groundRowsNeeded(600) });
+    for (const [w, h] of VIEWPORTS) {
+      expect(windowFor(exact.view, w, h).plane.bottom).toBeLessThanOrEqual(1e-9);
+    }
   });
 
   it('gives up the same part of its forward half in the offset-only mode: the camera circles round to phi 180 and the nearest card shrinks as it does for a backward offset', () => {
-    const scale = windowFor(manifest.view, 1920, 1080).plane.scale;
-    const near = withView({ horizon_row: 600 - (0.15 * 1080) / 0.95 / scale });
-    const win = windowFor(near.view, 1920, 1080);
+    const scale = windowFor(manifest.view, 390, 844).plane.scale;
+    const near = withView({ horizon_row: 600 - (0.15 * 844) / 0.95 / scale });
+    const win = windowFor(near.view, 390, 844);
     const [lo, hi] = offsetRange(near, win, 'offset');
     expect(hi).toBeCloseTo(1000 * (1 / 0.95 - 1), 6);
     expect(lo).toBe(-hi);
@@ -223,8 +249,10 @@ describe('offsetRange', () => {
     const R = 1000;
     const p = cardPose(near, 0, near.view.lookAzDeg, 180, hi, win);
     expect(Math.abs(p.scale - R / (R + hi))).toBeLessThan(0.02); // the fitted line is within a hair of the tangent the clamp uses
-    const none = withView({ horizon_row: 599 });
-    expect(offsetRange(none, windowFor(none.view, 1920, 1080), 'offset')).toEqual([-0, 0]);
+    const exact = withView({ horizon_row: 600 - groundRowsNeeded(600) });
+    const [elo, ehi] = offsetRange(exact, windowFor(exact.view, 390, 844), 'offset');
+    expect(elo).toBeCloseTo(0, 9);
+    expect(ehi).toBeCloseTo(0, 9);
   });
 });
 
