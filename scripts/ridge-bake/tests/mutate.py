@@ -27,7 +27,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'cards: the blended normal is not renormalised': ("nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12", "nz = 1.0"),
  'wall: no row is flagged (the flag is dropped)': ("Wl[i, :, x] = hit & (idx == 0)", "Wl[i, :, x] = False"),
  'wall: card 0 is exempt (its rows under the near clip are extruded ground, not a skirt)': ("Wl[i, :, x] = hit & (idx == 0)", "if i: Wl[i, :, x] = hit & (idx == 0)"),
- 'skirt: the colour is read at the column's own sample-0 height (no blur)': ("np.where(Wl[i, sl] & (i == 0), np.asarray(skirt, np.float64)[None, :], g[1])", "g[1]"),
+ 'skirt: the colour is read at the own-column sample-0 height (no blur)': ("np.where(Wl[i, sl] & (i == 0), np.asarray(skirt, np.float64)[None, :], g[1])", "g[1]"),
  'skirt: the blur is a hair (0.01 degrees)': ("SKIRT_BLUR_DEG = 4.0 ", "SKIRT_BLUR_DEG = 0.01 "),
  'skirt: the blur sigma is in columns, not degrees': ("SKIRT_BLUR_DEG * HPX_DEG)", "SKIRT_BLUR_DEG)"),
  'skirt: each tile blurs its own columns (the ring is not blurred whole)': ("skirt=cols(sk, t))", "skirt=ridge.blurw(cols(h, t)[0], ridge.SKIRT_BLUR_DEG * ridge.HPX_DEG))"),
