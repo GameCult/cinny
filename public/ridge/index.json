@@ -2,6 +2,10 @@
  "schema": 1,
  "default": "vienna",
  "places": {
-  "vienna": "vienna-2aac8e6fee59"
+  "vienna": "vienna-2aac8e6fee59",
+  "matterhorn": "matterhorn-3e84b268c53d",
+  "fuji": "fuji-ee908104b700",
+  "amadablam": "amadablam-aa657a6391b2",
+  "grandcanyon": "grandcanyon-484757ef39e9"
  }
 }
