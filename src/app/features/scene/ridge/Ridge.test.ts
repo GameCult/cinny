@@ -1443,7 +1443,10 @@ describe('the ridge cards in the scene', () => {
         const s = sab / sbb;
         return (Math.max(...a.map((y, i) => Math.abs(y - (mean + s * b[i])))) * 180) / Math.PI * vienna.view.pxPerDegH;
       };
-      const distances = vienna.tiles.flatMap((row) => row.flatMap((e) => (e ? [e.distanceM] : [])));
+      // The baker holds r_max for the NEAREST solid terrain each card draws in each tile, not its median distance_m (export.py pack); the manifest carries only the median.
+      // Vienna's nearest solid pixel is 500.4523 m (the baker's report, in every card 0 tile terrain stands at the 500 m near clip to within a metre), so that is the distance that binds, beside the medians.
+      const NEAREST_TERRAIN_M = 500.4523;
+      const distances = [NEAREST_TERRAIN_M, ...vienna.tiles.flatMap((row) => row.flatMap((e) => (e ? [e.distanceM] : [])))];
       /** The worst of every card of the bake at the camera angle `phiDeg` and offset `r`. */
       const worstPx = (r: number, phiDeg: number): number => Math.max(...distances.map((d) => fitPx(d, r, phiDeg)));
       /** The same over the six nearest cards and 129 samples (the trapezoid rule is exact to a few thousandths of a pixel there): the nearest cards bind, and a property run asks it thousands of times. */
@@ -1492,7 +1495,7 @@ describe('the ridge cards in the scene', () => {
 
       it('measures the fit as the baker does: Vienna sits at the bound at its two offsets, and above it past them', () => {
         const { rMaxM, rMaxForwardM } = vienna.camera;
-        expect([rMaxM, rMaxForwardM]).toEqual([95.8, 198.4]);
+        expect([rMaxM, rMaxForwardM]).toEqual([95.9, 198.6]);
         const circle = Array.from({ length: 24 }, (_, i) => i * 15);
         expect(Math.max(...circle.map((phi) => worstPx(rMaxM, phi)))).toBeGreaterThan(FIT_PX_MAX - 0.5);
         expect(Math.max(...circle.map((phi) => worstPx(rMaxM, phi)))).toBeLessThanOrEqual(FIT_PX_MAX + 0.05);
