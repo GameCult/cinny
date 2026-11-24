@@ -236,8 +236,8 @@ def cut_ring(d, a, h, splits_km):
     """The ring cut of a prefiltered march (set_view done): normals, coverage, the periodic seams on all RING_W columns, then ridge.cards per tile on its TILE_W + 2 APRON columns with the matching normals.  Returns dict(cards [TILES][cards] (ridge.cards arrays),
     splits_km, seams (K, ring) in m, cov (bins, ring), opaque [TILES] (rows, TILE_W + 2 APRON) coverage, edges)."""
     import ridge
-    nrm = ridge.normals(d, h); sk = ridge.skirt_height(h); cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
-    for t in range(TILES): tiles.append(ridge.cards(d, cols(a, t), cols(h, t), cols(sm, t), tuple(cols(x, t) for x in nrm), skirt=cols(sk, t))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
+    nrm = ridge.normals(d, h); cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
+    for t in range(TILES): tiles.append(ridge.cards(d, cols(a, t), cols(h, t), cols(sm, t), tuple(cols(x, t) for x in nrm))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
     return dict(cards=tiles, splits_km=list(splits_km), seams=sm, cov=cov, opaque=[cols(op, t) for t in range(TILES)], edges=ridge.log_edges(d))
 
 def bake_place(pid):
