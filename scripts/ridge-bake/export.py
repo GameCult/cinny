@@ -51,7 +51,7 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
         view=_obj(look_az_deg=_num, ring_w={'const': RING_W}, tile_w={'const': TILE_W}, tiles={'const': TILES}, apron={'const': APRON}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
-        camera=dict(_obj(r_max_m=_num, r_max_forward_m=_num), description="r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the fit bound of the terrain at or beyond the near clip (ridge.NEAR_CLIP_M, 500 m), the skirt rows of card 0 excluded: nothing nearer than the clip is baked as terrain, so they are no measure of the ground under it."),
+        camera=dict(_obj(r_max_m=_num, r_max_forward_m=_num), description="r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the offsets up to which the linear slide holds (the fit error at most FIT_PX_MAX card px) for the NEAREST solid terrain (at or beyond the near clip, ridge.NEAR_CLIP_M, 500 m) that each card draws in each tile, not for the tile's median distance_m; a tile that draws only skirt rows (wall) has no such terrain and binds nothing. Nothing nearer than the clip is baked as terrain, so they are no measure of the ground under it."),
         cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _obj(near_m=_numnull, far_m=_numnull),
             'description': "nearest first; the runtime paints the list last to first.  near_m and far_m are the median seam depths over the ring, null at the ends."},
         tiles={'type': 'array', 'minItems': TILES, 'maxItems': TILES, 'items': {'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _objnull(top=_int, h=_int, distance_m=_num, colour=_file, geometry=_file)},
@@ -154,7 +154,8 @@ def fit_table(dist, r, px_per_deg, phis=None):
     """(tiles, cards) fit_px of every card tile at offset r; nan where the card is null in that tile."""
     return np.array([[np.nan if d is None else fit_px(d, r, px_per_deg, phis) for d in row] for row in dist])
 def solve_r_max(dist, bands, px_per_deg, phis=None):
-    """The largest offset r (m, down to 0.1 m) at which every card tile fits within FIT_PX_MAX over `phis` camera angles (PHI_STEPS: the whole circle, the offset-only rotation mode; 1: phi = 0 alone, the modes where the offset turns with the view) and the resident gate holds: never above half the nearest card's smallest tile distance.  Scans r upward from 0 on 128 steps to the first failure, then bisects that step.
+    """dist: [tiles][cards] the distance of the NEAREST solid terrain each card draws in each tile (None where it draws none): the line of a tile is fitted for one distance but its terrain spans many, and the nearest is where the slide errs most (ruling ridge-offset-range-fit, up to where the linear map holds).
+    The largest offset r (m, down to 0.1 m) at which every card tile fits within FIT_PX_MAX over `phis` camera angles (PHI_STEPS: the whole circle, the offset-only rotation mode; 1: phi = 0 alone, the modes where the offset turns with the view) and the resident gate holds: never above half the nearest card's smallest tile distance.  Scans r upward from 0 on 128 steps to the first failure, then bisects that step.
     Refuses (naming the card and tile that bind) a bake whose r_max_m is below R_MAX_FLOOR_M."""
     near = min((row[0], t) for t, row in enumerate(dist) if row[0] is not None); rmin = near[0]; cap = 0.5 * rmin
     ok = lambda r: bool(np.nanmax(fit_table(dist, r, px_per_deg, phis)) <= FIT_PX_MAX) and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX
@@ -203,8 +204,8 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
             if c.shape[0] < 1 or e['top'] < 0 or e['top'] + c.shape[0] > h: raise ValueError(f'tile {t} card {i} leaves the {h} rows of the frame')
         if opaque[t].shape != (h, w): raise ValueError(f'tile {t}: the opaque view is {opaque[t].shape}, the frame {(h, w)}')
     import ridge
-    rmin = min(row[0]['distance_m'] for row in tiles if row[0])
-    if rmin < ridge.NEAR_CLIP_M: raise ValueError(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: nothing nearer is baked as terrain')
+    rmin = min(row[0]['distance_m'] for row in tiles if row[0])   # distance_m is exp of a float32 log: it lands a few parts in 1e7 off the clip, so the compare keeps 1e-5 of slack
+    if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise ValueError(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: nothing nearer is baked as terrain')
     if camera['r_max_forward_m'] < camera['r_max_m']: raise ValueError(f"r_max_forward_m {camera['r_max_forward_m']:g} is below r_max_m {camera['r_max_m']:g}: phi = 0 is one of the angles r_max_m holds for")
     for r in (camera['r_max_m'], camera['r_max_forward_m']): check_budget(k, tile_bytes, bands, r, rmin)
     for t, (row, drow) in enumerate(zip(tiles, dec)):
@@ -251,26 +252,26 @@ def bake_place(pid):
 
 def pack(bake):
     """The tiles of a bake as bytes plus their manifest facts.  Per card tile: distance_m = exp(median ln d) over the solid (alpha >= 0.5) pixels that are not wall of the interior TILE_W columns (a tile with none falls back to its non-wall, then any, lit pixels);
-    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the card tiles' distances and every camera angle on its circle (the offset-only rotation mode), camera.r_max_forward_m: the same at phi = 0 alone (the modes where the offset turns with the view).  Refuses a card empty in every tile (naming the splits) and a card with
+    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the NEAREST solid non-wall pixel of each card tile (not its median distance_m; a tile that draws only wall, the skirt, has none and binds nothing) and every camera angle on its circle (the offset-only rotation mode), camera.r_max_forward_m: the same at phi = 0 alone (the modes where the offset turns with the view).  Refuses a card empty in every tile (naming the splits) and a card with
     no solid terrain apart from its wall in any tile.  Returns dict(cards, tiles, camera, report) (report is printed, not written)."""
     sm = bake['seams']; sp = bake['splits_km']; k = len(sp) + 1; ppd = bake['view']['px_per_deg_h']; inner = slice(APRON, APRON + TILE_W); enc = bake['meta']['encoding']
     for i in range(k):
         if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise ValueError(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
-    tiles, dist, bands = [], [], []; any_solid = [False] * k
+    tiles, dist, near, bands = [], [], [], []; any_solid = [False] * k
     for tile in bake['cards']:
-        row, drow, brow = [], [], []
+        row, drow, nrow, brow = [], [], [], []
         for i, c in enumerate(tile):
-            if c['alpha'].shape[0] == 0: row.append(None); drow.append(None); continue
+            if c['alpha'].shape[0] == 0: row.append(None); drow.append(None); nrow.append(None); continue
             al, wl, ld = c['alpha'][:, inner], c['wall'][:, inner], c['logd'][:, inner]; solid = (al >= 0.5) & ~wl; any_solid[i] |= bool(solid.any())
             pool = next((m, l) for m, l in ((solid, ld), ((al > 0) & ~wl, ld), (al > 0, ld), (c['alpha'] > 0, c['logd'])) if m.any())
-            dm = float(np.exp(np.median(pool[1][pool[0]])))
+            dm = float(np.exp(np.median(pool[1][pool[0]]))); nrow.append(float(np.exp(ld[solid].min())) if solid.any() else None)   # the nearest solid terrain the card draws in this tile: None where it draws only wall (the skirt), which binds nothing
             row.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc, c['wall']), distance_m=dm)); drow.append(dm); brow.append(c['alpha'].shape[0])
-        tiles.append(row); dist.append(drow); bands.append(brow)
+        tiles.append(row); dist.append(drow); near.append(nrow); bands.append(brow)
     for i in range(k):
         if not any_solid[i]: raise ValueError(f'card {i} holds no solid terrain apart from its wall rows')
-    r_max = solve_r_max(dist, bands, ppd); r_fwd = solve_r_max(dist, bands, ppd, phis=1); rmin = min(row[0] for row in dist if row[0] is not None); n = run_tiles(r_fwd, rmin); worst = np.nanmax(fit_table(dist, r_max, ppd), axis=0)
+    r_max = solve_r_max(near, bands, ppd); r_fwd = solve_r_max(near, bands, ppd, phis=1); rmin = min(row[0] for row in near if row[0] is not None); n = run_tiles(r_fwd, rmin); worst = np.nanmax(fit_table(near, r_max, ppd), axis=0)
     cards = [dict(near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None) for i in range(k)]
-    return dict(cards=cards, tiles=tiles, camera=dict(r_max_m=r_max, r_max_forward_m=r_fwd), report=dict(fit_px=[float(x) for x in worst], run_tiles=n, resident_bytes=resident_bytes(bands, n), nearest_m=rmin))
+    return dict(cards=cards, tiles=tiles, camera=dict(r_max_m=r_max, r_max_forward_m=r_fwd), report=dict(fit_px=[float(x) for x in worst], run_tiles=n, resident_bytes=resident_bytes(bands, n), nearest_m=rmin))   # nearest_m: the nearest solid terrain of the place
 
 def lit(c):
     """albedo x (0.35 + 0.65 max(n.L, 0)) under the fixed sheet light, with the card's alpha: (rgb, alpha).  Wall pixels are lit with the face up, as the runtime reads their code."""

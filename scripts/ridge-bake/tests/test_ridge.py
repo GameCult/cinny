@@ -407,7 +407,7 @@ def test_pack_distance_and_r_max_in_the_bake():
     b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[10][1]); n = c['alpha'].shape[0]; wall = np.zeros_like(c['wall']); wall[:n * 3 // 4] = True; ld = np.where(wall, c['logd'] + 3.0, c['logd']).copy(); ld[:, :2] += 2.0; ld[:, -2:] += 2.0; cs[10][1] = dict(c, wall=wall, logd=ld)
     pk = export.pack(dict(b, cards=cs)); inner = (slice(None), slice(2, -2)); want = float(np.exp(np.median(ld[inner][~wall[inner]]))); with_wall = float(np.exp(np.median(ld[inner]))); assert abs(with_wall - want) > 0.05 * want, 'the fixture cannot tell wall rows from ground'
     assert abs(pk['tiles'][10][1]['distance_m'] - want) < 1e-9 * want, ('the distance counted wall rows or the apron', pk['tiles'][10][1]['distance_m'], want); assert set(pk['tiles'][10][1]) == {'top', 'colour', 'geometry', 'distance_m'} and set(pk['cards'][0]) == {'near_m', 'far_m'}
-    base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and base['camera']['r_max_forward_m'] >= base['camera']['r_max_m'] and abs(base['report']['nearest_m'] - min(e[0]['distance_m'] for e in base['tiles'])) < 1e-9 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
+    base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and base['camera']['r_max_forward_m'] >= base['camera']['r_max_m'] and abs(base['report']['nearest_m'] - min(float(np.exp(c[0]['logd'][:, 2:-2].min())) for c in b['cards'])) < 1e-6 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
     near = export.pack(_toy(dists=(1500.0, 15000.0, 50000.0))); assert near['camera']['r_max_forward_m'] > near['camera']['r_max_m'] + 5, ('the forward offset was searched over the whole circle', near['camera'])
     assert abs(base['cards'][0]['far_m'] - 1500.0) < 1e-6 and base['cards'][0]['near_m'] is None and base['cards'][1]['near_m'] == base['cards'][0]['far_m']
 def test_the_sheet_draws_the_ring():
@@ -528,6 +528,44 @@ def test_card0_distance_ignores_the_skirt():
     inner = (slice(None), slice(export.APRON, export.APRON + export.TILE_W)); al, wl, ld = nc['alpha'][inner], nc['wall'][inner], nc['logd'][inner]; want = float(np.exp(np.median(ld[(al >= 0.5) & ~wl]))); with_skirt = float(np.exp(np.median(ld[al >= 0.5])))
     assert abs(with_skirt - want) > 0.05 * want and want > ridge.NEAR_CLIP_M, ('the fixture cannot tell the skirt from the terrain', want, with_skirt)
     assert abs(export.pack(dict(b, cards=cs))['tiles'][0][0]['distance_m'] - want) < 1e-9 * want, 'card 0 distance counted the skirt'
+def _nearest_solid(c):
+    """The nearest solid (alpha >= 0.5) non-wall pixel of a card tile's interior columns, metres; None where there is none (computed here from the arrays, not by pack)."""
+    ld, al, wl = (c[k][:, 2:-2] for k in ('logd', 'alpha', 'wall')); m = (al >= 0.5) & ~wl; return float(np.exp(np.float64(ld[m].min()))) if m.any() else None
+def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_skirt_only_tiles_do_not_bind():
+    """The offset range is where the linear map holds for the NEAREST solid terrain each card draws in each tile (ruling ridge-offset-range-fit), not its median: a tile whose card 0 spans 600 to 2000 m has its median near 1200 m, and at the r_max the median would give the 600 m pixels err past FIT_PX_MAX.
+    So the fit at every tile's nearest solid pixel is within the bound at r_max_m (over the circle) and at r_max_forward_m (phi 0), and the bound is reached: a little more offset breaks it at the binding tile.  A tile whose card 0 draws only wall (the skirt, at the near clip) has no terrain and binds nothing."""
+    b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[7][0]); n = c['alpha'].shape[1]
+    ld = np.log(np.linspace(600.0, 2000.0, n))[None, :].repeat(c['alpha'].shape[0], 0).astype(np.float32); cs[7][0] = dict(c, logd=ld)
+    bad = dict(cs[5][0]); cs[5][0] = dict(bad, wall=np.ones_like(bad['wall']), logd=np.full_like(bad['logd'], math.log(500.0)))     # tile 5: card 0 is all skirt
+    pk = export.pack(dict(b, cards=cs)); r, rf = pk['camera']['r_max_m'], pk['camera']['r_max_forward_m']; ppd = ridge.HPX_DEG; worst = worst_f = 0.0; seen = 0
+    for t, tile in enumerate(cs):
+        for i, card in enumerate(tile):
+            d = _nearest_solid(card)
+            if d is None: assert (t, i) == (5, 0), ('a tile has no solid terrain but was not made all skirt', t, i); continue
+            seen += 1; assert export.fit_px(d, r, ppd) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(d, rf, ppd, 1) <= export.FIT_PX_MAX + 1e-6, ('the nearest terrain of a tile is outside the fit bound', t, i, d, r, rf)
+            worst, worst_f = max(worst, export.fit_px(d, r + 0.5, ppd)), max(worst_f, export.fit_px(d, rf + 0.5, ppd, 1))
+    assert seen == 32 * 3 - 1 and worst > export.FIT_PX_MAX and worst_f > export.FIT_PX_MAX, ('the range stops short of the bound of the nearest terrain', worst, worst_f)
+    assert abs(pk['tiles'][7][0]['distance_m'] - float(np.exp(np.median(np.log(np.linspace(600.0, 2000.0, n)))))) < 1.0, 'the manifest distance is still the median'
+    assert r < export.solve_r_max([[1200.0 if (t, i) == (7, 0) else None for i in range(3)] for t in range(32)], [[100] * 3 for _ in range(32)], ppd) - 5, 'the range is the median model'
+    skirt_free = export.pack(_toy()); assert pk['camera']['r_max_m'] < skirt_free['camera']['r_max_m'], 'the 600 m pixels do not bind'
+    only = export.pack(dict(b, cards=[[dict(cs[t][i]) if (t, i) != (7, 0) else dict(b['cards'][7][0]) for i in range(3)] for t in range(32)])); assert only['camera'] == skirt_free['camera'], ('a skirt-only tile binds r_max', only['camera'], skirt_free['camera'])
+def test_the_skirt_reads_sample_zero_at_the_authored_blur():
+    """skirt_height is the sample-0 height of the ring march blurred round the ring by a Gaussian of 4 degrees of azimuth: it equals an independent periodic convolution (np.convolve over the wrapped ring with the full Gaussian of sigma 4 x HPX_DEG columns) within 10 m on a ring (the baker cuts its kernel at 3 sigma, 5 m off here) whose sample 0 steps between 100 and 2100 m and whose other samples stand at 3000 m,
+    so a skirt read at sample 1, at 1 or 40 degrees, or at four times the sigma, is off by hundreds of metres.  The authored constant is pinned with the others."""
+    assert ridge.SKIRT_BLUR_DEG == 4.0, 'the authored blur is pinned'
+    K = len(D); h = np.full((K, W), 3000.0); step = (np.arange(W) // 400) % 2; h[0] = np.where(step == 0, 100.0, 2100.0)
+    sigma = 4.0 * W / 360.0; r = int(6 * sigma); k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2); k /= k.sum(); wrapped = np.concatenate([h[0, -r:], h[0], h[0, :r]]); want = np.convolve(wrapped, k, mode='valid')
+    assert want.shape == (W,) and np.abs(ridge.skirt_height(h) - want).max() < 10.0, ('the skirt is not the sample-0 height blurred by 4 degrees', float(np.abs(ridge.skirt_height(h) - want).max()))
+    assert np.abs(want - h[0]).max() > 500 and np.abs(want - 3000.0).max() > 900, 'the fixture cannot tell the blur from the raw height or from sample 1'
+def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
+    """A card 0 exactly at the near clip is accepted whatever the clip's value: exp of a float32 ln 700 is 699.99994, which a strict compare against a 700 m clip refuses; one 1.5 per mille under the clip is still refused."""
+    saved = ridge.NEAR_CLIP_M; d = tempfile.mkdtemp()
+    try:
+        for clip in (500.0, 520.0, 700.0):
+            ridge.NEAR_CLIP_M = clip; b = _toy(dists=(clip, 15000.0, 50000.0), amp=0.0); pk = export.pack(b); assert pk['tiles'][0][0]['distance_m'] != 0
+            dest = _write(d + f'/ok{clip:g}', b, pk); assert dest.exists(), ('a card 0 at the near clip was refused', clip)
+        b = _toy(dists=(698.9, 15000.0, 50000.0), amp=0.0); ridge.NEAR_CLIP_M = 700.0; _refuses(d + '/under', b, export.pack(b), 'a card 0 under the near clip was written')
+    finally: ridge.NEAR_CLIP_M = saved; shutil.rmtree(d)
 def test_set_view_keeps_the_ground_rows_under_the_horizon():
     """A skyline +28 degrees high and +5 low is compressed below 1x so the horizon sits at row 450 or above (GROUND_ROWS_MIN rows under it); one +60 degrees high cannot hold them even at 0.5x and refuses naming sky_deg and the floor; a Vienna-like skyline
     (the 10x clamp) and one that fits its anchors above 1x are unchanged to 1e-9; a low skyline never binds the horizon."""
