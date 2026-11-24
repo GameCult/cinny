@@ -1,5 +1,5 @@
 """Mutation check: re-introduce a cause into a COPY of the baker, run the fixtures against it, and require that at least one fails.
-  venv/bin/python tests/mutate.py [word ...]   (prints one line per mutant whose name holds every word; exit 1 if a mutant survives)"""
+  venv/bin/python tests/mutate.py [word ...]   (prints one line per mutant whose name holds every word; exit 1 if a mutant survives or only crashes the run)"""
 import os, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__)); SRC = os.path.join(HERE, '..')
 MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
@@ -26,8 +26,22 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'cards: the hit is not interpolated between samples': ("t = np.where(idx > 0, np.clip((rowang - prev) / np.maximum(rm[idx] - prev, 1e-9), 0, 1), 1.0)", "t = np.ones_like(rowang)"),
  'cards: the blended normal is not renormalised': ("nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12", "nz = 1.0"),
  'wall: no row is flagged (the flag is dropped)': ("Wl[i, :, x] = hit & (idx == 0)", "Wl[i, :, x] = False"),
+ 'near: the cap to the silhouette of the terrain at the clip is dropped': ("an = np.minimum(an, a[0][None, :])", "an = an"),
+ 'near: rows under the clip are flagged wall': ("Wl[i, :, x] = hit & (idx == 0); Nr[i, :, x] = hit & (kp < kn)", "Wl[i, :, x] = hit & ((idx == 0) | (kp < kn)); Nr[i, :, x] = hit & (kp < kn)"),
+ 'near: albedo takes the face up (the wall rule on near rows)': ("albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz))", "albedo(g[1], np.where(Wl[i, sl] | Nr[i, sl], 1.0, g[4] / nz))"),
+ 'near: albedo reads the height of the far march first sample': ("albedo(g[1], np.where(Wl[i, sl]", "albedo(np.where(Nr[i, sl], h[int(np.searchsorted(d, NEAR_CLIP_M))][None, :], g[1]), np.where(Wl[i, sl]"),
+ 'near: the march starts at 20 m': ("NEAR_START_M = 1.0 ", "NEAR_START_M = 20.0 "),
+ 'near: the heights are stored float32': (", np.float64) for dk in d])", ", np.float32) for dk in d])"),
+ 'near: the place prefilter is not applied': ("; a, h = prefilter(d, h, sigma_m)\n", "; a, h = prefilter(d, h, 0.0)\n"),
+ 'near: the far normals are computed over the joined march (not apart)': ("nn, nf = normals(dn, hn), normals(d, h)", "nj_ = normals(np.concatenate([dn, d]), np.concatenate([hn, h])); nn, nf = tuple(x[:len(dn)] for x in nj_), tuple(x[len(dn):] for x in nj_)"),
+ 'near: cards accepts a march that starts at the clip': ("if d[0] >= NEAR_CLIP_M: raise ValueError", "if False: raise ValueError"),
+ 'pack: near pixels count as solid terrain': ("solid = (al >= 0.5) & ~wl & ~nr;", "solid = (al >= 0.5) & ~wl;"),
+ 'pack: the non-wall fallback pool reads near pixels': ("((al > 0) & ~wl & ~nr, ld)", "((al > 0) & ~wl, ld)"),
+ 'pack: the lit fallback pool reads near pixels': ("((al > 0) & ~nr, ld)", "(al > 0, ld)"),
+ 'pack: the apron fallback pool reads near pixels': ("((c['alpha'] > 0) & ~c['near'], c['logd'])", "(c['alpha'] > 0, c['logd'])"),
+ 'pack: a tile with nothing outside the near ground is not at the clip': ("if pool else ridge.NEAR_CLIP_M", "if pool else 0.0"),
  'r_max: the tile median binds, not the nearest terrain': ("r_max = solve_r_max(near, bands, ppd); r_fwd = solve_r_max(near, bands, ppd, phis=1)", "r_max = solve_r_max(dist, bands, ppd); r_fwd = solve_r_max(dist, bands, ppd, phis=1)"),
- 'r_max: a tile of skirt only binds at its wall distance': ("if solid.any() else None)", "if solid.any() else dm)"),
+ 'r_max: a tile of near ground only binds at its distance': ("if solid.any() else None)", "if solid.any() else dm)"),
  'r_max: the nearest pixel is the farthest solid one': ("nrow.append(float(np.exp(ld[solid].min()))", "nrow.append(float(np.exp(ld[solid].max()))"),
  'near clip: the writer compares the float32 distance strictly': ("if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise", "if rmin < ridge.NEAR_CLIP_M: raise"),
  'near clip: the march starts nearer than the clip': ("d = [NEAR_CLIP_M]", "d = [100.0]"),
@@ -81,8 +95,9 @@ def run(item):
     open(p, 'w').write(s.replace(a, b))
     r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True); shutil.rmtree(d)
     fails = [l.split('|')[0].strip() for l in r.stdout.splitlines() if l.startswith('FAIL')]
-    line = ('KILLED   ' if r.returncode else 'SURVIVED ') + name + ' -> ' + (', '.join(fails) or 'no fixture failed'); print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
-    return line, r.returncode == 0
+    killed = bool(r.returncode and fails)       # a kill is a NAMED fixture failure: a run that crashes without one (unset RIDGE_TILES / RIDGE_WORK, a syntax error in the mutant) proves nothing
+    line = ('KILLED   ' if killed else 'CRASHED  ' if r.returncode else 'SURVIVED ') + name + ' -> ' + (', '.join(fails) or (r.stderr.strip().splitlines() or ['no fixture failed'])[-1][:200]); print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
+    return line, not killed
 if __name__ == '__main__':
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(int(os.environ.get('MUTATE_JOBS', '6'))) as ex: res = list(ex.map(run, [(n, v) for n, v in MUTANTS.items() if n not in EQUIVALENT and all(w in n for w in sys.argv[1:])]))
