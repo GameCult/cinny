@@ -216,6 +216,20 @@ describe('offsetRange', () => {
     expect(ehi).toBe(180);
   });
 
+  it('on a desktop viewport, where the width binds the scale and keep is well under 1, the backward offset stops where the nearest card shrunk by R / (R + r) lifts its foot to the bottom edge', () => {
+    // 1920 x 1080 with the ground rows the manifest guarantees: scale 1.65 (the width term), so keep = 0.15 x 1080 / (1.65 x 150) = 0.65, far under the 0.75 a clamped keep would stop at. The bake's r_max is made large enough that the foot, not r_max, binds.
+    const wide = parseManifest(wireManifest({ view: { ...(wireManifest().view as object), horizon_row: 450 }, camera: { r_max_m: 600, r_max_forward_m: 700 } }), '/d/');
+    const win = windowFor(wide.view, 1920, 1080);
+    const keep = (0.15 * 1080) / (win.plane.scale * 150);
+    expect(keep).toBeGreaterThan(0.6);
+    expect(keep).toBeLessThan(0.7);
+    const [lo, hi] = offsetRange(wide, win, 'both');
+    expect(lo).toBeCloseTo(-1000 * (1 / keep - 1), 6); // about -538 m
+    expect(-lo).toBeLessThan(600);
+    expect(hi).toBe(700);
+    expect(offsetRange(wide, win, 'offset')).toEqual([lo, -lo]);
+  });
+
   it('reads the ground rows from the runtime constants: 150 of 600, so the plane reaches the bottom of every viewport at rest', () => {
     expect(groundRowsNeeded(600)).toBeCloseTo(150, 9);
     const exact = withView({ horizon_row: 600 - groundRowsNeeded(600) });
