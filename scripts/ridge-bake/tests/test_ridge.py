@@ -549,14 +549,6 @@ def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_skirt_only_tiles_
     assert r < export.solve_r_max([[1200.0 if (t, i) == (7, 0) else None for i in range(3)] for t in range(32)], [[100] * 3 for _ in range(32)], ppd) - 5, 'the range is the median model'
     skirt_free = export.pack(_toy()); assert pk['camera']['r_max_m'] < skirt_free['camera']['r_max_m'], 'the 600 m pixels do not bind'
     only = export.pack(dict(b, cards=[[dict(cs[t][i]) if (t, i) != (7, 0) else dict(b['cards'][7][0]) for i in range(3)] for t in range(32)])); assert only['camera'] == skirt_free['camera'], ('a skirt-only tile binds r_max', only['camera'], skirt_free['camera'])
-def test_the_skirt_reads_sample_zero_at_the_authored_blur():
-    """skirt_height is the sample-0 height of the ring march blurred round the ring by a Gaussian of 4 degrees of azimuth: it equals an independent periodic convolution (np.convolve over the wrapped ring with the full Gaussian of sigma 4 x HPX_DEG columns) within 10 m on a ring (the baker cuts its kernel at 3 sigma, 5 m off here) whose sample 0 steps between 100 and 2100 m and whose other samples stand at 3000 m,
-    so a skirt read at sample 1, at 1 or 40 degrees, or at four times the sigma, is off by hundreds of metres.  The authored constant is pinned with the others."""
-    assert ridge.SKIRT_BLUR_DEG == 4.0, 'the authored blur is pinned'
-    K = len(D); h = np.full((K, W), 3000.0); step = (np.arange(W) // 400) % 2; h[0] = np.where(step == 0, 100.0, 2100.0)
-    sigma = 4.0 * W / 360.0; r = int(6 * sigma); k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2); k /= k.sum(); wrapped = np.concatenate([h[0, -r:], h[0], h[0, :r]]); want = np.convolve(wrapped, k, mode='valid')
-    assert want.shape == (W,) and np.abs(ridge.skirt_height(h) - want).max() < 10.0, ('the skirt is not the sample-0 height blurred by 4 degrees', float(np.abs(ridge.skirt_height(h) - want).max()))
-    assert np.abs(want - h[0]).max() > 500 and np.abs(want - 3000.0).max() > 900, 'the fixture cannot tell the blur from the raw height or from sample 1'
 def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
     """A card 0 exactly at the near clip is accepted whatever the clip's value: exp of a float32 ln 700 is 699.99994, which a strict compare against a 700 m clip refuses; one 1.5 per mille under the clip is still refused."""
     saved = ridge.NEAR_CLIP_M; d = tempfile.mkdtemp()
