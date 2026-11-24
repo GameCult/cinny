@@ -172,7 +172,8 @@
       "r_max_forward_m": {
        "type": "number"
       }
-     }
+     },
+     "description": "r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the fit bound of the terrain at or beyond the near clip (ridge.NEAR_CLIP_M, 500 m), the skirt rows of card 0 excluded: nothing nearer than the clip is baked as terrain, so they are no measure of the ground under it."
     },
     "cards": {
      "type": "array",

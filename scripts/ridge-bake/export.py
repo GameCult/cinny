@@ -5,7 +5,7 @@
 
 The runtime reads manifest.json (SCHEMA is its contract) and nothing else about the bake.  The ring is the whole 360 degrees (ruling ridge-camera-full-ring), absolute compass, column 0 = north, cut into TILES tiles of TILE_W columns plus an APRON of real neighbour
 columns each side; the bake holds no camera: it ships each card tile's distance_m and camera.r_max_m, the largest offset the per-card linear slide can take (ruling ridge-offset-range-fit); the client lights the cards itself (ruling ridge-cards-runtime-lit).
-The pure parts (budget, bake_id, manifest, index, schema check) import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work)."""
+The pure parts (budget, bake_id, index, schema check) import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work), and so do validate_manifest and write_bake, which read ridge's NEAR_CLIP_M and GROUND_ROWS_MIN."""
 import os, sys, json, math, shutil, hashlib, argparse, tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import numpy as np, imagecodecs
 
-BAKER_VERSION = 5
+BAKER_VERSION = 6
 RING_W = 6400                          # the ring's columns (ridge.W, asserted in bake_place): column c is at azimuth (c + 0.5) / RING_W x 360, column 0 = north
 TILES = 32                             # azimuth tiles of the ring, each card cut into TILES files per kind (ruling ridge-camera-full-ring: the client loads the arc near its heading)
 TILE_W = RING_W // TILES               # 200 columns = 11.25 degrees owned by a tile
@@ -51,7 +51,7 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
         view=_obj(look_az_deg=_num, ring_w={'const': RING_W}, tile_w={'const': TILE_W}, tiles={'const': TILES}, apron={'const': APRON}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
-        camera=_obj(r_max_m=_num, r_max_forward_m=_num),
+        camera=dict(_obj(r_max_m=_num, r_max_forward_m=_num), description="r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the fit bound of the terrain at or beyond the near clip (ridge.NEAR_CLIP_M, 500 m), the skirt rows of card 0 excluded: nothing nearer than the clip is baked as terrain, so they are no measure of the ground under it."),
         cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _obj(near_m=_numnull, far_m=_numnull),
             'description': "nearest first; the runtime paints the list last to first.  near_m and far_m are the median seam depths over the ring, null at the ends."},
         tiles={'type': 'array', 'minItems': TILES, 'maxItems': TILES, 'items': {'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _objnull(top=_int, h=_int, distance_m=_num, colour=_file, geometry=_file)},
@@ -85,8 +85,10 @@ def validate(x, s, path='$'):
             elif isinstance(extra, dict): validate(v, extra, f'{path}.{k}')
 
 def validate_manifest(m):
-    """The schema plus what it cannot say: every tile lists one entry per card, every card holds something in some tile, each file is named for its card and tile, bytes is the sum of the files."""
-    validate(m, SCHEMA['$defs']['manifest']); k = len(m['cards'])
+    """The schema plus what it cannot say: the plane keeps ridge.GROUND_ROWS_MIN rows under the horizon, every tile lists one entry per card, every card holds something in some tile, each file is named for its card and tile, bytes is the sum of the files."""
+    import ridge
+    validate(m, SCHEMA['$defs']['manifest']); k = len(m['cards']); v = m['view']
+    if v['plane_h'] - v['horizon_row'] < ridge.GROUND_ROWS_MIN - 1e-6: raise ValueError(f"$.view: {v['plane_h'] - v['horizon_row']:.1f} rows under the horizon, below the {ridge.GROUND_ROWS_MIN} the runtime needs (ridge.GROUND_ROWS_MIN)")
     for t, row in enumerate(m['tiles']):
         if len(row) != k: raise ValueError(f'$.tiles[{t}]: {len(row)} entries for {k} cards')
         for i, e in enumerate(row):
@@ -200,7 +202,9 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
             if c.shape[1] != w: raise ValueError(f'tile {t} card {i} is {c.shape[1]} columns wide, not {w} (tile {TILE_W} + 2 apron {APRON})')
             if c.shape[0] < 1 or e['top'] < 0 or e['top'] + c.shape[0] > h: raise ValueError(f'tile {t} card {i} leaves the {h} rows of the frame')
         if opaque[t].shape != (h, w): raise ValueError(f'tile {t}: the opaque view is {opaque[t].shape}, the frame {(h, w)}')
+    import ridge
     rmin = min(row[0]['distance_m'] for row in tiles if row[0])
+    if rmin < ridge.NEAR_CLIP_M: raise ValueError(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: nothing nearer is baked as terrain')
     if camera['r_max_forward_m'] < camera['r_max_m']: raise ValueError(f"r_max_forward_m {camera['r_max_forward_m']:g} is below r_max_m {camera['r_max_m']:g}: phi = 0 is one of the angles r_max_m holds for")
     for r in (camera['r_max_m'], camera['r_max_forward_m']): check_budget(k, tile_bytes, bands, r, rmin)
     for t, (row, drow) in enumerate(zip(tiles, dec)):
@@ -231,8 +235,8 @@ def cut_ring(d, a, h, splits_km):
     """The ring cut of a prefiltered march (set_view done): normals, coverage, the periodic seams on all RING_W columns, then ridge.cards per tile on its TILE_W + 2 APRON columns with the matching normals.  Returns dict(cards [TILES][cards] (ridge.cards arrays),
     splits_km, seams (K, ring) in m, cov (bins, ring), opaque [TILES] (rows, TILE_W + 2 APRON) coverage, edges)."""
     import ridge
-    nrm = ridge.normals(d, h); cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
-    for t in range(TILES): tiles.append(ridge.cards(d, cols(a, t), cols(h, t), cols(sm, t), tuple(cols(x, t) for x in nrm))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
+    nrm = ridge.normals(d, h); sk = ridge.skirt_height(h); cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
+    for t in range(TILES): tiles.append(ridge.cards(d, cols(a, t), cols(h, t), cols(sm, t), tuple(cols(x, t) for x in nrm), skirt=cols(sk, t))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
     return dict(cards=tiles, splits_km=list(splits_km), seams=sm, cov=cov, opaque=[cols(op, t) for t in range(TILES)], edges=ridge.log_edges(d))
 
 def bake_place(pid):

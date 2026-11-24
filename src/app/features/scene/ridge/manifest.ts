@@ -2,7 +2,7 @@
 // contract) and the page; no daemon state. Main-chunk safe: types, a parser and fetch only. Wire names are snake_case; the parsed manifest is
 // camelCase and its `view` is the View (`view.ts`) the sky and the cards share. Schema 3: the whole 360 degree ring, K G-buffer cards cut into
 // azimuth tiles, each tile two files.
-import type { View } from './view';
+import { groundRowsNeeded, type View } from './view';
 
 /** As export.py MAX_CARDS: the decode budget holds this many. */
 export const MAX_CARDS = 6;
@@ -103,6 +103,14 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
   if (!Number.isInteger(tiles) || tiles < 1) fail('view.tiles', 'not a count');
   if (ringW !== tiles * tileW) fail('view.ring_w', 'is not tiles x tile_w');
   const planeH = num(v.plane_h, 'view.plane_h');
+  const horizonRow = num(v.horizon_row, 'view.horizon_row');
+  const ground = groundRowsNeeded(planeH);
+  if (planeH - horizonRow < ground - 1e-6) {
+    fail(
+      'view.horizon_row',
+      `short plane: ${(planeH - horizonRow).toFixed(1)} rows under the horizon, the runtime needs ${Math.round(ground)} to reach the viewport bottom (the baker refuses such a bake: rebake the place)`
+    );
+  }
   if (!Array.isArray(r.cards) || r.cards.length < 1) fail('cards', 'none');
   const k = (r.cards as unknown[]).length;
   if (k > MAX_CARDS) fail('cards', `more than ${MAX_CARDS}`);
@@ -169,7 +177,7 @@ export function parseManifest(raw: unknown, dir: string): RidgeManifest {
       planeH,
       pxPerDegH: num(v.px_per_deg_h, 'view.px_per_deg_h'),
       pxPerDegV: num(v.px_per_deg_v, 'view.px_per_deg_v'),
-      horizonRow: num(v.horizon_row, 'view.horizon_row'),
+      horizonRow,
     },
     encoding: { logDMin, logDMax },
     camera: { rMaxM, rMaxForwardM },

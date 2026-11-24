@@ -10,12 +10,14 @@ import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MAX_CARDS, parseIndex, parseManifest } from './manifest';
 import { runTiles } from './ring';
-import { HFOV_MAX_DEG } from './view';
+import { groundRowsNeeded, HFOV_MAX_DEG } from './view';
 
 /** The same constants as scripts/ridge-bake/export.py. */
 export const TILE_BYTES_MAX = 235_000;
 export const PLACE_BYTES_MAX = 7_500_000;
 export const RESIDENT_BYTES_MAX = 20_000_000;
+/** As ridge.py NEAR_CLIP_M: the march's first sample, so no terrain is nearer. */
+export const NEAR_CLIP_M = 500;
 
 interface WireFile {
   file: string;
@@ -31,7 +33,7 @@ interface WireTile {
 export interface WireManifest {
   schema: number;
   bake_id: string;
-  view: { ring_w: number; tile_w: number; tiles: number; apron: number };
+  view: { ring_w: number; tile_w: number; tiles: number; apron: number; plane_h: number; horizon_row: number };
   camera: { r_max_m: number; r_max_forward_m: number };
   cards: unknown[];
   tiles: (WireTile | null)[][];
@@ -198,6 +200,11 @@ describe('the committed ridge assets', () => {
         expect(residentBytes(raw).n).toBeLessThanOrEqual(raw.view.tiles);
       });
 
+      it('keeps the ground rows the runtime needs under the horizon and nothing nearer than the near clip: card 0 stands at or beyond 500 m in every tile', () => {
+        expect(raw.view.plane_h - raw.view.horizon_row).toBeGreaterThanOrEqual(groundRowsNeeded(raw.view.plane_h) - 1e-6);
+        raw.tiles.forEach((row) => row[0] && expect(row[0].distance_m).toBeGreaterThanOrEqual(NEAR_CLIP_M));
+      });
+
       it('carries the offset bound and a distance for every tile a card holds', () => {
         expect(raw.camera.r_max_m).toBeGreaterThan(0);
         expect(raw.camera.r_max_forward_m).toBeGreaterThanOrEqual(raw.camera.r_max_m);
@@ -275,7 +282,7 @@ describe('sizeGate', () => {
   const ring = (tiles: number, perTile: number, h = 100, cards = 1): WireManifest => ({
     schema: 3,
     bake_id: 'x',
-    view: { ring_w: 6400, tile_w: 6400 / tiles, tiles, apron: 2 },
+    view: { ring_w: 6400, tile_w: 6400 / tiles, tiles, apron: 2, plane_h: 600, horizon_row: 357 },
     camera: { r_max_m: 50, r_max_forward_m: 50 },
     cards: Array.from({ length: cards }, () => ({})),
     tiles: Array.from({ length: tiles }, () =>

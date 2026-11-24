@@ -77,6 +77,12 @@ export const HFOV_MAX_DEG = 72 / 1.1;
  * the near plain is cropped. 0.85 (operator, 2026-11-20) shows about 31 degrees of sky above the horizon in a 16:9 cell. Authored, tunable by eye.
  */
 export const HORIZON_AT = 0.85;
+/**
+ * The rows a plane of `planeH` rows must keep under its horizon row so that at the smallest scale a viewport takes (the plane's height is at least `RIDGE_BAND_FRAC`
+ * of the viewport) it still reaches the viewport bottom: (1 - HORIZON_AT) planeH / RIDGE_BAND_FRAC, 150 of 600 rows. The baker refuses a bake with fewer
+ * (export.py GROUND_ROWS_MIN) and `parseManifest` refuses one that slipped through, so `offsetRange` need not handle a plane that stops short.
+ */
+export const groundRowsNeeded = (planeH: number): number => ((1 - HORIZON_AT) * planeH) / RIDGE_BAND_FRAC;
 
 export interface Window {
   camera: Camera;
@@ -119,8 +125,9 @@ const onHeading = (mode: RotationMode, phiDeg: number): boolean =>
  * the camera on its heading (modes 'still' and 'both', `phi` 0) a forward offset goes to the bake's `rMaxForwardM`, the largest every card fits at phi 0;
  * everywhere else (the offset-only mode swings the camera round the whole circle, and a backward offset at phi 0 is the camera at phi 180) the bound is
  * `rMaxM`, the worst over every phi. The nearest card, shrunk by R / (R + r) about the horizon, would lift its foot above the viewport bottom and show the
- * sky under it past the point where `1 / keep - 1` of its distance is the offset: the baker's nearest-card-off-the-bottom refusal as a clamp, applied to
- * every position the camera can reach at the offset's sign (backward always, forward too where the circle takes it round to phi 180).
+ * sky under it past the point where `1 / keep - 1` of its distance is the offset: applied to every position the camera can reach at the offset's sign
+ * (backward always, forward too where the circle takes it round to phi 180). The manifest guarantees `keep <= 1` (`groundRowsNeeded`: the plane reaches the
+ * viewport bottom at rest), so the formula needs no case for a plane that stops short; at `keep` 1 it gives 0.
  */
 export function offsetRange(
   manifest: RidgeManifest,
@@ -132,7 +139,7 @@ export function offsetRange(
   const { planeH, horizonRow } = manifest.view;
   const below = win.plane.scale * (planeH - horizonRow);
   const keep = 1 + win.plane.bottom / below; // the smallest scale at which the foot stays under the viewport bottom
-  const foot = keep >= 1 ? 0 : nearestM(manifest) * (1 / keep - 1);
+  const foot = Math.max(0, nearestM(manifest) * (1 / keep - 1)); // the max only absorbs the rounding of a keep that is 1 to the last bit
   const back = Math.min(rMaxM, foot);
   return onHeading(mode, phiDeg) ? [-back, rMaxForwardM] : [-back, back];
 }
