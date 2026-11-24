@@ -22,8 +22,15 @@ Files are `Copernicus_DSM_COG_10_<N|S>dd_00_<E|W>ddd_00_DEM.tif`; the list below
 | matterhorn | N45E007 N45E008 N46E007 N46E008 |
 | fuji | N34E138 N34E139 N35E137 N35E138 N35E139 |
 | halfdome | N37W121 N37W120 N38W120 |
+| grandcanyon | N35W113 N35W112 N36W113 N36W112 |
 | amadablam | N27E086 N27E087 N28E086 N28E087 |
 | trecime | N46E011 N46E012 |
+
+## Where the bakes ran
+
+Yggdrasil (16 cores, 62 GB), as `mind-void-self`, work under `/var/tmp/ridge-bake` (never `/tmp`, a 31 GB tmpfs): `venv/` (python 3.13 with `numpy`, `tifffile`, `imagecodecs` from PyPI), `tiles/`, `work/<place>/`, one `out/<place>/` per place until its look is accepted. Tiles come from the public Copernicus DEM GLO-30 AWS Open Data bucket: `https://copernicus-dem-30m.s3.amazonaws.com/<name>/<name>.tif` with `<name>` = `Copernicus_DSM_COG_10_<N|S>dd_00_<E|W>ddd_00_DEM` (17 tiles, 598 MB).
+
+The authored splits sit in depth gaps found by scanning candidate lists (seam medians printed per list): `seams` flees a split that falls inside a continuous mass of visible terrain to the nearest gap, so a split inside the mass yields an empty card 0 (Matterhorn's visible terrain is one mass from 4.9 to 15 km; gaps at 19, 28 and 43 km). Place splits at the gap medians the scan reports.
 
 ## Cards
 
