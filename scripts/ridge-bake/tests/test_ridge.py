@@ -15,11 +15,17 @@ D = ridge.schedule(False)
 def az_of(x): return (x + 0.5) / W * 360.0
 def col_of(az): return int(round(az / 360.0 * W - 0.5)) % W
 
-def rays(hfun):
+def rays(hfun, eye=EYE):
     az = (np.arange(W) + 0.5) / W * 360.0; A = np.zeros((len(D), W), np.float32); Hh = np.zeros_like(A)
     for k, dk in enumerate(D):
-        h = hfun(dk, az); Hh[k] = h; A[k] = np.degrees(np.arctan2(h - EYE - dk * dk / (2 * ridge.R_EARTH) * (1 - ridge.KREF), dk))
+        h = hfun(dk, az); Hh[k] = h; A[k] = np.degrees(np.arctan2(h - eye - dk * dk / (2 * ridge.R_EARTH) * (1 - ridge.KREF), dk))
     return A, Hh
+def near_rays(hfun, sigma=0.0):
+    """The near march of a synthetic terrain: hfun over ridge.near_schedule() on all W columns, float64, prefiltered like the far march (angles from ridge.P['eye_m']): (d, a, h) as ridge.near_march returns it."""
+    dn = ridge.near_schedule(); az = (np.arange(W) + 0.5) / W * 360.0; hn = np.stack([np.broadcast_to(np.asarray(hfun(dk, az), np.float64), az.shape) for dk in dn]); a, h = ridge.prefilter(dn, hn, sigma); return dn, a, h
+def _join(hfun, A, Hh, sigma=0.0):
+    """ridge.join_near of raw far rays (K, W) and the near march of the same terrain, cut to the window 0..NW: (D, a, h, nrm) as ridge.cards reads them."""
+    d, a, h, nrm = ridge.join_near(D, A, Hh, near_rays(hfun, sigma)); return d, _w(a), _w(h), tuple(_w(x) for x in nrm)
 def theta(h, d): return math.degrees(math.atan2(h - EYE - d * d / (2 * ridge.R_EARTH) * (1 - ridge.KREF), d))
 def in_arc(az, a0, a1): return ((az - a0) % 360.0) <= ((a1 - a0) % 360.0)
 def block(a0, a1, d0, d1, h): return lambda dk, az: np.where(in_arc(az, a0, a1) & (dk >= d0) & (dk < d1), h, 0.0)
@@ -49,17 +55,18 @@ def test_paths_come_from_the_environment_with_no_default():
 
 # ---------------------------------------------------------------------------------------- synthetic bakes: the shared steps of export.bake_place on rays the fixtures make
 def _bake(hfun, splits_km, sigma=0.0, fixed_m=None):
-    """prefilter, whole-ring set_view, coverage and the periodic seams on the whole ring (or fixed_m, one seam depth in m for every column), then the window columns 0..NW (azimuth 0..72) of them and the cards on those, of synthetic rays: the pieces of the bake a fixture can look at cheaply."""
-    A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, sigma); v = ridge.set_view(a.max(0))
-    nrm = tuple(_w(x) for x in ridge.normals(D, h)); aw, hw = _w(a), _w(h); cov_ring = ridge.coverage(D, a); cov = _w(cov_ring); sm = _w(ridge.seams(cov_ring, [k * 1000.0 for k in splits_km], D)) if fixed_m is None else np.array([np.full(NW, float(v)) for v in fixed_m])
-    return dict(cards=ridge.cards(D, aw, hw, sm, nrm), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(aw), edges=ridge.log_edges(D), a=aw, h=hw, nrm=nrm, v=v)
+    """prefilter, whole-ring set_view, coverage and the periodic seams on the whole ring (or fixed_m, one seam depth in m for every column), the join of the near march on the whole ring, then the window columns 0..NW (azimuth 0..72) of them and the cards on those, of synthetic rays: the pieces of the bake a fixture can look at cheaply.
+    D, a, h, nrm of the result are the JOINED march's window (the near samples first); opaque and edges are the far march's."""
+    A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, sigma); v = ridge.set_view(a.max(0)); cov_ring = ridge.coverage(D, a); cov = _w(cov_ring)
+    sm = _w(ridge.seams(cov_ring, [k * 1000.0 for k in splits_km], D)) if fixed_m is None else np.array([np.full(NW, float(v)) for v in fixed_m])
+    Dj, aj, hj, nj = ridge.join_near(D, a, h, near_rays(hfun, sigma)); aw, hw, nrm = _w(aj), _w(hj), tuple(_w(x) for x in nj)
+    return dict(cards=ridge.cards(Dj, aw, hw, sm, nrm), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(_w(a)), edges=ridge.log_edges(D), D=Dj, a=aw, h=hw, nrm=nrm, v=v)
 def _canvas(card, key='alpha'):
     out = np.zeros((H, NW) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
 def _row(deg): return int(np.argmin(np.abs(ridge.rowang - deg)))
 THREE = terrain(block(0, 359.99, 3000, 3600, 350), block(0, 359.99, 20000, 21500, 1800), block(0, 359.99, 70000, 72000, 7000))       # ridges at 3, 20 and 70 km, each taller in angle than the one before
 WIDE3 = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 40000, 2000), block(0, 359.99, 70000, 72000, 3000))       # low near hills, then ridges at 39 and 71 km: the frame reaches below the ground at the seams (so cards have wall rows) and the horizon is inside it
 WALLED = terrain(block(0, 359.99, 9000, 10000, 300), block(0, 359.99, 38000, 40000, 2000))
-NEARHILL = terrain(block(0, 359.99, 0, 4000, 150), block(0, 359.99, 38000, 40000, 2000))       # ground above the eye from the first sample on: every row of card 0 lies below its first sample
 def _ramp(dk, az): return np.maximum(GROUND, np.where(dk > 12000, (dk - 12000) * 0.045 + 50.0, 0.0))       # a slope the first sample of card 1 stands on: n_up about 0.9, so the material would be rock if the face counted
 
 def test_the_vertical_anchors_read_the_whole_ring():
@@ -105,8 +112,8 @@ def test_far_card_keeps_terrain_hidden_behind_a_nearer_ridge():
     r = _row(0.5 * (theta(350, 3000) + theta(2400, 20000))); assert c0[r, 900] < 0.01 and a1[r, 900] > 0.99 and abs(math.exp(ld1[r, 900]) - 20000) < 1500, (c0[r, 900], a1[r, 900])
 def test_crossfade_is_complementary():
     """A ridge across the seam (seam fixed at 6 km, the ridge's front face at 5.9 km inside the cross-fade): the nearer card is partly transparent over the window, the farther card is opaque on the ridge, and the composite stays at coverage 1 below the crest."""
-    A, Hh = rays(terrain(block(0, 359.99, 5900, 6100, 900))); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = _w(A), _w(Hh)
-    cs = ridge.cards(D, aw, hw, np.full((1, NW), 6000.0)); c0, c1 = _canvas(cs[0]), _canvas(cs[1]); crest = int(np.argmax(ridge.opaque(aw)[:, 500] > 0.5)); r = crest + 6
+    hf = terrain(block(0, 359.99, 5900, 6100, 900)); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw = _w(A); Dj, aj, hj, nj = _join(hf, A, Hh)
+    cs = ridge.cards(Dj, aj, hj, np.full((1, NW), 6000.0), nj); c0, c1 = _canvas(cs[0]), _canvas(cs[1]); crest = int(np.argmax(ridge.opaque(aw)[:, 500] > 0.5)); r = crest + 6
     assert 0.2 < c0[r, 500] < 0.8, ('the near card does not fade over the window', c0[r, 500]); assert c1[r, 500] > 0.99, 'the far card is not opaque on the ridge'
     comp = 1 - (1 - c0) * (1 - c1); assert (comp[crest + 3:, :] > 0.999).all(), 'the composite dips below coverage 1 under the crest'
 def test_normals_of_a_tilted_plane():
@@ -136,7 +143,7 @@ def test_prefilter_flattens_roofs_and_keeps_hills():
     assert np.allclose(ridge.prefilter(D, Hh, 0.0)[1], Hh), 'sigma 0 changed the heights'
 def test_crest_rows_have_fractional_coverage():
     """The top row of a card's run has alpha equal to the share of its angular span under the running maximum, and the rows below it are 1 (a lower ridge in columns 0..640 so its crest is not at the frame's top edge)."""
-    A, Hh = rays(terrain(block(0, 36, 5000, 5600, 500), block(36, 359.99, 5000, 5600, 560))); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = _w(A), _w(Hh); c = ridge.cards(D, aw, hw, np.zeros((0, NW)))[0]
+    hf = terrain(block(0, 36, 5000, 5600, 500), block(36, 359.99, 5000, 5600, 560)); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw = _w(A); Dj, aj, hj, nj = _join(hf, A, Hh); c = ridge.cards(Dj, aj, hj, np.zeros((0, NW)), nj)[0]
     cv = _canvas(c)[:, 300]; r = int(np.argmax(cv > 0)); top = float(aw.max(0)[300]); p = 1.0 / ridge.PXDEG_V; want = (top - (ridge.rowang[r] - 0.5 * p)) / p
     assert 0.0 < want < 1.0 and abs(cv[r] - want) < 0.01, (cv[r], want, r); assert (cv[r + 1:] > 0.999).all()
 def test_cards_composite_to_the_opaque_view():
@@ -146,14 +153,14 @@ def test_cards_composite_to_the_opaque_view():
         rm = np.maximum.accumulate(b['a'], axis=0); col = 640; r = _row(float(b['a'][:, col].max()) - 0.5); k = int(np.searchsorted(rm[:, col], ridge.rowang[r], 'left')); first = None
         for c in b['cards']:
             if _canvas(c)[r, col] > 0.99: first = math.exp(_canvas(c, 'logd')[r, col]); break
-        assert first is not None and abs(first - D[k]) < 0.1 * D[k] + 60, (first, D[k])
+        assert first is not None and abs(first - b['D'][k]) < 0.1 * b['D'][k] + 60, (first, b['D'][k])
 
 # ---------------------------------------------------------------------------------------- the ring: tiles are crops of per-column results, the wrap is periodic
 _RING = {}
 def _ring(key, hfun, splits_km):
     """export.cut_ring on synthetic rays (prefilter, whole-ring set_view, then the ring cut), cached by key: dict(bake = what export.bake_place returns, minus the place)."""
     if key not in _RING:
-        A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); v = ridge.set_view(a.max(0)); r = export.cut_ring(D, a, h, splits_km)
+        A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); v = ridge.set_view(a.max(0)); r = export.cut_ring(D, a, h, splits_km, near_rays(hfun))
         _RING[key] = dict(r, op_ring=ridge.opaque(a), place=dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE, tz='Europe/Vienna'), v=v,
                           view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H),
                           meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1]))))
@@ -190,10 +197,10 @@ def test_every_tile_is_cut_at_its_own_seam():
 def test_tile_is_a_crop_of_the_columns():
     """ridge.cards on a tile's columns (the 200 it owns and the apron) equals the same columns of ridge.cards on a wider run of columns, pixel for pixel, for fixed seams: the tile cut changes no pixel and adds no seam."""
     b = _bake(terrain(_receding, block(0, 359.99, 3000, 3600, 350)), [6]); x0 = 500; n = export.TILE_W + 2 * export.APRON; sl = slice(x0, x0 + n)
-    tile = ridge.cards(D, b['a'][:, sl], b['h'][:, sl], b['seams'][:, sl], tuple(x[:, sl] for x in b['nrm']))
+    tile = ridge.cards(b['D'], b['a'][:, sl], b['h'][:, sl], b['seams'][:, sl], tuple(x[:, sl] for x in b['nrm']))
     for c, w in zip(tile, b['cards']):
         assert np.array_equal(_canvas(w)[:, sl], _tile_canvas(c)), 'a tile is not a crop of the columns'; seen = _tile_canvas(c) > 0
-        for key in ('albedo', 'n_r', 'n_t', 'logd', 'wall'): assert np.array_equal(_canvas(w, key)[:, sl][seen], _tile_canvas(c, key)[seen]), ('a tile is not a crop of the columns', key)
+        for key in ('albedo', 'n_r', 'n_t', 'logd', 'wall', 'near'): assert np.array_equal(_canvas(w, key)[:, sl][seen], _tile_canvas(c, key)[seen]), ('a tile is not a crop of the columns', key)
 
 # ---------------------------------------------------------------------------------------- toy bakes: tile data made by hand, for the packer and the writer
 def _toy(dists=(3000.0, 15000.0, 50000.0), bands=(300, 400, 500), tops=(300, 150, 60), amp=0.01):
@@ -201,7 +208,7 @@ def _toy(dists=(3000.0, 15000.0, 50000.0), bands=(300, 400, 500), tops=(300, 150
     n = export.TILE_W + 2 * export.APRON; x = np.arange(n); tile = []; k = len(dists)
     for i in range(k):
         ld = np.log(dists[i] * (1 + amp * np.sin(x * 0.3)))[None, :].repeat(bands[i], 0).astype(np.float32)
-        tile.append(dict(top=tops[i], alpha=np.ones((bands[i], n), np.float32), albedo=np.full((bands[i], n, 3), 0.4, np.float32), n_r=np.full((bands[i], n), 0.1, np.float32), n_t=np.full((bands[i], n), -0.1, np.float32), logd=ld, wall=np.zeros((bands[i], n), bool)))
+        tile.append(dict(top=tops[i], alpha=np.ones((bands[i], n), np.float32), albedo=np.full((bands[i], n, 3), 0.4, np.float32), n_r=np.full((bands[i], n), 0.1, np.float32), n_t=np.full((bands[i], n), -0.1, np.float32), logd=ld, wall=np.zeros((bands[i], n), bool), near=np.zeros((bands[i], n), bool)))
     comp = export.composite_alpha([(c['top'], c['alpha']) for c in tile], H, n)
     return dict(cards=[[dict(c) for c in tile] for _ in range(export.TILES)], splits_km=[6.0 * (j + 1) for j in range(k - 1)], seams=np.tile(np.array(dists[:-1])[:, None] * 0.5, (1, W)), opaque=[comp.copy() for _ in range(export.TILES)],
                 view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=100.0, exaggeration=5.0, horizon_row=60.0, sky_row=24.0, near_row=396.0), meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(500.0), log_d_max=math.log(100000.0))),
@@ -213,7 +220,7 @@ def _refuses(out, b, packed, why, **kw):
     except ValueError: assert not os.path.exists(out), ('a refused bake left files', why)
     else: assert False, why
 def _pins():
-    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 6), 'the ring layout is pinned'
+    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 7), 'the ring layout is pinned'
     assert (export.TILE_BYTES_MAX, export.PLACE_BYTES_MAX, export.RESIDENT_BYTES_MAX, export.FIT_PX_MAX, export.R_MAX_FLOOR_M, export.PHI_STEPS) == (235_000, 7_500_000, 20_000_000, 24.0, 25.0, 24), 'the budgets and the fit bound are pinned'
     assert abs(export.HFOV_MAX_DEG - 72 / 1.1) < 1e-12
 
@@ -222,7 +229,7 @@ def test_schema3():
     _pins(); d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); mk = lambda: json.loads(json.dumps(m))
-        assert m['schema'] == 3 and m['baker_version'] == 6 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
+        assert m['schema'] == 3 and m['baker_version'] == 7 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
         def bad(f, why):
             x = mk(); f(x)
             try: export.validate_manifest(x)
@@ -428,9 +435,9 @@ def _vienna_ring(splits, tiles):
     """Vienna's whole-ring march and seams for the given splits, cards on only the given tiles: (d, seams, {t: cards}, {t: opaque})."""
     saved = ridge.P
     try:
-        p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); nrm = ridge.normals(d, h); sm = ridge.seams(ridge.coverage(d, a), [k * 1000.0 for k in splits], d); op = ridge.opaque(a)
+        p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); sm = ridge.seams(ridge.coverage(d, a), [k * 1000.0 for k in splits], d); op = ridge.opaque(a); D_, A_, H_, nrm = ridge.join_near(d, a, h, ridge.near_march(p['prefilter_m']))
         cols = lambda x, t: ridge.ring_cols(x, t * export.TILE_W - export.APRON, export.TILE_W + 2 * export.APRON)
-        return d, sm, {t: ridge.cards(d, cols(a, t), cols(h, t), cols(sm, t), tuple(cols(x, t) for x in nrm)) for t in tiles}, {t: cols(op, t) for t in tiles}
+        return d, sm, {t: ridge.cards(D_, cols(A_, t), cols(H_, t), cols(sm, t), tuple(cols(x, t) for x in nrm)) for t in tiles}, {t: cols(op, t) for t in tiles}
     finally: ridge.P = saved
 def test_vienna_k1_k2_k3():
     """Vienna with card_split_km [6], [6, 40] and [6, 20, 40]: 2, 3 and 4 cards, seams ordered in every column of the ring, each composite of a tile (the rest azimuth's, the north's and the last one) equals the opaque view within 0.02; the cross-fade column count is printed."""
@@ -466,26 +473,26 @@ def test_written_cards_decode_to_the_cards_in_memory():
     range, within quantisation."""
     b = _vienna_bake(); d = tempfile.mkdtemp()
     try:
-        dest = _write(d, b, export.pack(b)); m = json.load(open(dest / 'manifest.json')); enc = m['encoding']; span = enc['log_d_max'] - enc['log_d_min']; partial_seen = 0
+        dest = _write(d, b, export.pack(b)); m = json.load(open(dest / 'manifest.json')); enc = m['encoding']; span = enc['log_d_max'] - enc['log_d_min']; partial_seen = near_seen = 0
         for t in (0, 19, 31):
             for c, rec in zip(b['cards'][t], m['tiles'][t]):
-                col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; wall = c['wall']; solid = (al > 0) & ~wall; part = (al > 0.05) & (al < 0.95) & ~wall; partial_seen += int(part.sum())
+                col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; wall = c['wall']; nr = c['near']; solid = (al > 0) & ~wall & ~nr; part = (al > 0.05) & (al < 0.95) & ~wall & ~nr; partial_seen += int(part.sum()); near_seen += int((nr & (al > 0)).sum())
                 assert (col[..., 3] == np.rint(al * 255)).all(), 'alpha is not exact'; e = np.abs(col[..., :3] / 255.0 - c['albedo']).max(-1)
                 assert e[solid].mean() < 0.021 and np.percentile(e[solid], 99) < 0.081, ('albedo is off', e[solid].mean(), np.percentile(e[solid], 99)); assert part.sum() == 0 or e[part].mean() < 0.1, ('albedo at partial alpha is off: premultiplied?', e[part].mean())
                 assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6; assert (((geo[..., 0] == 255) & (geo[..., 1] == 255)) == wall).all(), 'the wall code is not R = G = 255 on exactly the wall pixels'
                 assert np.abs(geo[..., 0] / 255.0 * 2 - 1 - c['n_r'])[solid].max() < 2 * q and np.abs(geo[..., 1] / 255.0 * 2 - 1 - c['n_t'])[solid].max() < 2 * q, 'a normal channel is off or swapped'
                 assert np.abs(enc['log_d_min'] + geo[..., 2] / 255.0 * span - c['logd'])[solid].max() < span * q, 'the log-distance is off or not over the encoding range'
                 assert np.abs(c['n_r'][solid]).mean() > 0.05 and np.abs(c['n_t'][solid]).mean() > 0.01 and np.abs(c['n_r'][solid].mean() - c['n_t'][solid].mean()) > 0.0, 'the fixture does not tell the channels apart'
-                assert col[..., :3][solid].mean() > 20, 'albedo is zeroed'
-        assert partial_seen > 0, 'the fixture has no partial alpha'
+                assert col[..., :3][solid].mean() > 20, 'albedo is zeroed'; assert (geo[..., 2][nr & (al > 0)] == 0).all(), 'a near pixel is not at the clip distance (B = 0)'
+        assert partial_seen > 0, 'the fixture has no partial alpha'; assert near_seen > 1000, 'the fixture has no near ground'
     finally: shutil.rmtree(d)
 
 # ---------------------------------------------------------------------------------------- wall rows
 def _first_sample_angle(b, i):
-    """Per column, the angle of the first sample card i reads: the first sample at or beyond its near seam, less the cross-fade half-width (card 0: sample 0, the near clip)."""
-    k0 = np.zeros(NW, int) if i == 0 else np.array([np.searchsorted(D, b['seams'][i - 1][x] * math.exp(-ridge.XF)) for x in range(NW)]); return k0, b['a'][k0, np.arange(NW)]
+    """Per column, the angle of the first sample card i reads: the first sample at or beyond its near seam, less the cross-fade half-width (card 0: sample 0 of the joined march, the near start)."""
+    k0 = np.zeros(NW, int) if i == 0 else np.array([np.searchsorted(b['D'], b['seams'][i - 1][x] * math.exp(-ridge.XF)) for x in range(NW)]); return k0, b['a'][k0, np.arange(NW)]
 def test_wall_rows_flagged():
-    """Every card, card 0 included, flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at); the wall carries R = G = 255 in the geometry file and no other pixel has r2 + t2 above 1.02; wall pixels keep that sample's
+    """Every card, card 0 included, flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at; card 0's first sample is the near march's, under the frame, so it has none); the wall carries R = G = 255 in the geometry file and no other pixel has r2 + t2 above 1.02; wall pixels keep that sample's
     distance and their albedo is the ground material of the sample's height with the face up (so a steep face is not rock), constant down the column."""
     steep = 0
     for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6]), lambda: _bake(_ramp, [20], fixed_m=[20000.0])):       # the ramp's seam is fixed: the wall must stand on the slope, below the height where every material is rock or snow
@@ -495,7 +502,7 @@ def test_wall_rows_flagged():
             geo = export.decode(export.encode_geometry(c['n_r'], c['n_t'], c['logd'], dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), c['wall'])); r, t = geo[..., 0] / 255.0 * 2 - 1, geo[..., 1] / 255.0 * 2 - 1; code = (geo[..., 0] == 255) & (geo[..., 1] == 255)
             assert (code == c['wall']).all() and (r[~code] ** 2 + t[~code] ** 2 <= 1.02).all(), 'the wall code is not on exactly the wall pixels, or a real normal reaches it'
             for x in np.flatnonzero(c['wall'].any(0)):
-                rows = np.flatnonzero(c['wall'][:, x]); ld = c['logd'][rows, x]; assert np.ptp(ld) < 1e-5 and abs(math.exp(ld[0]) - D[k0[x]]) < 1e-3 * D[k0[x]] + 60, ('a wall keeps its sample distance', x)
+                rows = np.flatnonzero(c['wall'][:, x]); ld = c['logd'][rows, x]; assert np.ptp(ld) < 1e-5 and abs(math.exp(ld[0]) - b['D'][k0[x]]) < 1e-3 * b['D'][k0[x]] + 60, ('a wall keeps its sample distance', x)
                 want_alb = ridge.albedo(np.array([b['h'][k0[x], x]]), np.array([1.0]))[0]; assert np.abs(c['albedo'][rows, x] - want_alb).max() < 1e-5, ('wall albedo is not the ground material with the face up', x)
         assert seen > 1000, 'the fixture has no wall'
         for i in range(1, len(b['cards'])):
@@ -508,26 +515,26 @@ def test_the_sheet_lights_a_wall_with_the_face_up():
     assert np.allclose(rgb[:, :2], up) and np.allclose(rgb[:, 2:], tilted) and abs(up - tilted) > 0.05, (rgb[0, 0], rgb[0, 3])
 # ---------------------------------------------------------------------------------------- the near clip, the ground rows
 def _nearest_solid(c):
-    """The nearest solid (alpha >= 0.5) non-wall pixel of a card tile's interior columns, metres; None where there is none (computed here from the arrays, not by pack)."""
-    ld, al, wl = (c[k][:, 2:-2] for k in ('logd', 'alpha', 'wall')); m = (al >= 0.5) & ~wl; return float(np.exp(np.float64(ld[m].min()))) if m.any() else None
-def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_skirt_only_tiles_do_not_bind():
+    """The nearest solid (alpha >= 0.5) pixel that is neither wall nor near ground of a card tile's interior columns, metres; None where there is none (computed here from the arrays, not by pack)."""
+    ld, al, wl, nr = (c[k][:, 2:-2] for k in ('logd', 'alpha', 'wall', 'near')); m = (al >= 0.5) & ~wl & ~nr; return float(np.exp(np.float64(ld[m].min()))) if m.any() else None
+def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_near_only_tiles_do_not_bind():
     """The offset range is where the linear map holds for the NEAREST solid terrain each card draws in each tile (ruling ridge-offset-range-fit), not its median: a tile whose card 0 spans 600 to 2000 m has its median near 1200 m, and at the r_max the median would give the 600 m pixels err past FIT_PX_MAX.
-    So the fit at every tile's nearest solid pixel is within the bound at r_max_m (over the circle) and at r_max_forward_m (phi 0), and the bound is reached: a little more offset breaks it at the binding tile.  A tile whose card 0 draws only wall (the skirt, at the near clip) has no terrain and binds nothing."""
+    So the fit at every tile's nearest solid pixel is within the bound at r_max_m (over the circle) and at r_max_forward_m (phi 0), and the bound is reached: a little more offset breaks it at the binding tile.  A tile whose card 0 draws only near ground (under the clip) has no terrain and binds nothing."""
     b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[7][0]); n = c['alpha'].shape[1]
     ld = np.log(np.linspace(600.0, 2000.0, n))[None, :].repeat(c['alpha'].shape[0], 0).astype(np.float32); cs[7][0] = dict(c, logd=ld)
-    bad = dict(cs[5][0]); cs[5][0] = dict(bad, wall=np.ones_like(bad['wall']), logd=np.full_like(bad['logd'], math.log(500.0)))     # tile 5: card 0 is all skirt
+    bad = dict(cs[5][0]); cs[5][0] = dict(bad, near=np.ones_like(bad['near']), logd=np.full_like(bad['logd'], math.log(300.0)))     # tile 5: card 0 is all near ground
     pk = export.pack(dict(b, cards=cs)); r, rf = pk['camera']['r_max_m'], pk['camera']['r_max_forward_m']; ppd = ridge.HPX_DEG; worst = worst_f = 0.0; seen = 0
     for t, tile in enumerate(cs):
         for i, card in enumerate(tile):
             d = _nearest_solid(card)
-            if d is None: assert (t, i) == (5, 0), ('a tile has no solid terrain but was not made all skirt', t, i); continue
+            if d is None: assert (t, i) == (5, 0), ('a tile has no solid terrain but was not made all near ground', t, i); continue
             seen += 1; assert export.fit_px(d, r, ppd) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(d, rf, ppd, 1) <= export.FIT_PX_MAX + 1e-6, ('the nearest terrain of a tile is outside the fit bound', t, i, d, r, rf)
             worst, worst_f = max(worst, export.fit_px(d, r + 0.5, ppd)), max(worst_f, export.fit_px(d, rf + 0.5, ppd, 1))
     assert seen == 32 * 3 - 1 and worst > export.FIT_PX_MAX and worst_f > export.FIT_PX_MAX, ('the range stops short of the bound of the nearest terrain', worst, worst_f)
     assert abs(pk['tiles'][7][0]['distance_m'] - float(np.exp(np.median(np.log(np.linspace(600.0, 2000.0, n)))))) < 1.0, 'the manifest distance is still the median'
     assert r < export.solve_r_max([[1200.0 if (t, i) == (7, 0) else None for i in range(3)] for t in range(32)], [[100] * 3 for _ in range(32)], ppd) - 5, 'the range is the median model'
-    skirt_free = export.pack(_toy()); assert pk['camera']['r_max_m'] < skirt_free['camera']['r_max_m'], 'the 600 m pixels do not bind'
-    only = export.pack(dict(b, cards=[[dict(cs[t][i]) if (t, i) != (7, 0) else dict(b['cards'][7][0]) for i in range(3)] for t in range(32)])); assert only['camera'] == skirt_free['camera'], ('a skirt-only tile binds r_max', only['camera'], skirt_free['camera'])
+    near_free = export.pack(_toy()); assert pk['camera']['r_max_m'] < near_free['camera']['r_max_m'], 'the 600 m pixels do not bind'
+    only = export.pack(dict(b, cards=[[dict(cs[t][i]) if (t, i) != (7, 0) else dict(b['cards'][7][0]) for i in range(3)] for t in range(32)])); assert only['camera'] == near_free['camera'], ('a near-only tile binds r_max', only['camera'], near_free['camera'])
 def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
     """A card 0 exactly at the near clip is accepted whatever the clip's value: exp of a float32 ln 700 is 699.99994, which a strict compare against a 700 m clip refuses; one 1.5 per mille under the clip is still refused."""
     saved = ridge.NEAR_CLIP_M; d = tempfile.mkdtemp()
@@ -566,6 +573,74 @@ def test_the_near_clip_and_the_ground_rows_are_refused_at_the_writer():
         except ValueError as e: assert 'GROUND_ROWS_MIN' in str(e), str(e)
         else: assert False, 'validate_manifest accepted a short plane'
     finally: shutil.rmtree(d)
+# ---------------------------------------------------------------------------------------- the near ground: the place's own terrain under the clip, drawn by card 0 inside the clip's silhouette
+def _blend(L, ld, arr, x):
+    """arr (K, n) read at hits of log-distance ld (between the samples of log-distance L), blended by the fraction between the two samples: what ridge.cards does for a normal."""
+    kk = np.searchsorted(L, ld, 'left'); kp = np.maximum(kk - 1, 0); t = np.clip((ld - L[kp]) / np.maximum(L[kk] - L[kp], 1e-12), 0, 1); return arr[kp, x] + t * (arr[kk, x] - arr[kp, x])
+def test_near_ground_draws_inside_the_clip_silhouette():
+    """Eye 1.6 m over flat ground, a ramp hill at 150-300 m rising to 60 m (its crest stands far above the angle of the clip sample) and a far ridge in half the ring: card 0 composites to the opaque view of the FAR march (the hill above the clip line is not drawn; without the cap it stands above the far ridge),
+    its rows are near ground, not wall, and their normals are normals(dn, hn) of the near march blended at the hit (the ramp's, not the far sample 0's)."""
+    saved = ridge.P.get('eye_m'); ridge.P.update(eye_m=1.6)
+    try:
+        far = block(36, 359.99, 20000, 21500, 1500); hf = lambda dk, az: np.maximum(np.where((dk >= 150) & (dk < 300), 0.4 * (dk - 150), 0.0), np.asarray(far(dk, az), float))
+        A, Hh = rays(hf, eye=1.6); a, h = ridge.prefilter(D, Hh, 0.0); ridge.set_view(a.max(0)); near = near_rays(hf); Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, near); aw, hw, nj = _w(Aj), _w(Hj), tuple(_w(x) for x in Nj)
+        c = ridge.cards(Dj, aw, hw, np.zeros((0, NW)), nj)[0]; comp = _canvas(c); opq = ridge.opaque(_w(a)); err = np.abs(comp - opq).max(); assert err < export.COVER_TOL, ('card 0 draws outside the silhouette of the terrain at the clip', err)
+        free = ridge.cards(Dj, _w(np.concatenate([near[1], a])), hw, np.zeros((0, NW)), nj)[0]; assert np.abs(_canvas(free) - opq).max() > 5 * export.COVER_TOL, 'the fixture cannot tell a hill above the clip line (the cap is not tested)'
+        x = 300; al, nrr, wl, ld = c['alpha'][:, x], c['near'][:, x], c['wall'], c['logd'][:, x]; sel = (al > 0.99) & nrr; assert sel.sum() > 20 and not wl.any(), ('card 0 has wall rows', int(wl.sum()), int(sel.sum())); assert nrr[al > 0.5].mean() > 0.9, 'the rows under the clip are not flagged near'
+        L = np.log(Dj); q = ld[sel].astype(np.float64); want = np.stack([_blend(L, q, nj[0], x), _blend(L, q, nj[1], x), _blend(L, q, nj[2], x)]); m = np.sqrt((want ** 2).sum(0))
+        assert np.abs(c['n_r'][sel, x] - want[0] / m).max() < 2e-3 and np.abs(c['n_t'][sel, x] - want[1] / m).max() < 2e-3, 'a near row has not its own normal'; assert (np.abs(c['n_r'][sel, x]) > 0.5).sum() > 5, 'the fixture has no ramp rows'
+    finally: ridge.P.update(eye_m=saved)
+def test_near_ground_has_the_material_and_relief_of_its_own_heights():
+    """Near heights stepping in blocks of 20 columns across the grass, forest and rock thresholds (100, 1000, 2100 m, the forest block a 45 degree hill) while the far march stands at 1000 m everywhere: every near row carries albedo(its own height, its own n_up), so the blocks differ where the ground does, and the hill face is steep (n_up < 0.93) and rock."""
+    dn = ridge.near_schedule(); K, Kn = len(D), len(dn); a = np.tile(np.linspace(5.0, 12.0, K)[:, None], (1, W)); h = np.full((K, W), 1000.0); blk = (np.arange(W) // 20) % 3; base = np.array([100.0, 1000.0, 2100.0])[blk]
+    hn = np.broadcast_to(base[None, :], (Kn, W)).copy(); hn[:, blk == 1] += dn[:, None]; an = np.tile(np.linspace(-8.0, 5.0, Kn)[:, None], (1, W)); ridge.P.update(eye_m=EYE); ridge.set_view(a.max(0))
+    Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, (dn, an, hn)); assert all(np.array_equal(u[Kn:], w) for u, w in zip(Nj, ridge.normals(D, h))), 'the far normals are not those of the far march alone'
+    c = ridge.cards(Dj, _w(Aj), _w(Hj), np.zeros((0, NW)), tuple(_w(x) for x in Nj))[0]; up = np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1)); got = {}
+    for x in range(NW):
+        if not 3 <= x % 20 <= 16: continue
+        sel = (c['alpha'][:, x] > 0.99) & c['near'][:, x] & (c['logd'][:, x] < math.log(ridge.NEAR_CLIP_M) - 1e-6); assert sel.sum() > 50, ('no near rows', x)       # the crest row that meets the clip sample itself is not under the clip
+        if blk[x] == 1: assert up[sel, x].max() < 0.93 and np.abs(c['albedo'][sel, x] - np.asarray(ridge.ROCK)).max() < 1e-4, ('the hill face is not steep rock', x, float(up[sel, x].max()))
+        else: assert np.abs(c['albedo'][sel, x] - ridge.albedo(np.full(int(sel.sum()), base[x]), up[sel, x])).max() < 1e-5, ('a near row has not the material of its own height', x)
+        got[blk[x]] = c['albedo'][sel, x].mean(0)
+    assert np.abs(got[0] - got[1]).max() > 0.05 and np.abs(got[1] - got[2]).max() > 0.05 and np.abs(got[0] - got[2]).max() > 0.05, ('the blocks do not differ where the ground does', got)
+def test_near_pixels_are_not_measured():
+    """pack of a bake with near rows (card 0, one tile: its lower third is near ground at 150 m) equals in every distance_m and in the camera pack of the same bake with those pixels cut out; a tile whose card 0 is near only gets distance_m == NEAR_CLIP_M and binds nothing, and write_bake accepts it."""
+    b = _toy(dists=(520.0, 15000.0, 50000.0)); base = export.pack(b); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = cs[3][0]; n = c['alpha'].shape[0]; near = np.zeros_like(c['near']); near[n * 2 // 3:] = True
+    cs[3][0] = dict(c, near=near, logd=np.where(near, math.log(150.0), c['logd']).astype(np.float32)); a = export.pack(dict(b, cards=cs))
+    cs[3][0] = dict(c, alpha=np.where(near, 0.0, c['alpha']).astype(np.float32)); cut = export.pack(dict(b, cards=cs)); dists = lambda pk: [[e and e['distance_m'] for e in row] for row in pk['tiles']]
+    assert dists(a) == dists(cut) == dists(base) and a['camera'] == cut['camera'] == base['camera'], ('near pixels were measured', a['camera'], cut['camera'])
+    cs[3][0] = c; only = dict(cs[9][0]); cs[9][0] = dict(only, near=np.ones_like(only['near']), logd=np.full_like(only['logd'], math.log(300.0))); ob = dict(b, cards=cs); pk = export.pack(ob); d = tempfile.mkdtemp()
+    try:
+        assert pk['tiles'][9][0]['distance_m'] == ridge.NEAR_CLIP_M and pk['camera'] == base['camera'] and pk['tiles'][8][0]['distance_m'] == base['tiles'][8][0]['distance_m'], ('a near-only tile', pk['tiles'][9][0]['distance_m'], pk['camera'])
+        assert _write(d + '/ok', ob, pk).exists(), 'a bake with a near-only tile was refused'
+    finally: shutil.rmtree(d)
+def test_cards_refuses_a_march_without_the_near_ground():
+    """ridge.cards on a march whose first sample is the near clip (not joined to the near march) raises, naming join_near: card 0 can never extrude the clip sample again."""
+    A, Hh = rays(THREE); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0))
+    try: ridge.cards(D, _w(A), _w(Hh), np.zeros((0, NW)))
+    except ValueError as e: assert 'join_near' in str(e), str(e)
+    else: assert False, 'cards drew a march that starts at the near clip'
+def test_near_march_starts_at_your_feet():
+    """The near march starts at NEAR_START_M = 1 m, strictly increasing in steps of max(1 m, 0.02 d) up to 10 m, its last sample under the clip; over flat ground with a 1.6 m eye and a frame bottom below -8 degrees (the ray of the frame bottom meets the ground 11 m out) card 0 has no wall row and draws the ground to the bottom row."""
+    dn = ridge.near_schedule(); st = np.diff(dn); assert dn[0] == ridge.NEAR_START_M == 1.0 and (st > 0).all() and dn[-1] < ridge.NEAR_CLIP_M and dn[-1] + 10.0 >= ridge.NEAR_CLIP_M and 150 < len(dn) < 190, (dn[0], len(dn))
+    assert np.allclose(st, np.clip(0.02 * dn[:-1], 1.0, 10.0)), 'the steps are not max(1 m, 0.02 d) capped at 10 m'
+    saved = ridge.P.get('eye_m'); ridge.P.update(eye_m=1.6)
+    try:
+        hf = lambda dk, az: np.zeros_like(az); A, Hh = rays(hf, eye=1.6); a, h = ridge.prefilter(D, Hh, 0.0); sk = np.full(W, -5.0); sk[::2] = 2.0; ridge.set_view(sk); assert ridge.BOTTOM_DEG < -8.0, ridge.BOTTOM_DEG
+        Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, near_rays(hf)); c = ridge.cards(Dj, _w(Aj), _w(Hj), np.zeros((0, NW)), tuple(_w(x) for x in Nj))[0]
+        assert not c['wall'].any() and c['near'].any(), ('card 0 has wall under the frame bottom', int(c['wall'].sum())); assert _canvas(c)[H - 1, 300] > 0.99 and c['near'][H - 1 - c['top'], 300], 'the bottom row is not near ground'
+    finally: ridge.P.update(eye_m=saved)
+def test_near_march_is_float64_and_prefiltered():
+    """near_march over an injected 64 x 64 mosaic: a plane tilted 5% at 3000 m gives adjacent-column near normals within 1e-3 of each other (heights in float32 would jump by 0.1 at a metre's distance); 30 m roof blocks under sigma 100 leave near heights within 2 m of each other, and without the prefilter they do not."""
+    saved = (ridge.P, ridge.PXDEG_V); lat, lon = 47.0, 11.0; n = 64; ridge.P = dict(id='nearmos', lat=lat, lon=lon, rmax_km=1, eye_m=3001.6); key = (ridge.P['id'], ridge.mosaic_key(ridge.P)); ridge.PXDEG_V = 100.0
+    x = np.arange(n)[None, :] * (111320.0 * math.cos(math.radians(lat)) / 3600.0); y = np.arange(n)[:, None]
+    try:
+        ridge._mos[key] = ((3000.0 + 0.05 * x + 0 * y).astype(np.float32), lat + 32 / 3600.0, lon - 32 / 3600.0); dn, an, hn = ridge.near_march(0.0); nn = ridge.normals(dn, hn)
+        assert hn.dtype == np.float64 and an.dtype == np.float64 and hn.shape == (len(ridge.near_schedule()), W) and (dn == ridge.near_schedule()).all(), (hn.dtype, hn.shape)
+        assert max(np.abs(np.diff(nn[0], axis=1)).max(), np.abs(np.diff(nn[1], axis=1)).max()) < 1e-3, ('the near normals jump between adjacent columns', float(np.abs(np.diff(nn[1], axis=1)).max()))
+        ridge._mos[key] = ((3000.0 + 30.0 * ((np.arange(n)[None, :] + y) % 2)).astype(np.float32), lat + 32 / 3600.0, lon - 32 / 3600.0); raw = np.ptp(ridge.near_march(0.0)[2]); flat = np.ptp(ridge.near_march(100.0)[2])
+        assert raw > 20.0 and flat < 2.0, ('sigma is not applied to the near heights', raw, flat)
+    finally: ridge.P, ridge.PXDEG_V = saved; ridge._mos.pop(key, None)
 # ---------------------------------------------------------------------------------------- rules that no other test touched
 def test_seams_keep_their_separation():
     """Two authored targets closer than SEAM_SEP (6 and 7 km, 0.15 nat): the seams still sit at least 0.4 nat apart in every column."""
@@ -584,9 +659,9 @@ def test_coverage_counts_every_visible_row_including_the_foreground():
 def test_cards_interpolate_between_samples_and_renormalise():
     """On a ramp face every card pixel sits between two samples: its log-distance lies strictly between theirs (not on the nearer sample), and its normal is the normalised blend of theirs by that same fraction (the samples carry alternating normals, so a blend
     that is not renormalised, or a hit that is not interpolated, differs)."""
-    A, Hh = rays(terrain(lambda dk, az: np.where(dk >= 4000, GROUND + 0.5 * (dk - 4000), 0.0) + 0 * az)); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw, hw = _w(A), _w(Hh); k = np.arange(len(D))[:, None]
+    hf = terrain(lambda dk, az: np.where(dk >= 4000, GROUND + 0.5 * (dk - 4000), 0.0) + 0 * az); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); Dj, aw, hw, _ = _join(hf, A, Hh); k = np.arange(len(Dj))[:, None]
     nr = np.broadcast_to(np.where(k % 2 == 0, -0.8, 0.8), aw.shape).astype(float); nt = np.broadcast_to(np.where(k % 3 == 0, 0.3, -0.3), aw.shape).astype(float); nu = np.sqrt(1 - nr ** 2 - nt ** 2) * 0 + 0.5
-    c = ridge.cards(D, aw, hw, np.zeros((0, NW)), nrm=(nr, nt, nu))[0]; x = 300; sel = np.flatnonzero(c['alpha'][:, x] > 0.999); ld = c['logd'][sel, x].astype(np.float64); L = np.log(D); kk = np.searchsorted(L, ld, 'left'); kp = kk - 1; ok = kp >= 0
+    c = ridge.cards(Dj, aw, hw, np.zeros((0, NW)), nrm=(nr, nt, nu))[0]; x = 300; sel = np.flatnonzero(c['alpha'][:, x] > 0.999); ld = c['logd'][sel, x].astype(np.float64); L = np.log(Dj); kk = np.searchsorted(L, ld, 'left'); kp = kk - 1; ok = kp >= 0
     t = (ld - L[np.maximum(kp, 0)]) / (L[kk] - L[np.maximum(kp, 0)]); inner = ok & (t > 0.02) & (t < 0.98); assert inner.sum() > 0.3 * len(sel), ('hits sit on samples, not between them', int(inner.sum()), len(sel))
     mix = lambda arr: arr[np.maximum(kp, 0), x] + t * (arr[kk, x] - arr[np.maximum(kp, 0), x]); m = np.sqrt(mix(nr) ** 2 + mix(nt) ** 2 + mix(nu) ** 2); er = np.abs(c['n_r'][sel, x] - mix(nr) / m)[inner]; et = np.abs(c['n_t'][sel, x] - mix(nt) / m)[inner]
     assert er.max() < 1e-3 and et.max() < 1e-3, ('the normal is not the normalised blend of the two samples', er.max(), et.max())

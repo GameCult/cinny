@@ -117,7 +117,7 @@ def detail_height(E, N, dist):
     return cfg['amp_m'] * fade * (s / nrm - 0.3)
 
 # ====================================================================== stage 0: march
-NEAR_CLIP_M = 500.0                    # authored: the march's first sample.  Nothing nearer is baked as terrain; the ground under it is card 0's skirt (cards)
+NEAR_CLIP_M = 500.0                    # authored: the far march's first sample and the boundary of parallax authority: coverage, seams, the encoding range, distance_m and r_max read terrain at or beyond it.  The ground under it is the near march (near_march), drawn by card 0 only
 def schedule(detail):
     d = [NEAR_CLIP_M]
     while d[-1] < P['rmax_km'] * 1000:
@@ -149,6 +149,24 @@ def stage0(detail=False, force=False):
         z = np.load(c); return z['d'], z['ang'], z['h'], None
     t0 = time.time(); mosaic(P); t1 = time.time(); d, A, Hh = march(detail); t2 = time.time(); np.savez(c, d=d, ang=A, h=Hh)
     return d, A, Hh, dict(mosaic=t1 - t0, march=t2 - t1, samples=len(d))
+
+# ====================================================================== the near march: the ground under the near clip
+NEAR_START_M = 1.0                     # authored: the ray of the frame bottom meets flat ground from a 1.6 m eye farther out than this; a 5 m start leaves a wall at grandcanyon h100, where the ground at 5 m stands 8 degrees up
+def near_schedule():
+    """Sample distances (m) of the near march: NEAR_START_M, then steps of max(1 m, 0.02 d) capped at 10 m, every sample below NEAR_CLIP_M (about 170)."""
+    d = [NEAR_START_M]
+    while d[-1] + min(10.0, max(1.0, 0.02 * d[-1])) < NEAR_CLIP_M: d.append(d[-1] + min(10.0, max(1.0, 0.02 * d[-1])))
+    return np.array(d)
+def near_march(sigma_m=0.0):
+    """(d, a, h) of the ground under the near clip: the place's own DEM, bilinear, sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
+    m, lt, ll = mosaic(P); az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = near_schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
+    h = np.stack([np.asarray(bil(m, lt, ll, P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
+    return d, a, h
+def join_near(d, a, h, near):
+    """The one join of the near march to the far march (d, a, h: (K, W), set_view done): returns (D, A, Hc, nrm) for cards, near samples first.  The near angles are capped per column at the angle of the far march's first sample, a[0]: the near ground draws inside the silhouette of the terrain at the clip
+    and no near hill rises above it (ruling ridge-near-ground-outline).  The normals of the two marches are computed apart and concatenated, so the far normals are those of the far march alone.  Needs the whole ring (the cap and the lateral normal read ring columns): cut the tiles from the result."""
+    dn, an, hn = near; a = np.asarray(a); an = np.minimum(an, a[0][None, :]); nn, nf = normals(dn, hn), normals(d, h)
+    return np.concatenate([dn, d]), np.concatenate([an, a]), np.concatenate([hn, h]), tuple(np.concatenate([x, y]) for x, y in zip(nn, nf))
 
 # ====================================================================== periodic helpers
 
@@ -247,11 +265,12 @@ def cards(d, a, h, seams, nrm=None):
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
     nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
-    and `wall` flags them.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool)."""
+    and `wall` flags them (card 0's first sample is the near march's NEAR_START_M, so no row of it is wall under a real frame).  Card 0 draws the near march (join_near; the samples nearer than NEAR_CLIP_M) under the silhouette of the terrain at the clip as ordinary terrain: its own normal, the albedo of its own height and n_up; `near` (h, n) bool flags the pixels whose hit lies on the near side of the clip sample (the rows that were card 0's wall), whose distance is then never above the clip.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool, near (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
-    n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p
+    if d[0] >= NEAR_CLIP_M: raise ValueError(f"card 0 draws the ground under the near clip from the near march, but the first sample is at {d[0]:g} m (the clip is {NEAR_CLIP_M:g} m): pass join_near")
+    n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p; kn = int(np.searchsorted(d, NEAR_CLIP_M))           # kn: the samples nearer than the clip
     ks0 = [np.searchsorted(d, seams[i - 1] * math.exp(-XF)) for i in range(1, nc)]; ks1 = [np.searchsorted(d, seams[i] * math.exp(XF)) for i in range(nc - 1)]
-    F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n)); Wl = np.zeros((nc, H, n), bool)           # coverage, far fade, then (logd, h, n_r, n_t, n_u); wall rows
+    F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n)); Wl = np.zeros((nc, H, n), bool); Nr = np.zeros((nc, H, n), bool)           # coverage, far fade, then (logd, h, n_r, n_t, n_u); wall rows; near rows (the ground under the clip)
     for x in range(n):
         for i in range(nc):
             k0 = 0 if i == 0 else int(ks0[i - 1][x]); k1 = nk if i == nc - 1 else int(ks1[i][x])
@@ -262,13 +281,13 @@ def cards(d, a, h, seams, nrm=None):
             t = np.where(idx > 0, np.clip((rowang - prev) / np.maximum(rm[idx] - prev, 1e-9), 0, 1), 1.0); mix = lambda arr: arr[kp, x] + t * (arr[kk, x] - arr[kp, x])
             F[i, :, x] = np.where(hit, np.clip((rm[-1] - lo) / p, 0, 1), 0); lh = mix(ld)
             G[i, :, :, x] = np.where(hit, np.stack([lh, mix(h), mix(n_r), mix(n_t), mix(n_u)]), 0)
-            Wl[i, :, x] = hit & (idx == 0)           # rows below the card's first sample: the extruded wall
+            Wl[i, :, x] = hit & (idx == 0); Nr[i, :, x] = hit & (kp < kn)           # rows below the card's first sample: the extruded wall; hits on the near side of the clip sample (below it, or between the last near sample and it): the near ground (only card 0 reaches it)
             if i < nc - 1: s = np.clip((lh - (math.log(seams[i, x]) - XF)) / (2 * XF), 0, 1); X[i, :, x] = 1 - s * s * (3 - 2 * s)
     out = []; A = np.zeros((H, n))
     for i in range(nc):
         part = np.where(F[i] < 1, np.clip((np.maximum(A, F[i]) - A) / np.maximum(1 - A, 1e-6), 0, 1), F[i]); al = np.where(np.rint(X[i] * part * 255) > 0, X[i] * part, 0.0); A = 1 - (1 - A) * (1 - al)
         rows = np.flatnonzero(al.max(1) > 0)
-        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool))); continue
+        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool), near=np.zeros((0, n), bool))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
-        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy()))
+        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy(), near=Nr[i, sl].copy()))
     return out
