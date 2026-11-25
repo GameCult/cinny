@@ -541,28 +541,26 @@ def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
         for clip in (500.0, 520.0, 700.0):
             ridge.NEAR_CLIP_M = clip; b = _toy(dists=(clip, 15000.0, 50000.0), amp=0.0); pk = export.pack(b); assert pk['tiles'][0][0]['distance_m'] != 0
             try: dest = _write(d + f'/ok{clip:g}', b, pk)
-            except ValueError as e: raise AssertionError(('a card 0 at the near clip was refused', clip, str(e)))
+            except ValueError as e: assert 'near clip' not in str(e), ('a card 0 at the near clip was refused', clip, str(e)); raise
             assert dest.exists(), ('a card 0 at the near clip was refused', clip)
         b = _toy(dists=(698.9, 15000.0, 50000.0), amp=0.0); ridge.NEAR_CLIP_M = 700.0; _refuses(d + '/under', b, export.pack(b), 'a card 0 under the near clip was written')
     finally: ridge.NEAR_CLIP_M = saved; shutil.rmtree(d)
-def _view(sk):
-    """set_view of a skyline it must hold: a refusal is a failed assertion of the fixture, not a crash."""
-    try: return ridge.set_view(sk)
-    except ValueError as e: raise AssertionError(('set_view refused a skyline it must hold', str(e)))
 def test_set_view_keeps_the_ground_rows_under_the_horizon():
     """A skyline +28 degrees high and +5 low is compressed below 1x so the horizon sits at row 450 or above (GROUND_ROWS_MIN rows under it); one +60 degrees high cannot hold them even at 0.5x and refuses naming sky_deg and the floor; a Vienna-like skyline
     (the 10x clamp) and one that fits its anchors above 1x are unchanged to 1e-9; a low skyline never binds the horizon."""
     assert ridge.GROUND_ROWS_MIN == 150 and ridge.E_MIN == 0.5 and ridge.NEAR_CLIP_M == 500.0, 'the authored constants are pinned'
-    sk = np.full(W, 5.0); sk[100] = 28.0; v = _view(sk)
-    assert v['horizon_row'] <= H - ridge.GROUND_ROWS_MIN + 1e-6 and v['exaggeration'] < 1 and v['binds'] == 'horizon' and abs(v['horizon_row'] - (H - ridge.GROUND_ROWS_MIN)) < 1e-6 and abs(v['px_per_deg'] - (H - 150 - 0.04 * H) / 28.0) < 1e-9, v
     sk = np.full(W, 5.0); sk[100] = 60.0
     try: ridge.set_view(sk)
-    except ValueError as e: assert '60.00' in str(e) and '8.89' in str(e) and '0.5x' in str(e), str(e)
+    except ValueError as e:
+        if 'under the horizon' not in str(e): raise      # not the refusal: a crash
+        assert '60.00' in str(e) and '8.89' in str(e) and '0.5x' in str(e), str(e)
     else: assert False, 'a skyline that cannot hold the ground rows was accepted'
-    sk = np.full(W, 1.7); sk[7] = 2.0; v = _view(sk); assert abs(v['px_per_deg'] - 10 * ridge.HPX_DEG) < 1e-9 and abs(v['horizon_row'] - (2.0 * 10 * ridge.HPX_DEG + 0.04 * H)) < 1e-9 and v['binds'] == 'ceiling', v
-    sk = np.full(W, 1.0); sk[7] = 3.0; sk[9] = -1.0; v = _view(sk); assert abs(v['px_per_deg'] - 0.62 * H / 4.0) < 1e-9 and v['binds'] == 'skyline', v
-    sk = np.full(W, -30.0); sk[7] = 12.0; v = _view(sk); assert abs(v['px_per_deg'] - 0.5 * ridge.HPX_DEG) < 1e-9 and v['binds'] == 'floor', v
-    sk = np.full(W, -9.0); sk[7] = -2.0; v = _view(sk); assert v['horizon_row'] < 0.04 * H and v['binds'] != 'horizon', v
+    sk = np.full(W, 5.0); sk[100] = 28.0; v = ridge.set_view(sk)
+    assert v['horizon_row'] <= H - ridge.GROUND_ROWS_MIN + 1e-6 and v['exaggeration'] < 1 and v['binds'] == 'horizon' and abs(v['horizon_row'] - (H - ridge.GROUND_ROWS_MIN)) < 1e-6 and abs(v['px_per_deg'] - (H - 150 - 0.04 * H) / 28.0) < 1e-9, v
+    sk = np.full(W, 1.7); sk[7] = 2.0; v = ridge.set_view(sk); assert abs(v['px_per_deg'] - 10 * ridge.HPX_DEG) < 1e-9 and abs(v['horizon_row'] - (2.0 * 10 * ridge.HPX_DEG + 0.04 * H)) < 1e-9 and v['binds'] == 'ceiling', v
+    sk = np.full(W, 1.0); sk[7] = 3.0; sk[9] = -1.0; v = ridge.set_view(sk); assert abs(v['px_per_deg'] - 0.62 * H / 4.0) < 1e-9 and v['binds'] == 'skyline', v
+    sk = np.full(W, -30.0); sk[7] = 12.0; v = ridge.set_view(sk); assert abs(v['px_per_deg'] - 0.5 * ridge.HPX_DEG) < 1e-9 and v['binds'] == 'floor', v
+    sk = np.full(W, -9.0); sk[7] = -2.0; v = ridge.set_view(sk); assert v['horizon_row'] < 0.04 * H and v['binds'] != 'horizon', v
 def test_the_near_clip_and_the_ground_rows_are_refused_at_the_writer():
     """The march starts at the authored near clip; write_bake refuses a bake whose card 0 stands nearer than it (nothing nearer is baked as terrain), and validate_manifest, which the writer and the committed bakes go through, refuses a plane with fewer than GROUND_ROWS_MIN rows under the horizon and accepts exactly that many."""
     assert D[0] == ridge.NEAR_CLIP_M == ridge.schedule(True)[0] and (np.diff(D) > 0).all(), 'the march does not start at the near clip'
@@ -608,19 +606,25 @@ def test_near_ground_has_the_material_and_relief_of_its_own_heights():
         else: assert np.abs(c['albedo'][sel, x] - ridge.albedo(np.full(int(sel.sum()), base[x]), up[sel, x])).max() < 1e-5, ('a near row has not the material of its own height', x)
         got[blk[x]] = c['albedo'][sel, x].mean(0)
     assert np.abs(got[0] - got[1]).max() > 0.05 and np.abs(got[1] - got[2]).max() > 0.05 and np.abs(got[0] - got[2]).max() > 0.05, ('the blocks do not differ where the ground does', got)
-def test_near_pixels_are_not_measured():
-    """pack of a bake with near rows (card 0, one tile: its lower third is near ground at 150 m) equals in every distance_m and in the camera pack of the same bake with those pixels cut out; a tile whose card 0 is near only gets distance_m == NEAR_CLIP_M and BINDS r_max at that distance (it is slid at 500 m) even where every other tile stands 3000 m away, and write_bake accepts it."""
-    b = _toy(); base = export.pack(b); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = cs[3][0]; n = c['alpha'].shape[0]; near = np.zeros_like(c['near']); near[n * 2 // 3:] = True
+def test_near_pixels_bind_at_the_clip_wherever_they_are():
+    """Near pixels are drawn at the clip, so each tile's near pixels count in the r_max fit as terrain at the clip alongside its solid pixels, and never in distance_m.  Card 0, every other tile 3000 m away: (a) a tile whose lower third is near ground at 150 m keeps its distance_m but binds at 500 m, and without those pixels binds nothing;
+    (b) a tile of near ground only has distance_m == NEAR_CLIP_M, binds exactly like terrain at 500 m, and write_bake accepts it; (c) a tile of near ground with a few stray solid pixels at 3000 m binds the same, whatever the stray count (no threshold)."""
+    b = _toy(); base = export.pack(b); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = cs[3][0]; n = c['alpha'].shape[0]; near = np.zeros_like(c['near']); near[n * 2 // 3:] = True; ppd = ridge.HPX_DEG
+    dists = lambda pk: [[e and e['distance_m'] for e in row] for row in pk['tiles']]; at_clip = lambda src: dict(src, logd=np.full_like(src['logd'], math.log(ridge.NEAR_CLIP_M)))
     cs[3][0] = dict(c, near=near, logd=np.where(near, math.log(150.0), c['logd']).astype(np.float32)); a = export.pack(dict(b, cards=cs))
-    cs[3][0] = dict(c, alpha=np.where(near, 0.0, c['alpha']).astype(np.float32)); cut = export.pack(dict(b, cards=cs)); dists = lambda pk: [[e and e['distance_m'] for e in row] for row in pk['tiles']]
-    assert dists(a) == dists(cut) == dists(base) and a['camera'] == cut['camera'] == base['camera'], ('near pixels were measured', a['camera'], cut['camera'])
+    cs[3][0] = dict(c, alpha=np.where(near, 0.0, c['alpha']).astype(np.float32)); cut = export.pack(dict(b, cards=cs)); cs[3][0] = at_clip(c); clip = export.pack(dict(b, cards=cs))
+    assert dists(a) == dists(cut) == dists(base) and cut['camera'] == base['camera'], ('near pixels were measured in distance_m', dists(a)[3], dists(base)[3])
+    assert a['camera'] == clip['camera'] and a['camera']['r_max_m'] < base['camera']['r_max_m'] - 5 and a['camera']['r_max_forward_m'] < base['camera']['r_max_forward_m'] - 5, ('near pixels in a tile of terrain do not bind at the clip', a['camera'], base['camera'])
     cs[3][0] = c; only = dict(cs[9][0]); cs[9][0] = dict(only, near=np.ones_like(only['near']), logd=np.full_like(only['logd'], math.log(300.0))); ob = dict(b, cards=cs); pk = export.pack(ob); d = tempfile.mkdtemp()
     try:
         assert pk['tiles'][9][0]['distance_m'] == ridge.NEAR_CLIP_M and pk['tiles'][8][0]['distance_m'] == base['tiles'][8][0]['distance_m'], ('a near-only tile', pk['tiles'][9][0]['distance_m'])
-        r, rf = pk['camera']['r_max_m'], pk['camera']['r_max_forward_m']; ppd = ridge.HPX_DEG; assert r < base['camera']['r_max_m'] - 5 and rf < base['camera']['r_max_forward_m'] - 5, ('a near-only tile does not bind', pk['camera'], base['camera'])
+        r, rf = pk['camera']['r_max_m'], pk['camera']['r_max_forward_m']; assert r < base['camera']['r_max_m'] - 5 and rf < base['camera']['r_max_forward_m'] - 5, ('a near-only tile does not bind', pk['camera'], base['camera'])
         assert export.fit_px(ridge.NEAR_CLIP_M, r, ppd) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(ridge.NEAR_CLIP_M, rf, ppd, 1) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(ridge.NEAR_CLIP_M, r + 0.5, ppd) > export.FIT_PX_MAX, ('the near-only tile is not bound at the clip distance it is slid at', r, rf)
-        cs[9][0] = dict(only, logd=np.full_like(only['logd'], math.log(ridge.NEAR_CLIP_M))); assert export.pack(dict(b, cards=cs))['camera'] == pk['camera'], 'a near-only tile does not bind exactly like terrain at the clip'
+        cs[9][0] = at_clip(only); assert export.pack(dict(b, cards=cs))['camera'] == pk['camera'], 'a near-only tile does not bind exactly like terrain at the clip'
         assert _write(d + '/ok', ob, pk).exists(), 'a bake with a near-only tile was refused'
+        for stray in (1, 6, 40):      # solid pixels at 3000 m among the near ground of a tile: it binds at the clip all the same
+            st = np.zeros_like(only['near']); st[:1, 10:10 + stray] = True; cs[9][0] = dict(only, near=~st, logd=np.where(st, only['logd'], math.log(300.0)).astype(np.float32)); sp = export.pack(dict(b, cards=cs))
+            assert sp['camera'] == pk['camera'], ('stray solid pixels unbound a tile of near ground', stray, sp['camera'], pk['camera'])
     finally: shutil.rmtree(d)
 def test_cards_refuses_a_march_without_the_near_ground():
     """ridge.cards on a march whose first sample is the near clip (not joined to the near march) raises, naming join_near: card 0 can never extrude the clip sample again."""
@@ -679,5 +683,5 @@ if __name__ == '__main__':
     fails = 0
     for t in TESTS:
         try: t(); print("PASS", t.__name__)
-        except Exception as e: fails += 1; print("FAIL", t.__name__, "|", repr(e)[:300])
+        except Exception as e: fails += 1; print("FAIL", t.__name__, "|", type(e).__name__, "|", traceback.extract_tb(e.__traceback__)[-1].filename, "|", repr(e)[:300])      # name | class | file of the innermost frame | repr: mutate.py kills only on an AssertionError raised in this directory
     print("failures:", fails); sys.exit(1 if fails else 0)
