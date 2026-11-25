@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from refusal import Refusal
 import numpy as np, imagecodecs
 
 BAKER_VERSION = 7
@@ -62,41 +63,41 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
 def tile_file(i, t, kind): return f'card-{i}-t{t:02d}-{kind}.webp'
 
 def validate(x, s, path='$'):
-    """The subset of JSON Schema SCHEMA uses; raises ValueError naming the path."""
+    """The subset of JSON Schema SCHEMA uses; raises Refusal naming the path."""
     if '$ref' in s: return validate(x, SCHEMA['$defs'][s['$ref'].split('/')[-1]], path)
     tys = s.get('type'); tys = [tys] if isinstance(tys, str) else tys; py = {'object': dict, 'array': list, 'string': str, 'number': (int, float), 'integer': int, 'null': type(None)}
-    if tys and not any(isinstance(x, py[t]) and not (isinstance(x, bool) and t != 'null') for t in tys): raise ValueError(f'{path}: not a {"/".join(tys)}')
+    if tys and not any(isinstance(x, py[t]) and not (isinstance(x, bool) and t != 'null') for t in tys): raise Refusal(f'{path}: not a {"/".join(tys)}')
     if s.get('format') == 'iana-tz':
         try: ZoneInfo(x)
-        except (ZoneInfoNotFoundError, ValueError, OSError): raise ValueError(f'{path}: {x!r} is not a time zone the system knows')
-    if 'const' in s and x != s['const']: raise ValueError(f"{path}: must be {s['const']!r}")
-    if 'enum' in s and x not in s['enum']: raise ValueError(f'{path}: not one of {s["enum"]}')
-    if 'maximum' in s and x > s['maximum']: raise ValueError(f'{path}: above {s["maximum"]}')
+        except (ZoneInfoNotFoundError, ValueError, OSError): raise Refusal(f'{path}: {x!r} is not a time zone the system knows')
+    if 'const' in s and x != s['const']: raise Refusal(f"{path}: must be {s['const']!r}")
+    if 'enum' in s and x not in s['enum']: raise Refusal(f'{path}: not one of {s["enum"]}')
+    if 'maximum' in s and x > s['maximum']: raise Refusal(f'{path}: above {s["maximum"]}')
     if isinstance(x, list):
-        if not s.get('minItems', 0) <= len(x) <= s.get('maxItems', 1 << 30): raise ValueError(f'{path}: wrong length')
+        if not s.get('minItems', 0) <= len(x) <= s.get('maxItems', 1 << 30): raise Refusal(f'{path}: wrong length')
         for i, v in enumerate(x): validate(v, s['items'], f'{path}[{i}]')
     if isinstance(x, dict):
         props = s.get('properties', {}); extra = s.get('additionalProperties', True)
         for k in s.get('required', []):
-            if k not in x: raise ValueError(f'{path}: missing {k}')
+            if k not in x: raise Refusal(f'{path}: missing {k}')
         for k, v in x.items():
             if k in props: validate(v, props[k], f'{path}.{k}')
-            elif extra is False: raise ValueError(f'{path}: extra key {k}')
+            elif extra is False: raise Refusal(f'{path}: extra key {k}')
             elif isinstance(extra, dict): validate(v, extra, f'{path}.{k}')
 
 def validate_manifest(m):
     """The schema plus what it cannot say: the plane keeps ridge.GROUND_ROWS_MIN rows under the horizon, every tile lists one entry per card, every card holds something in some tile, each file is named for its card and tile, bytes is the sum of the files."""
     import ridge
     validate(m, SCHEMA['$defs']['manifest']); k = len(m['cards']); v = m['view']
-    if v['plane_h'] - v['horizon_row'] < ridge.GROUND_ROWS_MIN - 1e-6: raise ValueError(f"$.view: {v['plane_h'] - v['horizon_row']:.1f} rows under the horizon, below the {ridge.GROUND_ROWS_MIN} the runtime needs (ridge.GROUND_ROWS_MIN)")
+    if v['plane_h'] - v['horizon_row'] < ridge.GROUND_ROWS_MIN - 1e-6: raise Refusal(f"$.view: {v['plane_h'] - v['horizon_row']:.1f} rows under the horizon, below the {ridge.GROUND_ROWS_MIN} the runtime needs (ridge.GROUND_ROWS_MIN)")
     for t, row in enumerate(m['tiles']):
-        if len(row) != k: raise ValueError(f'$.tiles[{t}]: {len(row)} entries for {k} cards')
+        if len(row) != k: raise Refusal(f'$.tiles[{t}]: {len(row)} entries for {k} cards')
         for i, e in enumerate(row):
             for kind in (('colour', 'geometry') if e else ()):
-                if e[kind]['file'] != tile_file(i, t, kind): raise ValueError(f'$.tiles[{t}][{i}].{kind}: file {e[kind]["file"]!r} is not {tile_file(i, t, kind)!r}')
+                if e[kind]['file'] != tile_file(i, t, kind): raise Refusal(f'$.tiles[{t}][{i}].{kind}: file {e[kind]["file"]!r} is not {tile_file(i, t, kind)!r}')
     for i in range(k):
-        if all(row[i] is None for row in m['tiles']): raise ValueError(f'card {i} is null in every tile')
-    if m['bytes'] != sum(e[kind]['bytes'] for row in m['tiles'] for e in row if e for kind in ('colour', 'geometry')): raise ValueError('bytes is not the sum of the files')
+        if all(row[i] is None for row in m['tiles']): raise Refusal(f'card {i} is null in every tile')
+    if m['bytes'] != sum(e[kind]['bytes'] for row in m['tiles'] for e in row if e for kind in ('colour', 'geometry')): raise Refusal('bytes is not the sum of the files')
 
 # ------------------------------------------------------------------------------------ cards -> bytes
 def u8(a): return np.clip(np.rint(np.asarray(a) * 255.0), 0, 255).astype(np.uint8)
@@ -122,7 +123,7 @@ def composite_alpha(cards, h, w):
 def check_cover(cards, opaque, tol=COVER_TOL):
     """Refuse a bake whose cards, alpha-over, differ from the opaque view's coverage by more than tol anywhere: a hole shows the sky through terrain, an excess is a ghost.  cards: [(top, alpha 0..1 (rows, w))], opaque (h, w)."""
     err = np.abs(composite_alpha(cards, *opaque.shape) - opaque); bad = err > tol
-    if bad.any(): y, x = np.unravel_index(int(np.argmax(err)), err.shape); raise ValueError(f'the cards do not composite to the opaque view within {tol}: {int(bad.sum())} pixels differ, worst {err.max():.3f} at x={x} row {y}')
+    if bad.any(): y, x = np.unravel_index(int(np.argmax(err)), err.shape); raise Refusal(f'the cards do not composite to the opaque view within {tol}: {int(bad.sum())} pixels differ, worst {err.max():.3f} at x={x} row {y}')
 
 def run_tiles(r_max_m, rmin_m):
     """N, the consecutive tiles the loader keeps resident: the viewport arc at the smallest slide rate plus the offset's own swing (arc_max = HFOV_MAX_DEG / s_min + 2 (r_max / Rmin) 57.3 degrees, s_min = Rmin / (Rmin + r_max)), one straddled tile and two tiles of margin each side."""
@@ -134,12 +135,12 @@ def resident_bytes(bands, n):
     return max(sum(per[(t + k) % TILES] for k in range(n)) for t in range(TILES))
 def check_budget(n_cards, tile_bytes, bands, r_max_m, rmin_m):
     """Refuse a bake the runtime could not hold: more than MAX_CARDS cards, a tile whose files together are above TILE_BYTES_MAX, every file of the place above PLACE_BYTES_MAX, or the worst run of run_tiles(r_max_m, rmin_m) consecutive tiles lit above RESIDENT_BYTES_MAX."""
-    if n_cards > MAX_CARDS: raise ValueError(f'{n_cards} cards, above {MAX_CARDS}')
+    if n_cards > MAX_CARDS: raise Refusal(f'{n_cards} cards, above {MAX_CARDS}')
     for t, b in enumerate(tile_bytes):
-        if b > TILE_BYTES_MAX: raise ValueError(f'tile {t} is {b} bytes, above {TILE_BYTES_MAX}')
-    if sum(tile_bytes) > PLACE_BYTES_MAX: raise ValueError(f'the place is {sum(tile_bytes)} bytes, above {PLACE_BYTES_MAX}')
+        if b > TILE_BYTES_MAX: raise Refusal(f'tile {t} is {b} bytes, above {TILE_BYTES_MAX}')
+    if sum(tile_bytes) > PLACE_BYTES_MAX: raise Refusal(f'the place is {sum(tile_bytes)} bytes, above {PLACE_BYTES_MAX}')
     n = run_tiles(r_max_m, rmin_m); res = resident_bytes(bands, n)
-    if res > RESIDENT_BYTES_MAX: raise ValueError(f'{n} consecutive tiles light to {res} bytes, above {RESIDENT_BYTES_MAX}')
+    if res > RESIDENT_BYTES_MAX: raise Refusal(f'{n} consecutive tiles light to {res} bytes, above {RESIDENT_BYTES_MAX}')
 
 FIT_QUAD = 48                          # Gauss-Legendre nodes for the least-squares line (exact for the smooth alpha(beta) to far below a card pixel)
 FIT_GRID = 513                         # points the worst error is looked for on, ends included: the error is smooth between them, so the maximum found is within 0.01 card px of the continuous one
@@ -171,10 +172,10 @@ def solve_r_max(dist, bands, px_per_deg, phis=None):
             else: hi = mid
     r_max = math.floor(lo * 10) / 10
     if r_max < R_MAX_FLOOR_M:
-        if cap < R_MAX_FLOOR_M: raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card 0 stands {rmin:.0f} m away in tile {near[1]} and the offset stays under half of that')
+        if cap < R_MAX_FLOOR_M: raise Refusal(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card 0 stands {rmin:.0f} m away in tile {near[1]} and the offset stays under half of that')
         tb = fit_table(dist, R_MAX_FLOOR_M, px_per_deg, phis); t, i = np.unravel_index(int(np.nanargmax(tb)), tb.shape)
-        if tb[t, i] > FIT_PX_MAX: raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card {i} in tile {t} errs {tb[t, i]:.1f} card px at {R_MAX_FLOOR_M:g} m (the bound is {FIT_PX_MAX:g})')
-        n = run_tiles(R_MAX_FLOOR_M, rmin); raise ValueError(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: at {R_MAX_FLOOR_M:g} m, {n} consecutive tiles light to {resident_bytes(bands, n)} bytes, above {RESIDENT_BYTES_MAX}')
+        if tb[t, i] > FIT_PX_MAX: raise Refusal(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: card {i} in tile {t} errs {tb[t, i]:.1f} card px at {R_MAX_FLOOR_M:g} m (the bound is {FIT_PX_MAX:g})')
+        n = run_tiles(R_MAX_FLOOR_M, rmin); raise Refusal(f'r_max_m {r_max:g} is below {R_MAX_FLOOR_M:g} m: at {R_MAX_FLOOR_M:g} m, {n} consecutive tiles light to {resident_bytes(bands, n)} bytes, above {RESIDENT_BYTES_MAX}')
     return r_max
 
 BAKE_ID_BLANK = '0' * 12
@@ -190,27 +191,27 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
     camera dict(r_max_m, r_max_forward_m)); opaque: TILES arrays (plane_h, TILE_W + 2 APRON), each the opaque view's coverage over a tile's columns.  Refuses before writing a bake whose files decode to the wrong size, leave the frame, break a budget (the resident gate at r_max_m and at r_max_forward_m) or composite
     away from the opaque view in any tile.  meta: dict(curvature, encoding).  Returns the directory."""
     cards, tiles, camera = packed['cards'], packed['tiles'], packed['camera']; k = len(cards); h = view['plane_h']; w = TILE_W + 2 * APRON
-    if len(tiles) != TILES or len(opaque) != TILES or any(len(row) != k for row in tiles): raise ValueError(f'the bake needs {TILES} tiles of {k} cards each')
+    if len(tiles) != TILES or len(opaque) != TILES or any(len(row) != k for row in tiles): raise Refusal(f'the bake needs {TILES} tiles of {k} cards each')
     for i in range(k):
-        if all(row[i] is None for row in tiles): raise ValueError(f'card {i} is null in every tile')
+        if all(row[i] is None for row in tiles): raise Refusal(f'card {i} is null in every tile')
     dec = [[None if e is None else (decode(e['colour']), decode(e['geometry'])) for e in row] for row in tiles]; bands = [[pair[0].shape[0] for pair in row if pair] for row in dec]; tile_bytes = []
     for t, (row, drow) in enumerate(zip(tiles, dec)):
         tile_bytes.append(sum(len(e['colour']) + len(e['geometry']) for e in row if e))
         for i, (e, pair) in enumerate(zip(row, drow)):
             if e is None: continue
             c, g = pair
-            if c.shape[:2] != g.shape[:2]: raise ValueError(f'tile {t} card {i}: colour and geometry are not one size')
-            if c.shape[1] != w: raise ValueError(f'tile {t} card {i} is {c.shape[1]} columns wide, not {w} (tile {TILE_W} + 2 apron {APRON})')
-            if c.shape[0] < 1 or e['top'] < 0 or e['top'] + c.shape[0] > h: raise ValueError(f'tile {t} card {i} leaves the {h} rows of the frame')
-        if opaque[t].shape != (h, w): raise ValueError(f'tile {t}: the opaque view is {opaque[t].shape}, the frame {(h, w)}')
+            if c.shape[:2] != g.shape[:2]: raise Refusal(f'tile {t} card {i}: colour and geometry are not one size')
+            if c.shape[1] != w: raise Refusal(f'tile {t} card {i} is {c.shape[1]} columns wide, not {w} (tile {TILE_W} + 2 apron {APRON})')
+            if c.shape[0] < 1 or e['top'] < 0 or e['top'] + c.shape[0] > h: raise Refusal(f'tile {t} card {i} leaves the {h} rows of the frame')
+        if opaque[t].shape != (h, w): raise Refusal(f'tile {t}: the opaque view is {opaque[t].shape}, the frame {(h, w)}')
     import ridge
     rmin = min(row[0]['distance_m'] for row in tiles if row[0])   # distance_m is exp of a float32 log: it lands a few parts in 1e7 off the clip, so the compare keeps 1e-5 of slack
-    if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise ValueError(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: the distance of card 0 is measured at or beyond the clip (the near ground under it is not measured)')
-    if camera['r_max_forward_m'] < camera['r_max_m']: raise ValueError(f"r_max_forward_m {camera['r_max_forward_m']:g} is below r_max_m {camera['r_max_m']:g}: phi = 0 is one of the angles r_max_m holds for")
+    if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise Refusal(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: the distance of card 0 is measured at or beyond the clip (the near ground under it is not measured)')
+    if camera['r_max_forward_m'] < camera['r_max_m']: raise Refusal(f"r_max_forward_m {camera['r_max_forward_m']:g} is below r_max_m {camera['r_max_m']:g}: phi = 0 is one of the angles r_max_m holds for")
     for r in (camera['r_max_m'], camera['r_max_forward_m']): check_budget(k, tile_bytes, bands, r, rmin)
     for t, (row, drow) in enumerate(zip(tiles, dec)):
         try: check_cover([(e['top'], pair[0][..., 3] / 255.0) for e, pair in zip(row, drow) if e], opaque[t])
-        except ValueError as ex: raise ValueError(f'tile {t}: {ex}')
+        except Refusal as ex: raise Refusal(f'tile {t}: {ex}')
     out = Path(out)
     manifest = dict(schema=3, baker_version=BAKER_VERSION, bake_id=BAKE_ID_BLANK, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(meta['encoding'], normal='rt8'), camera=dict(r_max_m=camera['r_max_m'], r_max_forward_m=camera['r_max_forward_m']),
                     cards=[dict(near_m=c['near_m'], far_m=c['far_m']) for c in cards],
@@ -257,7 +258,7 @@ def pack(bake):
     import ridge
     sm = bake['seams']; sp = bake['splits_km']; k = len(sp) + 1; ppd = bake['view']['px_per_deg_h']; inner = slice(APRON, APRON + TILE_W); enc = bake['meta']['encoding']
     for i in range(k):
-        if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise ValueError(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
+        if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise Refusal(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
     tiles, dist, near, bands = [], [], [], []; any_solid = [False] * k
     for tile in bake['cards']:
         row, drow, nrow, brow = [], [], [], []
@@ -269,7 +270,7 @@ def pack(bake):
             row.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc, c['wall']), distance_m=dm)); drow.append(dm); brow.append(c['alpha'].shape[0])
         tiles.append(row); dist.append(drow); near.append(nrow); bands.append(brow)
     for i in range(k):
-        if not any_solid[i]: raise ValueError(f'card {i} holds no solid terrain apart from its wall rows')
+        if not any_solid[i]: raise Refusal(f'card {i} holds no solid terrain apart from its wall rows')
     r_max = solve_r_max(near, bands, ppd); r_fwd = solve_r_max(near, bands, ppd, phis=1); rmin = min(row[0] for row in near if row[0] is not None); n = run_tiles(r_fwd, rmin); worst = np.nanmax(fit_table(near, r_max, ppd), axis=0)
     cards = [dict(near_m=float(np.median(sm[i - 1])) if i else None, far_m=float(np.median(sm[i])) if i < len(sm) else None) for i in range(k)]
     return dict(cards=cards, tiles=tiles, camera=dict(r_max_m=r_max, r_max_forward_m=r_fwd), report=dict(fit_px=[float(x) for x in worst], run_tiles=n, resident_bytes=resident_bytes(bands, n), nearest_m=rmin))   # nearest_m: the nearest solid terrain of the place

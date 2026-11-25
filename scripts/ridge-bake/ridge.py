@@ -14,6 +14,7 @@ import os, hashlib
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from refusal import Refusal
 import numpy as np, tifffile
 
 def _env_dir(name, what):
@@ -35,12 +36,12 @@ def load_preset(pid, path=Path(__file__).resolve().parent / 'places.json'):
     """The preset dict.  tz is required, an IANA zone the system knows (the runtime draws named sky moments in the place's local day).  card_split_km is the ordered list of authored seam depths (km): required, strictly increasing, at most export.MAX_CARDS - 1 (the cap is export's, which owns the budget); refused here, before any march."""
     d = json.load(open(path)); p = dict(next(x for x in d['presets'] if x['id'] == pid)); sp = p.get('card_split_km')
     from export import MAX_CARDS
-    if not sp: raise ValueError(f"preset {pid}: card_split_km is required (an ordered list of 1 to {MAX_CARDS - 1} depths in km)")
-    if len(sp) > MAX_CARDS - 1 or any(b <= a for a, b in zip(sp, sp[1:])): raise ValueError(f"preset {pid}: card_split_km {sp} must be strictly increasing with at most {MAX_CARDS - 1} entries")
+    if not sp: raise Refusal(f"preset {pid}: card_split_km is required (an ordered list of 1 to {MAX_CARDS - 1} depths in km)")
+    if len(sp) > MAX_CARDS - 1 or any(b <= a for a, b in zip(sp, sp[1:])): raise Refusal(f"preset {pid}: card_split_km {sp} must be strictly increasing with at most {MAX_CARDS - 1} entries")
     tz = p.get('tz')
-    if not isinstance(tz, str) or not tz: raise ValueError(f"preset {pid}: tz is required (an IANA time zone name such as Europe/Vienna)")
+    if not isinstance(tz, str) or not tz: raise Refusal(f"preset {pid}: tz is required (an IANA time zone name such as Europe/Vienna)")
     try: ZoneInfo(tz)
-    except (ZoneInfoNotFoundError, ValueError, OSError): raise ValueError(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
+    except (ZoneInfoNotFoundError, ValueError, OSError): raise Refusal(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
     return p
 
 # ====================================================================== configuration, DEM
@@ -199,12 +200,12 @@ def set_view(skyline, sky_row=0.04, near_row=0.66):
     """AUTHORED vertical mapping, linear in elevation angle: row = (TOP_DEG - angle) * PXDEG_V over the whole 600-row frame (cylindrical, horizontal 17.78 px/deg).  skyline is the highest angle any sample reaches in each
     ring column (W,), straight from the march.  Three anchors on the whole ring (rulings ridge-ring-vertical-anchors, ridge-ground-rows-below-horizon): the highest skyline angle of the ring sits at `sky_row` (4%) of the frame height, the LOWEST sits at
     `near_row` (66%) where the scale allows, and the horizon keeps GROUND_ROWS_MIN rows under it.  PXDEG_V = the lesser of (near_row - sky_row) * 600 / (highest - lowest) and (600 - GROUND_ROWS_MIN - sky_row * 600) / highest, clamped to
-    [E_MIN, 10] x 17.78 px/deg = vertical exaggeration 0.5x..10x; a skyline whose highest angle cannot keep the ground rows even at E_MIN refuses (ValueError naming sky_deg, the scale needed and the floor).
+    [E_MIN, 10] x 17.78 px/deg = vertical exaggeration 0.5x..10x; a skyline whose highest angle cannot keep the ground rows even at E_MIN refuses (Refusal naming sky_deg, the scale needed and the floor).
     TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V.  Returns the view, with `binds` naming the anchor that set the scale: 'skyline', 'horizon', 'floor' or 'ceiling'."""
     global rowang, PXDEG_V, TOP_DEG, BOTTOM_DEG
     sk = np.asarray(skyline); sky = float(sk.max()); low = float(sk.min()); lo, hi = E_MIN * HPX_DEG, 10 * HPX_DEG
     fit = (near_row - sky_row) * H / max(sky - low, 0.05); hold = (H - GROUND_ROWS_MIN - sky_row * H) / sky if sky > 0 else math.inf
-    if hold < lo: raise ValueError(f"the whole-ring skyline reaches {sky:.2f} degrees: holding {GROUND_ROWS_MIN} rows under the horizon needs {hold:.2f} px/deg, below the floor {lo:.2f} px/deg ({E_MIN:g}x)")
+    if hold < lo: raise Refusal(f"the whole-ring skyline reaches {sky:.2f} degrees: holding {GROUND_ROWS_MIN} rows under the horizon needs {hold:.2f} px/deg, below the floor {lo:.2f} px/deg ({E_MIN:g}x)")
     ppd = float(np.clip(min(fit, hold), lo, hi)); binds = 'horizon' if hold < fit and ppd == hold else 'floor' if ppd == lo else 'ceiling' if ppd == hi else 'skyline'
     PXDEG_V = ppd; TOP_DEG = sky + sky_row * H / ppd; BOTTOM_DEG = TOP_DEG - H / ppd; rowang = TOP_DEG - (np.arange(H) + 0.5) / PXDEG_V
     return dict(top_deg=TOP_DEG, bottom_deg=BOTTOM_DEG, px_per_deg=PXDEG_V, exaggeration=PXDEG_V / HPX_DEG, horizon_row=TOP_DEG * PXDEG_V, sky_deg=sky, low_deg=low, sky_row=sky_row, near_row=near_row, binds=binds)
@@ -267,7 +268,7 @@ def cards(d, a, h, seams, nrm=None):
     nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
     and `wall` flags them (card 0's first sample is the near march's NEAR_START_M, so no row of it is wall under a real frame).  Card 0 draws the near march (join_near; the samples nearer than NEAR_CLIP_M) under the silhouette of the terrain at the clip as ordinary terrain: its own normal, the albedo of its own height and n_up; `near` (h, n) bool flags the pixels whose hit lies on the near side of the clip sample (the rows that were card 0's wall), whose distance is then never above the clip.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool, near (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
-    if d[0] >= NEAR_CLIP_M: raise ValueError(f"card 0 draws the ground under the near clip from the near march, but the first sample is at {d[0]:g} m (the clip is {NEAR_CLIP_M:g} m): pass join_near")
+    if d[0] >= NEAR_CLIP_M: raise Refusal(f"card 0 draws the ground under the near clip from the near march, but the first sample is at {d[0]:g} m (the clip is {NEAR_CLIP_M:g} m): pass join_near")
     n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p; kn = int(np.searchsorted(d, NEAR_CLIP_M))           # kn: the samples nearer than the clip
     ks0 = [np.searchsorted(d, seams[i - 1] * math.exp(-XF)) for i in range(1, nc)]; ks1 = [np.searchsorted(d, seams[i] * math.exp(XF)) for i in range(nc - 1)]
     F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n)); Wl = np.zeros((nc, H, n), bool); Nr = np.zeros((nc, H, n), bool)           # coverage, far fade, then (logd, h, n_r, n_t, n_u); wall rows; near rows (the ground under the clip)
