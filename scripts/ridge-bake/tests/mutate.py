@@ -81,7 +81,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'r_max: not capped at half the nearest distance': ("cap = 0.5 * rmin", "cap = 5.0 * rmin"),
  'r_max: the resident gate is not part of the search': (" and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX\n", "\n"),
  'r_max: a bake below the floor is accepted': ("if r_max < R_MAX_FLOOR_M:", "if False:"),
- 'pack: the distance counts wall rows': ("solid = (al >= 0.5) & ~wl; any_solid", "solid = (al >= 0.5); any_solid"),
+ 'pack: the distance counts wall rows': ("solid = (al >= 0.5) & ~wl & ~nr; any_solid", "solid = (al >= 0.5) & ~nr; any_solid"),
  'pack: the distance reads the apron columns too': ("inner = slice(APRON, APRON + TILE_W)", "inner = slice(0, TILE_W + 2 * APRON)"),
  'sheet: the tile boundaries are not drawn': ("def bounds(img): img[:, mark] = 0.45 * img[:, mark] + 0.55 * red; return img", "def bounds(img): return img"),
  'export: an empty card is not refused': ("if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise", "if False: raise"),
@@ -91,7 +91,9 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
 }
 EQUIVALENT = {'fit: the error is looked for between four points': "the worst error of the best line is at the viewport's two ends for every distance and offset the bound is searched over (checked against a 20001-sample brute force in test_fit_px_is_the_continuous_error); the grid only guards a shape where it is not"}        # mutant name -> one line on why it is behaviourally equivalent (reported, not run)
 def run(item):
-    name, (a, b) = item; d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__')); p = next(q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()); s = open(p).read(); assert a in s, name
+    name, (a, b) = item; d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__')); p = next((q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()), None)
+    if p is None: shutil.rmtree(d); line = 'CRASHED  ' + name + ' -> the mutant text is in neither ridge.py nor export.py'; print(line, file=sys.stderr, flush=True); return line, True
+    s = open(p).read()
     open(p, 'w').write(s.replace(a, b))
     r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True); shutil.rmtree(d)
     fails = [l.split('|')[0].strip() for l in r.stdout.splitlines() if l.startswith('FAIL')]
