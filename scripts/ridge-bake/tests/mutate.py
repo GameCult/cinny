@@ -1,5 +1,5 @@
 """Mutation check: re-introduce a cause into a COPY of the baker, run the fixtures against it, and require that at least one fails.
-  venv/bin/python tests/mutate.py [word ...]   (prints one line per mutant whose name holds every word; exit 1 if a mutant survives or only crashes the run)"""
+  venv/bin/python tests/mutate.py [word ...]   (runs the unmutated copy first and exits 2 if a fixture fails; prints one line per mutant whose name holds every word; exit 1 if a mutant survives or only crashes the run: a kill is an AssertionError in a fixture)"""
 import os, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__)); SRC = os.path.join(HERE, '..')
 MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
@@ -41,7 +41,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'pack: the apron fallback pool reads near pixels': ("((c['alpha'] > 0) & ~c['near'], c['logd'])", "(c['alpha'] > 0, c['logd'])"),
  'pack: a tile with nothing outside the near ground is not at the clip': ("if pool else ridge.NEAR_CLIP_M", "if pool else 0.0"),
  'r_max: the tile median binds, not the nearest terrain': ("r_max = solve_r_max(near, bands, ppd); r_fwd = solve_r_max(near, bands, ppd, phis=1)", "r_max = solve_r_max(dist, bands, ppd); r_fwd = solve_r_max(dist, bands, ppd, phis=1)"),
- 'r_max: a tile of near ground only binds at its distance': ("if solid.any() else None)", "if solid.any() else dm)"),
+ 'r_max: a tile of near ground only binds nothing': ("(ridge.NEAR_CLIP_M if pool is None else None))", "None)"),
  'r_max: the nearest pixel is the farthest solid one': ("nrow.append(float(np.exp(ld[solid].min()))", "nrow.append(float(np.exp(ld[solid].max()))"),
  'near clip: the writer compares the float32 distance strictly': ("if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise", "if rmin < ridge.NEAR_CLIP_M: raise"),
  'near clip: the march starts nearer than the clip': ("d = [NEAR_CLIP_M]", "d = [100.0]"),
@@ -90,18 +90,33 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'mosaic cache key ignores the tile list': ("sorted(tiles_for(p)), 3600", "3600"),
 }
 EQUIVALENT = {'fit: the error is looked for between four points': "the worst error of the best line is at the viewport's two ends for every distance and offset the bound is searched over (checked against a 20001-sample brute force in test_fit_px_is_the_continuous_error); the grid only guards a shape where it is not"}        # mutant name -> one line on why it is behaviourally equivalent (reported, not run)
+def execute(edit):
+    """Run the fixtures on a COPY of the baker, with edit = (text, replacement) applied or None for the unmutated copy: (returncode or None if the text is gone, [(fixture, exception class)] of every FAIL line, last stderr line)."""
+    d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__'))
+    try:
+        if edit:
+            a, b = edit; p = next((q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()), None)
+            if p is None: return None, [], 'the mutant text is in neither ridge.py nor export.py'
+            s = open(p).read(); open(p, 'w').write(s.replace(a, b))
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True)
+    finally: shutil.rmtree(d)
+    fails = [(l.split('|')[0][4:].strip(), (l.split('|', 1)[1].strip().split('(')[0] if '|' in l else '?')) for l in r.stdout.splitlines() if l.startswith('FAIL')]
+    return r.returncode, fails, (r.stderr.strip().splitlines() or ['no output'])[-1][:200]
 def run(item):
-    name, (a, b) = item; d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__')); p = next((q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()), None)
-    if p is None: shutil.rmtree(d); line = 'CRASHED  ' + name + ' -> the mutant text is in neither ridge.py nor export.py'; print(line, file=sys.stderr, flush=True); return line, True
-    s = open(p).read()
-    open(p, 'w').write(s.replace(a, b))
-    r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True); shutil.rmtree(d)
-    fails = [l.split('|')[0].strip() for l in r.stdout.splitlines() if l.startswith('FAIL')]
-    killed = bool(r.returncode and fails)       # a kill is a NAMED fixture failure: a run that crashes without one (unset RIDGE_TILES / RIDGE_WORK, a syntax error in the mutant) proves nothing
-    line = ('KILLED   ' if killed else 'CRASHED  ' if r.returncode else 'SURVIVED ') + name + ' -> ' + (', '.join(fails) or (r.stderr.strip().splitlines() or ['no fixture failed'])[-1][:200]); print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
-    return line, not killed
+    """KILLED: at least one fixture failed on an ASSERTION (AssertionError).  CRASHED: the run failed but no fixture failed an assertion (every FAIL is another exception, NameError and the like, or none printed, or the mutant text is gone), which proves nothing and fails the run.  SURVIVED: every fixture passed."""
+    name, (a, b) = item; rc, fails, err = execute((a, b)); asserts = [n for n, c in fails if c == 'AssertionError']
+    state = 'CRASHED  ' if rc is None or (rc and not asserts) else 'KILLED   ' if rc else 'SURVIVED '
+    why = ', '.join(f'{n}[{c}]' for n, c in fails) if fails else err
+    line = state + name + ' -> ' + why; print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
+    return line, state != 'KILLED   '
+def baseline():
+    """The unmutated copy must pass every fixture before any mutant means anything: a broken environment would kill them all."""
+    rc, fails, err = execute(None)
+    if rc or fails: print('BASELINE FAILED: the unmutated baker does not pass its fixtures: ' + (', '.join(f'{n}[{c}]' for n, c in fails) or err), file=sys.stderr, flush=True); sys.exit(2)
+    print('BASELINE ok: the unmutated copy passes every fixture', file=sys.stderr, flush=True)
 if __name__ == '__main__':
     from concurrent.futures import ThreadPoolExecutor
+    baseline()
     with ThreadPoolExecutor(int(os.environ.get('MUTATE_JOBS', '6'))) as ex: res = list(ex.map(run, [(n, v) for n, v in MUTANTS.items() if n not in EQUIVALENT and all(w in n for w in sys.argv[1:])]))
     for line, _ in res: print(line, flush=True)
     for n, why in EQUIVALENT.items(): print('EQUIVALENT ' + n + ' -> ' + why)

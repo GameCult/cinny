@@ -517,9 +517,9 @@ def test_the_sheet_lights_a_wall_with_the_face_up():
 def _nearest_solid(c):
     """The nearest solid (alpha >= 0.5) pixel that is neither wall nor near ground of a card tile's interior columns, metres; None where there is none (computed here from the arrays, not by pack)."""
     ld, al, wl, nr = (c[k][:, 2:-2] for k in ('logd', 'alpha', 'wall', 'near')); m = (al >= 0.5) & ~wl & ~nr; return float(np.exp(np.float64(ld[m].min()))) if m.any() else None
-def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_near_only_tiles_do_not_bind():
+def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_near_only_tiles_bind_at_the_clip():
     """The offset range is where the linear map holds for the NEAREST solid terrain each card draws in each tile (ruling ridge-offset-range-fit), not its median: a tile whose card 0 spans 600 to 2000 m has its median near 1200 m, and at the r_max the median would give the 600 m pixels err past FIT_PX_MAX.
-    So the fit at every tile's nearest solid pixel is within the bound at r_max_m (over the circle) and at r_max_forward_m (phi 0), and the bound is reached: a little more offset breaks it at the binding tile.  A tile whose card 0 draws only near ground (under the clip) has no terrain and binds nothing."""
+    So the fit at every tile's nearest solid pixel is within the bound at r_max_m (over the circle) and at r_max_forward_m (phi 0), and the bound is reached: a little more offset breaks it at the binding tile.  A tile whose card 0 draws only near ground (under the clip) is slid at the clip distance (its distance_m) and binds there."""
     b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[7][0]); n = c['alpha'].shape[1]
     ld = np.log(np.linspace(600.0, 2000.0, n))[None, :].repeat(c['alpha'].shape[0], 0).astype(np.float32); cs[7][0] = dict(c, logd=ld)
     bad = dict(cs[5][0]); cs[5][0] = dict(bad, near=np.ones_like(bad['near']), logd=np.full_like(bad['logd'], math.log(300.0)))     # tile 5: card 0 is all near ground
@@ -527,14 +527,13 @@ def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_near_only_tiles_d
     for t, tile in enumerate(cs):
         for i, card in enumerate(tile):
             d = _nearest_solid(card)
-            if d is None: assert (t, i) == (5, 0), ('a tile has no solid terrain but was not made all near ground', t, i); continue
+            if d is None: assert (t, i) == (5, 0), ('a tile has no solid terrain but was not made all near ground', t, i); d = ridge.NEAR_CLIP_M
             seen += 1; assert export.fit_px(d, r, ppd) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(d, rf, ppd, 1) <= export.FIT_PX_MAX + 1e-6, ('the nearest terrain of a tile is outside the fit bound', t, i, d, r, rf)
             worst, worst_f = max(worst, export.fit_px(d, r + 0.5, ppd)), max(worst_f, export.fit_px(d, rf + 0.5, ppd, 1))
-    assert seen == 32 * 3 - 1 and worst > export.FIT_PX_MAX and worst_f > export.FIT_PX_MAX, ('the range stops short of the bound of the nearest terrain', worst, worst_f)
+    assert seen == 32 * 3 and worst > export.FIT_PX_MAX and worst_f > export.FIT_PX_MAX, ('the range stops short of the bound of the nearest terrain', worst, worst_f)
     assert abs(pk['tiles'][7][0]['distance_m'] - float(np.exp(np.median(np.log(np.linspace(600.0, 2000.0, n)))))) < 1.0, 'the manifest distance is still the median'
     assert r < export.solve_r_max([[1200.0 if (t, i) == (7, 0) else None for i in range(3)] for t in range(32)], [[100] * 3 for _ in range(32)], ppd) - 5, 'the range is the median model'
     near_free = export.pack(_toy()); assert pk['camera']['r_max_m'] < near_free['camera']['r_max_m'], 'the 600 m pixels do not bind'
-    only = export.pack(dict(b, cards=[[dict(cs[t][i]) if (t, i) != (7, 0) else dict(b['cards'][7][0]) for i in range(3)] for t in range(32)])); assert only['camera'] == near_free['camera'], ('a near-only tile binds r_max', only['camera'], near_free['camera'])
 def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
     """A card 0 exactly at the near clip is accepted whatever the clip's value: exp of a float32 ln 700 is 699.99994, which a strict compare against a 700 m clip refuses; one 1.5 per mille under the clip is still refused."""
     saved = ridge.NEAR_CLIP_M; d = tempfile.mkdtemp()
@@ -604,14 +603,17 @@ def test_near_ground_has_the_material_and_relief_of_its_own_heights():
         got[blk[x]] = c['albedo'][sel, x].mean(0)
     assert np.abs(got[0] - got[1]).max() > 0.05 and np.abs(got[1] - got[2]).max() > 0.05 and np.abs(got[0] - got[2]).max() > 0.05, ('the blocks do not differ where the ground does', got)
 def test_near_pixels_are_not_measured():
-    """pack of a bake with near rows (card 0, one tile: its lower third is near ground at 150 m) equals in every distance_m and in the camera pack of the same bake with those pixels cut out; a tile whose card 0 is near only gets distance_m == NEAR_CLIP_M and binds nothing, and write_bake accepts it."""
-    b = _toy(dists=(520.0, 15000.0, 50000.0)); base = export.pack(b); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = cs[3][0]; n = c['alpha'].shape[0]; near = np.zeros_like(c['near']); near[n * 2 // 3:] = True
+    """pack of a bake with near rows (card 0, one tile: its lower third is near ground at 150 m) equals in every distance_m and in the camera pack of the same bake with those pixels cut out; a tile whose card 0 is near only gets distance_m == NEAR_CLIP_M and BINDS r_max at that distance (it is slid at 500 m) even where every other tile stands 3000 m away, and write_bake accepts it."""
+    b = _toy(); base = export.pack(b); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = cs[3][0]; n = c['alpha'].shape[0]; near = np.zeros_like(c['near']); near[n * 2 // 3:] = True
     cs[3][0] = dict(c, near=near, logd=np.where(near, math.log(150.0), c['logd']).astype(np.float32)); a = export.pack(dict(b, cards=cs))
     cs[3][0] = dict(c, alpha=np.where(near, 0.0, c['alpha']).astype(np.float32)); cut = export.pack(dict(b, cards=cs)); dists = lambda pk: [[e and e['distance_m'] for e in row] for row in pk['tiles']]
     assert dists(a) == dists(cut) == dists(base) and a['camera'] == cut['camera'] == base['camera'], ('near pixels were measured', a['camera'], cut['camera'])
     cs[3][0] = c; only = dict(cs[9][0]); cs[9][0] = dict(only, near=np.ones_like(only['near']), logd=np.full_like(only['logd'], math.log(300.0))); ob = dict(b, cards=cs); pk = export.pack(ob); d = tempfile.mkdtemp()
     try:
-        assert pk['tiles'][9][0]['distance_m'] == ridge.NEAR_CLIP_M and pk['camera'] == base['camera'] and pk['tiles'][8][0]['distance_m'] == base['tiles'][8][0]['distance_m'], ('a near-only tile', pk['tiles'][9][0]['distance_m'], pk['camera'])
+        assert pk['tiles'][9][0]['distance_m'] == ridge.NEAR_CLIP_M and pk['tiles'][8][0]['distance_m'] == base['tiles'][8][0]['distance_m'], ('a near-only tile', pk['tiles'][9][0]['distance_m'])
+        r, rf = pk['camera']['r_max_m'], pk['camera']['r_max_forward_m']; ppd = ridge.HPX_DEG; assert r < base['camera']['r_max_m'] - 5 and rf < base['camera']['r_max_forward_m'] - 5, ('a near-only tile does not bind', pk['camera'], base['camera'])
+        assert export.fit_px(ridge.NEAR_CLIP_M, r, ppd) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(ridge.NEAR_CLIP_M, rf, ppd, 1) <= export.FIT_PX_MAX + 1e-6 and export.fit_px(ridge.NEAR_CLIP_M, r + 0.5, ppd) > export.FIT_PX_MAX, ('the near-only tile is not bound at the clip distance it is slid at', r, rf)
+        cs[9][0] = dict(only, logd=np.full_like(only['logd'], math.log(ridge.NEAR_CLIP_M))); assert export.pack(dict(b, cards=cs))['camera'] == pk['camera'], 'a near-only tile does not bind exactly like terrain at the clip'
         assert _write(d + '/ok', ob, pk).exists(), 'a bake with a near-only tile was refused'
     finally: shutil.rmtree(d)
 def test_cards_refuses_a_march_without_the_near_ground():
