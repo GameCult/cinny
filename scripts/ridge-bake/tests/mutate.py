@@ -44,7 +44,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'r_max: near pixels do not bind at the clip': ("ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None", "None"),
  'r_max: near pixels bind only in a tile with no other solid pixel': ("ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None", "ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() and not solid.any() else None"),
  'r_max: near pixels bind only where they outnumber the solid ones': ("ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None", "ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).sum() > solid.sum() else None"),
- 'r_max: the nearest pixel is the farthest solid one': ("nrow.append(float(np.exp(ld[solid].min()))", "nrow.append(float(np.exp(ld[solid].max()))"),
+ 'r_max: the nearest pixel is the farthest solid one': ("float(np.exp(ld[solid].min())) if solid.any() else None, ridge", "float(np.exp(ld[solid].max())) if solid.any() else None, ridge"),
  'near clip: the writer compares the float32 distance strictly': ("if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise", "if rmin < ridge.NEAR_CLIP_M: raise"),
  'near clip: the march starts nearer than the clip': ("d = [NEAR_CLIP_M]", "d = [100.0]"),
  'near clip: a card 0 inside the clip is accepted by the writer': ("if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise", "if False: raise"),
