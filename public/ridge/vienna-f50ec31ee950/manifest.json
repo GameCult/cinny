@@ -1,7 +1,7 @@
 {
  "schema": 3,
- "baker_version": 6,
- "bake_id": "5c02a10ec4c7",
+ "baker_version": 7,
+ "bake_id": "f50ec31ee950",
  "place": {
   "id": "vienna",
   "name": "Vienna, looking SW to Rax/Schneeberg",
@@ -35,8 +35,8 @@
   "normal": "rt8"
  },
  "camera": {
-  "r_max_m": 95.9,
-  "r_max_forward_m": 198.6
+  "r_max_m": 95.8,
+  "r_max_forward_m": 198.4
  },
  "cards": [
   {
@@ -60,11 +60,11 @@
     "distance_m": 612.7647094726562,
     "colour": {
      "file": "card-0-t00-colour.webp",
-     "bytes": 878
+     "bytes": 850
     },
     "geometry": {
      "file": "card-0-t00-geometry.webp",
-     "bytes": 7386
+     "bytes": 7502
     }
    },
    {
@@ -1089,7 +1089,7 @@
     },
     "geometry": {
      "file": "card-0-t25-geometry.webp",
-     "bytes": 12284
+     "bytes": 12526
     }
    },
    {
@@ -1130,7 +1130,7 @@
     },
     "geometry": {
      "file": "card-0-t26-geometry.webp",
-     "bytes": 9612
+     "bytes": 10752
     }
    },
    {
@@ -1171,7 +1171,7 @@
     },
     "geometry": {
      "file": "card-0-t27-geometry.webp",
-     "bytes": 6716
+     "bytes": 8710
     }
    },
    {
@@ -1208,11 +1208,11 @@
     "distance_m": 851.5679321289062,
     "colour": {
      "file": "card-0-t28-colour.webp",
-     "bytes": 570
+     "bytes": 560
     },
     "geometry": {
      "file": "card-0-t28-geometry.webp",
-     "bytes": 3766
+     "bytes": 6160
     }
    },
    {
@@ -1249,11 +1249,11 @@
     "distance_m": 591.9729614257812,
     "colour": {
      "file": "card-0-t29-colour.webp",
-     "bytes": 618
+     "bytes": 600
     },
     "geometry": {
      "file": "card-0-t29-geometry.webp",
-     "bytes": 3238
+     "bytes": 5650
     }
    },
    {
@@ -1290,11 +1290,11 @@
     "distance_m": 592.1824951171875,
     "colour": {
      "file": "card-0-t30-colour.webp",
-     "bytes": 484
+     "bytes": 488
     },
     "geometry": {
      "file": "card-0-t30-geometry.webp",
-     "bytes": 3714
+     "bytes": 5312
     }
    },
    {
@@ -1335,7 +1335,7 @@
     },
     "geometry": {
      "file": "card-0-t31-geometry.webp",
-     "bytes": 4866
+     "bytes": 5788
     }
    },
    {
@@ -1366,7 +1366,7 @@
    }
   ]
  ],
- "bytes": 1199370,
+ "bytes": 1210136,
  "attribution": {
   "credit_line": "Contains modified Copernicus data: DEM \u00a9 DLR e.V. 2010-2014 and \u00a9 Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
   "licence": "Copernicus DEM licence: free, full and open access, with the credit line shown",

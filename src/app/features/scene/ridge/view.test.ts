@@ -230,6 +230,17 @@ describe('offsetRange', () => {
     expect(offsetRange(wide, win, 'offset')).toEqual([lo, -lo]);
   });
 
+  it('on a 3440 x 1440 ultrawide, where keep is about 0.49, the backward offset still follows keep and is not floored at 0.5', () => {
+    const wide = parseManifest(wireManifest({ view: { ...(wireManifest().view as object), horizon_row: 450 }, camera: { r_max_m: 1500, r_max_forward_m: 1600 } }), '/d/');
+    const win = windowFor(wide.view, 3440, 1440);
+    const keep = (0.15 * 1440) / (win.plane.scale * 150);
+    expect(keep).toBeGreaterThan(0.45);
+    expect(keep).toBeLessThan(0.5);
+    const [lo] = offsetRange(wide, win, 'both');
+    expect(lo).toBeCloseTo(-1000 * (1 / keep - 1), 6); // a keep floored at 0.5 would stop at -1000 m
+    expect(-lo).toBeGreaterThan(1000);
+  });
+
   it('reads the ground rows from the runtime constants: 150 of 600, so the plane reaches the bottom of every viewport at rest', () => {
     expect(groundRowsNeeded(600)).toBeCloseTo(150, 9);
     const exact = withView({ horizon_row: 600 - groundRowsNeeded(600) });

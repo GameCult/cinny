@@ -1,5 +1,5 @@
 """Mutation check: re-introduce a cause into a COPY of the baker, run the fixtures against it, and require that at least one fails.
-  venv/bin/python tests/mutate.py [word ...]   (prints one line per mutant whose name holds every word; exit 1 if a mutant survives)"""
+  venv/bin/python tests/mutate.py [word ...]   (runs the unmutated copy first and exits 2 if a fixture fails; prints one line per mutant whose name holds every word; exit 1 if a mutant survives or only crashes the run: a kill is an AssertionError raised by the fixtures' own code)"""
 import os, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__)); SRC = os.path.join(HERE, '..')
 MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
@@ -26,14 +26,25 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'cards: the hit is not interpolated between samples': ("t = np.where(idx > 0, np.clip((rowang - prev) / np.maximum(rm[idx] - prev, 1e-9), 0, 1), 1.0)", "t = np.ones_like(rowang)"),
  'cards: the blended normal is not renormalised': ("nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12", "nz = 1.0"),
  'wall: no row is flagged (the flag is dropped)': ("Wl[i, :, x] = hit & (idx == 0)", "Wl[i, :, x] = False"),
- 'wall: card 0 is exempt (its rows under the near clip are extruded ground, not a skirt)': ("Wl[i, :, x] = hit & (idx == 0)", "if i: Wl[i, :, x] = hit & (idx == 0)"),
- 'skirt: the colour is read at the own-column sample-0 height (no blur)': ("np.where(Wl[i, sl] & (i == 0), np.asarray(skirt, np.float64)[None, :], g[1])", "g[1]"),
- 'skirt: the blur is a hair (0.01 degrees)': ("SKIRT_BLUR_DEG = 4.0 ", "SKIRT_BLUR_DEG = 0.01 "),
- 'skirt: the blur sigma is in columns, not degrees': ("SKIRT_BLUR_DEG * HPX_DEG)", "SKIRT_BLUR_DEG)"),
- 'skirt: each tile blurs its own columns (the ring is not blurred whole)': ("skirt=cols(sk, t))", "skirt=ridge.blurw(cols(h, t)[0], ridge.SKIRT_BLUR_DEG * ridge.HPX_DEG))"),
+ 'near: the cap to the silhouette of the terrain at the clip is dropped': ("an = np.minimum(an, a[0][None, :])", "an = an"),
+ 'near: rows under the clip are flagged wall': ("Wl[i, :, x] = hit & (idx == 0); Nr[i, :, x] = hit & (kp < kn)", "Wl[i, :, x] = hit & ((idx == 0) | (kp < kn)); Nr[i, :, x] = hit & (kp < kn)"),
+ 'near: albedo takes the face up (the wall rule on near rows)': ("albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz))", "albedo(g[1], np.where(Wl[i, sl] | Nr[i, sl], 1.0, g[4] / nz))"),
+ 'near: albedo reads the height of the far march first sample': ("albedo(g[1], np.where(Wl[i, sl]", "albedo(np.where(Nr[i, sl], h[int(np.searchsorted(d, NEAR_CLIP_M))][None, :], g[1]), np.where(Wl[i, sl]"),
+ 'near: the march starts at 20 m': ("NEAR_START_M = 1.0 ", "NEAR_START_M = 20.0 "),
+ 'near: the heights are stored float32': (", np.float64) for dk in d])", ", np.float32) for dk in d])"),
+ 'near: the place prefilter is not applied': ("; a, h = prefilter(d, h, sigma_m)\n", "; a, h = prefilter(d, h, 0.0)\n"),
+ 'near: the far normals are computed over the joined march (not apart)': ("nn, nf = normals(dn, hn), normals(d, h)", "nj_ = normals(np.concatenate([dn, d]), np.concatenate([hn, h])); nn, nf = tuple(x[:len(dn)] for x in nj_), tuple(x[len(dn):] for x in nj_)"),
+ 'near: cards accepts a march that starts at the clip': ("if d[0] >= NEAR_CLIP_M: raise ValueError", "if False: raise ValueError"),
+ 'pack: near pixels count as solid terrain': ("solid = (al >= 0.5) & ~wl & ~nr;", "solid = (al >= 0.5) & ~wl;"),
+ 'pack: the non-wall fallback pool reads near pixels': ("((al > 0) & ~wl & ~nr, ld)", "((al > 0) & ~wl, ld)"),
+ 'pack: the lit fallback pool reads near pixels': ("((al > 0) & ~nr, ld)", "(al > 0, ld)"),
+ 'pack: the apron fallback pool reads near pixels': ("((c['alpha'] > 0) & ~c['near'], c['logd'])", "(c['alpha'] > 0, c['logd'])"),
+ 'pack: a tile with nothing outside the near ground is not at the clip': ("if pool else ridge.NEAR_CLIP_M", "if pool else 0.0"),
  'r_max: the tile median binds, not the nearest terrain': ("r_max = solve_r_max(near, bands, ppd); r_fwd = solve_r_max(near, bands, ppd, phis=1)", "r_max = solve_r_max(dist, bands, ppd); r_fwd = solve_r_max(dist, bands, ppd, phis=1)"),
- 'r_max: a tile of skirt only binds at its wall distance': ("if solid.any() else None)", "if solid.any() else dm)"),
- 'r_max: the nearest pixel is the farthest solid one': ("nrow.append(float(np.exp(ld[solid].min()))", "nrow.append(float(np.exp(ld[solid].max()))"),
+ 'r_max: near pixels do not bind at the clip': ("ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None", "None"),
+ 'r_max: near pixels bind only in a tile with no other solid pixel': ("ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None", "ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() and not solid.any() else None"),
+ 'r_max: near pixels bind only where they outnumber the solid ones': ("ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None", "ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).sum() > solid.sum() else None"),
+ 'r_max: the nearest pixel is the farthest solid one': ("float(np.exp(ld[solid].min())) if solid.any() else None, ridge", "float(np.exp(ld[solid].max())) if solid.any() else None, ridge"),
  'near clip: the writer compares the float32 distance strictly': ("if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise", "if rmin < ridge.NEAR_CLIP_M: raise"),
  'near clip: the march starts nearer than the clip': ("d = [NEAR_CLIP_M]", "d = [100.0]"),
  'near clip: a card 0 inside the clip is accepted by the writer': ("if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise", "if False: raise"),
@@ -72,7 +83,7 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'r_max: not capped at half the nearest distance': ("cap = 0.5 * rmin", "cap = 5.0 * rmin"),
  'r_max: the resident gate is not part of the search': (" and resident_bytes(bands, run_tiles(r, rmin)) <= RESIDENT_BYTES_MAX\n", "\n"),
  'r_max: a bake below the floor is accepted': ("if r_max < R_MAX_FLOOR_M:", "if False:"),
- 'pack: the distance counts wall rows': ("solid = (al >= 0.5) & ~wl; any_solid", "solid = (al >= 0.5); any_solid"),
+ 'pack: the distance counts wall rows': ("solid = (al >= 0.5) & ~wl & ~nr; any_solid", "solid = (al >= 0.5) & ~nr; any_solid"),
  'pack: the distance reads the apron columns too': ("inner = slice(APRON, APRON + TILE_W)", "inner = slice(0, TILE_W + 2 * APRON)"),
  'sheet: the tile boundaries are not drawn': ("def bounds(img): img[:, mark] = 0.45 * img[:, mark] + 0.55 * red; return img", "def bounds(img): return img"),
  'export: an empty card is not refused': ("if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise", "if False: raise"),
@@ -81,15 +92,33 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'mosaic cache key ignores the tile list': ("sorted(tiles_for(p)), 3600", "3600"),
 }
 EQUIVALENT = {'fit: the error is looked for between four points': "the worst error of the best line is at the viewport's two ends for every distance and offset the bound is searched over (checked against a 20001-sample brute force in test_fit_px_is_the_continuous_error); the grid only guards a shape where it is not"}        # mutant name -> one line on why it is behaviourally equivalent (reported, not run)
+def execute(edit):
+    """Run the fixtures on a COPY of the baker, with edit = (text, replacement) applied or None for the unmutated copy: (returncode or None if the text is gone, [(fixture, exception class, directory of the innermost traceback frame)] of every FAIL line, last stderr line)."""
+    d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__'))
+    try:
+        if edit:
+            a, b = edit; p = next((q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()), None)
+            if p is None: return None, [], 'the mutant text is in neither ridge.py nor export.py'
+            s = open(p).read(); open(p, 'w').write(s.replace(a, b))
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True)
+    finally: shutil.rmtree(d)
+    fails = [(f[0][4:].strip(), f[1].strip(), os.path.dirname(os.path.abspath(f[2].strip()))) for f in (l.split(' | ', 3) for l in r.stdout.splitlines() if l.startswith('FAIL')) if len(f) == 4]
+    return r.returncode, fails, (r.stderr.strip().splitlines() or ['no output'])[-1][:200]
 def run(item):
-    name, (a, b) = item; d = tempfile.mkdtemp(); shutil.copytree(SRC, os.path.join(d, 'src'), ignore=shutil.ignore_patterns('tests', '__pycache__')); p = next(q for q in (os.path.join(d, 'src', f) for f in ('ridge.py', 'export.py')) if a in open(q).read()); s = open(p).read(); assert a in s, name
-    open(p, 'w').write(s.replace(a, b))
-    r = subprocess.run([sys.executable, os.path.join(HERE, 'test_ridge.py')], env=dict(os.environ, RIDGE_SRC=os.path.join(d, 'src')), capture_output=True, text=True); shutil.rmtree(d)
-    fails = [l.split('|')[0].strip() for l in r.stdout.splitlines() if l.startswith('FAIL')]
-    line = ('KILLED   ' if r.returncode else 'SURVIVED ') + name + ' -> ' + (', '.join(fails) or 'no fixture failed'); print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
-    return line, r.returncode == 0
+    """KILLED: at least one fixture failed on an assertion the test code itself raised (an AssertionError whose innermost traceback frame lies in the tests directory).  CRASHED: the run failed but no fixture did that (every FAIL is another exception, NameError or a numpy error and the like, or an assert inside the baker, or none printed, or the mutant text is gone), which proves nothing and fails the run.  SURVIVED: every fixture passed."""
+    name, (a, b) = item; rc, fails, err = execute((a, b)); asserts = [n for n, c, w in fails if c == 'AssertionError' and w == HERE]
+    state = 'CRASHED  ' if rc is None or (rc and not asserts) else 'KILLED   ' if rc else 'SURVIVED '
+    why = ', '.join(f'{n}[{c}{"" if w == HERE else " in " + os.path.basename(w)}]' for n, c, w in fails) if fails else err
+    line = state + name + ' -> ' + why; print(line, file=sys.stderr, flush=True)       # progress: a killed run keeps what finished
+    return line, state != 'KILLED   '
+def baseline():
+    """The unmutated copy must pass every fixture before any mutant means anything: a broken environment would kill them all."""
+    rc, fails, err = execute(None)
+    if rc or fails: print('BASELINE FAILED: the unmutated baker does not pass its fixtures: ' + (', '.join(f'{n}[{c}]' for n, c, w in fails) or err), file=sys.stderr, flush=True); sys.exit(2)
+    print('BASELINE ok: the unmutated copy passes every fixture', file=sys.stderr, flush=True)
 if __name__ == '__main__':
     from concurrent.futures import ThreadPoolExecutor
+    baseline()
     with ThreadPoolExecutor(int(os.environ.get('MUTATE_JOBS', '6'))) as ex: res = list(ex.map(run, [(n, v) for n, v in MUTANTS.items() if n not in EQUIVALENT and all(w in n for w in sys.argv[1:])]))
     for line, _ in res: print(line, flush=True)
     for n, why in EQUIVALENT.items(): print('EQUIVALENT ' + n + ' -> ' + why)

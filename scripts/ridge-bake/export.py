@@ -5,7 +5,7 @@
 
 The runtime reads manifest.json (SCHEMA is its contract) and nothing else about the bake.  The ring is the whole 360 degrees (ruling ridge-camera-full-ring), absolute compass, column 0 = north, cut into TILES tiles of TILE_W columns plus an APRON of real neighbour
 columns each side; the bake holds no camera: it ships each card tile's distance_m and camera.r_max_m, the largest offset the per-card linear slide can take (ruling ridge-offset-range-fit); the client lights the cards itself (ruling ridge-cards-runtime-lit).
-The pure parts (budget, bake_id, index, schema check) import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work), and so do validate_manifest and write_bake, which read ridge's NEAR_CLIP_M and GROUND_ROWS_MIN."""
+The pure parts (budget, bake_id, index, schema check) import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work), and so do pack, validate_manifest and write_bake, which read ridge's NEAR_CLIP_M and GROUND_ROWS_MIN."""
 import os, sys, json, math, shutil, hashlib, argparse, tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import numpy as np, imagecodecs
 
-BAKER_VERSION = 6
+BAKER_VERSION = 7
 RING_W = 6400                          # the ring's columns (ridge.W, asserted in bake_place): column c is at azimuth (c + 0.5) / RING_W x 360, column 0 = north
 TILES = 32                             # azimuth tiles of the ring, each card cut into TILES files per kind (ruling ridge-camera-full-ring: the client loads the arc near its heading)
 TILE_W = RING_W // TILES               # 200 columns = 11.25 degrees owned by a tile
@@ -51,11 +51,11 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
         view=_obj(look_az_deg=_num, ring_w={'const': RING_W}, tile_w={'const': TILE_W}, tiles={'const': TILES}, apron={'const': APRON}, plane_h=_int, px_per_deg_h=_num, px_per_deg_v=_num, exaggeration=_num, horizon_row=_num, sky_row=_num, near_row=_num),
         curvature=_obj(r_earth_m=_num, k_ref=_num),
         encoding=_obj(log_d_min=_num, log_d_max=_num, normal={'const': 'rt8'}),
-        camera=dict(_obj(r_max_m=_num, r_max_forward_m=_num), description="r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the offsets up to which the linear slide holds (the fit error at most FIT_PX_MAX card px) for the NEAREST solid terrain (at or beyond the near clip, ridge.NEAR_CLIP_M, 500 m) that each card draws in each tile, not for the tile's median distance_m; a tile that draws only skirt rows (wall) has no such terrain and binds nothing. Nothing nearer than the clip is baked as terrain, so they are no measure of the ground under it."),
+        camera=dict(_obj(r_max_m=_num, r_max_forward_m=_num), description="r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the offsets up to which the linear slide holds (the fit error at most FIT_PX_MAX card px) for the NEAREST solid terrain (at or beyond the near clip, ridge.NEAR_CLIP_M, 500 m) that each card draws in each tile, not for the tile's median distance_m; a tile whose card 0 draws only near ground (under the clip) is slid at the clip distance (its distance_m) and binds at 500 m. The ground under the clip is drawn by card 0 from the near march and is otherwise not measured."),
         cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _obj(near_m=_numnull, far_m=_numnull),
             'description': "nearest first; the runtime paints the list last to first.  near_m and far_m are the median seam depths over the ring, null at the ends."},
         tiles={'type': 'array', 'minItems': TILES, 'maxItems': TILES, 'items': {'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _objnull(top=_int, h=_int, distance_m=_num, colour=_file, geometry=_file)},
-            'description': "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are not wall (the interior tile_w columns)."},
+            'description': "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are neither wall nor near ground, under the near clip (the interior tile_w columns); a tile whose card draws only near ground gets the clip distance."},
         bytes=_int,
         attribution=_obj(credit_line=_str, licence=_str, dem_source=_str, url=_str)),
     'index': _obj(schema={'const': 1}, default=_str, places={'type': 'object', 'additionalProperties': _str})}}
@@ -104,7 +104,7 @@ def encode_colour(albedo, alpha):
     """Lossy RGB albedo with lossless alpha coverage, straight (not premultiplied); the colour under a zero alpha is zeroed."""
     a = u8(alpha); rgb = u8(albedo) * (a[..., None] > 0); return bytes(imagecodecs.webp_encode(np.dstack([rgb, a]), level=WEBP_QUALITY, lossless=False))
 def encode_geometry(n_r, n_t, logd, enc, wall=None):
-    """Lossless, opaque RGB: R, G = (n_r + 1) / 2, (n_t + 1) / 2 ('rt8'), B = the log-distance normalised between enc log_d_min and log_d_max.  Wall pixels (the extruded face under a ridge; wall (h, w) bool) write R = G = 255: a code outside the unit disc
+    """Lossless, opaque RGB: R, G = (n_r + 1) / 2, (n_t + 1) / 2 ('rt8'), B = the log-distance normalised between enc log_d_min and log_d_max (a log-distance under log_d_min, the near ground under the clip, encodes as 0: the clip distance).  Wall pixels (the extruded face under a ridge; wall (h, w) bool) write R = G = 255: a code outside the unit disc
     that no real normal reaches (real r2 + t2 peaks at 0.998), which the runtime reads as 'normal up, no crease'."""
     b = (np.asarray(logd) - enc['log_d_min']) / (enc['log_d_max'] - enc['log_d_min']); r, t = u8((np.asarray(n_r) + 1) / 2), u8((np.asarray(n_t) + 1) / 2)
     if wall is not None: m = np.asarray(wall, bool); r, t = np.where(m, 255, r).astype(np.uint8), np.where(m, 255, t).astype(np.uint8)
@@ -205,7 +205,7 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
         if opaque[t].shape != (h, w): raise ValueError(f'tile {t}: the opaque view is {opaque[t].shape}, the frame {(h, w)}')
     import ridge
     rmin = min(row[0]['distance_m'] for row in tiles if row[0])   # distance_m is exp of a float32 log: it lands a few parts in 1e7 off the clip, so the compare keeps 1e-5 of slack
-    if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise ValueError(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: nothing nearer is baked as terrain')
+    if rmin < ridge.NEAR_CLIP_M * (1 - 1e-5): raise ValueError(f'card 0 stands {rmin:.1f} m away, nearer than the near clip {ridge.NEAR_CLIP_M:g} m: the distance of card 0 is measured at or beyond the clip (the near ground under it is not measured)')
     if camera['r_max_forward_m'] < camera['r_max_m']: raise ValueError(f"r_max_forward_m {camera['r_max_forward_m']:g} is below r_max_m {camera['r_max_m']:g}: phi = 0 is one of the angles r_max_m holds for")
     for r in (camera['r_max_m'], camera['r_max_forward_m']): check_budget(k, tile_bytes, bands, r, rmin)
     for t, (row, drow) in enumerate(zip(tiles, dec)):
@@ -232,28 +232,29 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
     return dest
 
 # ------------------------------------------------------------------------------------ the bake
-def cut_ring(d, a, h, splits_km):
-    """The ring cut of a prefiltered march (set_view done): normals, coverage, the periodic seams on all RING_W columns, then ridge.cards per tile on its TILE_W + 2 APRON columns with the matching normals.  Returns dict(cards [TILES][cards] (ridge.cards arrays),
+def cut_ring(d, a, h, splits_km, near):
+    """The ring cut of a prefiltered march (set_view done) and its near march (ridge.near_march): coverage, the periodic seams and the opaque view on the far march (d, a), the join of the near ground and the normals on all RING_W columns (ridge.join_near), then ridge.cards per tile on its TILE_W + 2 APRON columns of the joined march.  Returns dict(cards [TILES][cards] (ridge.cards arrays),
     splits_km, seams (K, ring) in m, cov (bins, ring), opaque [TILES] (rows, TILE_W + 2 APRON) coverage, edges)."""
     import ridge
-    nrm = ridge.normals(d, h); sk = ridge.skirt_height(h); cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
-    for t in range(TILES): tiles.append(ridge.cards(d, cols(a, t), cols(h, t), cols(sm, t), tuple(cols(x, t) for x in nrm), skirt=cols(sk, t))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
+    cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); D, A, Hc, nrm = ridge.join_near(d, a, h, near); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
+    for t in range(TILES): tiles.append(ridge.cards(D, cols(A, t), cols(Hc, t), cols(sm, t), tuple(cols(x, t) for x in nrm))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
     return dict(cards=tiles, splits_km=list(splits_km), seams=sm, cov=cov, opaque=[cols(op, t) for t in range(TILES)], edges=ridge.log_edges(d))
 
 def bake_place(pid):
     """stage 0, prefilter, set_view on the whole ring, cut_ring: dict(place, view, meta, v, and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
     import ridge
     assert ridge.W == RING_W and ridge.H > 0
-    p = ridge.configure(ridge.load_preset(pid)); ridge.mosaic(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0)); ring = cut_ring(d, a, h, p['card_split_km'])
+    p = ridge.configure(ridge.load_preset(pid)); ridge.mosaic(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0)); ring = cut_ring(d, a, h, p['card_split_km'], ridge.near_march(p.get('prefilter_m', 0) or 0))
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'], tz=p['tz'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])))
     return dict(place=place, view=view, meta=meta, v=v, **ring)
 
 def pack(bake):
-    """The tiles of a bake as bytes plus their manifest facts.  Per card tile: distance_m = exp(median ln d) over the solid (alpha >= 0.5) pixels that are not wall of the interior TILE_W columns (a tile with none falls back to its non-wall, then any, lit pixels);
-    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the NEAREST solid non-wall pixel of each card tile (not its median distance_m; a tile that draws only wall, the skirt, has none and binds nothing) and every camera angle on its circle (the offset-only rotation mode), camera.r_max_forward_m: the same at phi = 0 alone (the modes where the offset turns with the view).  Refuses a card empty in every tile (naming the splits) and a card with
+    """The tiles of a bake as bytes plus their manifest facts.  Per card tile: distance_m = exp(median ln d) over the solid (alpha >= 0.5) pixels that are neither wall nor near ground (under the clip) of the interior TILE_W columns (a tile with none falls back to its non-wall, then any, lit pixels, near ground never; a tile with nothing outside the near ground gets ridge.NEAR_CLIP_M: the near ground itself is not measured, but such a tile is slid at that distance and binds r_max there);
+    a card with no rows in a tile is null there.  Per card: the median seam depths over the ring.  camera.r_max_m: solve_r_max over the NEAREST solid non-wall pixel of each card tile (not its median distance_m; each tile's near pixels, under the clip, count as terrain at the clip alongside its solid pixels, whatever else the tile holds: they are drawn at the clip) and every camera angle on its circle (the offset-only rotation mode), camera.r_max_forward_m: the same at phi = 0 alone (the modes where the offset turns with the view).  Refuses a card empty in every tile (naming the splits) and a card with
     no solid terrain apart from its wall in any tile.  Returns dict(cards, tiles, camera, report) (report is printed, not written)."""
+    import ridge
     sm = bake['seams']; sp = bake['splits_km']; k = len(sp) + 1; ppd = bake['view']['px_per_deg_h']; inner = slice(APRON, APRON + TILE_W); enc = bake['meta']['encoding']
     for i in range(k):
         if all(tile[i]['alpha'].shape[0] == 0 for tile in bake['cards']): raise ValueError(f"card {i} is empty: it lies between the splits {' and '.join(f'{sp[j]:g} km' for j in (i - 1, i) if 0 <= j < len(sp))} (card_split_km {sp}) and holds no terrain nothing nearer hides; move or remove a split")
@@ -262,9 +263,9 @@ def pack(bake):
         row, drow, nrow, brow = [], [], [], []
         for i, c in enumerate(tile):
             if c['alpha'].shape[0] == 0: row.append(None); drow.append(None); nrow.append(None); continue
-            al, wl, ld = c['alpha'][:, inner], c['wall'][:, inner], c['logd'][:, inner]; solid = (al >= 0.5) & ~wl; any_solid[i] |= bool(solid.any())
-            pool = next((m, l) for m, l in ((solid, ld), ((al > 0) & ~wl, ld), (al > 0, ld), (c['alpha'] > 0, c['logd'])) if m.any())
-            dm = float(np.exp(np.median(pool[1][pool[0]]))); nrow.append(float(np.exp(ld[solid].min())) if solid.any() else None)   # the nearest solid terrain the card draws in this tile: None where it draws only wall (the skirt), which binds nothing
+            al, wl, ld, nr = c['alpha'][:, inner], c['wall'][:, inner], c['logd'][:, inner], c['near'][:, inner]; solid = (al >= 0.5) & ~wl & ~nr; any_solid[i] |= bool(solid.any())
+            pool = next(((m, l) for m, l in ((solid, ld), ((al > 0) & ~wl & ~nr, ld), ((al > 0) & ~nr, ld), ((c['alpha'] > 0) & ~c['near'], c['logd'])) if m.any()), None)
+            dm = float(np.exp(np.median(pool[1][pool[0]]))) if pool else ridge.NEAR_CLIP_M; nrow.append(min((v for v in (float(np.exp(ld[solid].min())) if solid.any() else None, ridge.NEAR_CLIP_M if ((al >= 0.5) & nr).any() else None) if v is not None), default=None))   # the nearest terrain the card draws in this tile: its solid pixels, and its near pixels as terrain at the clip (they are drawn at the clip whatever else the tile holds); None where it draws only wall or faint pixels
             row.append(dict(top=c['top'], colour=encode_colour(c['albedo'], c['alpha']), geometry=encode_geometry(c['n_r'], c['n_t'], c['logd'], enc, c['wall']), distance_m=dm)); drow.append(dm); brow.append(c['alpha'].shape[0])
         tiles.append(row); dist.append(drow); near.append(nrow); bands.append(brow)
     for i in range(k):

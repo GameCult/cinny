@@ -1495,7 +1495,7 @@ describe('the ridge cards in the scene', () => {
 
       it('measures the fit as the baker does: Vienna sits at the bound at its two offsets, and above it past them', () => {
         const { rMaxM, rMaxForwardM } = vienna.camera;
-        expect([rMaxM, rMaxForwardM]).toEqual([95.9, 198.6]);
+        expect([rMaxM, rMaxForwardM]).toEqual([95.8, 198.4]);
         const circle = Array.from({ length: 24 }, (_, i) => i * 15);
         expect(Math.max(...circle.map((phi) => worstPx(rMaxM, phi)))).toBeGreaterThan(FIT_PX_MAX - 0.5);
         expect(Math.max(...circle.map((phi) => worstPx(rMaxM, phi)))).toBeLessThanOrEqual(FIT_PX_MAX + 0.05);

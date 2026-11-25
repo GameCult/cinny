@@ -173,7 +173,7 @@
        "type": "number"
       }
      },
-     "description": "r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the offsets up to which the linear slide holds (the fit error at most FIT_PX_MAX card px) for the NEAREST solid terrain (at or beyond the near clip, ridge.NEAR_CLIP_M, 500 m) that each card draws in each tile, not for the tile's median distance_m; a tile that draws only skirt rows (wall) has no such terrain and binds nothing. Nothing nearer than the clip is baked as terrain, so they are no measure of the ground under it."
+     "description": "r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the offsets up to which the linear slide holds (the fit error at most FIT_PX_MAX card px) for the NEAREST solid terrain (at or beyond the near clip, ridge.NEAR_CLIP_M, 500 m) that each card draws in each tile, not for the tile's median distance_m; a tile whose card 0 draws only near ground (under the clip) is slid at the clip distance (its distance_m) and binds at 500 m. The ground under the clip is drawn by card 0 from the near march and is otherwise not measured."
     },
     "cards": {
      "type": "array",
@@ -269,7 +269,7 @@
        }
       }
      },
-     "description": "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are not wall (the interior tile_w columns)."
+     "description": "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are neither wall nor near ground, under the near clip (the interior tile_w columns); a tile whose card draws only near ground gets the clip distance."
     },
     "bytes": {
      "type": "integer"

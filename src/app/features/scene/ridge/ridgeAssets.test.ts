@@ -16,7 +16,7 @@ import { groundRowsNeeded, HFOV_MAX_DEG } from './view';
 export const TILE_BYTES_MAX = 235_000;
 export const PLACE_BYTES_MAX = 7_500_000;
 export const RESIDENT_BYTES_MAX = 20_000_000;
-/** As ridge.py NEAR_CLIP_M: the march's first sample, so no terrain is nearer. */
+/** As ridge.py NEAR_CLIP_M: the far march's first sample; card 0's distance_m is measured at or beyond it (the near ground under it is not measured). */
 export const NEAR_CLIP_M = 500;
 
 interface WireFile {
