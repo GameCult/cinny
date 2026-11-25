@@ -540,23 +540,29 @@ def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
     try:
         for clip in (500.0, 520.0, 700.0):
             ridge.NEAR_CLIP_M = clip; b = _toy(dists=(clip, 15000.0, 50000.0), amp=0.0); pk = export.pack(b); assert pk['tiles'][0][0]['distance_m'] != 0
-            dest = _write(d + f'/ok{clip:g}', b, pk); assert dest.exists(), ('a card 0 at the near clip was refused', clip)
+            try: dest = _write(d + f'/ok{clip:g}', b, pk)
+            except ValueError as e: raise AssertionError(('a card 0 at the near clip was refused', clip, str(e)))
+            assert dest.exists(), ('a card 0 at the near clip was refused', clip)
         b = _toy(dists=(698.9, 15000.0, 50000.0), amp=0.0); ridge.NEAR_CLIP_M = 700.0; _refuses(d + '/under', b, export.pack(b), 'a card 0 under the near clip was written')
     finally: ridge.NEAR_CLIP_M = saved; shutil.rmtree(d)
+def _view(sk):
+    """set_view of a skyline it must hold: a refusal is a failed assertion of the fixture, not a crash."""
+    try: return ridge.set_view(sk)
+    except ValueError as e: raise AssertionError(('set_view refused a skyline it must hold', str(e)))
 def test_set_view_keeps_the_ground_rows_under_the_horizon():
     """A skyline +28 degrees high and +5 low is compressed below 1x so the horizon sits at row 450 or above (GROUND_ROWS_MIN rows under it); one +60 degrees high cannot hold them even at 0.5x and refuses naming sky_deg and the floor; a Vienna-like skyline
     (the 10x clamp) and one that fits its anchors above 1x are unchanged to 1e-9; a low skyline never binds the horizon."""
     assert ridge.GROUND_ROWS_MIN == 150 and ridge.E_MIN == 0.5 and ridge.NEAR_CLIP_M == 500.0, 'the authored constants are pinned'
-    sk = np.full(W, 5.0); sk[100] = 28.0; v = ridge.set_view(sk)
+    sk = np.full(W, 5.0); sk[100] = 28.0; v = _view(sk)
     assert v['horizon_row'] <= H - ridge.GROUND_ROWS_MIN + 1e-6 and v['exaggeration'] < 1 and v['binds'] == 'horizon' and abs(v['horizon_row'] - (H - ridge.GROUND_ROWS_MIN)) < 1e-6 and abs(v['px_per_deg'] - (H - 150 - 0.04 * H) / 28.0) < 1e-9, v
     sk = np.full(W, 5.0); sk[100] = 60.0
     try: ridge.set_view(sk)
     except ValueError as e: assert '60.00' in str(e) and '8.89' in str(e) and '0.5x' in str(e), str(e)
     else: assert False, 'a skyline that cannot hold the ground rows was accepted'
-    sk = np.full(W, 1.7); sk[7] = 2.0; v = ridge.set_view(sk); assert abs(v['px_per_deg'] - 10 * ridge.HPX_DEG) < 1e-9 and abs(v['horizon_row'] - (2.0 * 10 * ridge.HPX_DEG + 0.04 * H)) < 1e-9 and v['binds'] == 'ceiling', v
-    sk = np.full(W, 1.0); sk[7] = 3.0; sk[9] = -1.0; v = ridge.set_view(sk); assert abs(v['px_per_deg'] - 0.62 * H / 4.0) < 1e-9 and v['binds'] == 'skyline', v
-    sk = np.full(W, -30.0); sk[7] = 12.0; v = ridge.set_view(sk); assert abs(v['px_per_deg'] - 0.5 * ridge.HPX_DEG) < 1e-9 and v['binds'] == 'floor', v
-    sk = np.full(W, -9.0); sk[7] = -2.0; v = ridge.set_view(sk); assert v['horizon_row'] < 0.04 * H and v['binds'] != 'horizon', v
+    sk = np.full(W, 1.7); sk[7] = 2.0; v = _view(sk); assert abs(v['px_per_deg'] - 10 * ridge.HPX_DEG) < 1e-9 and abs(v['horizon_row'] - (2.0 * 10 * ridge.HPX_DEG + 0.04 * H)) < 1e-9 and v['binds'] == 'ceiling', v
+    sk = np.full(W, 1.0); sk[7] = 3.0; sk[9] = -1.0; v = _view(sk); assert abs(v['px_per_deg'] - 0.62 * H / 4.0) < 1e-9 and v['binds'] == 'skyline', v
+    sk = np.full(W, -30.0); sk[7] = 12.0; v = _view(sk); assert abs(v['px_per_deg'] - 0.5 * ridge.HPX_DEG) < 1e-9 and v['binds'] == 'floor', v
+    sk = np.full(W, -9.0); sk[7] = -2.0; v = _view(sk); assert v['horizon_row'] < 0.04 * H and v['binds'] != 'horizon', v
 def test_the_near_clip_and_the_ground_rows_are_refused_at_the_writer():
     """The march starts at the authored near clip; write_bake refuses a bake whose card 0 stands nearer than it (nothing nearer is baked as terrain), and validate_manifest, which the writer and the committed bakes go through, refuses a plane with fewer than GROUND_ROWS_MIN rows under the horizon and accepts exactly that many."""
     assert D[0] == ridge.NEAR_CLIP_M == ridge.schedule(True)[0] and (np.diff(D) > 0).all(), 'the march does not start at the near clip'
