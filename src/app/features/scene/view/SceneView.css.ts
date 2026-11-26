@@ -78,3 +78,45 @@ export const Panel = style([
     '@media': { [PHONE]: { width: 'calc(100vw - 5.5rem)' } },
   },
 ]);
+
+/** The Place submenu's carousel: the baked places side by side, one card centred, snapping as it is swiped; an arrow each side steps it. */
+export const Carousel = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: config.space.S100,
+});
+
+export const Strip = style({
+  position: 'relative',
+  display: 'flex',
+  flexGrow: 1,
+  minWidth: 0,
+  gap: config.space.S200,
+  overflowX: 'auto',
+  scrollSnapType: 'x mandatory',
+  scrollbarWidth: 'none',
+  overscrollBehaviorX: 'contain',
+  selectors: { '&::-webkit-scrollbar': { display: 'none' } },
+});
+
+/** A place's card. Each is as wide as the strip, so the one in the strip is the one in view. */
+export const PlaceCard = style({
+  flex: '0 0 100%',
+  scrollSnapAlign: 'center',
+  boxSizing: 'border-box',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: config.space.S100,
+  padding: config.space.S300,
+  borderRadius: config.radii.R300,
+  border: `${config.borderWidth.B300} solid currentColor`,
+  background: 'transparent',
+  color: 'inherit',
+  font: 'inherit',
+  textAlign: 'center',
+  cursor: 'pointer',
+  opacity: 0.6,
+  selectors: {
+    '&[aria-current="true"]': { opacity: 1 },
+  },
+});

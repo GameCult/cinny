@@ -128,16 +128,49 @@ describe('the weather of a moment', () => {
 });
 
 describe('loadWeather', () => {
-  it('reads the file again for another place inside the refresh window: the weather it set belongs to the sun of the place it was read for', async () => {
-    const fetched = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+  const VIENNA = FALLBACK_VIEW.place;
+  const FUJI = { ...ELSEWHERE_VIEW.place, id: 'fuji' };
+  const wx = (at: Date) => ({
+    fetched_at: at.toISOString(),
+    observed_at: at.toISOString(),
+    station: 11035,
+    precip_mm_10min: 2,
+    humidity_pct: 99,
+    glow_wm2: null,
+    sunshine_s_10min: null,
+    attribution: 'x',
+  });
+  const t = new Date('2030-01-01T10:00:00Z');
+
+  it('draws a place with no feed clear and does not fetch: the one file is for one station', async () => {
+    const fetched = vi.fn(async () => ({ ok: true, json: async () => wx(t) }));
     vi.stubGlobal('fetch', fetched);
-    const t = new Date('2030-01-01T00:00:00Z');
-    await loadWeather('/w.json', FALLBACK_VIEW.place, t);
-    await loadWeather('/w.json', FALLBACK_VIEW.place, new Date(t.getTime() + 60_000));
+    setFedWeather(0.9);
+    await loadWeather('/w.json', FUJI, t);
+    expect(fetched).toHaveBeenCalledTimes(0);
+    expect(ridgeWeather()).toBe(CLEAR_SKY);
+  });
+
+  it('draws Vienna with a fresh file, and reads the file again on coming back from a place without one', async () => {
+    const fetched = vi.fn(async () => ({ ok: true, json: async () => wx(t) }));
+    vi.stubGlobal('fetch', fetched);
+    await loadWeather('/w.json', VIENNA, t);
     expect(fetched).toHaveBeenCalledTimes(1);
-    await loadWeather('/w.json', ELSEWHERE_VIEW.place, new Date(t.getTime() + 120_000));
+    expect(ridgeWeather()).toBeGreaterThan(0.7);
+    await loadWeather('/w.json', VIENNA, new Date(t.getTime() + 60_000));
+    expect(fetched).toHaveBeenCalledTimes(1); // inside the refresh window
+    await loadWeather('/w.json', FUJI, new Date(t.getTime() + 120_000));
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(ridgeWeather()).toBe(CLEAR_SKY);
+    await loadWeather('/w.json', VIENNA, new Date(t.getTime() + 180_000));
     expect(fetched).toHaveBeenCalledTimes(2);
-    vi.unstubAllGlobals();
+    expect(ridgeWeather()).toBeGreaterThan(0.7);
+  });
+
+  it("rejects a file whose station is not the place's feed's: a clear sky", async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ ...wx(t), station: 99999 }) }));
+    await loadWeather('/w.json', VIENNA, t);
+    expect(ridgeWeather()).toBe(CLEAR_SKY);
   });
 });
 

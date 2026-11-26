@@ -8,7 +8,7 @@ import { sunAt } from './ridge/sunAt';
 import type { Place, View } from './ridge/view';
 import { BUDGET } from './ridge/toneMap';
 import { ridgeWeather, setFedWeather } from './ridge/weather';
-import { currentWeather, fetchWeatherFile } from './ridge/weatherFeed';
+import { currentWeather, feedFor, fetchWeatherFile } from './ridge/weatherFeed';
 import { getConstellationLines, skyNow } from './skyState';
 
 /** A clear sky: what a free moment is drawn with (ruling ridge-weather-on-frozen-moments: today's weather says nothing of another date). */
@@ -38,13 +38,19 @@ let weatherAt = -Infinity;
 let weatherPlace = '';
 /**
  * Read `weather.json` (the page's own, next to config.json) into the weather the ridge sky is drawn for; at most once in ten minutes.
- * Never throws: a missing, stale or broken file is a clear sky (`currentWeather`).
+ * Never throws: a missing, stale or broken file is a clear sky (`currentWeather`). A place with no feed (`feedFor`) is a clear sky and the file is not
+ * fetched; the place is remembered all the same, so going back to a place with a feed reads the file at once.
  */
 export async function loadWeather(url: string, place: Place, now: Date = skyNow()): Promise<void> {
   if (place.id === weatherPlace && now.getTime() - weatherAt < WEATHER_REFRESH_MS) return;
   weatherAt = now.getTime();
   weatherPlace = place.id;
-  setFedWeather(currentWeather(await fetchWeatherFile(url), place, now));
+  const feed = feedFor(place.id);
+  if (!feed) {
+    setFedWeather(CLEAR_SKY);
+    return;
+  }
+  setFedWeather(currentWeather(await fetchWeatherFile(url, feed), place, now));
 }
 
 /**

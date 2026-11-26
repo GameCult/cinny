@@ -9,13 +9,17 @@ import {
   parseWeatherFile,
   OBSERVATION_STALE_MS,
   STALE_MS,
-  WEATHER_ATTRIBUTION,
+  WEATHER_FEEDS,
+  creditLine,
+  feedFor,
   weatherFromFile,
   clearSkyGhi,
   cloudEstimate,
   cloudFromGlow,
   WeatherFile,
 } from './weatherFeed';
+
+const VIENNA = WEATHER_FEEDS.vienna;
 
 const file = (over: Partial<WeatherFile> = {}): WeatherFile => ({
   fetched_at: '2026-11-11T10:45:00Z',
@@ -25,18 +29,12 @@ const file = (over: Partial<WeatherFile> = {}): WeatherFile => ({
   humidity_pct: 60,
   glow_wm2: null,
   sunshine_s_10min: null,
-  attribution: WEATHER_ATTRIBUTION,
+  attribution: creditLine(VIENNA),
   ...over,
 });
 const NOW = new Date('2026-11-11T10:50:00Z');
 
 describe('weather from the file', () => {
-  it('credits GeoSphere as its legal page asks, and claims no licence', () => {
-    expect(WEATHER_ATTRIBUTION).toBe(
-      'Datenquelle: GeoSphere Austria - https://data.hub.geosphere.at'
-    );
-    expect(WEATHER_ATTRIBUTION).not.toMatch(/CC/);
-  });
   it('rain is 0.8..1, by rate', () => {
     expect(weatherFromFile(file({ precip_mm_10min: 0.1 }), 20)).toBeCloseTo(0.813, 2);
     expect(weatherFromFile(file({ precip_mm_10min: 3 }), -20)).toBe(1);
@@ -192,7 +190,7 @@ describe('reading weather.json', () => {
     const night = JSON.parse(
       '{"fetched_at":"2026-11-11T22:48:22Z","observed_at":"2026-11-11T22:40:00Z","station":11035,"precip_mm_10min":0.1,"humidity_pct":100.0,"sunshine_s_10min":0.0,"glow_wm2":0.0,"attribution":"Datenquelle: GeoSphere Austria - https://data.hub.geosphere.at"}'
     );
-    expect(parseWeatherFile(night)).toMatchObject({
+    expect(parseWeatherFile(night, VIENNA)).toMatchObject({
       precip_mm_10min: 0.1,
       humidity_pct: 100,
       glow_wm2: 0,
@@ -204,7 +202,7 @@ describe('reading weather.json', () => {
       humidity_pct: null,
       sunshine_s_10min: null,
       glow_wm2: null,
-    });
+    }, VIENNA);
     expect(gap).toMatchObject({
       precip_mm_10min: null,
       humidity_pct: null,
@@ -213,38 +211,41 @@ describe('reading weather.json', () => {
     });
     expect(currentWeather(gap, FALLBACK_VIEW.place, new Date('2026-11-11T22:50:00Z'))).toBe(CLEAR_SKY);
   });
-  it("is not another station's file", () => {
-    expect(parseWeatherFile({ ...file(), station: 11036 })).toBeNull();
+  it("is not another station's file: the check is the place's feed's station", () => {
+    expect(parseWeatherFile({ ...file(), station: 11036 }, VIENNA)).toBeNull();
+    const other = { ...VIENNA, station: 11036 };
+    expect(parseWeatherFile({ ...file(), station: 11036 }, other)).toMatchObject({ station: 11036 });
+    expect(parseWeatherFile(file(), other)).toBeNull();
   });
   it('parses the agreed shape, keeping nulls and the sunshine it never reads', () => {
     const raw = { ...file(), precip_mm_10min: null, glow_wm2: 12, sunshine_s_10min: 0 };
-    expect(parseWeatherFile(raw)).toEqual(raw);
+    expect(parseWeatherFile(raw, VIENNA)).toEqual(raw);
   });
   it('rejects a body without usable times, and anything not an object', () => {
-    expect(parseWeatherFile({ ...file(), observed_at: 'yesterday' })).toBeNull();
-    expect(parseWeatherFile({ ...file(), fetched_at: undefined })).toBeNull();
-    expect(parseWeatherFile(null)).toBeNull();
-    expect(parseWeatherFile('x')).toBeNull();
+    expect(parseWeatherFile({ ...file(), observed_at: 'yesterday' }, VIENNA)).toBeNull();
+    expect(parseWeatherFile({ ...file(), fetched_at: undefined }, VIENNA)).toBeNull();
+    expect(parseWeatherFile(null, VIENNA)).toBeNull();
+    expect(parseWeatherFile('x', VIENNA)).toBeNull();
   });
   it("rejects a time with no zone: it would be read in the client's local time", () => {
-    expect(parseWeatherFile({ ...file(), observed_at: '2026-11-10T10:40:00' })).toBeNull();
+    expect(parseWeatherFile({ ...file(), observed_at: '2026-11-10T10:40:00' }, VIENNA)).toBeNull();
     expect(
-      parseWeatherFile({ ...file(), observed_at: '2026-11-10T11:40:00+01:00' })
+      parseWeatherFile({ ...file(), observed_at: '2026-11-10T11:40:00+01:00' }, VIENNA)
     ).not.toBeNull();
   });
   it('is no observation when the file is missing, fails, or is not JSON', async () => {
     expect(
-      await fetchWeatherFile('/weather.json', (async () => ({
+      await fetchWeatherFile('/weather.json', VIENNA, (async () => ({
         ok: false,
       })) as unknown as typeof fetch)
     ).toBeNull();
     expect(
-      await fetchWeatherFile('/weather.json', (async () => {
+      await fetchWeatherFile('/weather.json', VIENNA, (async () => {
         throw new Error('offline');
       }) as unknown as typeof fetch)
     ).toBeNull();
     expect(
-      await fetchWeatherFile('/weather.json', (async () => ({
+      await fetchWeatherFile('/weather.json', VIENNA, (async () => ({
         ok: true,
         json: async () => {
           throw new Error('bad');
@@ -254,6 +255,21 @@ describe('reading weather.json', () => {
   });
   it('reads a good file', async () => {
     const f = (async () => ({ ok: true, json: async () => file() })) as unknown as typeof fetch;
-    expect(await fetchWeatherFile('/weather.json', f)).toEqual(file());
+    expect(await fetchWeatherFile('/weather.json', VIENNA, f)).toEqual(file());
+  });
+});
+
+describe('the feed table', () => {
+  it('serves Vienna and names no other place', () => {
+    expect(Object.keys(WEATHER_FEEDS)).toEqual(['vienna']);
+    expect(feedFor('vienna')).toBe(VIENNA);
+    ['fuji', 'matterhorn', 'amadablam', 'grandcanyon', '', 'constructor', 'toString'].forEach((id) =>
+      expect(feedFor(id)).toBeUndefined()
+    );
+  });
+  it("credits GeoSphere with its requested line, and states a licence only with the dataset named", () => {
+    expect(creditLine(VIENNA)).toBe(`Datenquelle: GeoSphere Austria - ${VIENNA.url}`);
+    expect(creditLine(VIENNA)).not.toMatch(/CC BY/);
+    expect(VIENNA.dataset).toMatch(/TAWES.*10-minute.*CC BY 4\.0/);
   });
 });
