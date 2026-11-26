@@ -335,54 +335,58 @@ describe('Auto follows the clock', () => {
   });
 });
 
-describe('the constellation lines toggle', () => {
+describe('the constellation lines', () => {
   let storage: ReturnType<typeof fakeStorage>;
   beforeEach(() => {
     storage = fakeStorage();
     vi.stubGlobal('localStorage', storage);
   });
 
-  it('are off by default, and a first pick of Night is a plain choice that leaves them off', async () => {
+  it('are off by default, and picking Night is a plain choice that leaves them off', async () => {
     const m = await fresh();
     expect(m.getConstellationLines()).toBe(false);
-    m.pickSkyChoice(night);
+    m.setSkyChoice(night);
     expect(m.getSkyChoice()).toEqual(night);
     expect(m.getConstellationLines()).toBe(false);
   });
 
-  it('re-picking Night while the choice is Night toggles them, tells the listeners, and keeps the choice', async () => {
+  it('picking Night while the choice is Night does nothing: no toggle, no notice', async () => {
     const m = await fresh();
     m.setSkyPlace(VIENNA);
-    m.pickSkyChoice(night);
+    m.setSkyChoice(night);
     const cb = vi.fn();
     m.subscribe(cb);
-    m.pickSkyChoice(night);
+    m.setSkyChoice(night);
+    m.setSkyChoice(night);
+    expect(m.getConstellationLines()).toBe(false);
+    expect(cb).not.toHaveBeenCalled();
+    expect(m.getSkyChoice()).toEqual(night);
+  });
+
+  it('setConstellationLines sets them, tells the listeners once per change, and keeps the choice', async () => {
+    const m = await fresh();
+    m.setSkyPlace(VIENNA);
+    m.setSkyChoice(night);
+    const cb = vi.fn();
+    m.subscribe(cb);
+    m.setConstellationLines(true);
+    m.setConstellationLines(true);
     expect(m.getConstellationLines()).toBe(true);
     expect(cb.mock.calls).toEqual([['night']]);
     expect(m.getSkyChoice()).toEqual(night);
-    m.pickSkyChoice(night);
+    m.setConstellationLines(false);
     expect(m.getConstellationLines()).toBe(false);
     expect(cb).toHaveBeenCalledTimes(2);
   });
 
-  it('are not toggled by re-picking any other choice, nor by picking Night from Auto that is drawing night', async () => {
-    const m = await fresh();
-    m.pickSkyChoice(noon);
-    m.pickSkyChoice(noon);
-    expect(m.getConstellationLines()).toBe(false);
-    m.setSkyClock(() => new Date('2026-12-04T00:00:00Z'));
-    m.pickSkyChoice(auto);
-    m.pickSkyChoice(night);
-    expect(m.getConstellationLines()).toBe(false);
-  });
-
   it('persist per viewer, and come back from storage', async () => {
     const m = await fresh();
-    m.pickSkyChoice(night);
-    m.pickSkyChoice(night);
+    m.setConstellationLines(true);
     expect(storage.data.get(m.SKY_LINES_KEY)).toBe('on');
     const again = await fresh();
     expect(again.getConstellationLines()).toBe(true);
+    again.setConstellationLines(false);
+    expect(storage.data.get(again.SKY_LINES_KEY)).toBe('off');
   });
 
   it('survive a refused storage: they hold for the page and read as off from a broken store', async () => {
@@ -399,8 +403,7 @@ describe('the constellation lines toggle', () => {
     });
     const m = await fresh();
     expect(m.getConstellationLines()).toBe(false);
-    m.pickSkyChoice(night);
-    m.pickSkyChoice(night);
+    m.setConstellationLines(true);
     expect(m.getConstellationLines()).toBe(true);
   });
 });

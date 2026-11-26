@@ -69,7 +69,7 @@ function load(): SkyChoice {
 
 let clock: () => Date = () => new Date();
 
-/** The constellation lines (a hidden extra, ruling ridge-constellation-lines-hidden-extra): on or off, per viewer, off by default. */
+/** The constellation lines: on or off, per viewer, off by default; set by `setConstellationLines`. */
 export const SKY_LINES_KEY = 'ratatoskr.skyLines';
 let lines: boolean | undefined;
 
@@ -165,22 +165,18 @@ export function setSkyPlace(p: Place | undefined): void {
 }
 
 /**
- * A pick in the sky menu. Picking a choice sets it; picking Night while the choice already is Night toggles the constellation lines, which
- * listeners hear as a sky change (the scene is rebuilt for it: `ridgeSkyKey` carries the flag).
+ * The constellation lines on or off (the Sky submenu of the scene view, ruling ridge-scene-view-submenus): per viewer, stored. Listeners hear it as a sky change
+ * (the scene is rebuilt for it: `ridgeSkyKey` carries the flag), once, and only when the flag moved. This is the one setter; picking Night again sets nothing.
  */
-export function pickSkyChoice(c: SkyChoice): void {
-  const now = getSkyChoice();
-  if (c.kind === 'named' && c.id === 'night' && now.kind === 'named' && now.id === 'night') {
-    lines = !getConstellationLines();
-    try {
-      localStorage.setItem(SKY_LINES_KEY, lines ? 'on' : 'off');
-    } catch {
-      // Storage is refused: the lines hold for this page load only.
-    }
-    emit();
-    return;
+export function setConstellationLines(on: boolean): void {
+  if (getConstellationLines() === on) return;
+  lines = on;
+  try {
+    localStorage.setItem(SKY_LINES_KEY, on ? 'on' : 'off');
+  } catch {
+    // Storage is refused: the lines hold for this page load only.
   }
-  setSkyChoice(c);
+  emit();
 }
 
 /** Listeners hear the resolved band: on a change of choice or place, while Auto, when the clock crosses a band, and while a named moment, when the place-local day rolls over. */

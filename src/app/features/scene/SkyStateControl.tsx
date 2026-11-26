@@ -14,7 +14,7 @@ import {
 import FocusTrap from 'focus-trap-react';
 import { stopPropagation } from '../../utils/keyboard';
 import { useDrawnPlace, useSkyChoice } from '../../hooks/useSkyState';
-import { pickSkyChoice, skyNow } from './skyState';
+import { setSkyChoice, skyNow } from './skyState';
 import {
   FREE_DATE_MAX,
   FREE_DATE_MIN,
@@ -200,7 +200,7 @@ export function SkyStateControl() {
                     role="menuitemradio"
                     aria-checked={checked}
                     onClick={() => {
-                      pickSkyChoice(c);
+                      setSkyChoice(c);
                       setCords(undefined);
                     }}
                     after={checked ? <Icon size="100" src={Icons.Check} /> : undefined}
@@ -229,7 +229,7 @@ export function SkyStateControl() {
                 <SkyMomentPicker
                   seed={seedFree(choice, place, skyNow())}
                   tz={place.tz}
-                  onCommit={pickSkyChoice}
+                  onCommit={setSkyChoice}
                 />
               )}
               {ridgeOn && (

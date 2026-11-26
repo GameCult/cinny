@@ -150,8 +150,7 @@ describe('the rebuild key and the constellation lines', () => {
     const now = atSolarTime(12, 0);
     const off = f.ridgeSkyKey(named('night'), FALLBACK_VIEW, 0, now);
     const dayOff = f.ridgeSkyKey(named('noon'), FALLBACK_VIEW, 0, now);
-    st.pickSkyChoice(named('night'));
-    st.pickSkyChoice(named('night'));
+    st.setConstellationLines(true);
     expect(f.ridgeSkyKey(named('night'), FALLBACK_VIEW, 0, now)).toBe(`${off}:lines`);
     expect(f.ridgeSkyKey(named('noon'), FALLBACK_VIEW, 0, now)).toBe(dayOff);
   });
