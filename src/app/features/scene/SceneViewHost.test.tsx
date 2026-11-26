@@ -50,7 +50,9 @@ beforeEach(() => {
   held.loads.length = 0;
   vi.stubGlobal('document', { getElementById: () => ({}) });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('the view while its code loads', () => {
   it('shows a Return that closes the view, with the phone tap target', () => {
