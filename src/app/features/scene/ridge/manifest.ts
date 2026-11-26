@@ -2,7 +2,7 @@
 // contract) and the page; no daemon state. Main-chunk safe: types, a parser and fetch only. Wire names are snake_case; the parsed manifest is
 // camelCase and its `view` is the View (`view.ts`) the sky and the cards share. Schema 3: the whole 360 degree ring, K G-buffer cards cut into
 // azimuth tiles, each tile two files.
-import { groundRowsNeeded, type View } from './view';
+import { groundRowsNeeded, type Place, type View } from './view';
 
 /** As export.py MAX_CARDS: the decode budget holds this many. */
 export const MAX_CARDS = 6;
@@ -198,11 +198,11 @@ async function getJson(url: string, init?: RequestInit): Promise<unknown> {
   return res.json();
 }
 
-/** A baked place as the Place submenu lists it: the manifest's own name and zone (local time on its card). */
+/** A baked place as the Place submenu lists it: the manifest's own name and place (its card reads the moment drawn there, in its zone). */
 export interface PlaceListing {
   id: string;
   name: string;
-  tz: string;
+  place: Place;
 }
 
 const memo = new Map<string, Promise<RidgeManifest>>();
@@ -254,7 +254,7 @@ export function listPlaces(baseUrl: string): Promise<PlaceListing[]> {
     const found = await Promise.allSettled(
       Object.keys(index.places).map(async (id): Promise<PlaceListing> => {
         const m = await loadManifest(baseUrl, id);
-        return { id, name: m.name, tz: m.view.place.tz };
+        return { id, name: m.name, place: m.view.place };
       })
     );
     return found.flatMap((f) => (f.status === 'fulfilled' ? [f.value] : []));

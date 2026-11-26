@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseManifest } from '../ridge/manifest';
 import type { PlaceListing } from '../ridge/manifest';
 import { wireManifest } from '../ridge/manifest.fixture';
+import type { SkyChoice } from '../ridge/skyMoment';
 import { FALLBACK_VIEW } from '../ridge/view';
 import { LINES_CREDIT, STARS_CREDIT } from '../ridge/credits';
 import { WEATHER_FEEDS, creditLine } from '../ridge/weatherFeed';
@@ -10,6 +11,9 @@ import { SkySubmenu } from './SkySubmenu';
 
 // The hooks are held still (TimeSubmenu.test.tsx): the element tree is read, a function component is expanded by calling it.
 const held = vi.hoisted(() => ({
+  choice: { kind: 'auto' } as unknown,
+  clock: new Date('2030-06-21T10:00:00Z'),
+  live: undefined as boolean | undefined,
   place: undefined as unknown,
   places: undefined as unknown,
   picked: [] as string[],
@@ -20,7 +24,14 @@ vi.mock('react', async (importOriginal) => {
   const useEffect = () => undefined;
   return { ...actual, default: { ...actual, useRef, useEffect }, useRef, useEffect };
 });
-vi.mock('../../../hooks/useSkyState', () => ({ useDrawnPlace: () => held.place }));
+vi.mock('../../../hooks/useSkyState', () => ({
+  useDrawnPlace: () => held.place,
+  useSkyChoice: () => held.choice,
+  useSkyMinute: (live: boolean) => {
+    held.live = live;
+    return held.clock;
+  },
+}));
 vi.mock('../../../hooks/useSceneView', () => ({
   usePlaceList: () => held.places,
   useConstellationLines: () => false,
@@ -28,7 +39,6 @@ vi.mock('../../../hooks/useSceneView', () => ({
 vi.mock('../placeState', () => ({ setPlaceChoice: (id: string) => held.picked.push(id) }));
 vi.mock('../skyState', () => ({
   setConstellationLines: () => undefined,
-  skyNow: () => new Date('2030-06-21T10:00:00Z'),
 }));
 
 type El = { type?: unknown; props?: Record<string, unknown> };
@@ -58,25 +68,33 @@ const strings = (node: unknown): string[] => {
 const text = (node: unknown) => strings(node).join(' ');
 
 const manifest = parseManifest(wireManifest(), 'http://x/ridge/vienna/');
+const at = (id: string, name: string, lat: number, lon: number, tz: string): PlaceListing => ({
+  id,
+  name,
+  place: { id, lat, lon, altitudeKm: 0, tz },
+});
 const FIVE: PlaceListing[] = [
-  { id: 'vienna', name: 'Vienna', tz: 'Europe/Vienna' },
-  { id: 'fuji', name: 'Fuji', tz: 'Asia/Tokyo' },
-  { id: 'matterhorn', name: 'Matterhorn', tz: 'Europe/Zurich' },
-  { id: 'amadablam', name: 'Ama Dablam', tz: 'Asia/Kathmandu' },
-  { id: 'grandcanyon', name: 'Grand Canyon', tz: 'America/Phoenix' },
+  at('vienna', 'Vienna', 48.2, 16.4, 'Europe/Vienna'),
+  at('fuji', 'Fuji', 35.36, 138.73, 'Asia/Tokyo'),
+  at('matterhorn', 'Matterhorn', 45.98, 7.66, 'Europe/Zurich'),
+  at('amadablam', 'Ama Dablam', 27.86, 86.86, 'Asia/Kathmandu'),
+  at('grandcanyon', 'Grand Canyon', 36.1, -112.1, 'America/Phoenix'),
 ];
+const AUTO: SkyChoice = { kind: 'auto' };
 const NOW = new Date('2030-06-21T10:00:00Z');
 const cardsOf = (tree: El[]) => tree.filter((e) => e.props?.['aria-current'] !== undefined);
 
 beforeEach(() => {
   held.place = FALLBACK_VIEW.place;
   held.places = FIVE;
+  held.choice = AUTO;
+  held.live = undefined;
   held.picked.length = 0;
 });
 
 describe('the Place carousel', () => {
   it('is one card per baked place, named by the index and showing each place local time now', () => {
-    const tree = walk(PlaceCarousel({ places: FIVE, current: 'vienna', now: NOW, onPick: () => undefined }));
+    const tree = walk(PlaceCarousel({ places: FIVE, current: 'vienna', choice: AUTO, now: NOW, onPick: () => undefined }));
     expect(cardsOf(tree).map(textOf)).toEqual([
       'Vienna12:00 local',
       'Fuji19:00 local',
@@ -87,6 +105,38 @@ describe('the Place carousel', () => {
     expect(cardsOf(tree).map((e) => e.props?.['aria-current'])).toEqual([true, false, false, false, false]);
   });
 
+  const minutes = (card: string): number => {
+    const m = /(\d\d):(\d\d) local/.exec(card);
+    return Number(m?.[1]) * 60 + Number(m?.[2]);
+  };
+
+  it("shows the place-local time of the moment the sky draws: a named moment is that moment at each place, not the real clock, and Auto is the clock", () => {
+    const noon: SkyChoice = { kind: 'named', id: 'noon' };
+    const drawn = (choice: SkyChoice) =>
+      cardsOf(walk(PlaceCarousel({ places: FIVE, current: 'vienna', choice, now: NOW, onPick: () => undefined }))).map(textOf);
+    const live = drawn(AUTO);
+    const frozen = drawn(noon);
+    expect(frozen).not.toEqual(live);
+    frozen.forEach((card) => {
+      expect(minutes(card)).toBeGreaterThanOrEqual(11 * 60); // each place's own solar noon, in its own zone
+      expect(minutes(card)).toBeLessThanOrEqual(14 * 60);
+    });
+    const free: SkyChoice = { kind: 'free', date: '2030-01-15', minutes: 3 * 60 };
+    expect(drawn(free).map(minutes)).toEqual([180, 180, 180, 180, 180]); // a free moment is the minute asked, in each zone
+  });
+
+  it('is given the sky clock and the choice, and the clock ticks while the sky is live (Auto) and only then', () => {
+    held.clock = new Date('2030-06-21T10:07:00Z');
+    const carousel = () => walk(PlaceSubmenu({ manifest })).find((e) => e.type === PlaceCarousel);
+    expect(carousel()?.props?.now).toBe(held.clock);
+    expect(carousel()?.props?.choice).toBe(AUTO);
+    expect(held.live).toBe(true);
+    held.choice = { kind: 'named', id: 'dusk' };
+    expect(carousel()?.props?.choice).toBe(held.choice);
+    expect(held.live).toBe(false);
+    held.clock = NOW;
+  });
+
   it('is in the panel over the index list, and a card or an arrow picks through the choice store', () => {
     const carousel = walk(PlaceSubmenu({ manifest })).find((e) => e.type === PlaceCarousel);
     expect(carousel?.props?.places).toBe(FIVE);
@@ -94,7 +144,7 @@ describe('the Place carousel', () => {
     onPick('grandcanyon');
     expect(held.picked).toEqual(['grandcanyon']);
     held.picked.length = 0;
-    const own = walk(PlaceCarousel({ places: FIVE, current: 'vienna', now: NOW, onPick }));
+    const own = walk(PlaceCarousel({ places: FIVE, current: 'vienna', choice: AUTO, now: NOW, onPick }));
     const click = (label: string) =>
       (own.find((e) => e.props?.['aria-label'] === label)?.props?.onClick as () => void)();
     click('Previous place'); // the ring: before Vienna is the last
@@ -120,7 +170,7 @@ describe('the Place carousel', () => {
         children: FIVE.map((_, i) => ({ offsetLeft: i * 100, offsetWidth: 100 })),
       };
       const own = walk(
-        PlaceCarousel({ places: FIVE, current: 'vienna', now: NOW, onPick: (id) => held.picked.push(id) })
+        PlaceCarousel({ places: FIVE, current: 'vienna', choice: AUTO, now: NOW, onPick: (id) => held.picked.push(id) })
       );
       const onScroll = own.find((e) => typeof e.props?.onScroll === 'function')?.props?.onScroll as (e: unknown) => void;
       const scrollTo = (left: number) => {

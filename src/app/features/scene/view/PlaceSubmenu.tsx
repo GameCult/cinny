@@ -1,15 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import { Box, Icon, IconButton, Icons, Text } from 'folds';
-import { useDrawnPlace } from '../../../hooks/useSkyState';
+import { useDrawnPlace, useSkyChoice, useSkyMinute } from '../../../hooks/useSkyState';
 import { usePlaceList } from '../../../hooks/useSceneView';
 import { PhoneHit } from '../../../styles/PhoneHit.css';
 import { LINES_CREDIT, STARS_CREDIT, terrainCredit } from '../ridge/credits';
 import type { RidgeManifest, PlaceListing } from '../ridge/manifest';
-import { localMinutes } from '../ridge/skyMoment';
+import { localMinutes, momentFor } from '../ridge/skyMoment';
+import type { SkyChoice } from '../ridge/skyMoment';
 import { FALLBACK_VIEW } from '../ridge/view';
 import { feedFor } from '../ridge/weatherFeed';
 import { setPlaceChoice } from '../placeState';
-import { skyNow } from '../skyState';
 import { hhmm } from './TimeSubmenu';
 import * as css from './SceneView.css';
 
@@ -33,17 +33,20 @@ const centredIndex = (strip: HTMLElement): number => {
 };
 
 /**
- * The baked places, one card each (its name and its local time now), swiped or stepped with the arrows; the card in the middle is the place drawn
+ * The baked places, one card each (its name and the place-local time of the moment the sky draws there: `momentFor`, the one owner, so the real clock under Auto and the
+ * picked moment under a named or free one), swiped or stepped with the arrows; the card in the middle is the place drawn
  * (`current`), and a pick, a tap on a card, an arrow or a swipe that comes to rest on another, goes to `onPick`. The list is the index's: nothing here keeps a copy.
  */
 export function PlaceCarousel({
   places,
   current,
+  choice,
   now,
   onPick,
 }: {
   places: PlaceListing[];
   current: string;
+  choice: SkyChoice;
   now: Date;
   onPick: (id: string) => void;
 }) {
@@ -101,7 +104,7 @@ export function PlaceCarousel({
           >
             <Text size="T400">{p.name}</Text>
             <Text size="T200" priority="300">
-              {hhmm(localMinutes(now, p.tz))} local
+              {hhmm(localMinutes(momentFor(choice, p.place, now), p.place.tz))} local
             </Text>
           </button>
         ))}
@@ -127,12 +130,14 @@ export function PlaceCarousel({
 export function PlaceSubmenu({ manifest }: { manifest: RidgeManifest | undefined }) {
   const place = useDrawnPlace() ?? FALLBACK_VIEW.place;
   const places = usePlaceList();
+  const choice = useSkyChoice();
+  const now = useSkyMinute(choice.kind === 'auto');
   const credit = terrainCredit(manifest);
   const feed = feedFor(place.id);
   return (
     <Box direction="Column" gap="300">
       {places && places.length > 1 ? (
-        <PlaceCarousel places={places} current={place.id} now={skyNow()} onPick={setPlaceChoice} />
+        <PlaceCarousel places={places} current={place.id} choice={choice} now={now} onPick={setPlaceChoice} />
       ) : (
         <Text size="T300">{manifest?.name ?? place.id}</Text>
       )}

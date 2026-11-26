@@ -36,7 +36,7 @@ export const useConstellationLines = (): boolean =>
 export const usePlaceChoice = (): string | undefined =>
   useSyncExternalStore(subscribePlaceChoice, getPlaceChoice);
 
-/** The baked places the carousel offers (`listPlaces`: memoised, so the session reads them once); undefined until they have loaded, and */
+/** The baked places the carousel offers (`listPlaces`: memoised, so the session reads them once); undefined until they have loaded, and when the index or its manifests do not load. */
 export function usePlaceList(): PlaceListing[] | undefined {
   const [list, setList] = useState<PlaceListing[]>();
   useEffect(() => {
