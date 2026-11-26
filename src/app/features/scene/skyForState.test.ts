@@ -167,6 +167,27 @@ describe('loadWeather', () => {
     expect(ridgeWeather()).toBeGreaterThan(0.7);
   });
 
+  it("a fetch that resolves after the place has changed writes nothing: the place the viewer is on is drawn clear, not with the old place's rain", async () => {
+    let release = () => undefined as void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ ok: true, json: async () => wx(later) });
+          })
+      )
+    );
+    const later = new Date(t.getTime() + 24 * 3_600_000);
+    setFedWeather(undefined);
+    const slow = loadWeather('/w.json', VIENNA, later); // Vienna's file is on the wire
+    await loadWeather('/w.json', FUJI, new Date(later.getTime() + 1_000)); // the viewer is on Fuji, which has no feed: clear
+    expect(ridgeWeather()).toBe(CLEAR_SKY);
+    release();
+    await slow;
+    expect(ridgeWeather()).toBe(CLEAR_SKY); // Vienna's rain is not Fuji's
+  });
+
   it("rejects a file whose station is not the place's feed's: a clear sky", async () => {
     vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ ...wx(t), station: 99999 }) }));
     await loadWeather('/w.json', VIENNA, t);

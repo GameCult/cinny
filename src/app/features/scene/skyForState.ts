@@ -37,7 +37,8 @@ const WEATHER_REFRESH_MS = 10 * 60_000;
 let weatherAt = -Infinity;
 let weatherPlace = '';
 /**
- * Read `weather.json` (the page's own, next to config.json) into the weather the ridge sky is drawn for; at most once in ten minutes.
+ * Read `weather.json` (the page's own, next to config.json) into the weather the ridge sky is drawn for; at most once in ten minutes. A file that arrives after
+ * the place moved on is not written.
  * Never throws: a missing, stale or broken file is a clear sky (`currentWeather`). A place with no feed (`feedFor`) is a clear sky and the file is not
  * fetched; the place is remembered all the same, so going back to a place with a feed reads the file at once.
  */
@@ -50,7 +51,9 @@ export async function loadWeather(url: string, place: Place, now: Date = skyNow(
     setFedWeather(CLEAR_SKY);
     return;
   }
-  setFedWeather(currentWeather(await fetchWeatherFile(url, feed), place, now));
+  const weather = currentWeather(await fetchWeatherFile(url, feed), place, now);
+  // The place the weather is for may have changed while the file was on the wire: `weatherPlace` is the one owner of it, and an answer for another place is dropped.
+  if (weatherPlace === place.id) setFedWeather(weather);
 }
 
 /**
