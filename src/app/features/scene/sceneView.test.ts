@@ -7,6 +7,7 @@ import {
   getSceneView,
   loadSceneView,
   loadSceneViewOrClose,
+  restoreEntryFocus,
   openSceneView,
   setSubmenu,
   subscribeSceneView,
@@ -88,7 +89,7 @@ describe('the scene view', () => {
     expect(attrs.has(SCENE_VIEW_ATTRIBUTE)).toBe(true);
   });
 
-  it('the Return icon closes it, takes its entry off the stack, frees the app and gives the focus back to the entry', () => {
+  it('the Return icon closes it, takes its entry off the stack, frees the app and owes the focus to the entry', () => {
     openSceneView();
     closeSceneView();
     expect(getSceneView().open).toBe(false);
@@ -96,12 +97,11 @@ describe('the scene view', () => {
     expect(back).toBe(1);
     expect(rootAttrs.size).toBe(0);
     expect(attrs.size).toBe(0);
-    expect(entryEl.focused).toBe(1);
     closeSceneView();
     expect(back).toBe(1);
   });
 
-  it("the browser's Back button closes it (the entry is already gone), once, and the focus returns", () => {
+  it("the browser's Back button closes it (the entry is already gone), once", () => {
     openSceneView();
     const seen = vi.fn();
     subscribeSceneView(seen);
@@ -111,7 +111,6 @@ describe('the scene view', () => {
     expect(back).toBe(1); // that one was the browser's; the close did not go back again
     expect(seen).toHaveBeenCalledTimes(1);
     expect(rootAttrs.size).toBe(0);
-    expect(entryEl.focused).toBe(1);
   });
 
   it('shows one submenu at a time, and choosing the one shown closes its panel', () => {
@@ -159,5 +158,36 @@ describe('the view code failing to load', () => {
     const mod = { default: () => null } as unknown as Awaited<ReturnType<typeof loadSceneView>>;
     expect(await loadSceneViewOrClose(() => Promise.resolve(mod))).toBe(mod);
     expect(getSceneView().open).toBe(true);
+  });
+});
+
+describe('the focus after a close', () => {
+  const closes: Array<[string, () => void]> = [
+    ['Return', () => closeSceneView()],
+    ['Escape (the view calls closeSceneView)', () => closeSceneView()],
+    ['Back', () => window.history.back()],
+  ];
+  it.each(closes)(
+    '%s: the close does not touch the focus (the trap is still mounted); restoreEntryFocus gives it to the entry, once',
+    (_name, close) => {
+      openSceneView();
+      close();
+      expect(getSceneView().open).toBe(false);
+      expect(entryEl.focused).toBe(0);
+      restoreEntryFocus();
+      expect(entryEl.focused).toBe(1);
+      restoreEntryFocus();
+      expect(entryEl.focused).toBe(1);
+    }
+  );
+
+  it('nothing is owed while the view is open, and a reopen forgets an unclaimed focus', () => {
+    openSceneView();
+    restoreEntryFocus();
+    expect(entryEl.focused).toBe(0);
+    closeSceneView();
+    openSceneView();
+    restoreEntryFocus();
+    expect(entryEl.focused).toBe(0);
   });
 });

@@ -9,11 +9,13 @@ const held = vi.hoisted(() => ({
   offered: true,
   view: undefined as unknown,
   closed: 0,
+  restored: 0,
+  sets: [] as unknown[],
   loads: [] as Array<(m: unknown) => void>,
 }));
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react')>();
-  const useState = () => [held.view, () => undefined];
+  const useState = () => [held.view, (v: unknown) => held.sets.push(v)];
   const useEffect = (fn: () => unknown) => {
     held.effects.push(fn);
   };
@@ -27,6 +29,9 @@ vi.mock('../../hooks/useSceneView', () => ({
 vi.mock('./sceneView', () => ({
   closeSceneView: () => {
     held.closed += 1;
+  },
+  restoreEntryFocus: () => {
+    held.restored += 1;
   },
   loadSceneViewOrClose: () => new Promise((res) => held.loads.push(res)),
 }));
@@ -47,6 +52,8 @@ beforeEach(() => {
   held.offered = true;
   held.view = undefined;
   held.closed = 0;
+  held.restored = 0;
+  held.sets.length = 0;
   held.loads.length = 0;
   vi.stubGlobal('document', { getElementById: () => ({}) });
 });
@@ -91,6 +98,42 @@ describe('the view while its code loads', () => {
     SceneViewHost();
     held.effects.forEach((run) => run());
     expect(held.loads).toHaveLength(1);
+  });
+});
+
+describe('the host and the focus', () => {
+  it('gives the entry its focus once the view is closed, and never while it is open', () => {
+    SceneViewHost();
+    held.effects.forEach((run) => run());
+    expect(held.restored).toBe(0);
+    held.effects.length = 0;
+    held.open = false;
+    SceneViewHost();
+    held.effects.forEach((run) => run());
+    expect(held.restored).toBe(1);
+  });
+});
+
+describe('the view code arriving', () => {
+  const run = () => {
+    SceneViewHost();
+    return held.effects.map((e) => e()).filter((c): c is () => void => typeof c === 'function');
+  };
+  it('is mounted when it arrives while the view is open', async () => {
+    const View = () => null;
+    run();
+    held.loads[0]({ default: View });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(held.sets).toEqual([{ View }]);
+  });
+  it('is dropped when it arrives after the view closed again', async () => {
+    const cleanups = run();
+    cleanups.forEach((c) => c());
+    held.loads[0]({ default: () => null });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(held.sets).toEqual([]);
   });
 });
 

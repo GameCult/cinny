@@ -34,11 +34,11 @@ describe('the credits (ruling ridge-view-credits-home: Place alone)', () => {
     expect(t).toContain(LINES_CREDIT);
   });
 
-  it('Sky carries none of them', () => {
-    const t = text(SkySubmenu());
-    expect(t).not.toContain(STARS_CREDIT);
-    expect(t).not.toContain(LINES_CREDIT);
-    expect(t).not.toMatch(/Data|Datenquelle/);
+  it('Sky carries only the lines switch and its note: no credit of any wording', () => {
+    expect(strings(SkySubmenu()).filter((x) => /\s/.test(x))).toEqual([
+      'Constellation lines',
+      'Drawn over the stars of a night sky.',
+    ]);
   });
 
   it("the weather's credit shows where the feed serves the place, and only there", () => {

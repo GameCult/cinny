@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PhoneHit } from '../../../styles/PhoneHit.css';
 import SceneView, { Rail, SUBMENUS } from './SceneView';
@@ -222,5 +224,18 @@ describe('one finger on the phone (ruling ridge-view-phone-one-finger)', () => {
     expect(held.turner).toEqual([]);
     on('onPointerDown', { pointerType: 'mouse', button: 0, clientX: 100 });
     expect(held.turner).toEqual([['down', 100]]);
+  });
+});
+
+describe('the chrome styles (a vanilla-extract rule cannot be read back, so the source is)', () => {
+  const css = readFileSync(join(__dirname, 'SceneView.css.ts'), 'utf8');
+  it('the fade rule uses the constant the test above bounds', () => {
+    expect(css).toMatch(/data-turning="true"] &`]: { opacity: TURNING_CHROME_OPACITY }/);
+  });
+  it('the chrome takes no pointer itself, so a drag over its gaps turns the view; its plates do', () => {
+    const chrome = css.slice(css.indexOf('export const Chrome'), css.indexOf('const Plate'));
+    expect(chrome).toContain("pointerEvents: 'none'");
+    const plate = css.slice(css.indexOf('const Plate'), css.indexOf('export const Rail'));
+    expect(plate).toContain("pointerEvents: 'auto'");
   });
 });

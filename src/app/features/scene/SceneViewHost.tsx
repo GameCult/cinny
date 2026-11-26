@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Icon, IconButton, Icons } from 'folds';
 import { PhoneHit } from '../../styles/PhoneHit.css';
 import { useSceneViewOffered, useSceneViewState } from '../../hooks/useSceneView';
-import { closeSceneView, loadSceneViewOrClose } from './sceneView';
+import { closeSceneView, loadSceneViewOrClose, restoreEntryFocus } from './sceneView';
 import * as css from './sceneShell.css';
 
 /**
@@ -45,6 +45,11 @@ export function SceneViewHost() {
   const offered = useSceneViewOffered();
   const [view, setView] = useState<{ View: ComponentType } | undefined>();
   const shown = open && offered;
+
+  // The view is gone from the page (its focus trap with it) once `open` is false: only now can the entry take the focus and keep it.
+  useEffect(() => {
+    if (!open) restoreEntryFocus();
+  }, [open]);
 
   useEffect(() => {
     if (open && !offered) closeSceneView();

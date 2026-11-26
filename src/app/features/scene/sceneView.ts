@@ -20,8 +20,10 @@ export const SCENE_VIEW_HISTORY_MARK = 'ratatoskrSceneView';
 
 let state: SceneViewState = { open: false, submenu: undefined };
 const listeners = new Set<() => void>();
-/** The control that opened the view, which takes the focus back when it closes. */
+/** The control that opened the view. */
 let entry: HTMLElement | null = null;
+/** The control that is owed the focus: set by a close, taken by `restoreEntryFocus` once the view's focus trap is gone. */
+let owed: HTMLElement | null = null;
 /** Whether this view pushed a history entry that is still on top of the stack. */
 let pushed = false;
 
@@ -51,6 +53,7 @@ const onPopState = (): void => {
 export function openSceneView(): void {
   if (state.open) return;
   entry = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  owed = null;
   try {
     window.history.pushState(
       { ...(window.history.state ?? {}), [SCENE_VIEW_HISTORY_MARK]: true },
@@ -66,7 +69,7 @@ export function openSceneView(): void {
   set({ open: true, submenu: undefined });
 }
 
-/** Everything closing does, whichever way it came: the app live again, the rotation a manual turn held resumed, the focus back where it was. */
+/** Everything closing does, whichever way it came: the app live again, the rotation a manual turn held resumed, the focus owed back to the entry (`restoreEntryFocus`). */
 function finish(): void {
   if (!state.open) return;
   window.removeEventListener('popstate', onPopState);
@@ -74,10 +77,20 @@ function finish(): void {
   root()?.removeAttribute('inert');
   // Picking the mode already chosen ends a hold (cameraState.ts): the scene behind the chat turns again from where the viewer left it.
   setCamera({ mode: getCamera().mode });
-  const back = entry;
+  owed = entry;
   entry = null;
   set({ open: false, submenu: undefined });
-  back?.focus?.();
+}
+
+/**
+ * Give the focus back to the control that opened the view. The one owner of that focus, called by the host once the view has unmounted: while the view's focus
+ * trap is still mounted it pulls focus back to Return, and its unmount then drops it to the body. Nothing is owed while the view is open or once it has been
+ * restored, so a call at any other time changes nothing.
+ */
+export function restoreEntryFocus(): void {
+  const to = owed;
+  owed = null;
+  to?.focus?.();
 }
 
 /** Return: close the view, and take its history entry off the stack when it is still the top one. */
