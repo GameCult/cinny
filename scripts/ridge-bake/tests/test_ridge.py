@@ -218,7 +218,6 @@ def _write(out, b, packed, **kw):
 def _refuses(out, b, packed, why, **kw):
     try: _write(out, b, packed, **kw)
     except export.Refusal: assert not os.path.exists(out), ('a refused bake left files', why)
-    except Exception as e: raise AssertionError(f'{why}: the writer failed with {type(e).__name__}, not a Refusal: {e}')
     else: assert False, why
 def _pins():
     assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 7), 'the ring layout is pinned'
