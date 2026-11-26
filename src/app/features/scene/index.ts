@@ -4,6 +4,7 @@ import { debugOverlaysAllowed } from './debugOverlays';
 import { getConstellationLines, getResolvedSkyState, getSkyChoice, subscribe } from './skyState';
 import type { FixedSkyState, SkyChoice } from './ridge/skyMoment';
 import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
+import { subscribePlaceChoice } from './placeState';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
 import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
@@ -271,7 +272,13 @@ export async function startBackgroundScene(
       if (loggedIn) scene.login();
     }
   };
-  const off = subscribe(rebuild);
+  // A place picked in the Place submenu is a rebuild: `skyKey` re-resolves the place (skyPlace.ts), which is the sky's place, and so the key's.
+  const offSky = subscribe(rebuild);
+  const offPlace = subscribePlaceChoice(rebuild);
+  const off = () => {
+    offSky();
+    offPlace();
+  };
   // A change that landed while the first build was awaited was missed by the subscription.
   rebuild();
   return {
