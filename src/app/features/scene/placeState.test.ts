@@ -12,8 +12,12 @@ const fresh = async () => {
   return import('./placeState');
 };
 
-beforeEach(() => store());
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  store();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('the viewer place choice', () => {
   it('is none until picked, then persists per viewer under ratatoskr.skyPlace', async () => {
