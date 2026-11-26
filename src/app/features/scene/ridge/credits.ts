@@ -1,4 +1,4 @@
-// What the Ridge background owes its data sources, shown in the Sky menu (SkyStateControl). Plain strings in their own module so the
+// What the Ridge background owes its data sources, shown in the scene view (the Place submenu: terrain and weather; the Sky submenu: stars and lines). Plain strings in their own module so the
 // main chunk carries these and not the weather parser; credits.test.ts holds them equal to the sources'. The terrain credit is the loaded
 // manifest's own `attribution` (terrainCredit): the baker writes it, so no constant here can drift from the bake.
 import type { RidgeManifest } from './manifest';

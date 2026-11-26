@@ -11,7 +11,7 @@ means "keep the CSS ground". Everything below this section describes the opt-in 
   same keyframes as the cards; a residency tick or a reissue paints a new plate about the heading once it is within that margin of the plate's edge (or the speed asks for more slack) and swaps it in the same tick,
   keyed from the clock after the paint (the same sky at the same screen place, so nothing moves; the twinkle schedule runs over the catalogue, so a swap keeps which stars swing; the plate's backing store is capped at 3 Mpx, the pixel ratio lowering before the plate shrinks). Then come the lit ridge
   cards (below) and, when it rains, tiled rain streaks slid down on the compositor (`ridge/rain.ts`). A sky with no physical model is a gradient in the host canvas.
-  With no cards (the load failed) the scene shows the sky, stars and weather only, the plate facing the place's rest azimuth and staying. No script runs per frame except the twinkle, at most every 50 ms.
+  With no cards (the load failed) the scene shows the sky, stars and weather only, the plate facing the place's rest azimuth and staying. No script runs per frame except the twinkle, at most every 50 ms, and, only inside the scene view while a pointer is down, the pointer events that turn the heading (below).
   The host canvas and its parent must be positioned and the parent must clip (the plate is wider than the viewport); the canvas should fill the parent. A resize rebuilds it; so does a sky change
   (`index.ts`).
 - Paused when the tab is hidden; under `prefers-reduced-motion` the rain is paused and the stars stay at base brightness.
@@ -85,6 +85,14 @@ glow_wm2, sunshine_s_10min, attribution}`, null for a missing measurement. A fil
 sky. Rain is the gauge; cloud is an estimate from the global radiation against Haurwitz's clear-sky value, cross-checked by the sunshine
 duration, with the humidity as the fallback when the sun is low (`ridge/weatherFeed.ts`). The weather draws a cloud deck in the sky
 (`ridge/clouds.ts`) and lays tiled rain streaks over the sky (`ridge/rain.ts`, compositor-driven, none in a still).
+
+## The scene view
+
+`sceneView.ts` owns whether the fullscreen view is open and which submenu is up (main-chunk safe). The entry is `SceneViewEntry` (`SkyStateControl.tsx`), the icon button in the navigator and sign-in headers; it preloads the view's chunk on hover or focus. Opening pushes one history entry (so the browser Back button, Escape and Return are the same close), sets `html[data-scene-view]` and makes `#root` inert and hidden while it stays mounted, so the chat keeps its scroll and composer. `BackgroundScene.tsx` mounts the lazy `view/SceneView.tsx` in `#portalContainer`.
+
+The view is a full-viewport turning surface and, top left, a toolbar rail (Return, View, Time, Sky, Place; every icon `PhoneHit`) beside one panel at a time. View (`view/ViewSubmenu.tsx`): rotation mode, speed (bounded by `view.ts` `maxSpeed` for the mode) and the signed parallax offset (`offsetRange`), each written to `cameraState.ts` on release. Time (`view/TimeSubmenu.tsx`): the sky menu's moments and free moment, unchanged, to `skyState.ts` `setSkyChoice`. Sky (`view/SkySubmenu.tsx`): the constellation lines (`setConstellationLines`, the one setter) and the stars and lines credits. Place (`view/PlaceSubmenu.tsx`): the place shown and its terrain and weather credits (the carousel is cut ridge-places). Return calls `setCamera` with the chosen mode, which ends a hold.
+
+Manual turning (`view/turning.ts`) happens only inside the view: a one-finger or mouse horizontal drag turns the heading one for one with the far sky (`dh = -dx / (pxPerDegH x plane.scale)`), the arrows 5 degrees (Shift 15), a horizontal wheel or swipe one for one; each event calls `heading.hold`, which re-issues the rig, and the rotation stays held until a mode is picked or Return is pressed. Pitch is never turned. While a pointer is down the panel and rail fade.
 
 ## Entry points
 

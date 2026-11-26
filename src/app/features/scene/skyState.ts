@@ -34,7 +34,7 @@ export function parseSkyChoice(raw: unknown): SkyChoice | undefined {
 
 const same = (a: SkyChoice, b: SkyChoice): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-// The sky menu once held Auto, Day, Dusk and Night under another key. It is read once, here, and removed: Day became Noon.
+// The old sky menu once held Auto, Day, Dusk and Night under another key. It is read once, here, and removed: Day became Noon.
 const OLD_KEY = 'ratatoskr.skyState';
 const FROM_OLD = new Map<string, SkyChoice>([
   ['auto', AUTO],
