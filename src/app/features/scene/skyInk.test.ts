@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { baked } from '../../../sky/baked';
 import { AA, luminance } from '../../../sky/skyTokens.js';
 import { indexColorMXID } from '../../../util/colorMXID';
-import type { FixedSkyState } from './skyState';
+import type { FixedSkyState } from './ridge/skyMoment';
 import {
   LIGHTEST_PATCH,
   NIGHT_INK_MAX_L,

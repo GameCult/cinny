@@ -10,7 +10,7 @@
 // distribution of the sky grid so that its 5th, 50th and 95th percentiles land on the state's target display luminances. The curve
 // starts at a small black lift and ends at white, or at the state's ceiling when it has one. It is fitted on the sky grid alone: the
 // cards are not sampled, they ride the same curve.
-import type { FixedSkyState } from '../skyState';
+import type { FixedSkyState } from './skyMoment';
 import { SUN_LUX } from './nightSky';
 
 type Rgb = readonly [number, number, number];

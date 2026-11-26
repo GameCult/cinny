@@ -1,16 +1,22 @@
-// A hand-written manifest v2 and index v1 (wire form, as export.py writes them): the runtime's tests need no real bake and no decoder.
+// A hand-written manifest schema 3 and index v1 (wire form, as export.py writes them): the runtime's tests need no real bake and no decoder. The ring is
+// four tiles of 90 degrees, so a tile is a quarter of the compass and wrap-around at north is easy to meet.
 import type { View } from './view';
 
-/** Card scales of the fixture, nearest first, as the baker derives them for a camera 200 m forward (distances 1.2 km, 12 km, 40 km). */
-const SCALES = [1.2, 1.0167, 1.005] as const;
+/** A card's distance in each of the fixture's four tiles, metres, nearest card first; null where the tile holds no such card (the third card is absent over the south). */
+export const DISTANCES: (number | null)[][] = [
+  [1000, 1200, 1400, 1100],
+  [10000, 12000, 14000, 11000],
+  [40000, 41000, null, 39000],
+];
 
-/** A v2 manifest of `k` cards (1 to 6), nearest first, each a band of the 600-row plane. */
+/** A schema 3 manifest of `k` cards (1 to 3, nearest first), each a band of the 600-row plane, over `tiles` tiles (4 by default, 32 as the baker cuts) whose distances repeat the four above. */
 export const wireManifest = (
   over: Record<string, unknown> = {},
-  k = 3
+  k = 3,
+  tiles = 4
 ): Record<string, unknown> => ({
-  schema: 2,
-  baker_version: 2,
+  schema: 3,
+  baker_version: 4,
   bake_id: 'abc123abc123',
   place: {
     id: 'vienna',
@@ -18,37 +24,45 @@ export const wireManifest = (
     lat: 48.19,
     lon: 16.35,
     altitude_km: 0.183,
+    tz: 'Europe/Vienna',
     eye_m: 1.7,
   },
   view: {
     look_az_deg: 214,
-    window_deg: 72,
-    plane_w: 1280,
     plane_h: 600,
-    px_per_deg_h: 1280 / 72,
-    px_per_deg_v: 177.8,
+    px_per_deg_h: 6400 / 360,
+    px_per_deg_v: 171.7,
     exaggeration: 10,
-    horizon_row: 314.5,
+    horizon_row: 357,
     sky_row: 24,
     near_row: 396,
+    ring_w: 6400,
+    tile_w: 6400 / tiles,
+    tiles,
+    apron: 2,
   },
   curvature: { r_earth_m: 6371000, k_ref: 0.13 },
   encoding: { log_d_min: 4.6, log_d_max: 11.5, normal: 'rt8' },
-  camera: { r_m: 200, heading_max_deg: 23 },
+  camera: { r_max_m: 100, r_max_forward_m: 180 },
   cards: Array.from({ length: k }, (_, i) => ({
-    top: 100 * i,
-    h: 600 - 100 * i,
-    near_m: i ? 1000 * i : null,
-    far_m: i < k - 1 ? 1000 * (i + 1) : null,
-    median_m: 1000 * (i + 1),
-    distance_m: 1000 * (i + 1),
-    scale: SCALES[i] ?? 1.001,
-    colour: { file: `card-${i}-colour.webp`, bytes: 1 },
-    geometry: { file: `card-${i}-geometry.webp`, bytes: 1 },
+    near_m: i ? 1000 * 10 ** (i - 1) * 4 : null,
+    far_m: i < k - 1 ? 4000 * 10 ** i : null,
   })),
-  w: 1280,
-  h: 600,
-  bytes: 2 * k,
+  tiles: Array.from({ length: tiles }, (_, t) =>
+    Array.from({ length: k }, (_, i) => {
+      const d = DISTANCES[i][t % 4];
+      return d === null
+        ? null
+        : {
+            top: 100 * i,
+            h: 600 - 100 * i,
+            distance_m: d,
+            colour: { file: `card-${i}-t${String(t).padStart(2, '0')}-colour.webp`, bytes: 1 },
+            geometry: { file: `card-${i}-t${String(t).padStart(2, '0')}-geometry.webp`, bytes: 1 },
+          };
+    })
+  ),
+  bytes: 0,
   attribution: {
     credit_line: 'credit',
     licence: 'licence',
@@ -64,14 +78,16 @@ export const wireIndex = {
   places: { vienna: 'vienna-abc123abc123', graz: 'graz-def456def456' },
 };
 
-/** A View that differs from FALLBACK_VIEW in every field the sky reads (place, altitude, look azimuth, window, horizon row), so a test can tell the two apart. */
+/** A View that differs from FALLBACK_VIEW in every field the sky reads (place, altitude, look azimuth, horizon row), so a test can tell the two apart. */
 export const ELSEWHERE_VIEW: View = {
-  place: { id: 'elsewhere', lat: -33.9, lon: 151.2, altitudeKm: 1.5 },
+  place: { id: 'elsewhere', lat: -33.9, lon: 151.2, altitudeKm: 1.5, tz: 'Australia/Sydney' },
   lookAzDeg: 20,
-  windowDeg: 90,
-  planeW: 1600,
+  ringW: 3600,
+  tileW: 900,
+  tiles: 4,
+  apron: 2,
   planeH: 700,
-  pxPerDegH: 1600 / 90,
+  pxPerDegH: 10,
   pxPerDegV: 100,
   horizonRow: 250,
 };

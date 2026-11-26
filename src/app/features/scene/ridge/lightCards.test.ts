@@ -6,8 +6,9 @@ import {
   celShade,
   celLevels,
   FRAGMENT,
-  lightCards,
+  createLighter,
   lightingOf,
+  ringAzimuth,
   skyLut,
   SKY_LUT,
   sunColumns,
@@ -49,15 +50,20 @@ describe("the sun in a column's frame", () => {
     expect(sunInColumn({ azimuth: 10, elevation: 0 }, 100)[1]).toBeCloseTo(-1, 12);
   });
 
-  it('is computed for every column of the window, from its own azimuth', () => {
+  it('is computed for every column of the ring, from its own absolute azimuth', () => {
     const view = manifest.view;
     const cols = sunColumns(view, { azimuth: 214, elevation: 20 });
-    expect(cols).toHaveLength(view.planeW * 4);
+    expect(cols).toHaveLength(view.ringW * 4);
     const at = (x: number) => Array.from(cols.slice(x * 4, x * 4 + 3));
-    const mid = at(view.planeW / 2);
-    expect(mid[0]).toBeCloseTo(Math.cos(20 * RAD), 3); // the middle column looks near the sun's azimuth
-    expect(at(0)[1]).toBeGreaterThan(0.1); // the left edge has the sun to its right
-    expect(at(view.planeW - 1)[1]).toBeLessThan(-0.1);
+    const sunCol = Math.floor((214 / 360) * view.ringW);
+    expect(ringAzimuth(sunCol, view.ringW)).toBeCloseTo(214, 1);
+    expect(at(sunCol)[0]).toBeCloseTo(Math.cos(20 * RAD), 3); // the column that looks at the sun's azimuth
+    expect(at(sunCol - 1000)[1]).toBeGreaterThan(0.1); // the sun is to the right of columns before it, and to the left of those after
+    expect(at(sunCol + 1000)[1]).toBeLessThan(-0.1);
+    // Every column is a unit vector, the first column of the ring looks north and the last looks just west of it.
+    for (let x = 0; x < view.ringW; x += 400) expect(Math.hypot(...at(x))).toBeCloseTo(1, 5);
+    expect(ringAzimuth(0, view.ringW)).toBeCloseTo(0.028125, 6);
+    expect(ringAzimuth(view.ringW - 1, view.ringW)).toBeCloseTo(360 - 0.028125, 6);
   });
 });
 
@@ -146,10 +152,34 @@ describe('the lighting inputs', () => {
       7 // the airglow floor adds a few 1e-9
     );
     expect(texel(0, SKY_LUT.h - 1)[0]).toBeCloseTo(0, 7);
-    // The sun lies at 214 degrees, the middle of the window: the cosine from the sun is 1 there and falls to the sides.
-    const mid = texel(SKY_LUT.w / 2, above)[1];
+    // The sun lies at 214 degrees: the cosine from the sun is 1 at its column and falls round the ring. The table spans the ring, so 320 columns.
+    expect(SKY_LUT.w).toBe(320);
+    const sunI = Math.floor((214 / 360) * SKY_LUT.w);
+    const mid = texel(sunI, above)[1];
     expect(mid).toBeGreaterThan(0.999);
     expect(texel(0, above)[1]).toBeLessThan(mid);
+    expect(texel(sunI + 160, above)[1]).toBeLessThan(-0.9);
+  });
+});
+
+describe('the ring in the shader', () => {
+  it('reads the sun and the sky by the column of the ring, not of the file, and wraps at the ends', () => {
+    expect(FRAGMENT).toContain('int col = ((uCol0 + p.x) % uRingW + uRingW) % uRingW;');
+    expect(FRAGMENT).toContain('texelFetch(uSun, ivec2(col, 0), 0)');
+    expect(FRAGMENT).toContain('(float(col) + 0.5) / float(uRingW)');
+    expect(FRAGMENT).toContain('(int(b.x) % w + w) % w'); // the sky table wraps in azimuth
+  });
+  it('gives the ground noise the ground point, so it is the same at ring column 0 and column 6400', () => {
+    // The noise coordinate is dist x (sin psi, cos psi) with psi from the wrapped column: sin and cos of 0 and of a whole turn are one point.
+    expect(FRAGMENT).toContain('vec2 world = vec2(sin(psi), cos(psi)) * dist;');
+    expect(FRAGMENT).toContain('float psi = (float(col) + 0.5) / float(uRingW) * 2.0 * PI;');
+    expect(FRAGMENT).not.toContain("uRadPerPx");
+    const at = (col: number, w: number) => {
+      const psi = ((((col % w) + w) % w) + 0.5) / w * 2 * Math.PI;
+      return [Math.sin(psi), Math.cos(psi)];
+    };
+    expect(at(6400, 6400)[0]).toBeCloseTo(at(0, 6400)[0], 12);
+    expect(at(6400, 6400)[1]).toBeCloseTo(at(0, 6400)[1], 12);
   });
 });
 
@@ -169,12 +199,13 @@ describe('the display of the shader', () => {
 
 describe('the look reaches the shader', () => {
   // A recording WebGL2: every uniform call is kept by the name of its location, nothing is drawn.
-  const run = (look?: Partial<RidgeLook>) => {
+  const run = (look?: Partial<RidgeLook>, tile = 0) => {
     const uniforms: Record<string, number[]> = {};
+    const crops: number[][] = [];
     const gl = new Proxy(
       {
         getUniformLocation: (_p: unknown, name: string) => name,
-        uniform1i: () => undefined,
+        drawImage: (...a: unknown[]) => crops.push(a.slice(1) as number[]),
         getShaderParameter: () => true,
         getProgramParameter: () => true,
         getExtension: () => null,
@@ -192,7 +223,7 @@ describe('the look reaches the shader', () => {
     );
     const el = { width: 0, height: 0, getContext: () => gl };
     vi.stubGlobal('document', { createElement: () => el });
-    const bmp = { width: 1, height: 1, close: () => undefined } as unknown as ImageBitmap;
+    const bmp = { width: 1604, height: 7, close: () => undefined } as unknown as ImageBitmap;
     const sky = {
       sun: { azimuth: 214, elevation: 30 },
       atm: {
@@ -206,13 +237,33 @@ describe('the look reaches the shader', () => {
       view: manifest.view,
     } as unknown as PhysicalSky;
     const one = { ...manifest, cards: manifest.cards.slice(0, 1) };
+    let canvas: { width: number; height: number } | undefined;
     try {
-      lightCards(one, [{ colour: bmp, geometry: bmp }], sky, look && { ...DEFAULT_LOOK, ...look });
+      const lighter = createLighter(one, sky, look && { ...DEFAULT_LOOK, ...look });
+      canvas = lighter.light({ colour: bmp, geometry: bmp }, tile, 0) as unknown as typeof canvas;
     } finally {
       vi.unstubAllGlobals();
     }
-    return uniforms;
+    return Object.assign(uniforms, { crops, canvas });
   };
+
+  it('lights a tile from its own columns: the ring column of the file, the band, and the interior with one overlap column each side', () => {
+    const u = run(undefined, 3);
+    const { view } = manifest;
+    expect(u.uCol0).toEqual([3 * view.tileW - view.apron]); // tile 3 of 4: the file starts two columns before its first
+    expect(u.uRingW).toEqual([view.ringW]);
+    expect(u.uTop).toEqual([manifest.tiles[3][0]!.top]);
+    expect(u.uSkySize).toEqual([320, 64]);
+    // The file holds tileW + 2 apron columns; the canvas keeps columns apron - 1 .. apron + tileW: the interior and one column each side.
+    expect(u.crops).toEqual([[view.apron - 1, 0, view.tileW + 2, 7, 0, 0, view.tileW + 2, 7]]);
+    expect(u.canvas).toMatchObject({ width: view.tileW + 2, height: 7 });
+  });
+
+  it('throws without WebGL2: the caller makes the sky alone', () => {
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => null }) });
+    expect(() => createLighter(manifest, {} as PhysicalSky)).toThrow(/WebGL2/);
+    vi.unstubAllGlobals();
+  });
 
   it('defaults to DEFAULT_LOOK', () => {
     const u = run();

@@ -1,0 +1,5 @@
+# The ridge bake is addressed by its bytes (bake_id covers the manifest text and the tile files): public/ridge is checked out exactly as committed, whatever
+# core.autocrlf says, so a Windows working tree serves the bytes its directory name was hashed from.
+public/ridge/** -text
+# The baker's inputs and schema are text, read the same everywhere.
+scripts/ridge-bake/**/*.json text eol=lf

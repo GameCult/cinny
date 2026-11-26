@@ -3,61 +3,83 @@ import { forgetManifests, loadManifest, parseManifest } from './manifest';
 import { wireIndex, wireManifest } from './manifest.fixture';
 
 describe('parseManifest', () => {
-  it('reads a v2 manifest into the View the sky and cards share, and K cards nearest first', () => {
+  it('reads a schema 3 manifest into the View the sky and cards share, the offset bound, and the cards by tile', () => {
     const m = parseManifest(wireManifest(), '/public/ridge/v/');
     expect(m.dir).toBe('/public/ridge/v/');
     expect(m.view).toMatchObject({
       lookAzDeg: 214,
-      windowDeg: 72,
-      planeW: 1280,
+      ringW: 6400,
+      tileW: 1600,
+      tiles: 4,
+      apron: 2,
       planeH: 600,
-      pxPerDegH: 1280 / 72,
-      pxPerDegV: 177.8, // not px_per_deg_h: a real bake's two differ 10x
-      horizonRow: 314.5,
+      pxPerDegH: 6400 / 360,
+      pxPerDegV: 171.7, // not px_per_deg_h: a real bake's two differ 10x
+      horizonRow: 357,
     });
-    expect(m.view.place).toEqual({ id: 'vienna', lat: 48.19, lon: 16.35, altitudeKm: 0.183 });
+    expect(m.view.place).toEqual({
+      id: 'vienna',
+      lat: 48.19,
+      lon: 16.35,
+      altitudeKm: 0.183,
+      tz: 'Europe/Vienna',
+    });
     expect(m.encoding).toEqual({ logDMin: 4.6, logDMax: 11.5 });
-    expect(m.camera).toEqual({ headingMaxDeg: 23 });
-    expect(m.cards.map((c) => c.scale)).toEqual([1.2, 1.0167, 1.005]);
-    expect(m.cards[1]).toEqual({
+    expect(m.camera).toEqual({ rMaxM: 100, rMaxForwardM: 180 });
+    expect(m.cards).toEqual([
+      { nearM: null, farM: 4000 },
+      { nearM: 4000, farM: 40000 },
+      { nearM: 40000, farM: null },
+    ]);
+    expect(m.tiles).toHaveLength(4);
+    expect(m.tiles[1][1]).toEqual({
       top: 100,
       h: 500,
-      scale: 1.0167,
-      colour: 'card-1-colour.webp',
-      geometry: 'card-1-geometry.webp',
+      distanceM: 12000,
+      colour: 'card-1-t01-colour.webp',
+      geometry: 'card-1-t01-geometry.webp',
     });
+    expect(m.tiles[2][2]).toBeNull(); // the third card holds nothing over the south
     expect(m.attribution.creditLine).toBe('credit');
   });
 
-  it.each([1, 2, 3, 4, 5, 6])('parses a bake of %i cards', (k) => {
-    expect(parseManifest(wireManifest({}, k), '/').cards).toHaveLength(k);
+  it.each([1, 2, 3])('parses a bake of %i cards', (k) => {
+    const m = parseManifest(wireManifest({}, k), '/');
+    expect(m.cards).toHaveLength(k);
+    m.tiles.forEach((row) => expect(row).toHaveLength(k));
   });
 
-  it('keeps only what the runtime reads: no distances, no camera offset', () => {
-    const m = parseManifest(wireManifest(), '/') as unknown as Record<string, any>;
-    expect(JSON.stringify(m)).not.toMatch(/median|near_m|far_m|distance|rM|r_m/);
-  });
-
-  it('refuses schema 1, no cards, seven cards, a card past the plane, a scale that is not above 0, a missing camera', () => {
+  it('refuses schema 2 naming the stale deploy, and any other schema', () => {
     const w = wireManifest() as any;
+    expect(() => parseManifest({ ...w, schema: 2 }, '/')).toThrow(/stale ridge bake/);
     expect(() => parseManifest({ ...w, schema: 1 }, '/')).toThrow(/schema/);
-    expect(() => parseManifest({ ...w, cards: [] }, '/')).toThrow(/cards/);
-    expect(() => parseManifest(wireManifest({}, 7), '/')).toThrow(/cards/);
-    const card = w.cards[0];
-    const withCard = (c: unknown) => ({ ...w, cards: [c] });
-    expect(() => parseManifest(withCard({ ...card, top: 300, h: 301 }), '/')).toThrow(/rows/);
-    expect(() => parseManifest(withCard({ ...card, top: -1 }), '/')).toThrow(/rows/);
-    expect(() => parseManifest(withCard({ ...card, scale: 0 }), '/')).toThrow(/scale/);
-    expect(() => parseManifest(withCard({ ...card, scale: -1 }), '/')).toThrow(/scale/);
-    expect(() => parseManifest(withCard({ ...card, scale: Infinity }), '/')).toThrow(/scale/);
-    expect(() => parseManifest({ ...w, camera: undefined }, '/')).toThrow(/camera/);
-    expect(() => parseManifest({ ...w, camera: { heading_max_deg: 0 } }, '/')).toThrow(/heading/);
   });
 
-  it('rejects a missing field, a plane wider than 4096, a normal that is not rt8 and a backwards encoding', () => {
+  it('refuses no cards, seven cards, a ring that is not tiles x tile_w, a tile row of the wrong length, a card in no tile, a band past the plane', () => {
+    const w = wireManifest() as any;
+    expect(() => parseManifest({ ...w, cards: [] }, '/')).toThrow(/cards/);
+    expect(() => parseManifest({ ...w, cards: Array(7).fill({ near_m: null, far_m: null }) }, '/')).toThrow(/cards/);
+    expect(() => parseManifest({ ...w, view: { ...w.view, ring_w: 6401 } }, '/')).toThrow(/ring_w/);
+    expect(() => parseManifest({ ...w, tiles: w.tiles.slice(1) }, '/')).toThrow(/tiles/);
+    expect(() => parseManifest({ ...w, tiles: w.tiles.map((r: unknown[]) => r.slice(1)) }, '/')).toThrow(/entries/);
+    expect(() =>
+      parseManifest({ ...w, tiles: w.tiles.map((r: unknown[]) => [r[0], r[1], null]) }, '/')
+    ).toThrow(/null in every tile/);
+    const withTile = (e: unknown) => ({ ...w, tiles: [[e, w.tiles[0][1], w.tiles[0][2]], ...w.tiles.slice(1)] });
+    const t = w.tiles[0][0];
+    expect(() => parseManifest(withTile({ ...t, top: 300, h: 301 }), '/')).toThrow(/rows/);
+    expect(() => parseManifest(withTile({ ...t, top: -1 }), '/')).toThrow(/rows/);
+    expect(() => parseManifest(withTile({ ...t, distance_m: 0 }), '/')).toThrow(/distance/);
+    expect(() => parseManifest(withTile({ ...t, distance_m: Infinity }), '/')).toThrow(/distance/);
+    expect(() => parseManifest({ ...w, camera: undefined }, '/')).toThrow(/camera/);
+    expect(() => parseManifest({ ...w, camera: { r_max_m: 0, r_max_forward_m: 0 } }, '/')).toThrow(/r_max_m/);
+    expect(() => parseManifest({ ...w, camera: { r_max_m: 100 } }, '/')).toThrow(/r_max_forward_m/);
+    expect(() => parseManifest({ ...w, camera: { r_max_m: 100, r_max_forward_m: 99 } }, '/')).toThrow(/r_max_forward_m/);
+  });
+
+  it('rejects a missing field, a normal that is not rt8 and a backwards encoding', () => {
     const w = wireManifest() as any;
     expect(() => parseManifest({ ...w, bake_id: undefined }, '/')).toThrow(/bake_id/);
-    expect(() => parseManifest({ ...w, view: { ...w.view, plane_w: 4097 } }, '/')).toThrow(/4096/);
     expect(() => parseManifest({ ...w, view: { ...w.view, horizon_row: 'x' } }, '/')).toThrow(
       /horizon_row/
     );
@@ -68,6 +90,21 @@ describe('parseManifest', () => {
       parseManifest({ ...w, encoding: { ...w.encoding, log_d_max: w.encoding.log_d_min } }, '/')
     ).toThrow(/encoding/);
     expect(() => parseManifest(null, '/')).toThrow();
+  });
+
+  it('rejects a manifest without place.tz and one naming a zone Intl does not know', () => {
+    const w = wireManifest() as any;
+    expect(() => parseManifest({ ...w, place: { ...w.place, tz: undefined } }, '/')).toThrow(/place\.tz/);
+    expect(() => parseManifest({ ...w, place: { ...w.place, tz: 'Not/AZone' } }, '/')).toThrow(/place\.tz/);
+    expect(parseManifest({ ...w, place: { ...w.place, tz: 'Asia/Kathmandu' } }, '/').view.place.tz).toBe('Asia/Kathmandu');
+  });
+
+  it('refuses a plane that leaves fewer rows under the horizon than the runtime needs to reach the viewport bottom, and takes exactly that many', () => {
+    const w = wireManifest() as any;
+    const at = (row: number) => ({ ...w, view: { ...w.view, horizon_row: row } });
+    expect(() => parseManifest(at(451), '/')).toThrow(/short plane.*150/);
+    expect(parseManifest(at(450), '/').view.horizonRow).toBe(450);
+    expect(parseManifest(at(357), '/').view.horizonRow).toBe(357);
   });
 
   it('never echoes a value it refused', () => {
@@ -82,8 +119,9 @@ describe('parseManifest', () => {
     };
     for (const bad of [
       { ...w, schema: 'SECRET-VALUE-42' },
-      { ...w, camera: { heading_max_deg: 'SECRET-VALUE-42' } },
-      { ...w, cards: [{ ...w.cards[0], scale: 'SECRET-VALUE-42' }] },
+      { ...w, camera: { r_max_m: 'SECRET-VALUE-42', r_max_forward_m: 180 } },
+      { ...w, camera: { r_max_m: 100, r_max_forward_m: 'SECRET-VALUE-42' } },
+      { ...w, tiles: [[{ ...w.tiles[0][0], distance_m: 'SECRET-VALUE-42' }, ...w.tiles[0].slice(1)], ...w.tiles.slice(1)] },
     ]) {
       const msg = refusal(bad);
       expect(msg).not.toBe('');

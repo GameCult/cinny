@@ -1,17 +1,20 @@
 """Ridge baker: the ray march of a place, cut into K+1 layered-depth G-buffer cards by K authored seams (places.json), no painter, no sun.
 Offline baker for the ridge backdrop (scripts/ridge-bake); export.py drives it.
 
-  load_preset(id) -> configure()  : observer, tiles, mosaic origin, ring radius, window azimuth, card splits and prefilter from places.json
+  load_preset(id) -> configure()  : observer, tiles, mosaic origin, ring radius, rest azimuth, card splits and prefilter from places.json
   stage0(detail)                   : ray march of all 6400 azimuth columns (curvature+refraction), optional authored sub-DEM foreground detail, cached
   prefilter(d, h, sigma_m)         : Gaussian low-pass of the sampled heights (along each ray, across rays at equal distance), angles recomputed with elev
-  set_view(skyline)                : authored Y mapping from the march skyline: angle -> row, see set_view
-  coverage(d, a) / seams(cov, ..)  : visible rows per log-distance bin; one forward-energy seam per authored split, per column
+  set_view(skyline)                : authored Y mapping from the march skyline of the whole ring: angle -> row, see set_view
+  ring_cols(a, c0, n)              : n columns of the ring from column c0, periodic (the tile cut)
+  coverage(d, a) / seams(cov, ..)  : visible rows per log-distance bin; one forward-energy seam per authored split, per column, periodic round the ring
   normals(d, h) / cards(...)       : per-sample normals; the K+1 cards (coverage, distance, normal, albedo), each cropped to its band of rows
 Vertical exaggeration is AUTHORED and derived per view by set_view (printed on the page).  The client owns lighting, haze and ink (ruling ridge-cards-runtime-lit)."""
 import sys, time, math, json
 import os, hashlib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from refusal import Refusal
 import numpy as np, tifffile
 
 def _env_dir(name, what):
@@ -21,7 +24,6 @@ def _env_dir(name, what):
 B = _env_dir('RIDGE_WORK', 'the work directory (the mosaic / ray caches)')
 COP = _env_dir('RIDGE_TILES', 'the directory of Copernicus GLO-30 tiles (Copernicus_DSM_COG_10_*_DEM.tif)')
 W = 6400                               # ring columns: 360 deg at 17.78 px/deg
-WIN = 1280                             # window = 72 deg of the ring
 HPX_DEG = W / 360.0
 H = 600                                # frame rows
 COLW = math.radians(360.0 / W)
@@ -31,11 +33,15 @@ P = {}                                 # configured preset
 rowang = np.zeros(H); PXDEG_V = 100.0; TOP_DEG = 2.6; BOTTOM_DEG = -3.4
 
 def load_preset(pid, path=Path(__file__).resolve().parent / 'places.json'):
-    """The preset dict.  card_split_km is the ordered list of authored seam depths (km): required, strictly increasing, at most export.MAX_CARDS - 1 (the cap is export's, which owns the budget); refused here, before any march."""
+    """The preset dict.  tz is required, an IANA zone the system knows (the runtime draws named sky moments in the place's local day).  card_split_km is the ordered list of authored seam depths (km): required, strictly increasing, at most export.MAX_CARDS - 1 (the cap is export's, which owns the budget); refused here, before any march."""
     d = json.load(open(path)); p = dict(next(x for x in d['presets'] if x['id'] == pid)); sp = p.get('card_split_km')
     from export import MAX_CARDS
-    if not sp: raise ValueError(f"preset {pid}: card_split_km is required (an ordered list of 1 to {MAX_CARDS - 1} depths in km)")
-    if len(sp) > MAX_CARDS - 1 or any(b <= a for a, b in zip(sp, sp[1:])): raise ValueError(f"preset {pid}: card_split_km {sp} must be strictly increasing with at most {MAX_CARDS - 1} entries")
+    if not sp: raise Refusal(f"preset {pid}: card_split_km is required (an ordered list of 1 to {MAX_CARDS - 1} depths in km)")
+    if len(sp) > MAX_CARDS - 1 or any(b <= a for a, b in zip(sp, sp[1:])): raise Refusal(f"preset {pid}: card_split_km {sp} must be strictly increasing with at most {MAX_CARDS - 1} entries")
+    tz = p.get('tz')
+    if not isinstance(tz, str) or not tz: raise Refusal(f"preset {pid}: tz is required (an IANA time zone name such as Europe/Vienna)")
+    try: ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError, OSError): raise Refusal(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
     return p
 
 # ====================================================================== configuration, DEM
@@ -77,7 +83,7 @@ def bil(a, lat_top, lon_left, lat, lon):
     return (a[y0, x0] * (1 - fx) * (1 - fy) + a[y0, x0 + 1] * fx * (1 - fy) + a[y0 + 1, x0] * (1 - fx) * fy + a[y0 + 1, x0 + 1] * fx * fy)
 
 def configure(p):
-    """Set the module state for a preset: observer, eye elevation (DEM ground + eye height, or ground_override), window azimuth."""
+    """Set the module state for a preset: observer, eye elevation (DEM ground + eye height, or ground_override), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
     global P
     P = p; m, lt, ll = mosaic(p)
     ground = p['ground_override_m'] if 'ground_override_m' in p else float(bil(m, lt, ll, np.array(p['lat']), np.array(p['lon'])))
@@ -85,10 +91,11 @@ def configure(p):
     if 'look_at' in p:
         la, lo = p['look_at']; P['az_center'] = (math.degrees(math.atan2((lo - p['lon']) * math.cos(math.radians(p['lat'])), la - p['lat'])) + 360) % 360
     else: P['az_center'] = p['az_deg']
-    P['win0'] = int(round(P['az_center'] / 360 * W - WIN / 2)) % W
     return P
 
-def win(img): return np.take(img, (P['win0'] + np.arange(WIN)) % W, axis=1)
+def ring_cols(a, c0, n):
+    """n columns of the ring array a (last axis W) from column c0 (negative or past W wraps): the one periodic take, the wrap at 0 / 360 degrees is handled here."""
+    return np.take(a, (c0 + np.arange(n)) % W, axis=-1)
 
 # ====================================================================== authored sub-DEM foreground detail (Aetheria / CultMath ridged multifractal)
 def _frac(v): return v - np.floor(v)
@@ -111,8 +118,9 @@ def detail_height(E, N, dist):
     return cfg['amp_m'] * fade * (s / nrm - 0.3)
 
 # ====================================================================== stage 0: march
+NEAR_CLIP_M = 500.0                    # authored: the far march's first sample and the boundary of parallax authority: coverage, seams, the encoding range, distance_m and r_max read terrain at or beyond it.  The ground under it is the near march (near_march), drawn by card 0 only
 def schedule(detail):
-    d = [500.0]
+    d = [NEAR_CLIP_M]
     while d[-1] < P['rmax_km'] * 1000:
         d.append(d[-1] + min(250.0, max(10.0 if detail else 40.0, 0.004 * d[-1])))
     return np.array(d)
@@ -143,14 +151,25 @@ def stage0(detail=False, force=False):
     t0 = time.time(); mosaic(P); t1 = time.time(); d, A, Hh = march(detail); t2 = time.time(); np.savez(c, d=d, ang=A, h=Hh)
     return d, A, Hh, dict(mosaic=t1 - t0, march=t2 - t1, samples=len(d))
 
+# ====================================================================== the near march: the ground under the near clip
+NEAR_START_M = 1.0                     # authored: the ray of the frame bottom meets flat ground from a 1.6 m eye farther out than this; a 5 m start leaves a wall at grandcanyon h100, where the ground at 5 m stands 8 degrees up
+def near_schedule():
+    """Sample distances (m) of the near march: NEAR_START_M, then steps of max(1 m, 0.02 d) capped at 10 m, every sample below NEAR_CLIP_M (about 170)."""
+    d = [NEAR_START_M]
+    while d[-1] + min(10.0, max(1.0, 0.02 * d[-1])) < NEAR_CLIP_M: d.append(d[-1] + min(10.0, max(1.0, 0.02 * d[-1])))
+    return np.array(d)
+def near_march(sigma_m=0.0):
+    """(d, a, h) of the ground under the near clip: the place's own DEM, bilinear, sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
+    m, lt, ll = mosaic(P); az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = near_schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
+    h = np.stack([np.asarray(bil(m, lt, ll, P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
+    return d, a, h
+def join_near(d, a, h, near):
+    """The one join of the near march to the far march (d, a, h: (K, W), set_view done): returns (D, A, Hc, nrm) for cards, near samples first.  The near angles are capped per column at the angle of the far march's first sample, a[0]: the near ground draws inside the silhouette of the terrain at the clip
+    and no near hill rises above it (ruling ridge-near-ground-outline).  The normals of the two marches are computed apart and concatenated, so the far normals are those of the far march alone.  Needs the whole ring (the cap and the lateral normal read ring columns): cut the tiles from the result."""
+    dn, an, hn = near; a = np.asarray(a); an = np.minimum(an, a[0][None, :]); nn, nf = normals(dn, hn), normals(d, h)
+    return np.concatenate([dn, d]), np.concatenate([an, a]), np.concatenate([hn, h]), tuple(np.concatenate([x, y]) for x, y in zip(nn, nf))
+
 # ====================================================================== periodic helpers
-def blurw(a, s):
-    r = int(3 * s) + 1; k = np.exp(-0.5 * (np.arange(-r, r + 1) / s) ** 2); k /= k.sum()
-    a = np.asarray(a, np.float64); xp = np.concatenate([a[..., -r:], a, a[..., :r]], axis=-1); o = np.zeros_like(a)
-    for i, kv in enumerate(k): o += kv * xp[..., i:i + a.shape[-1]]
-    return o
-
-
 
 # ====================================================================== prefilter: the march is a heightfield of roofs and hills; the cards want the hills
 def prefilter(d, h, sigma_m):
@@ -175,21 +194,27 @@ def normals(d, h):
     return -sr * nz, -st * nz, nz
 
 # ====================================================================== the authored Y mapping
+GROUND_ROWS_MIN = 150                  # rows every bake keeps under the horizon: (1 - HORIZON_AT) x plane_h / RIDGE_BAND_FRAC of the runtime (view.ts groundRowsNeeded; ridgeAssets.test pins the two together)
+E_MIN = 0.5                            # the vertical exaggeration may go down to this to keep GROUND_ROWS_MIN (ruling ridge-ground-rows-below-horizon)
 def set_view(skyline, sky_row=0.04, near_row=0.66):
     """AUTHORED vertical mapping, linear in elevation angle: row = (TOP_DEG - angle) * PXDEG_V over the whole 600-row frame (cylindrical, horizontal 17.78 px/deg).  skyline is the highest angle any sample reaches in each
-    ring column (W,), straight from the march.  Two anchors: the highest skyline angle in the window sits at `sky_row` (4%) of the frame height, the LOWEST sits at `near_row` (66%); everything below is body and ground.
-    PXDEG_V = (near_row - sky_row) * 600 / (highest - lowest), clamped to [17.78, 178] px/deg = vertical exaggeration 1x..10x.  TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V."""
+    ring column (W,), straight from the march.  Three anchors on the whole ring (rulings ridge-ring-vertical-anchors, ridge-ground-rows-below-horizon): the highest skyline angle of the ring sits at `sky_row` (4%) of the frame height, the LOWEST sits at
+    `near_row` (66%) where the scale allows, and the horizon keeps GROUND_ROWS_MIN rows under it.  PXDEG_V = the lesser of (near_row - sky_row) * 600 / (highest - lowest) and (600 - GROUND_ROWS_MIN - sky_row * 600) / highest, clamped to
+    [E_MIN, 10] x 17.78 px/deg = vertical exaggeration 0.5x..10x; a skyline whose highest angle cannot keep the ground rows even at E_MIN refuses (Refusal naming sky_deg, the scale needed and the floor).
+    TOP_DEG = highest + sky_row*600/PXDEG_V;  BOTTOM_DEG = TOP_DEG - 600/PXDEG_V.  Returns the view, with `binds` naming the anchor that set the scale: 'skyline', 'horizon', 'floor' or 'ceiling'."""
     global rowang, PXDEG_V, TOP_DEG, BOTTOM_DEG
-    w = win(np.asarray(skyline)[None, :])[0]; sky = float(w.max()); low = float(w.min())
-    ppd = float(np.clip((near_row - sky_row) * H / max(sky - low, 0.05), HPX_DEG, 10 * HPX_DEG))
+    sk = np.asarray(skyline); sky = float(sk.max()); low = float(sk.min()); lo, hi = E_MIN * HPX_DEG, 10 * HPX_DEG
+    fit = (near_row - sky_row) * H / max(sky - low, 0.05); hold = (H - GROUND_ROWS_MIN - sky_row * H) / sky if sky > 0 else math.inf
+    if hold < lo: raise Refusal(f"the whole-ring skyline reaches {sky:.2f} degrees: holding {GROUND_ROWS_MIN} rows under the horizon needs {hold:.2f} px/deg, below the floor {lo:.2f} px/deg ({E_MIN:g}x)")
+    ppd = float(np.clip(min(fit, hold), lo, hi)); binds = 'horizon' if hold < fit and ppd == hold else 'floor' if ppd == lo else 'ceiling' if ppd == hi else 'skyline'
     PXDEG_V = ppd; TOP_DEG = sky + sky_row * H / ppd; BOTTOM_DEG = TOP_DEG - H / ppd; rowang = TOP_DEG - (np.arange(H) + 0.5) / PXDEG_V
-    return dict(top_deg=TOP_DEG, bottom_deg=BOTTOM_DEG, px_per_deg=PXDEG_V, exaggeration=PXDEG_V / HPX_DEG, horizon_row=TOP_DEG * PXDEG_V, sky_deg=sky, low_deg=low, sky_row=sky_row, near_row=near_row)
+    return dict(top_deg=TOP_DEG, bottom_deg=BOTTOM_DEG, px_per_deg=PXDEG_V, exaggeration=PXDEG_V / HPX_DEG, horizon_row=TOP_DEG * PXDEG_V, sky_deg=sky, low_deg=low, sky_row=sky_row, near_row=near_row, binds=binds)
 
 # ====================================================================== coverage and seams
 COV_BINS = 160                         # log-distance bins between the first and the last sample
 SIG_B = 1.5                            # blur of the coverage along depth (bins): seams settle in gaps
 SEAM_LAM, SEAM_UNARY = 2.0, 0.25       # forward energy: a seam that moves a bin between neighbouring columns pays SEAM_LAM per bin plus every visible row it sweeps; one that sits in visible terrain pays SEAM_UNARY x those rows (cross-fadable)
-SEAM_PRIOR = 0.02                      # the authored depth is a faint pull, rows per nat^2 (the test pins the window: six synthetic receding ridges tear at 0.1, and without the swept-rows term at 0.02 they tear again)
+SEAM_PRIOR = 0.02                      # the authored depth is a faint pull, rows per nat^2 (the tests pin the window: six synthetic receding ridges, a sawtooth round the ring, tear at 0.05, and without the swept-rows term at 0.02 they tear too)
 SEAM_SEP = 0.4                         # seams at least this far apart in log-distance (nat)
 XF = 0.07                              # half-width of a seam's cross-fade, nat (about two bins)
 
@@ -211,21 +236,22 @@ def _dt(f, u):
     u = u.reshape((-1,) + (1,) * (f.ndim - 1)); return np.minimum(np.minimum.accumulate(f - u, axis=0) + u, np.flip(np.minimum.accumulate(np.flip(f + u, 0), axis=0), 0) - u)
 
 def seams(cov, targets, d):
-    """(K, n) ordered seam distances (m), one per authored target (m), each column.  One 1D forward-energy DP per seam, in target order (seam carving, Avidan & Shamir 2007; forward energy, Rubinstein et al. 2008): unary
+    """(K, n) ordered seam distances (m), one per authored target (m), each column of a RING (cov is periodic: the last column neighbours the first).  One 1D forward-energy DP per seam, in target order (seam carving, Avidan & Shamir 2007; forward energy, Rubinstein et al. 2008): unary
     SEAM_UNARY x the rows at the seam; moving a bin between neighbouring columns costs SEAM_LAM per bin plus the rows swept, an L1 distance in u = cumsum(rows) + SEAM_LAM x bin; a weak prior to the target.  Seam k is held at
-    least SEAM_SEP nat beyond seam k-1 in every column.  Sequential, not joint: a joint DP has NB^K states per column and seams in gaps do not interact."""
-    cov = np.asarray(cov, np.float64); nb, n = cov.shape; edges = log_edges(d, nb); bc = 0.5 * (edges[:-1] + edges[1:]); sep = int(math.ceil(SEAM_SEP / (edges[1] - edges[0]))); INF = 1e12
+    least SEAM_SEP nat beyond seam k-1 in every column.  Sequential, not joint: a joint DP has NB^K states per column and seams in gaps do not interact.  Periodic: the DP runs over the ring three times side by side and keeps the middle lap,
+    so a seam is continuous across the wrap and a tile boundary is only a crop."""
+    cov = np.tile(np.asarray(cov, np.float64), (1, 3)); nb, n3 = cov.shape; n = n3 // 3; edges = log_edges(d, nb); bc = 0.5 * (edges[:-1] + edges[1:]); sep = int(math.ceil(SEAM_SEP / (edges[1] - edges[0]))); INF = 1e12
     r = int(3 * SIG_B) + 1; kern = np.exp(-0.5 * (np.arange(-r, r + 1) / SIG_B) ** 2); kern /= kern.sum(); pad = np.pad(cov, ((r, r), (0, 0)), mode='edge'); Cs = sum(kv * pad[i:i + nb] for i, kv in enumerate(kern))
-    bins = np.arange(nb); lo = np.zeros(n, int); out = np.zeros((len(targets), n))
+    bins = np.arange(nb); lo = np.zeros(n3, int); out = np.zeros((len(targets), n3))
     for t, T in enumerate(targets):
         prior = SEAM_PRIOR * (bc - math.log(T)) ** 2; need = np.minimum(lo + (sep if t else 0), nb - 1); feas = bins[:, None] >= need[None, :]
         warp = lambda x: np.cumsum(0.5 * (cov[:, x - 1] + cov[:, x])) + SEAM_LAM * bins
         cost = np.where(feas[:, 0], SEAM_UNARY * Cs[:, 0] + prior, INF); store = [cost]
-        for x in range(1, n): cost = np.where(feas[:, x], _dt(cost, warp(x)) + SEAM_UNARY * Cs[:, x] + prior, INF); store.append(cost)
-        j = np.zeros(n, int); j[-1] = int(np.argmin(store[-1]))
-        for x in range(n - 1, 0, -1): u = warp(x); j[x - 1] = int(np.argmin(store[x - 1] + np.abs(u - u[j[x]])))
+        for x in range(1, n3): cost = np.where(feas[:, x], _dt(cost, warp(x)) + SEAM_UNARY * Cs[:, x] + prior, INF); store.append(cost)
+        j = np.zeros(n3, int); j[-1] = int(np.argmin(store[-1]))
+        for x in range(n3 - 1, 0, -1): u = warp(x); j[x - 1] = int(np.argmin(store[x - 1] + np.abs(u - u[j[x]])))
         out[t] = np.exp(bc[j]); lo = j
-    return out
+    return out[:, n:2 * n]
 
 # ====================================================================== cards: layered depth, one per band between seams
 GRASS, FOREST, ROCK, SNOW = (0.36, 0.44, 0.26), (0.22, 0.31, 0.20), (0.47, 0.44, 0.41), (0.93, 0.95, 0.97)
@@ -239,12 +265,13 @@ def cards(d, a, h, seams, nrm=None):
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
-    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for a window cut from the ring).  Rows of a card i > 0 below the angle of its first sample (hit and idx == 0) are the extruded wall of the ridge the card starts at: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
-    and `wall` flags them (card 0 has no wall: its rows below the first sample are the ground).  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool)."""
+    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
+    and `wall` flags them (card 0's first sample is the near march's NEAR_START_M, so no row of it is wall under a real frame).  Card 0 draws the near march (join_near; the samples nearer than NEAR_CLIP_M) under the silhouette of the terrain at the clip as ordinary terrain: its own normal, the albedo of its own height and n_up; `near` (h, n) bool flags the pixels whose hit lies on the near side of the clip sample (the rows that were card 0's wall), whose distance is then never above the clip.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool, near (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
-    n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p
+    if d[0] >= NEAR_CLIP_M: raise Refusal(f"card 0 draws the ground under the near clip from the near march, but the first sample is at {d[0]:g} m (the clip is {NEAR_CLIP_M:g} m): pass join_near")
+    n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p; kn = int(np.searchsorted(d, NEAR_CLIP_M))           # kn: the samples nearer than the clip
     ks0 = [np.searchsorted(d, seams[i - 1] * math.exp(-XF)) for i in range(1, nc)]; ks1 = [np.searchsorted(d, seams[i] * math.exp(XF)) for i in range(nc - 1)]
-    F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n)); Wl = np.zeros((nc, H, n), bool)           # coverage, far fade, then (logd, h, n_r, n_t, n_u); wall rows
+    F = np.zeros((nc, H, n)); X = np.ones((nc, H, n)); G = np.zeros((nc, 5, H, n)); Wl = np.zeros((nc, H, n), bool); Nr = np.zeros((nc, H, n), bool)           # coverage, far fade, then (logd, h, n_r, n_t, n_u); wall rows; near rows (the ground under the clip)
     for x in range(n):
         for i in range(nc):
             k0 = 0 if i == 0 else int(ks0[i - 1][x]); k1 = nk if i == nc - 1 else int(ks1[i][x])
@@ -255,13 +282,13 @@ def cards(d, a, h, seams, nrm=None):
             t = np.where(idx > 0, np.clip((rowang - prev) / np.maximum(rm[idx] - prev, 1e-9), 0, 1), 1.0); mix = lambda arr: arr[kp, x] + t * (arr[kk, x] - arr[kp, x])
             F[i, :, x] = np.where(hit, np.clip((rm[-1] - lo) / p, 0, 1), 0); lh = mix(ld)
             G[i, :, :, x] = np.where(hit, np.stack([lh, mix(h), mix(n_r), mix(n_t), mix(n_u)]), 0)
-            if i: Wl[i, :, x] = hit & (idx == 0)           # rows below the card's first sample: the extruded wall (card 0's are the ground)
+            Wl[i, :, x] = hit & (idx == 0); Nr[i, :, x] = hit & (kp < kn)           # rows below the card's first sample: the extruded wall; hits on the near side of the clip sample (below it, or between the last near sample and it): the near ground (only card 0 reaches it)
             if i < nc - 1: s = np.clip((lh - (math.log(seams[i, x]) - XF)) / (2 * XF), 0, 1); X[i, :, x] = 1 - s * s * (3 - 2 * s)
     out = []; A = np.zeros((H, n))
     for i in range(nc):
         part = np.where(F[i] < 1, np.clip((np.maximum(A, F[i]) - A) / np.maximum(1 - A, 1e-6), 0, 1), F[i]); al = np.where(np.rint(X[i] * part * 255) > 0, X[i] * part, 0.0); A = 1 - (1 - A) * (1 - al)
         rows = np.flatnonzero(al.max(1) > 0)
-        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool))); continue
+        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool), near=np.zeros((0, n), bool))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
-        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy()))
+        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy(), near=Nr[i, sl].copy()))
     return out

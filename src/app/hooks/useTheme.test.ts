@@ -24,8 +24,8 @@ vi.stubGlobal('window', {
 vi.mock('./useSkyState', async () => {
   const drawn = await import('../features/scene/sceneDrawn');
   return {
-    useResolvedSkyState: () => 'night',
-    useSkyState: () => 'night',
+    useDrawnSky: () => drawn.getDrawnSky(),
+    useSkyChoice: () => ({ kind: 'named', id: 'night' }),
     useSceneOn: () => drawn.getSceneDrawn(),
   };
 });
@@ -70,7 +70,14 @@ describe('the drawn sky decides the theme and ink; the stored theme stands where
   });
 
   it('a scene running over a stored theme wears the sky theme and ink', () => {
-    setSceneDrawn(true);
+    setSceneDrawn(true, 'night');
+    expect(read()).toBe('midnight-sky|{"state":"night","phone":false}');
+  });
+
+  it('follows the sky of the scene that is up, whatever the clock or the choice announce, and moves when a scene replaces it', () => {
+    setSceneDrawn(true, 'dusk'); // the choice says night (mocked above); the scene up draws dusk
+    expect(read()).toBe('noonday-sky|{"state":"dusk","phone":false}');
+    setSceneDrawn(true, 'night'); // a rebuilt scene replaced it
     expect(read()).toBe('midnight-sky|{"state":"night","phone":false}');
   });
 
@@ -79,10 +86,10 @@ describe('the drawn sky decides the theme and ink; the stored theme stands where
   });
 
   it('a restored context wears the sky again', () => {
-    setSceneDrawn(true);
+    setSceneDrawn(true, 'night');
     setSceneDrawn(false);
     expect(read()).toBe('dark-theme|null');
-    setSceneDrawn(true);
+    setSceneDrawn(true, 'night');
     expect(read()).toBe('midnight-sky|{"state":"night","phone":false}');
   });
 });

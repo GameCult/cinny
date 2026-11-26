@@ -1,7 +1,8 @@
-// The ridge scene's sky: the View's place's sun on the real clock, the atmosphere baked from it, a camera, and the display that makes it
+// The ridge scene's sky: the sun over the View's place at the drawn moment, the atmosphere baked from it, a camera, and the display that makes it
 // pixels. `makePhysicalSky` does the one expensive thing (the LUT bake, tens of ms) and fits the display from a fixed 16:9
 // grid, so resizing the window repaints the same sky. `paintSky` is per-texel lookups only.
-import type { FixedSkyState } from '../skyState';
+import { skyBand } from './skyMoment';
+import type { FixedSkyState } from './skyMoment';
 import { bakeAtmosphere } from './earthAtmosphere';
 import type { Atmosphere } from './earthAtmosphere';
 import { domeSize, renderDome, SUN_RADIUS, sunOnScreen } from './skyDome';
@@ -11,7 +12,6 @@ import { display8, fitDisplay } from './toneMap';
 import type { Display, Fit } from './toneMap';
 import { moonAt } from './nightSky';
 import type { MoonSample, NightLight } from './nightSky';
-import { sunForState } from './sunAt';
 import type { SunSample } from './sunAt';
 import { windowFor } from './view';
 import type { Camera, View } from './view';
@@ -55,16 +55,10 @@ export function rowMean(dome: Dome, display: Display, row: number): Srgb {
   return [Math.round(acc[0] / dome.w), Math.round(acc[1] / dome.w), Math.round(acc[2] / dome.w)];
 }
 
-export function makePhysicalSky(
-  state: FixedSkyState,
-  now: Date,
-  weatherValue: number,
-  view: View,
-  /** A sun to draw instead of the state's own (the look sheet's grid of elevations); `state` still picks the display budget. */
-  sunOverride?: SunSample
-): PhysicalSky {
+/** The sky lit by the sun it is given (the moment is skyMoment.ts's choice); the display budget is the band of that sun. */
+export function makePhysicalSky(sun: SunSample, weatherValue: number, view: View): PhysicalSky {
   const t0 = clock();
-  const sun = sunOverride ?? sunForState(view.place, state, now);
+  const state = skyBand(sun.elevation);
   const weather = weatherOf(weatherValue);
   const atm = bakeAtmosphere({
     sunElevationDeg: sun.elevation,

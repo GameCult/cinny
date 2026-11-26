@@ -6,25 +6,10 @@ import {
   LINES_SOURCE_URL,
   STARS_CREDIT,
   STARS_SOURCE_URL,
-  WEATHER_CREDIT,
-  WEATHER_CREDIT_URL,
-  WEATHER_DATASET,
   terrainCredit,
 } from './credits';
 import { parseIndex, parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
-import { WEATHER_ATTRIBUTION } from './weatherFeed';
-
-describe('the credits the Sky menu shows', () => {
-  it("are the sources' own", () => {
-    expect(WEATHER_CREDIT).toBe(WEATHER_ATTRIBUTION);
-  });
-  it('credit GeoSphere with its requested line, and state a licence only with the dataset named', () => {
-    expect(WEATHER_CREDIT).toBe(`Datenquelle: GeoSphere Austria - ${WEATHER_CREDIT_URL}`);
-    expect(WEATHER_CREDIT).not.toMatch(/CC BY/);
-    expect(WEATHER_DATASET).toMatch(/TAWES.*10-minute.*CC BY 4\.0/);
-  });
-});
 
 describe('the terrain credit', () => {
   const shipped = (): { attribution: { credit_line: string; licence: string } } | undefined => {

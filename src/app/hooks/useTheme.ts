@@ -14,7 +14,7 @@ import { settingsAtom } from '../state/settings';
 import { useSetting } from '../state/hooks/settings';
 import { sceneThemeId } from '../features/scene/skyTheme';
 import { sceneInk, type SkyInk } from '../features/scene/skyInk';
-import { useResolvedSkyState, useSceneOn } from './useSkyState';
+import { useDrawnSky, useSceneOn } from './useSkyState';
 import { ScreenSize, useScreenSizeContext } from './useScreenSize';
 
 export enum ThemeKind {
@@ -109,16 +109,16 @@ const toTheme = (id: ReturnType<typeof sceneThemeId>): Theme | undefined =>
 
 /** The theme the drawn sky asks for while a scene is on, or undefined for none (signed-out pages then wear Midnight Sky). */
 export const useSkyTheme = (): Theme | undefined =>
-  toTheme(sceneThemeId(useResolvedSkyState(), useSceneOn()));
+  toTheme(sceneThemeId(useDrawnSky(), useSceneOn()));
 
 /** The sky theme the page wears while a scene is on, or undefined when the person's own theme stands. */
 const useSceneSkyThemeId = (): ReturnType<typeof sceneThemeId> =>
-  sceneThemeId(useResolvedSkyState(), useSceneOn());
+  sceneThemeId(useDrawnSky(), useSceneOn());
 
 /** The ink the page wears over the scene (`sceneInk`, skyInk.ts), or undefined when the theme's own ink stands. */
 export const useSceneInk = (): SkyInk | undefined => {
   const themeId = useSceneSkyThemeId();
-  const state = useResolvedSkyState();
+  const state = useDrawnSky();
   const sceneOn = useSceneOn();
   const phone = useScreenSizeContext() === ScreenSize.Mobile;
   return useMemo(() => sceneInk(themeId, sceneOn, state, phone), [themeId, sceneOn, state, phone]);

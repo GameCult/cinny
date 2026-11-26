@@ -1,0 +1,1796 @@
+{
+ "schema": 3,
+ "baker_version": 7,
+ "bake_id": "fb4b9d3701f8",
+ "place": {
+  "id": "amadablam",
+  "name": "Ama Dablam and Everest from Khumjung",
+  "lat": 27.822000000000003,
+  "lon": 86.722666666667,
+  "altitude_km": 3.7819838378893,
+  "eye_m": 3783.5838378893,
+  "tz": "Asia/Kathmandu"
+ },
+ "view": {
+  "look_az_deg": 71.99620826401747,
+  "plane_h": 600,
+  "px_per_deg_h": 17.77777777777778,
+  "px_per_deg_v": 15.211655185147013,
+  "exaggeration": 0.8556556041645195,
+  "horizon_row": 450.0,
+  "sky_row": 24.0,
+  "near_row": 396.0,
+  "ring_w": 6400,
+  "tile_w": 200,
+  "tiles": 32,
+  "apron": 2
+ },
+ "curvature": {
+  "r_earth_m": 6371000.0,
+  "k_ref": 0.13
+ },
+ "encoding": {
+  "log_d_min": 6.214608098422191,
+  "log_d_max": 11.00475592466117,
+  "normal": "rt8"
+ },
+ "camera": {
+  "r_max_m": 95.8,
+  "r_max_forward_m": 198.4
+ },
+ "cards": [
+  {
+   "near_m": null,
+   "far_m": 2011.718901979742
+  },
+  {
+   "near_m": 2011.718901979742,
+   "far_m": 18998.714628561414
+  },
+  {
+   "near_m": 18998.714628561414,
+   "far_m": 34575.30863870067
+  },
+  {
+   "near_m": 34575.30863870067,
+   "far_m": null
+  }
+ ],
+ "tiles": [
+  [
+   {
+    "top": 52,
+    "h": 548,
+    "distance_m": 827.252197265625,
+    "colour": {
+     "file": "card-0-t00-colour.webp",
+     "bytes": 1838
+    },
+    "geometry": {
+     "file": "card-0-t00-geometry.webp",
+     "bytes": 28162
+    }
+   },
+   {
+    "top": 67,
+    "h": 533,
+    "distance_m": 2306.083984375,
+    "colour": {
+     "file": "card-1-t00-colour.webp",
+     "bytes": 558
+    },
+    "geometry": {
+     "file": "card-1-t00-geometry.webp",
+     "bytes": 326
+    }
+   },
+   {
+    "top": 336,
+    "h": 264,
+    "distance_m": 23771.404296875,
+    "colour": {
+     "file": "card-2-t00-colour.webp",
+     "bytes": 1290
+    },
+    "geometry": {
+     "file": "card-2-t00-geometry.webp",
+     "bytes": 4978
+    }
+   },
+   {
+    "top": 377,
+    "h": 223,
+    "distance_m": 33055.8046875,
+    "colour": {
+     "file": "card-3-t00-colour.webp",
+     "bytes": 394
+    },
+    "geometry": {
+     "file": "card-3-t00-geometry.webp",
+     "bytes": 1576
+    }
+   }
+  ],
+  [
+   {
+    "top": 79,
+    "h": 521,
+    "distance_m": 770.1353759765625,
+    "colour": {
+     "file": "card-0-t01-colour.webp",
+     "bytes": 2048
+    },
+    "geometry": {
+     "file": "card-0-t01-geometry.webp",
+     "bytes": 31896
+    }
+   },
+   {
+    "top": 124,
+    "h": 476,
+    "distance_m": 1900.0,
+    "colour": {
+     "file": "card-1-t01-colour.webp",
+     "bytes": 550
+    },
+    "geometry": {
+     "file": "card-1-t01-geometry.webp",
+     "bytes": 282
+    }
+   },
+   {
+    "top": 333,
+    "h": 267,
+    "distance_m": 21694.78125,
+    "colour": {
+     "file": "card-2-t01-colour.webp",
+     "bytes": 1000
+    },
+    "geometry": {
+     "file": "card-2-t01-geometry.webp",
+     "bytes": 3070
+    }
+   },
+   {
+    "top": 382,
+    "h": 218,
+    "distance_m": 32924.10546875,
+    "colour": {
+     "file": "card-3-t01-colour.webp",
+     "bytes": 418
+    },
+    "geometry": {
+     "file": "card-3-t01-geometry.webp",
+     "bytes": 1936
+    }
+   }
+  ],
+  [
+   {
+    "top": 143,
+    "h": 457,
+    "distance_m": 739.466796875,
+    "colour": {
+     "file": "card-0-t02-colour.webp",
+     "bytes": 1984
+    },
+    "geometry": {
+     "file": "card-0-t02-geometry.webp",
+     "bytes": 25648
+    }
+   },
+   {
+    "top": 226,
+    "h": 374,
+    "distance_m": 9601.2099609375,
+    "colour": {
+     "file": "card-1-t02-colour.webp",
+     "bytes": 2024
+    },
+    "geometry": {
+     "file": "card-1-t02-geometry.webp",
+     "bytes": 14730
+    }
+   },
+   {
+    "top": 332,
+    "h": 268,
+    "distance_m": 24564.380859375,
+    "colour": {
+     "file": "card-2-t02-colour.webp",
+     "bytes": 1394
+    },
+    "geometry": {
+     "file": "card-2-t02-geometry.webp",
+     "bytes": 5922
+    }
+   },
+   {
+    "top": 372,
+    "h": 228,
+    "distance_m": 35593.87890625,
+    "colour": {
+     "file": "card-3-t02-colour.webp",
+     "bytes": 688
+    },
+    "geometry": {
+     "file": "card-3-t02-geometry.webp",
+     "bytes": 3856
+    }
+   }
+  ],
+  [
+   {
+    "top": 228,
+    "h": 372,
+    "distance_m": 737.2044067382812,
+    "colour": {
+     "file": "card-0-t03-colour.webp",
+     "bytes": 1622
+    },
+    "geometry": {
+     "file": "card-0-t03-geometry.webp",
+     "bytes": 18656
+    }
+   },
+   {
+    "top": 226,
+    "h": 374,
+    "distance_m": 5174.55615234375,
+    "colour": {
+     "file": "card-1-t03-colour.webp",
+     "bytes": 3264
+    },
+    "geometry": {
+     "file": "card-1-t03-geometry.webp",
+     "bytes": 27148
+    }
+   },
+   {
+    "top": 301,
+    "h": 299,
+    "distance_m": 22038.73828125,
+    "colour": {
+     "file": "card-2-t03-colour.webp",
+     "bytes": 1774
+    },
+    "geometry": {
+     "file": "card-2-t03-geometry.webp",
+     "bytes": 8954
+    }
+   },
+   {
+    "top": 372,
+    "h": 228,
+    "distance_m": 33857.1328125,
+    "colour": {
+     "file": "card-3-t03-colour.webp",
+     "bytes": 422
+    },
+    "geometry": {
+     "file": "card-3-t03-geometry.webp",
+     "bytes": 1780
+    }
+   }
+  ],
+  [
+   {
+    "top": 343,
+    "h": 257,
+    "distance_m": 818.1093139648438,
+    "colour": {
+     "file": "card-0-t04-colour.webp",
+     "bytes": 1776
+    },
+    "geometry": {
+     "file": "card-0-t04-geometry.webp",
+     "bytes": 15200
+    }
+   },
+   {
+    "top": 266,
+    "h": 334,
+    "distance_m": 4350.2265625,
+    "colour": {
+     "file": "card-1-t04-colour.webp",
+     "bytes": 2944
+    },
+    "geometry": {
+     "file": "card-1-t04-geometry.webp",
+     "bytes": 30542
+    }
+   },
+   {
+    "top": 295,
+    "h": 305,
+    "distance_m": 22713.22265625,
+    "colour": {
+     "file": "card-2-t04-colour.webp",
+     "bytes": 2972
+    },
+    "geometry": {
+     "file": "card-2-t04-geometry.webp",
+     "bytes": 17908
+    }
+   },
+   {
+    "top": 373,
+    "h": 227,
+    "distance_m": 35946.43359375,
+    "colour": {
+     "file": "card-3-t04-colour.webp",
+     "bytes": 624
+    },
+    "geometry": {
+     "file": "card-3-t04-geometry.webp",
+     "bytes": 2946
+    }
+   }
+  ],
+  [
+   {
+    "top": 447,
+    "h": 153,
+    "distance_m": 1052.255859375,
+    "colour": {
+     "file": "card-0-t05-colour.webp",
+     "bytes": 1374
+    },
+    "geometry": {
+     "file": "card-0-t05-geometry.webp",
+     "bytes": 7956
+    }
+   },
+   {
+    "top": 321,
+    "h": 279,
+    "distance_m": 3597.237548828125,
+    "colour": {
+     "file": "card-1-t05-colour.webp",
+     "bytes": 2970
+    },
+    "geometry": {
+     "file": "card-1-t05-geometry.webp",
+     "bytes": 37740
+    }
+   },
+   {
+    "top": 319,
+    "h": 281,
+    "distance_m": 25097.0,
+    "colour": {
+     "file": "card-2-t05-colour.webp",
+     "bytes": 2224
+    },
+    "geometry": {
+     "file": "card-2-t05-geometry.webp",
+     "bytes": 12520
+    }
+   },
+   {
+    "top": 376,
+    "h": 224,
+    "distance_m": 33264.33203125,
+    "colour": {
+     "file": "card-3-t05-colour.webp",
+     "bytes": 536
+    },
+    "geometry": {
+     "file": "card-3-t05-geometry.webp",
+     "bytes": 1356
+    }
+   }
+  ],
+  [
+   {
+    "top": 572,
+    "h": 28,
+    "distance_m": 1153.4088134765625,
+    "colour": {
+     "file": "card-0-t06-colour.webp",
+     "bytes": 258
+    },
+    "geometry": {
+     "file": "card-0-t06-geometry.webp",
+     "bytes": 408
+    }
+   },
+   {
+    "top": 277,
+    "h": 323,
+    "distance_m": 4320.556640625,
+    "colour": {
+     "file": "card-1-t06-colour.webp",
+     "bytes": 3458
+    },
+    "geometry": {
+     "file": "card-1-t06-geometry.webp",
+     "bytes": 46336
+    }
+   },
+   {
+    "top": 335,
+    "h": 265,
+    "distance_m": 19104.140625,
+    "colour": {
+     "file": "card-2-t06-colour.webp",
+     "bytes": 988
+    },
+    "geometry": {
+     "file": "card-2-t06-geometry.webp",
+     "bytes": 5090
+    }
+   },
+   {
+    "top": 348,
+    "h": 252,
+    "distance_m": 35518.5,
+    "colour": {
+     "file": "card-3-t06-colour.webp",
+     "bytes": 1318
+    },
+    "geometry": {
+     "file": "card-3-t06-geometry.webp",
+     "bytes": 7340
+    }
+   }
+  ],
+  [
+   {
+    "top": 546,
+    "h": 54,
+    "distance_m": 523.5120849609375,
+    "colour": {
+     "file": "card-0-t07-colour.webp",
+     "bytes": 490
+    },
+    "geometry": {
+     "file": "card-0-t07-geometry.webp",
+     "bytes": 328
+    }
+   },
+   {
+    "top": 289,
+    "h": 311,
+    "distance_m": 2965.19775390625,
+    "colour": {
+     "file": "card-1-t07-colour.webp",
+     "bytes": 3514
+    },
+    "geometry": {
+     "file": "card-1-t07-geometry.webp",
+     "bytes": 35732
+    }
+   },
+   {
+    "top": 349,
+    "h": 251,
+    "distance_m": 24699.427734375,
+    "colour": {
+     "file": "card-2-t07-colour.webp",
+     "bytes": 582
+    },
+    "geometry": {
+     "file": "card-2-t07-geometry.webp",
+     "bytes": 1650
+    }
+   },
+   {
+    "top": 354,
+    "h": 246,
+    "distance_m": 36083.16796875,
+    "colour": {
+     "file": "card-3-t07-colour.webp",
+     "bytes": 1230
+    },
+    "geometry": {
+     "file": "card-3-t07-geometry.webp",
+     "bytes": 6006
+    }
+   }
+  ],
+  [
+   {
+    "top": 508,
+    "h": 92,
+    "distance_m": 554.8743896484375,
+    "colour": {
+     "file": "card-0-t08-colour.webp",
+     "bytes": 540
+    },
+    "geometry": {
+     "file": "card-0-t08-geometry.webp",
+     "bytes": 732
+    }
+   },
+   {
+    "top": 237,
+    "h": 363,
+    "distance_m": 2739.012939453125,
+    "colour": {
+     "file": "card-1-t08-colour.webp",
+     "bytes": 2908
+    },
+    "geometry": {
+     "file": "card-1-t08-geometry.webp",
+     "bytes": 34586
+    }
+   },
+   {
+    "top": 335,
+    "h": 265,
+    "distance_m": 25563.431640625,
+    "colour": {
+     "file": "card-2-t08-colour.webp",
+     "bytes": 1146
+    },
+    "geometry": {
+     "file": "card-2-t08-geometry.webp",
+     "bytes": 4426
+    }
+   },
+   {
+    "top": 383,
+    "h": 217,
+    "distance_m": 34539.72265625,
+    "colour": {
+     "file": "card-3-t08-colour.webp",
+     "bytes": 834
+    },
+    "geometry": {
+     "file": "card-3-t08-geometry.webp",
+     "bytes": 2590
+    }
+   }
+  ],
+  [
+   {
+    "top": 500,
+    "h": 100,
+    "distance_m": 552.1141967773438,
+    "colour": {
+     "file": "card-0-t09-colour.webp",
+     "bytes": 370
+    },
+    "geometry": {
+     "file": "card-0-t09-geometry.webp",
+     "bytes": 2318
+    }
+   },
+   {
+    "top": 186,
+    "h": 414,
+    "distance_m": 3015.078369140625,
+    "colour": {
+     "file": "card-1-t09-colour.webp",
+     "bytes": 4034
+    },
+    "geometry": {
+     "file": "card-1-t09-geometry.webp",
+     "bytes": 43760
+    }
+   },
+   {
+    "top": 326,
+    "h": 274,
+    "distance_m": 18802.935546875,
+    "colour": {
+     "file": "card-2-t09-colour.webp",
+     "bytes": 1470
+    },
+    "geometry": {
+     "file": "card-2-t09-geometry.webp",
+     "bytes": 7174
+    }
+   },
+   {
+    "top": 403,
+    "h": 197,
+    "distance_m": 37542.0,
+    "colour": {
+     "file": "card-3-t09-colour.webp",
+     "bytes": 774
+    },
+    "geometry": {
+     "file": "card-3-t09-geometry.webp",
+     "bytes": 2216
+    }
+   }
+  ],
+  [
+   {
+    "top": 444,
+    "h": 156,
+    "distance_m": 639.7239379882812,
+    "colour": {
+     "file": "card-0-t10-colour.webp",
+     "bytes": 638
+    },
+    "geometry": {
+     "file": "card-0-t10-geometry.webp",
+     "bytes": 2276
+    }
+   },
+   {
+    "top": 123,
+    "h": 477,
+    "distance_m": 3232.07958984375,
+    "colour": {
+     "file": "card-1-t10-colour.webp",
+     "bytes": 5368
+    },
+    "geometry": {
+     "file": "card-1-t10-geometry.webp",
+     "bytes": 54868
+    }
+   },
+   {
+    "top": 354,
+    "h": 246,
+    "distance_m": 18597.224609375,
+    "colour": {
+     "file": "card-2-t10-colour.webp",
+     "bytes": 1214
+    },
+    "geometry": {
+     "file": "card-2-t10-geometry.webp",
+     "bytes": 6840
+    }
+   },
+   {
+    "top": 419,
+    "h": 181,
+    "distance_m": 34387.94140625,
+    "colour": {
+     "file": "card-3-t10-colour.webp",
+     "bytes": 566
+    },
+    "geometry": {
+     "file": "card-3-t10-geometry.webp",
+     "bytes": 2010
+    }
+   }
+  ],
+  [
+   {
+    "top": 346,
+    "h": 254,
+    "distance_m": 523.1098022460938,
+    "colour": {
+     "file": "card-0-t11-colour.webp",
+     "bytes": 766
+    },
+    "geometry": {
+     "file": "card-0-t11-geometry.webp",
+     "bytes": 2440
+    }
+   },
+   {
+    "top": 167,
+    "h": 433,
+    "distance_m": 2894.937744140625,
+    "colour": {
+     "file": "card-1-t11-colour.webp",
+     "bytes": 4430
+    },
+    "geometry": {
+     "file": "card-1-t11-geometry.webp",
+     "bytes": 45170
+    }
+   },
+   {
+    "top": 332,
+    "h": 268,
+    "distance_m": 18381.962890625,
+    "colour": {
+     "file": "card-2-t11-colour.webp",
+     "bytes": 1414
+    },
+    "geometry": {
+     "file": "card-2-t11-geometry.webp",
+     "bytes": 7804
+    }
+   },
+   {
+    "top": 413,
+    "h": 187,
+    "distance_m": 32349.83203125,
+    "colour": {
+     "file": "card-3-t11-colour.webp",
+     "bytes": 332
+    },
+    "geometry": {
+     "file": "card-3-t11-geometry.webp",
+     "bytes": 304
+    }
+   }
+  ],
+  [
+   {
+    "top": 313,
+    "h": 287,
+    "distance_m": 523.9810180664062,
+    "colour": {
+     "file": "card-0-t12-colour.webp",
+     "bytes": 678
+    },
+    "geometry": {
+     "file": "card-0-t12-geometry.webp",
+     "bytes": 5612
+    }
+   },
+   {
+    "top": 207,
+    "h": 393,
+    "distance_m": 2714.9775390625,
+    "colour": {
+     "file": "card-1-t12-colour.webp",
+     "bytes": 3234
+    },
+    "geometry": {
+     "file": "card-1-t12-geometry.webp",
+     "bytes": 33776
+    }
+   },
+   {
+    "top": 341,
+    "h": 259,
+    "distance_m": 18151.8203125,
+    "colour": {
+     "file": "card-2-t12-colour.webp",
+     "bytes": 954
+    },
+    "geometry": {
+     "file": "card-2-t12-geometry.webp",
+     "bytes": 4906
+    }
+   },
+   {
+    "top": 433,
+    "h": 167,
+    "distance_m": 34449.2578125,
+    "colour": {
+     "file": "card-3-t12-colour.webp",
+     "bytes": 794
+    },
+    "geometry": {
+     "file": "card-3-t12-geometry.webp",
+     "bytes": 6030
+    }
+   }
+  ],
+  [
+   {
+    "top": 345,
+    "h": 255,
+    "distance_m": 529.6943969726562,
+    "colour": {
+     "file": "card-0-t13-colour.webp",
+     "bytes": 522
+    },
+    "geometry": {
+     "file": "card-0-t13-geometry.webp",
+     "bytes": 2858
+    }
+   },
+   {
+    "top": 270,
+    "h": 330,
+    "distance_m": 2625.431640625,
+    "colour": {
+     "file": "card-1-t13-colour.webp",
+     "bytes": 3816
+    },
+    "geometry": {
+     "file": "card-1-t13-geometry.webp",
+     "bytes": 31634
+    }
+   },
+   {
+    "top": 396,
+    "h": 204,
+    "distance_m": 20311.169921875,
+    "colour": {
+     "file": "card-2-t13-colour.webp",
+     "bytes": 760
+    },
+    "geometry": {
+     "file": "card-2-t13-geometry.webp",
+     "bytes": 4466
+    }
+   },
+   {
+    "top": 446,
+    "h": 154,
+    "distance_m": 38793.6328125,
+    "colour": {
+     "file": "card-3-t13-colour.webp",
+     "bytes": 1348
+    },
+    "geometry": {
+     "file": "card-3-t13-geometry.webp",
+     "bytes": 10858
+    }
+   }
+  ],
+  [
+   {
+    "top": 300,
+    "h": 300,
+    "distance_m": 500.0,
+    "colour": {
+     "file": "card-0-t14-colour.webp",
+     "bytes": 688
+    },
+    "geometry": {
+     "file": "card-0-t14-geometry.webp",
+     "bytes": 3402
+    }
+   },
+   {
+    "top": 322,
+    "h": 278,
+    "distance_m": 2918.640625,
+    "colour": {
+     "file": "card-1-t14-colour.webp",
+     "bytes": 3414
+    },
+    "geometry": {
+     "file": "card-1-t14-geometry.webp",
+     "bytes": 29566
+    }
+   },
+   {
+    "top": 383,
+    "h": 217,
+    "distance_m": 18614.470703125,
+    "colour": {
+     "file": "card-2-t14-colour.webp",
+     "bytes": 1140
+    },
+    "geometry": {
+     "file": "card-2-t14-geometry.webp",
+     "bytes": 7116
+    }
+   },
+   {
+    "top": 457,
+    "h": 143,
+    "distance_m": 42439.03125,
+    "colour": {
+     "file": "card-3-t14-colour.webp",
+     "bytes": 1074
+    },
+    "geometry": {
+     "file": "card-3-t14-geometry.webp",
+     "bytes": 8620
+    }
+   }
+  ],
+  [
+   {
+    "top": 302,
+    "h": 298,
+    "distance_m": 525.7131958007812,
+    "colour": {
+     "file": "card-0-t15-colour.webp",
+     "bytes": 644
+    },
+    "geometry": {
+     "file": "card-0-t15-geometry.webp",
+     "bytes": 5268
+    }
+   },
+   {
+    "top": 405,
+    "h": 195,
+    "distance_m": 3244.2470703125,
+    "colour": {
+     "file": "card-1-t15-colour.webp",
+     "bytes": 3522
+    },
+    "geometry": {
+     "file": "card-1-t15-geometry.webp",
+     "bytes": 25236
+    }
+   },
+   {
+    "top": 415,
+    "h": 185,
+    "distance_m": 18155.212890625,
+    "colour": {
+     "file": "card-2-t15-colour.webp",
+     "bytes": 1320
+    },
+    "geometry": {
+     "file": "card-2-t15-geometry.webp",
+     "bytes": 7704
+    }
+   },
+   {
+    "top": 466,
+    "h": 134,
+    "distance_m": 41500.03515625,
+    "colour": {
+     "file": "card-3-t15-colour.webp",
+     "bytes": 1160
+    },
+    "geometry": {
+     "file": "card-3-t15-geometry.webp",
+     "bytes": 9572
+    }
+   }
+  ],
+  [
+   {
+    "top": 357,
+    "h": 243,
+    "distance_m": 546.4453735351562,
+    "colour": {
+     "file": "card-0-t16-colour.webp",
+     "bytes": 546
+    },
+    "geometry": {
+     "file": "card-0-t16-geometry.webp",
+     "bytes": 3254
+    }
+   },
+   {
+    "top": 469,
+    "h": 131,
+    "distance_m": 6915.326171875,
+    "colour": {
+     "file": "card-1-t16-colour.webp",
+     "bytes": 3182
+    },
+    "geometry": {
+     "file": "card-1-t16-geometry.webp",
+     "bytes": 22194
+    }
+   },
+   {
+    "top": 468,
+    "h": 132,
+    "distance_m": 18603.43359375,
+    "colour": {
+     "file": "card-2-t16-colour.webp",
+     "bytes": 1668
+    },
+    "geometry": {
+     "file": "card-2-t16-geometry.webp",
+     "bytes": 12026
+    }
+   },
+   {
+    "top": 468,
+    "h": 132,
+    "distance_m": 34757.94140625,
+    "colour": {
+     "file": "card-3-t16-colour.webp",
+     "bytes": 818
+    },
+    "geometry": {
+     "file": "card-3-t16-geometry.webp",
+     "bytes": 5748
+    }
+   }
+  ],
+  [
+   {
+    "top": 313,
+    "h": 287,
+    "distance_m": 523.0396728515625,
+    "colour": {
+     "file": "card-0-t17-colour.webp",
+     "bytes": 988
+    },
+    "geometry": {
+     "file": "card-0-t17-geometry.webp",
+     "bytes": 7722
+    }
+   },
+   {
+    "top": 388,
+    "h": 212,
+    "distance_m": 4265.77197265625,
+    "colour": {
+     "file": "card-1-t17-colour.webp",
+     "bytes": 1906
+    },
+    "geometry": {
+     "file": "card-1-t17-geometry.webp",
+     "bytes": 21338
+    }
+   },
+   {
+    "top": 442,
+    "h": 158,
+    "distance_m": 18450.51171875,
+    "colour": {
+     "file": "card-2-t17-colour.webp",
+     "bytes": 774
+    },
+    "geometry": {
+     "file": "card-2-t17-geometry.webp",
+     "bytes": 4476
+    }
+   },
+   {
+    "top": 458,
+    "h": 142,
+    "distance_m": 32626.9453125,
+    "colour": {
+     "file": "card-3-t17-colour.webp",
+     "bytes": 282
+    },
+    "geometry": {
+     "file": "card-3-t17-geometry.webp",
+     "bytes": 1672
+    }
+   }
+  ],
+  [
+   {
+    "top": 291,
+    "h": 309,
+    "distance_m": 500.0,
+    "colour": {
+     "file": "card-0-t18-colour.webp",
+     "bytes": 1032
+    },
+    "geometry": {
+     "file": "card-0-t18-geometry.webp",
+     "bytes": 10594
+    }
+   },
+   {
+    "top": 350,
+    "h": 250,
+    "distance_m": 4179.998046875,
+    "colour": {
+     "file": "card-1-t18-colour.webp",
+     "bytes": 1980
+    },
+    "geometry": {
+     "file": "card-1-t18-geometry.webp",
+     "bytes": 24574
+    }
+   },
+   {
+    "top": 406,
+    "h": 194,
+    "distance_m": 18500.25,
+    "colour": {
+     "file": "card-2-t18-colour.webp",
+     "bytes": 446
+    },
+    "geometry": {
+     "file": "card-2-t18-geometry.webp",
+     "bytes": 1658
+    }
+   },
+   {
+    "top": 454,
+    "h": 146,
+    "distance_m": 34677.88671875,
+    "colour": {
+     "file": "card-3-t18-colour.webp",
+     "bytes": 392
+    },
+    "geometry": {
+     "file": "card-3-t18-geometry.webp",
+     "bytes": 5676
+    }
+   }
+  ],
+  [
+   {
+    "top": 307,
+    "h": 293,
+    "distance_m": 500.0,
+    "colour": {
+     "file": "card-0-t19-colour.webp",
+     "bytes": 932
+    },
+    "geometry": {
+     "file": "card-0-t19-geometry.webp",
+     "bytes": 10042
+    }
+   },
+   {
+    "top": 254,
+    "h": 346,
+    "distance_m": 4489.41259765625,
+    "colour": {
+     "file": "card-1-t19-colour.webp",
+     "bytes": 3160
+    },
+    "geometry": {
+     "file": "card-1-t19-geometry.webp",
+     "bytes": 28840
+    }
+   },
+   {
+    "top": 392,
+    "h": 208,
+    "distance_m": 17933.982421875,
+    "colour": {
+     "file": "card-2-t19-colour.webp",
+     "bytes": 442
+    },
+    "geometry": {
+     "file": "card-2-t19-geometry.webp",
+     "bytes": 1906
+    }
+   },
+   {
+    "top": 440,
+    "h": 160,
+    "distance_m": 32843.57421875,
+    "colour": {
+     "file": "card-3-t19-colour.webp",
+     "bytes": 352
+    },
+    "geometry": {
+     "file": "card-3-t19-geometry.webp",
+     "bytes": 2892
+    }
+   }
+  ],
+  [
+   {
+    "top": 331,
+    "h": 269,
+    "distance_m": 500.0,
+    "colour": {
+     "file": "card-0-t20-colour.webp",
+     "bytes": 838
+    },
+    "geometry": {
+     "file": "card-0-t20-geometry.webp",
+     "bytes": 8638
+    }
+   },
+   {
+    "top": 237,
+    "h": 363,
+    "distance_m": 6391.69873046875,
+    "colour": {
+     "file": "card-1-t20-colour.webp",
+     "bytes": 5078
+    },
+    "geometry": {
+     "file": "card-1-t20-geometry.webp",
+     "bytes": 38070
+    }
+   },
+   {
+    "top": 373,
+    "h": 227,
+    "distance_m": 17875.4140625,
+    "colour": {
+     "file": "card-2-t20-colour.webp",
+     "bytes": 424
+    },
+    "geometry": {
+     "file": "card-2-t20-geometry.webp",
+     "bytes": 1544
+    }
+   },
+   {
+    "top": 444,
+    "h": 156,
+    "distance_m": 33320.78125,
+    "colour": {
+     "file": "card-3-t20-colour.webp",
+     "bytes": 564
+    },
+    "geometry": {
+     "file": "card-3-t20-geometry.webp",
+     "bytes": 5586
+    }
+   }
+  ],
+  [
+   {
+    "top": 326,
+    "h": 274,
+    "distance_m": 923.2710571289062,
+    "colour": {
+     "file": "card-0-t21-colour.webp",
+     "bytes": 974
+    },
+    "geometry": {
+     "file": "card-0-t21-geometry.webp",
+     "bytes": 12070
+    }
+   },
+   {
+    "top": 216,
+    "h": 384,
+    "distance_m": 6441.12890625,
+    "colour": {
+     "file": "card-1-t21-colour.webp",
+     "bytes": 3532
+    },
+    "geometry": {
+     "file": "card-1-t21-geometry.webp",
+     "bytes": 30322
+    }
+   },
+   {
+    "top": 339,
+    "h": 261,
+    "distance_m": 18364.421875,
+    "colour": {
+     "file": "card-2-t21-colour.webp",
+     "bytes": 602
+    },
+    "geometry": {
+     "file": "card-2-t21-geometry.webp",
+     "bytes": 1468
+    }
+   },
+   {
+    "top": 437,
+    "h": 163,
+    "distance_m": 33722.2421875,
+    "colour": {
+     "file": "card-3-t21-colour.webp",
+     "bytes": 652
+    },
+    "geometry": {
+     "file": "card-3-t21-geometry.webp",
+     "bytes": 7230
+    }
+   }
+  ],
+  [
+   {
+    "top": 327,
+    "h": 273,
+    "distance_m": 911.6795043945312,
+    "colour": {
+     "file": "card-0-t22-colour.webp",
+     "bytes": 974
+    },
+    "geometry": {
+     "file": "card-0-t22-geometry.webp",
+     "bytes": 13546
+    }
+   },
+   {
+    "top": 216,
+    "h": 384,
+    "distance_m": 6546.775390625,
+    "colour": {
+     "file": "card-1-t22-colour.webp",
+     "bytes": 3466
+    },
+    "geometry": {
+     "file": "card-1-t22-geometry.webp",
+     "bytes": 26118
+    }
+   },
+   {
+    "top": 351,
+    "h": 249,
+    "distance_m": 18930.142578125,
+    "colour": {
+     "file": "card-2-t22-colour.webp",
+     "bytes": 648
+    },
+    "geometry": {
+     "file": "card-2-t22-geometry.webp",
+     "bytes": 2904
+    }
+   },
+   {
+    "top": 422,
+    "h": 178,
+    "distance_m": 32402.568359375,
+    "colour": {
+     "file": "card-3-t22-colour.webp",
+     "bytes": 374
+    },
+    "geometry": {
+     "file": "card-3-t22-geometry.webp",
+     "bytes": 512
+    }
+   }
+  ],
+  [
+   {
+    "top": 304,
+    "h": 296,
+    "distance_m": 2027.4254150390625,
+    "colour": {
+     "file": "card-0-t23-colour.webp",
+     "bytes": 962
+    },
+    "geometry": {
+     "file": "card-0-t23-geometry.webp",
+     "bytes": 16670
+    }
+   },
+   {
+    "top": 271,
+    "h": 329,
+    "distance_m": 11896.4462890625,
+    "colour": {
+     "file": "card-1-t23-colour.webp",
+     "bytes": 3394
+    },
+    "geometry": {
+     "file": "card-1-t23-geometry.webp",
+     "bytes": 17558
+    }
+   },
+   {
+    "top": 310,
+    "h": 290,
+    "distance_m": 18561.185546875,
+    "colour": {
+     "file": "card-2-t23-colour.webp",
+     "bytes": 1060
+    },
+    "geometry": {
+     "file": "card-2-t23-geometry.webp",
+     "bytes": 3476
+    }
+   },
+   {
+    "top": 414,
+    "h": 186,
+    "distance_m": 33320.78125,
+    "colour": {
+     "file": "card-3-t23-colour.webp",
+     "bytes": 368
+    },
+    "geometry": {
+     "file": "card-3-t23-geometry.webp",
+     "bytes": 1318
+    }
+   }
+  ],
+  [
+   {
+    "top": 294,
+    "h": 306,
+    "distance_m": 1915.7430419921875,
+    "colour": {
+     "file": "card-0-t24-colour.webp",
+     "bytes": 852
+    },
+    "geometry": {
+     "file": "card-0-t24-geometry.webp",
+     "bytes": 15996
+    }
+   },
+   {
+    "top": 312,
+    "h": 288,
+    "distance_m": 16016.1455078125,
+    "colour": {
+     "file": "card-1-t24-colour.webp",
+     "bytes": 1746
+    },
+    "geometry": {
+     "file": "card-1-t24-geometry.webp",
+     "bytes": 10906
+    }
+   },
+   {
+    "top": 344,
+    "h": 256,
+    "distance_m": 20518.1796875,
+    "colour": {
+     "file": "card-2-t24-colour.webp",
+     "bytes": 464
+    },
+    "geometry": {
+     "file": "card-2-t24-geometry.webp",
+     "bytes": 758
+    }
+   },
+   {
+    "top": 408,
+    "h": 192,
+    "distance_m": 33487.234375,
+    "colour": {
+     "file": "card-3-t24-colour.webp",
+     "bytes": 610
+    },
+    "geometry": {
+     "file": "card-3-t24-geometry.webp",
+     "bytes": 2436
+    }
+   }
+  ],
+  [
+   {
+    "top": 264,
+    "h": 336,
+    "distance_m": 1279.4014892578125,
+    "colour": {
+     "file": "card-0-t25-colour.webp",
+     "bytes": 914
+    },
+    "geometry": {
+     "file": "card-0-t25-geometry.webp",
+     "bytes": 20056
+    }
+   },
+   {
+    "top": 279,
+    "h": 321,
+    "distance_m": 4082.07861328125,
+    "colour": {
+     "file": "card-1-t25-colour.webp",
+     "bytes": 2164
+    },
+    "geometry": {
+     "file": "card-1-t25-geometry.webp",
+     "bytes": 13732
+    }
+   },
+   {
+    "top": 322,
+    "h": 278,
+    "distance_m": 21545.11328125,
+    "colour": {
+     "file": "card-2-t25-colour.webp",
+     "bytes": 472
+    },
+    "geometry": {
+     "file": "card-2-t25-geometry.webp",
+     "bytes": 406
+    }
+   },
+   {
+    "top": 386,
+    "h": 214,
+    "distance_m": 35783.83203125,
+    "colour": {
+     "file": "card-3-t25-colour.webp",
+     "bytes": 914
+    },
+    "geometry": {
+     "file": "card-3-t25-geometry.webp",
+     "bytes": 3836
+    }
+   }
+  ],
+  [
+   {
+    "top": 181,
+    "h": 419,
+    "distance_m": 1077.19091796875,
+    "colour": {
+     "file": "card-0-t26-colour.webp",
+     "bytes": 1566
+    },
+    "geometry": {
+     "file": "card-0-t26-geometry.webp",
+     "bytes": 27326
+    }
+   },
+   {
+    "top": 207,
+    "h": 393,
+    "distance_m": 4019.7578125,
+    "colour": {
+     "file": "card-1-t26-colour.webp",
+     "bytes": 1952
+    },
+    "geometry": {
+     "file": "card-1-t26-geometry.webp",
+     "bytes": 14416
+    }
+   },
+   {
+    "top": 335,
+    "h": 265,
+    "distance_m": 18407.029296875,
+    "colour": {
+     "file": "card-2-t26-colour.webp",
+     "bytes": 1274
+    },
+    "geometry": {
+     "file": "card-2-t26-geometry.webp",
+     "bytes": 6502
+    }
+   },
+   {
+    "top": 369,
+    "h": 231,
+    "distance_m": 33237.1875,
+    "colour": {
+     "file": "card-3-t26-colour.webp",
+     "bytes": 1180
+    },
+    "geometry": {
+     "file": "card-3-t26-geometry.webp",
+     "bytes": 4466
+    }
+   }
+  ],
+  [
+   {
+    "top": 155,
+    "h": 445,
+    "distance_m": 1115.248291015625,
+    "colour": {
+     "file": "card-0-t27-colour.webp",
+     "bytes": 1496
+    },
+    "geometry": {
+     "file": "card-0-t27-geometry.webp",
+     "bytes": 28856
+    }
+   },
+   {
+    "top": 161,
+    "h": 439,
+    "distance_m": 4460.001953125,
+    "colour": {
+     "file": "card-1-t27-colour.webp",
+     "bytes": 1820
+    },
+    "geometry": {
+     "file": "card-1-t27-geometry.webp",
+     "bytes": 9902
+    }
+   },
+   {
+    "top": 342,
+    "h": 258,
+    "distance_m": 21357.478515625,
+    "colour": {
+     "file": "card-2-t27-colour.webp",
+     "bytes": 898
+    },
+    "geometry": {
+     "file": "card-2-t27-geometry.webp",
+     "bytes": 3388
+    }
+   },
+   {
+    "top": 397,
+    "h": 203,
+    "distance_m": 32792.93359375,
+    "colour": {
+     "file": "card-3-t27-colour.webp",
+     "bytes": 404
+    },
+    "geometry": {
+     "file": "card-3-t27-geometry.webp",
+     "bytes": 778
+    }
+   }
+  ],
+  [
+   {
+    "top": 53,
+    "h": 547,
+    "distance_m": 1288.4852294921875,
+    "colour": {
+     "file": "card-0-t28-colour.webp",
+     "bytes": 1978
+    },
+    "geometry": {
+     "file": "card-0-t28-geometry.webp",
+     "bytes": 31906
+    }
+   },
+   {
+    "top": 65,
+    "h": 535,
+    "distance_m": 2982.763916015625,
+    "colour": {
+     "file": "card-1-t28-colour.webp",
+     "bytes": 1046
+    },
+    "geometry": {
+     "file": "card-1-t28-geometry.webp",
+     "bytes": 3854
+    }
+   },
+   {
+    "top": 365,
+    "h": 235,
+    "distance_m": 20124.375,
+    "colour": {
+     "file": "card-2-t28-colour.webp",
+     "bytes": 1440
+    },
+    "geometry": {
+     "file": "card-2-t28-geometry.webp",
+     "bytes": 8884
+    }
+   },
+   {
+    "top": 398,
+    "h": 202,
+    "distance_m": 33286.3515625,
+    "colour": {
+     "file": "card-3-t28-colour.webp",
+     "bytes": 490
+    },
+    "geometry": {
+     "file": "card-3-t28-geometry.webp",
+     "bytes": 2182
+    }
+   }
+  ],
+  [
+   {
+    "top": 24,
+    "h": 576,
+    "distance_m": 1518.8189697265625,
+    "colour": {
+     "file": "card-0-t29-colour.webp",
+     "bytes": 2624
+    },
+    "geometry": {
+     "file": "card-0-t29-geometry.webp",
+     "bytes": 34324
+    }
+   },
+   {
+    "top": 34,
+    "h": 566,
+    "distance_m": 3090.216552734375,
+    "colour": {
+     "file": "card-1-t29-colour.webp",
+     "bytes": 716
+    },
+    "geometry": {
+     "file": "card-1-t29-geometry.webp",
+     "bytes": 1330
+    }
+   },
+   {
+    "top": 356,
+    "h": 244,
+    "distance_m": 28378.375,
+    "colour": {
+     "file": "card-2-t29-colour.webp",
+     "bytes": 856
+    },
+    "geometry": {
+     "file": "card-2-t29-geometry.webp",
+     "bytes": 3104
+    }
+   },
+   {
+    "top": 383,
+    "h": 217,
+    "distance_m": 33587.88671875,
+    "colour": {
+     "file": "card-3-t29-colour.webp",
+     "bytes": 654
+    },
+    "geometry": {
+     "file": "card-3-t29-geometry.webp",
+     "bytes": 2366
+    }
+   }
+  ],
+  [
+   {
+    "top": 24,
+    "h": 576,
+    "distance_m": 1460.000244140625,
+    "colour": {
+     "file": "card-0-t30-colour.webp",
+     "bytes": 2684
+    },
+    "geometry": {
+     "file": "card-0-t30-geometry.webp",
+     "bytes": 31042
+    }
+   },
+   {
+    "top": 42,
+    "h": 558,
+    "distance_m": 3196.747314453125,
+    "colour": {
+     "file": "card-1-t30-colour.webp",
+     "bytes": 550
+    },
+    "geometry": {
+     "file": "card-1-t30-geometry.webp",
+     "bytes": 330
+    }
+   },
+   {
+    "top": 331,
+    "h": 269,
+    "distance_m": 27157.220703125,
+    "colour": {
+     "file": "card-2-t30-colour.webp",
+     "bytes": 2094
+    },
+    "geometry": {
+     "file": "card-2-t30-geometry.webp",
+     "bytes": 12678
+    }
+   },
+   {
+    "top": 351,
+    "h": 249,
+    "distance_m": 33010.56640625,
+    "colour": {
+     "file": "card-3-t30-colour.webp",
+     "bytes": 552
+    },
+    "geometry": {
+     "file": "card-3-t30-geometry.webp",
+     "bytes": 894
+    }
+   }
+  ],
+  [
+   {
+    "top": 29,
+    "h": 571,
+    "distance_m": 1045.033935546875,
+    "colour": {
+     "file": "card-0-t31-colour.webp",
+     "bytes": 2756
+    },
+    "geometry": {
+     "file": "card-0-t31-geometry.webp",
+     "bytes": 31704
+    }
+   },
+   {
+    "top": 48,
+    "h": 552,
+    "distance_m": 2780.00048828125,
+    "colour": {
+     "file": "card-1-t31-colour.webp",
+     "bytes": 606
+    },
+    "geometry": {
+     "file": "card-1-t31-geometry.webp",
+     "bytes": 278
+    }
+   },
+   {
+    "top": 332,
+    "h": 268,
+    "distance_m": 29552.09765625,
+    "colour": {
+     "file": "card-2-t31-colour.webp",
+     "bytes": 2102
+    },
+    "geometry": {
+     "file": "card-2-t31-geometry.webp",
+     "bytes": 12352
+    }
+   },
+   {
+    "top": 347,
+    "h": 253,
+    "distance_m": 32273.474609375,
+    "colour": {
+     "file": "card-3-t31-colour.webp",
+     "bytes": 422
+    },
+    "geometry": {
+     "file": "card-3-t31-geometry.webp",
+     "bytes": 196
+    }
+   }
+  ]
+ ],
+ "bytes": 1700446,
+ "attribution": {
+  "credit_line": "Contains modified Copernicus data: DEM \u00a9 DLR e.V. 2010-2014 and \u00a9 Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
+  "licence": "Copernicus DEM licence: free, full and open access, with the credit line shown",
+  "dem_source": "Copernicus DEM GLO-30 (30 m)",
+  "url": "https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model"
+ }
+}

@@ -44,6 +44,14 @@ describe('mountBackgroundScene', () => {
     expect(scene.login).not.toHaveBeenCalled();
   });
 
+  it('tells onActive the sky the started scene draws', async () => {
+    startBackgroundScene.mockResolvedValue({ ...fakeScene(), drawnSky: 'dusk' });
+    const onActive = vi.fn();
+    mountBackgroundScene(config, caps, canvas, { loggedIn: false, onActive });
+    await flush();
+    expect(onActive).toHaveBeenCalledWith('dusk');
+  });
+
   it('disposes the scene on unmount, once', async () => {
     const scene = fakeScene();
     startBackgroundScene.mockResolvedValue(scene);

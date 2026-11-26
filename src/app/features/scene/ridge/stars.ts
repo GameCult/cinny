@@ -14,6 +14,8 @@ export const TWINKLE_GAIN = { dim: 0.35, bright: 1.15 } as const;
 const SEED = 0x57a45eed;
 
 export interface Star {
+  /** The star's index in the catalogue (`starCatalogue.ts`): the identity the twinkle schedule is keyed by, the same on every plate of a sky. */
+  id: number;
   /** Position as fractions of the sky canvas width and height. */
   x: number;
   y: number;
@@ -39,6 +41,13 @@ export function hash(a: number, b = 0, c = 0): number {
 // ---- The schedule ---------------------------------------------------------------------------
 
 export const slotCount = (stars: number): number => Math.min(SLOTS, stars);
+/**
+ * The slots for a schedule over `universe` stars of which `shown` are on the plate that is up: enough that SLOTS of the ones shown twinkle at any instant on
+ * average, though the schedule runs over the whole universe (the catalogue), so that the same stars twinkle whichever plate shows them. Never more than half
+ * the universe, so each slot has a star to turn to.
+ */
+export const slotsFor = (universe: number, shown: number): number =>
+  Math.max(1, Math.min(Math.floor(universe / 2), Math.round((SLOTS * universe) / Math.max(1, shown)), universe));
 /** A slot's twinkle period in seconds: its own, in TWINKLE_PERIOD. */
 export const slotPeriod = (j: number): number =>
   TWINKLE_PERIOD.min + (TWINKLE_PERIOD.max - TWINKLE_PERIOD.min) * hash(j, 1);
@@ -89,9 +98,8 @@ export interface Twinkling {
   gain: number;
 }
 
-/** The active set at time `t` seconds for a field of `stars` stars, in slot order. */
-export function activeAt(stars: number, t: number): Twinkling[] {
-  const slots = slotCount(stars);
+/** The active set at time `t` seconds for a universe of `stars` stars, in slot order, in `slots` slots (`slotCount` of them, or `slotsFor`). `star` is an index into the universe. */
+export function activeAt(stars: number, t: number, slots: number = slotCount(stars)): Twinkling[] {
   return Array.from({ length: slots }, (_, j) => {
     const period = slotPeriod(j);
     const off = slotOffset(j);
@@ -115,12 +123,12 @@ export function activeAt(stars: number, t: number): Twinkling[] {
 // ---- Drawing --------------------------------------------------------------------------------
 
 /**
- * The overlay pass: clear, then for each active star whose gain is off base, cover the baked star with the sky behind it and draw it again
+ * The overlay pass over the plate's stars by identity: clear, then for each active star on this plate whose gain is off base, cover the baked star with the sky behind it and draw it again
  * at the gain. A star at base draws nothing.
  */
 export function drawTwinkle(
   ctx: CanvasRenderingContext2D,
-  stars: readonly Star[],
+  stars: ReadonlyMap<number, Star>,
   active: readonly Twinkling[],
   w: number,
   h: number,
@@ -128,7 +136,7 @@ export function drawTwinkle(
 ) {
   ctx.clearRect(0, 0, w, h);
   active.forEach((a) => {
-    const s = stars[a.star];
+    const s = stars.get(a.star);
     if (!s || Math.abs(a.gain - 1) < 0.01) return;
     ctx.fillStyle = s.cover;
     ctx.beginPath();
