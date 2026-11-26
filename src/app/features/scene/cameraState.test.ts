@@ -45,6 +45,15 @@ describe('the viewer camera', () => {
     expect(getCamera()).toEqual({ mode: 'offset', speedDegPerS: 1, offsetM: -30 });
   });
 
+  it('a reduced-motion visit starts still with the default speed and offset kept, which apply once a moving mode is chosen (ruling ridge-reduced-motion-starts-still)', () => {
+    reduced.matches = true;
+    expect(getCamera()).toEqual({ mode: 'still', speedDegPerS: 0.6, offsetM: 200 });
+    expect(effectiveMode()).toBe('still');
+    setCamera({ mode: 'both' });
+    expect(getCamera()).toEqual({ mode: 'both', speedDegPerS: 0.6, offsetM: 200 });
+    expect(effectiveMode()).toBe('both');
+  });
+
   it('keeps each change per viewer, and tells listeners only of a change', () => {
     const cb = vi.fn();
     subscribe(cb);

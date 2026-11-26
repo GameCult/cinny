@@ -1,4 +1,4 @@
-import { createVar, fallbackVar, globalStyle } from '@vanilla-extract/css';
+import { createVar, fallbackVar, globalStyle, style } from '@vanilla-extract/css';
 import { color } from 'folds';
 
 // While the background scene runs (html[data-scene], set by BackgroundScene) the signed-in shell
@@ -28,3 +28,13 @@ globalStyle(':root[data-scene] #root', {
 const surfaceInkVar = createVar();
 globalStyle(':root[data-scene] body', { vars: { [surfaceInkVar]: color.Surface.Container } });
 export const surfaceInk = fallbackVar(surfaceInkVar, color.Surface.Container);
+
+// While the scene view is open (sceneView.ts) the app stays mounted, so the chat keeps its scroll and its composer, but it is hidden (and inert, set by sceneView.ts).
+globalStyle(':root[data-scene-view] #root', { visibility: 'hidden' });
+
+// Return while the scene view's code is still loading (SceneViewHost.tsx): the view's own rail is not there yet, so this one button stands where its Return will be.
+export const LoadingReturn = style({
+  position: 'fixed',
+  top: 'max(0.5rem, env(safe-area-inset-top))',
+  left: 'max(0.5rem, env(safe-area-inset-left))',
+});
