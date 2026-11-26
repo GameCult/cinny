@@ -217,7 +217,7 @@ def _write(out, b, packed, **kw):
     args = dict(place=b['place'], view=b['view'], meta=b['meta'], packed=packed, opaque=b['opaque']); args.update(kw); return export.write_bake(out, **args)
 def _refuses(out, b, packed, why, **kw):
     try: _write(out, b, packed, **kw)
-    except ValueError: assert not os.path.exists(out), ('a refused bake left files', why)
+    except export.Refusal: assert not os.path.exists(out), ('a refused bake left files', why)
     else: assert False, why
 def _pins():
     assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 7), 'the ring layout is pinned'
@@ -233,7 +233,7 @@ def test_schema3():
         def bad(f, why):
             x = mk(); f(x)
             try: export.validate_manifest(x)
-            except ValueError: return
+            except export.Refusal: return
             raise AssertionError(why)
         bad(lambda x: x['camera'].pop('r_max_forward_m'), 'a camera without its forward offset validated'); bad(lambda x: x['camera'].pop('r_max_m'), 'a camera without its offset validated')
         bad(lambda x: x['tiles'].pop(), 'a manifest of 31 tiles validated'); bad(lambda x: x['tiles'][3].pop(), 'a tile with a card missing validated'); bad(lambda x: x['tiles'][3].append(None), 'a tile with an extra card validated'); bad(lambda x: x['view'].pop('apron'), 'a missing apron validated')
@@ -290,15 +290,15 @@ def test_tile_crop_and_null():
         for i, why in ((1, '20 km'), (2, '55 km')):
             gone = [[empty if j == i else c for j, c in enumerate(tile)] for tile in b['cards']]
             try: export.pack(dict(b, cards=gone))
-            except ValueError as e: assert f'card {i} is empty' in str(e) and why in str(e), str(e)
+            except export.Refusal as e: assert f'card {i} is empty' in str(e) and why in str(e), str(e)
             else: assert False, ('an empty card', i, 'was packed')
         liquid = [[dict(c, alpha=c['alpha'] * 0.4) if j == 1 else c for j, c in enumerate(tile)] for tile in t0['cards']]
         try: export.pack(dict(t0, cards=liquid))
-        except ValueError as e: assert 'no solid terrain' in str(e), str(e)
+        except export.Refusal as e: assert 'no solid terrain' in str(e), str(e)
         else: assert False, 'a card with no solid pixel in any tile was packed'
         walled = [[dict(c, wall=np.ones_like(c['wall'])) if j == 1 else c for j, c in enumerate(tile)] for tile in t0['cards']]
         try: export.pack(dict(t0, cards=walled))
-        except ValueError as e: assert 'no solid terrain' in str(e), str(e)
+        except export.Refusal as e: assert 'no solid terrain' in str(e), str(e)
         else: assert False, 'a card that is all wall was packed'
     finally: shutil.rmtree(d)
 def test_cover_and_size_refusals_write_nothing():
@@ -308,11 +308,11 @@ def test_cover_and_size_refusals_write_nothing():
     try:
         b = _toy(); pk = export.pack(b); c = b['cards'][3][2]; hole = c['alpha'].copy(); hole[:, 100:140] = 0; bad = [list(r) for r in pk['tiles']]; bad[3][2] = dict(bad[3][2], colour=export.encode_colour(c['albedo'], hole)); _refuses(d + '/hole', b, dict(pk, tiles=bad), 'a bake whose card leaves a hole was written')
         try: _write(d + '/hole', b, dict(pk, tiles=bad))
-        except ValueError as e: assert 'tile 3' in str(e), str(e)
+        except export.Refusal as e: assert 'tile 3' in str(e), str(e)
         off = [list(r) for r in pk['tiles']]; off[7][0] = dict(off[7][0], top=H - 5); _refuses(d + '/off', b, dict(pk, tiles=off), 'a card leaving the frame was written')
         narrow = [list(r) for r in pk['tiles']]; c0 = b['cards'][2][0]; narrow[2][0] = dict(narrow[2][0], colour=export.encode_colour(c0['albedo'][:, 2:-2], c0['alpha'][:, 2:-2]), geometry=export.encode_geometry(c0['n_r'][:, 2:-2], c0['n_t'][:, 2:-2], c0['logd'][:, 2:-2], b['meta']['encoding'])); _refuses(d + '/apron', b, dict(pk, tiles=narrow), 'a tile without its apron was written')
         try: _write(d + '/apron', b, dict(pk, tiles=narrow))
-        except ValueError as e: assert 'apron' in str(e), str(e)
+        except export.Refusal as e: assert 'apron' in str(e), str(e)
         mism = [list(r) for r in pk['tiles']]; mism[4][1] = dict(mism[4][1], geometry=export.encode_geometry(c0['n_r'][:50], c0['n_t'][:50], c0['logd'][:50], b['meta']['encoding'])); _refuses(d + '/size', b, dict(pk, tiles=mism), 'a colour and geometry of two sizes were written')
         _refuses(d + '/rows', b, pk, 'view plane_h disagreeing with the opaque view was written', view=dict(b['view'], plane_h=H + 1)); _refuses(d + '/short', b, dict(pk, tiles=pk['tiles'][:31]), 'a bake of 31 tiles was written')
     finally: shutil.rmtree(d)
@@ -326,36 +326,36 @@ def test_card_cap_refusals():
         for bad in ([5, 10, 20, 30, 40, 50], [6, 6], [6, 5], []):
             p = os.path.join(d, 'p.json'); json.dump(dict(presets=[dict(id='x', tz='UTC', card_split_km=bad)]), open(p, 'w'))       # a valid zone, so only the splits can refuse it
             try: ridge.load_preset('x', p)
-            except ValueError: pass
+            except export.Refusal: pass
             else: assert False, ('a preset with splits', bad, 'was accepted')
         json.dump(dict(presets=[dict(id='x')]), open(os.path.join(d, 'q.json'), 'w'))
         try: ridge.load_preset('x', os.path.join(d, 'q.json'))
-        except ValueError: pass
+        except export.Refusal: pass
         else: assert False, 'a preset without card_split_km was defaulted'
         json.dump(dict(presets=[dict(id='x', tz='Europe/Vienna', card_split_km=[1, 2, 3, 4, 5])]), open(os.path.join(d, 'r.json'), 'w')); assert ridge.load_preset('x', os.path.join(d, 'r.json'))['card_split_km'] == [1, 2, 3, 4, 5]
         for bad_tz in (None, '', 'Not/AZone'):
             p = os.path.join(d, 'tz.json'); json.dump(dict(presets=[dict(id='x', card_split_km=[6], **({} if bad_tz is None else dict(tz=bad_tz)))]), open(p, 'w'))
             try: ridge.load_preset('x', p)
-            except ValueError: pass
+            except export.Refusal: pass
             else: assert False, ('a preset with tz', bad_tz, 'was accepted')
         place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
         full = [np.ones((H, 204)) for _ in range(32)]; cards = lambda k: [dict(near_m=None if i == 0 else 1.0, far_m=None if i == k - 1 else 1.0) for i in range(k)]; cam = dict(r_max_m=100.0, r_max_forward_m=100.0)
         big = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, H) for _ in range(5)] for _ in range(32)], camera=cam)
         try: export.write_bake(d + '/big', place, view, meta, big, full)
-        except ValueError as e: assert 'consecutive tiles' in str(e), str(e)
+        except export.Refusal as e: assert 'consecutive tiles' in str(e), str(e)
         else: assert False, 'six full-frame cards in every tile were written'
         assert not os.path.exists(d + '/big')
         ok = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, 100, seed=i) for i in range(1, 6)] for _ in range(32)], camera=cam); dest = export.write_bake(d + '/six', place, view, meta, ok, full); assert len(json.load(open(dest / 'manifest.json'))['cards']) == 6
         fwd = lambda r: dict(ok, camera=dict(r_max_m=100.0, r_max_forward_m=r)); bands6 = [[H] + [100] * 5] * 32; assert export.resident_bytes(bands6, export.run_tiles(100.0, 1000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(bands6, export.run_tiles(1e6, 1000.0)), 'the fixture cannot tell the gate at r_max_forward_m from the gate at r_max_m'
         try: export.write_bake(d + '/fwd', place, view, meta, fwd(1e6), full)
-        except ValueError as e: assert 'consecutive tiles' in str(e), str(e)
+        except export.Refusal as e: assert 'consecutive tiles' in str(e), str(e)
         else: assert False, 'a bake whose forward offset breaks the resident gate was written'
         try: export.write_bake(d + '/low', place, view, meta, fwd(50.0), full)
-        except ValueError as e: assert 'below r_max_m' in str(e), str(e)
+        except export.Refusal as e: assert 'below r_max_m' in str(e), str(e)
         else: assert False, 'a bake whose forward offset is below the worst-case offset was written'
         assert not os.path.exists(d + '/fwd') and not os.path.exists(d + '/low')
         try: export.check_budget(7, [1000] * 32, [[10] * 7] * 32, 100.0, 1000.0)
-        except ValueError as e: assert 'above 6' in str(e)
+        except export.Refusal as e: assert 'above 6' in str(e)
         else: assert False, '7 cards were accepted'
     finally: shutil.rmtree(d)
 def test_budgets():
@@ -363,7 +363,7 @@ def test_budgets():
     none = [[] for _ in range(export.TILES)]; call = lambda tb, bands, r=100.0, rmin=1000.0: export.check_budget(3, tb, bands, r, rmin)
     def refused(*a, **k):
         try: call(*a, **k)
-        except ValueError: return True
+        except export.Refusal: return True
         return False
     assert not refused([235_000] + [0] * 31, none) and refused([235_001] + [0] * 31, none), 'the tile cap'
     assert not refused([234_375] * 32, none) and refused([234_375] * 31 + [234_376], none), 'the place cap'
@@ -402,11 +402,11 @@ def test_r_max():
         held_f = export.solve_r_max(dist2, heavy, ppd, phis=1); assert held_f >= held and export.resident_bytes(heavy, export.run_tiles(held_f, 20000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(heavy, export.run_tiles(held_f + 1.0, 20000.0)), ('the resident gate does not bind the forward offset', held_f, held)
         two = [[5000.0, 40.0 if t == 7 else 5000.0] for t in range(32)]
         try: export.solve_r_max(two, [[100, 100] for _ in range(32)], ppd)
-        except ValueError as e: assert 'below 25' in str(e) and 'card 1' in str(e) and 'tile 7' in str(e), str(e)
+        except export.Refusal as e: assert 'below 25' in str(e) and 'card 1' in str(e) and 'tile 7' in str(e), str(e)
         else: assert False, 'a bake whose r_max_m is below 25 was accepted'
         close = [[30.0] for _ in range(32)]
         try: export.solve_r_max(close, bands, ppd)
-        except ValueError as e: assert 'below 25' in str(e) and 'card 0' in str(e), str(e)
+        except export.Refusal as e: assert 'below 25' in str(e) and 'card 0' in str(e), str(e)
         else: assert False, 'a nearest card at 30 m was accepted'
     finally: export.FIT_PX_MAX, export.PHI_STEPS = saved
 def test_pack_distance_and_r_max_in_the_bake():
@@ -541,7 +541,7 @@ def test_the_near_clip_compare_does_not_depend_on_float32_rounding():
         for clip in (500.0, 520.0, 700.0):
             ridge.NEAR_CLIP_M = clip; b = _toy(dists=(clip, 15000.0, 50000.0), amp=0.0); pk = export.pack(b); assert pk['tiles'][0][0]['distance_m'] != 0
             try: dest = _write(d + f'/ok{clip:g}', b, pk)
-            except ValueError as e: assert 'near clip' not in str(e), ('a card 0 at the near clip was refused', clip, str(e)); raise
+            except export.Refusal as e: assert 'near clip' not in str(e), ('a card 0 at the near clip was refused', clip, str(e)); raise
             assert dest.exists(), ('a card 0 at the near clip was refused', clip)
         b = _toy(dists=(698.9, 15000.0, 50000.0), amp=0.0); ridge.NEAR_CLIP_M = 700.0; _refuses(d + '/under', b, export.pack(b), 'a card 0 under the near clip was written')
     finally: ridge.NEAR_CLIP_M = saved; shutil.rmtree(d)
@@ -551,7 +551,7 @@ def test_set_view_keeps_the_ground_rows_under_the_horizon():
     assert ridge.GROUND_ROWS_MIN == 150 and ridge.E_MIN == 0.5 and ridge.NEAR_CLIP_M == 500.0, 'the authored constants are pinned'
     sk = np.full(W, 5.0); sk[100] = 60.0
     try: ridge.set_view(sk)
-    except ValueError as e:
+    except export.Refusal as e:
         if 'under the horizon' not in str(e): raise      # not the refusal: a crash
         assert '60.00' in str(e) and '8.89' in str(e) and '0.5x' in str(e), str(e)
     else: assert False, 'a skyline that cannot hold the ground rows was accepted'
@@ -568,12 +568,12 @@ def test_the_near_clip_and_the_ground_rows_are_refused_at_the_writer():
     try:
         b = _toy(); pk = export.pack(b); near = export.pack(_toy(dists=(300.0, 15000.0, 50000.0))); assert near['report']['nearest_m'] < ridge.NEAR_CLIP_M
         try: _write(d + '/near', b, near)
-        except ValueError as e: assert 'near clip' in str(e), str(e); assert not os.path.exists(d + '/near')
+        except export.Refusal as e: assert 'near clip' in str(e), str(e); assert not os.path.exists(d + '/near')
         else: assert False, 'a bake whose card 0 stands inside the near clip was written'
         _refuses(d + '/short', b, pk, 'a plane with 149 rows under the horizon was written', view=dict(b['view'], horizon_row=451.0)); dest = _write(d + '/ok', b, pk, view=dict(b['view'], horizon_row=450.0)); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m)
         m['view']['horizon_row'] = 450.5
         try: export.validate_manifest(m)
-        except ValueError as e: assert 'GROUND_ROWS_MIN' in str(e), str(e)
+        except export.Refusal as e: assert 'GROUND_ROWS_MIN' in str(e), str(e)
         else: assert False, 'validate_manifest accepted a short plane'
     finally: shutil.rmtree(d)
 # ---------------------------------------------------------------------------------------- the near ground: the place's own terrain under the clip, drawn by card 0 inside the clip's silhouette
@@ -630,7 +630,7 @@ def test_cards_refuses_a_march_without_the_near_ground():
     """ridge.cards on a march whose first sample is the near clip (not joined to the near march) raises, naming join_near: card 0 can never extrude the clip sample again."""
     A, Hh = rays(THREE); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0))
     try: ridge.cards(D, _w(A), _w(Hh), np.zeros((0, NW)))
-    except ValueError as e: assert 'join_near' in str(e), str(e)
+    except export.Refusal as e: assert 'join_near' in str(e), str(e)
     else: assert False, 'cards drew a march that starts at the near clip'
 def test_near_march_starts_at_your_feet():
     """The near march starts at NEAR_START_M = 1 m, strictly increasing in steps of max(1 m, 0.02 d) up to 10 m, its last sample under the clip; over flat ground with a 1.6 m eye and a frame bottom below -8 degrees (the ray of the frame bottom meets the ground 11 m out) card 0 has no wall row and draws the ground to the bottom row."""
