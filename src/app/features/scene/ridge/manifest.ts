@@ -198,6 +198,13 @@ async function getJson(url: string, init?: RequestInit): Promise<unknown> {
   return res.json();
 }
 
+/** A baked place as the Place submenu lists it: the manifest's own name and zone (local time on its card). */
+export interface PlaceListing {
+  id: string;
+  name: string;
+  tz: string;
+}
+
 const memo = new Map<string, Promise<RidgeManifest>>();
 const indexMemo = new Map<string, Promise<RidgeIndex>>();
 const listMemo = new Map<string, Promise<PlaceListing[]>>();
@@ -235,13 +242,6 @@ export function loadManifest(baseUrl: string, placeId?: string): Promise<RidgeMa
   memo.set(key, p);
   p.catch(() => memo.delete(key));
   return p;
-}
-
-/** A baked place as the Place submenu lists it: the manifest's own name and zone (local time on its card). */
-export interface PlaceListing {
-  id: string;
-  name: string;
-  tz: string;
 }
 
 /** The baked places in the index's order, named by their manifests; a place whose manifest fails to load is left out. Memoised per index URL; a failure is not remembered. */
