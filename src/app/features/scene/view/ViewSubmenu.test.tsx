@@ -3,7 +3,7 @@ import { parseManifest } from '../ridge/manifest';
 import { wireManifest } from '../ridge/manifest.fixture';
 import { maxSpeed, offsetRange, SPEED_CEILING_DEG_S, windowFor } from '../ridge/view';
 import type { CameraChoice } from '../cameraState';
-import { ViewSubmenu, offsetBounds, speedBounds } from './ViewSubmenu';
+import { ViewSubmenu, floorToTenth, offsetBounds, speedBounds } from './ViewSubmenu';
 
 // The hooks are held still, as in TimeSubmenu.test.tsx: the element tree is read, a function component is expanded by calling it, and the native events
 // are dispatched on a fake input.
@@ -84,6 +84,33 @@ describe('the View submenu', () => {
     expect(s?.props?.max).toBe(speedBounds(manifest, 'both')[1]);
     expect(s?.props?.value).toBe(speedBounds(manifest, 'both')[1]); // a stored speed past the bound shows at the bound
     expect(speedBounds(undefined, 'both')).toEqual([0, SPEED_CEILING_DEG_S]);
+  });
+
+  it('the speed bound is the place\'s own, far under the global ceiling, when the ring is cut as the baker cuts it', () => {
+    const ring = parseManifest(wireManifest({}, 3, 32), 'http://x/ridge/vienna/');
+    const slow = maxSpeed(ring, 'both');
+    expect(slow).toBeLessThan(SPEED_CEILING_DEG_S / 4);
+    const [, hi] = speedBounds(ring, 'both');
+    expect(hi).toBeLessThanOrEqual(slow);
+    expect(hi).toBeGreaterThan(slow - 0.1);
+    expect(hi).toBeLessThan(SPEED_CEILING_DEG_S);
+    expect(speedBounds(ring, 'offset')[1]).toBe(SPEED_CEILING_DEG_S); // the modes with no bound take the ceiling
+    held.cam = { mode: 'both', speedDegPerS: 99, offsetM: 0 };
+    const s = walk(ViewSubmenu({ manifest: ring, size: SIZE })).find(
+      (e) => e.props?.label === 'Rotation speed'
+    );
+    expect(s?.props?.max).toBe(hi);
+    expect(s?.props?.value).toBe(hi);
+  });
+
+  it('no stepped bound exceeds the speed it bounds: a tenth multiplied in floats is not trusted', () => {
+    for (let k = 0; k <= 120; k += 1) {
+      const v = Number(`${k / 10}`);
+      expect(floorToTenth(v)).toBeLessThanOrEqual(v);
+      expect(floorToTenth(v + 0.04)).toBeGreaterThanOrEqual(v);
+    }
+    expect(floorToTenth(0.3)).toBeLessThanOrEqual(0.3);
+    expect(floorToTenth(0.975)).toBe(0.9);
   });
 
   it('the offset slider spans offsetRange for the mode on this viewport, signed, and follows the mode', () => {

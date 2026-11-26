@@ -17,13 +17,16 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: RotationMode; label: string }> 
 const SPEED_STEP = 0.1;
 const OFFSET_STEP = 5;
 
-/** The speed slider's bounds: nothing to the fastest the baked place sustains in the mode picked (`view.ts` `maxSpeed`), the ceiling with no bake to ask. */
+/** `v` rounded down to a tenth of a degree a second, never above `v` (a step multiplied in floats can overshoot: 3 x 0.1 is more than 0.3). */
+export const floorToTenth = (v: number): number => Math.min(v, Math.floor(v * 10) / 10);
+
+/** The speed slider's bounds: nothing to the fastest the baked place sustains in the mode picked (`view.ts` `maxSpeed`), the ceiling with no bake to ask; the top never exceeds it. */
 export const speedBounds = (
   manifest: RidgeManifest | undefined,
   mode: RotationMode
 ): [number, number] => [
   0,
-  Math.floor((manifest ? maxSpeed(manifest, mode) : SPEED_CEILING_DEG_S) / SPEED_STEP) * SPEED_STEP,
+  floorToTenth(manifest ? maxSpeed(manifest, mode) : SPEED_CEILING_DEG_S),
 ];
 
 /** The offset slider's bounds in metres, signed: `view.ts` `offsetRange` for the mode on this viewport, rounded in to the slider's step. */
