@@ -53,19 +53,19 @@ describe('the viewer place choice', () => {
     expect(s.getPlaceChoice()).toBe('matterhorn');
   });
 
-  it('tells listeners once per change, and not for the same id or a malformed one', async () => {
+  it('tells listeners of every valid pick, a repeat of the id included (a tap on a place that has not come up asks again), and not of a malformed one', async () => {
     const s = await fresh();
     const heard = vi.fn();
     const off = s.subscribePlaceChoice(heard);
     s.setPlaceChoice('fuji');
     s.setPlaceChoice('fuji');
     s.setPlaceChoice('NOT AN ID');
-    expect(heard).toHaveBeenCalledTimes(1);
-    s.setPlaceChoice('amadablam');
     expect(heard).toHaveBeenCalledTimes(2);
+    s.setPlaceChoice('amadablam');
+    expect(heard).toHaveBeenCalledTimes(3);
     off();
     s.setPlaceChoice('fuji');
-    expect(heard).toHaveBeenCalledTimes(2);
+    expect(heard).toHaveBeenCalledTimes(3);
   });
 
   it('does not write storage for a choice it already holds', async () => {

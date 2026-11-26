@@ -4,7 +4,7 @@ import { wireIndex, wireManifest } from './ridge/manifest.fixture';
 import { momentFor } from './ridge/skyMoment';
 import type { SkyChoice } from './ridge/skyMoment';
 import { sunAt } from './ridge/sunAt';
-import { ensureSkyPlace, loadPlaceManifest, resolvePlaceId } from './skyPlace';
+import { drawnView, ensureSkyPlace, loadPlaceManifest, resolvePlaceId } from './skyPlace';
 import { forgetPlaceChoice, setPlaceChoice } from './placeState';
 import { getSkyPlace, setSkyPlace, subscribe } from './skyState';
 
@@ -62,17 +62,24 @@ describe('the place drawn follows the choice through the one resolution', () => 
     forgetPlaceChoice();
   });
 
-  it("a pick draws that place's own sun (Fuji at Noon is another instant than Vienna at Noon), and the sky's place changes once", async () => {
+  it("a pick resolves to that place's own sun (Fuji at Noon is another instant than Vienna at Noon), and only a made scene moves the store's place", async () => {
     setSkyPlace(undefined);
     const heard = vi.fn();
     const off = subscribe(heard);
     const a = await ensureSkyPlace(undefined);
     expect(a.view.place.id).toBe('vienna');
-    expect(heard).toHaveBeenCalledTimes(1);
+    expect(getSkyPlace()).toBeUndefined(); // asked for, not drawn
+    expect(heard).not.toHaveBeenCalled();
     setPlaceChoice('fuji');
     const b = await ensureSkyPlace(undefined);
-    await ensureSkyPlace(undefined); // asked again: the same place, no further change
     expect(b.view.place.id).toBe('fuji');
+    expect(getSkyPlace()).toBeUndefined(); // a build that has not been made names nothing
+    expect(heard).not.toHaveBeenCalled();
+    drawnView(a.manifest);
+    drawnView(a.manifest); // the same place again: no further change
+    expect(getSkyPlace()?.id).toBe('vienna');
+    expect(heard).toHaveBeenCalledTimes(1);
+    drawnView(b.manifest);
     expect(getSkyPlace()?.id).toBe('fuji');
     expect(heard).toHaveBeenCalledTimes(2);
     const noonAt = (p: typeof a.view.place) => momentFor(noon, p, at).getTime();

@@ -23,14 +23,19 @@ export function getPlaceChoice(): string | undefined {
   return choice;
 }
 
-/** Pick a place. Stored when storage allows (else it holds for this page load); listeners hear it only when the id changed. */
+/**
+ * Pick a place. Stored when it changed and storage allows (else it holds for this page load). Listeners hear every valid pick, a repeat of the id included: a tap
+ * on a place that has not come up (its tiles did not load) is a request to try again, and a listener that has nothing to do for it ignores it.
+ */
 export function setPlaceChoice(id: string): void {
-  if (!ID.test(id) || getPlaceChoice() === id) return;
-  choice = id;
-  try {
-    localStorage.setItem(KEY, id);
-  } catch {
-    // Storage is refused (private mode, quota): the choice holds for this page load only.
+  if (!ID.test(id)) return;
+  if (getPlaceChoice() !== id) {
+    choice = id;
+    try {
+      localStorage.setItem(KEY, id);
+    } catch {
+      // Storage is refused (private mode, quota): the choice holds for this page load only.
+    }
   }
   [...listeners].forEach((cb) => cb());
 }

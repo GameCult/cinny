@@ -1,8 +1,8 @@
 // The place the sky is over, and the one decision of which place is drawn: the viewer's choice (placeState.ts) if the index lists it, else the config's place if
-// listed, else the index's default. The store (skyState.ts) holds the place; this file is the only writer
-// of it: the baked place's manifest, loaded once and shared, when the ridge planes are drawn, and the fallback view (view.ts FALLBACK_VIEW) when
-// they are not (the manifest or its cards did not load), because the scene is then the sky alone over that view. So the sky, the weather, the
-// rebuild key, the ink and the Auto timer all read the place the scene draws. Main-chunk safe: no sky, no ridge code, only the manifest parser,
+// listed, else the index's default. The store (skyState.ts) holds the DRAWN place, and `drawnView` is the only writer of it, called when a scene is made: the
+// baked place's manifest when the ridge planes are drawn, the fallback view (view.ts FALLBACK_VIEW) when they are not (the manifest or its cards did not load),
+// because the scene is then the sky alone over that view. The pick is a wish and `ensureSkyPlace` only resolves it; a place whose build is still loading, or failed,
+// is never the store's. So the carousel, the credits, the ink and the Auto timer all read the place the canvas draws. Main-chunk safe: no sky, no ridge code, only the manifest parser,
 // the fallback view and the store.
 import type { BackgroundSceneConfig } from './tier';
 import { loadIndex, loadManifest } from './ridge/manifest';
@@ -39,9 +39,9 @@ export function resetSkyPlanes(): void {
 }
 
 /**
- * Load the manifest of the place to draw (`resolvePlaceId`) and make the view being
- * drawn the sky's place. Safe to call whenever a reader wants the view: the load is memoised and setting the same place is not a change. A
- * failed load is the fallback view, returned with its error so the scene can be the sky alone.
+ * Load the manifest of the place to draw (`resolvePlaceId`) and return the view a build for it draws. Safe to call whenever a reader wants the view: the load is memoised.
+ * Writes nothing: the store's place is the one drawn (`drawnView`), not the one asked for. A failed load is the fallback view, returned with its error so the scene
+ * can be the sky alone.
  */
 export async function ensureSkyPlace(
   config: Pick<BackgroundSceneConfig, 'place'> | undefined
@@ -54,14 +54,11 @@ export async function ensureSkyPlace(
     fail = e instanceof Error ? e : new Error(String(e));
   }
   const view = manifest && !skyOnly ? manifest.view : FALLBACK_VIEW;
-  setSkyPlace(view.place);
   return { manifest, view, fail };
 }
 
-/** A build has settled what it draws: the manifest's planes (the manifest), or the sky alone (null). Makes that view's place the sky's and returns the view. */
-export function drawnView(manifest: RidgeManifest | null): View {
+/** A scene has been made and is now what is drawn: its manifest's planes (the manifest), or the sky alone (null). Makes that view's place the sky's. The one writer of the store's place. */
+export function drawnView(manifest: RidgeManifest | null): void {
   skyOnly = manifest === null;
-  const view = manifest?.view ?? FALLBACK_VIEW;
-  setSkyPlace(view.place);
-  return view;
+  setSkyPlace((manifest?.view ?? FALLBACK_VIEW).place);
 }
