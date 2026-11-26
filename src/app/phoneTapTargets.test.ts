@@ -200,7 +200,8 @@ describe('icon buttons in the room view', () => {
     // Buttons that were fixed with #125 and had no test.
     'components/password-input/PasswordInput.tsx': ['PhoneHit'],
     'features/desk/Desk.tsx': ['PhoneHit'],
-    'features/scene/SkyStateControl.tsx': ['PhoneHit'],
+    'features/scene/SkyStateControl.tsx': ['PhoneHit'], // the scene view's entry
+    'features/scene/view/SceneView.tsx': ['PhoneHit'], // one rail button, five icons
     'pages/auth/login/PasswordLoginForm.tsx': ['PhoneHit'],
   };
 

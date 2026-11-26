@@ -28,3 +28,6 @@ globalStyle(':root[data-scene] #root', {
 const surfaceInkVar = createVar();
 globalStyle(':root[data-scene] body', { vars: { [surfaceInkVar]: color.Surface.Container } });
 export const surfaceInk = fallbackVar(surfaceInkVar, color.Surface.Container);
+
+// While the scene view is open (sceneView.ts) the app stays mounted, so the chat keeps its scroll and its composer, but it is hidden (and inert, set by sceneView.ts).
+globalStyle(':root[data-scene-view] #root', { visibility: 'hidden' });

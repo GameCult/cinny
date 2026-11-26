@@ -1,18 +1,36 @@
-import React, { useEffect, useRef } from 'react';
+import React, { Suspense, lazy, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { getFallbackSession } from '../../state/sessions';
 import { mountBackgroundScene } from './host';
 import { setSceneDrawn } from './sceneDrawn';
+import { loadSceneView } from './sceneView';
+import { useSceneViewState } from '../../hooks/useSceneView';
 import { readCapabilities, resolveTier } from './tier';
 import './sceneShell.css';
 import './sceneButtons.css';
+
+const SceneView = lazy(loadSceneView);
+
+/** The scene view (sceneView.ts) in the portal layer while it is open: over the scene, outside the app it hides. */
+function SceneViewHost() {
+  const { open } = useSceneViewState();
+  const portal = document.getElementById('portalContainer');
+  if (!open || !portal) return null;
+  return createPortal(
+    <Suspense fallback={null}>
+      <SceneView />
+    </Suspense>,
+    portal
+  );
+}
 
 /**
  * The one host for the background scene, mounted once at the app root. Fixed behind everything
  * (z-index -1 sits above the body's background and below all normal content; the signed-out
  * screens and the signed-in shell, see sceneShell.css.ts, are clear so the scene shows through). The ridge scene
  * draws its layers into this wrapper beside the canvas, so the wrapper is the positioned box.
- * Tier 'off' renders nothing and loads nothing.
+ * Tier 'off' renders no scene and loads none; the scene view's host is here too, since the view is an overlay over this scene.
  */
 export function BackgroundScene() {
   const config = useClientConfig().backgroundScene;
@@ -35,13 +53,17 @@ export function BackgroundScene() {
     };
   }, [config, enabled]);
 
-  if (!enabled) return null;
   return (
-    <div
-      aria-hidden
-      style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none', overflow: 'hidden' }}
-    >
-      <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
-    </div>
+    <>
+      {enabled && (
+        <div
+          aria-hidden
+          style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none', overflow: 'hidden' }}
+        >
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+        </div>
+      )}
+      <SceneViewHost />
+    </>
   );
 }

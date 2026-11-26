@@ -52,7 +52,10 @@ export function openSceneView(): void {
   if (state.open) return;
   entry = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   try {
-    history.pushState({ ...(history.state ?? {}), [SCENE_VIEW_HISTORY_MARK]: true }, '');
+    window.history.pushState(
+      { ...(window.history.state ?? {}), [SCENE_VIEW_HISTORY_MARK]: true },
+      ''
+    );
     pushed = true;
   } catch {
     pushed = false; // no history to push to: Return and Escape still close it
@@ -82,7 +85,7 @@ export function closeSceneView(): void {
   if (!state.open) return;
   const wasPushed = pushed;
   finish(); // takes the popstate listener off first, so the back below does not close twice
-  if (wasPushed && history.state?.[SCENE_VIEW_HISTORY_MARK]) history.back();
+  if (wasPushed && window.history.state?.[SCENE_VIEW_HISTORY_MARK]) window.history.back();
   pushed = false;
 }
 
@@ -91,3 +94,6 @@ export function setSubmenu(submenu: Submenu | undefined): void {
   if (!state.open) return;
   set({ open: true, submenu: submenu === state.submenu ? undefined : submenu });
 }
+
+/** The view's code, a chunk of its own: asked for when the entry is hovered or focused, and by the host when the view opens. */
+export const loadSceneView = () => import('./view/SceneView');

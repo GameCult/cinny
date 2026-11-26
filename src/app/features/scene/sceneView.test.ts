@@ -40,10 +40,13 @@ beforeEach(() => {
     },
     getElementById: (id: string) =>
       id === 'root'
-        ? { setAttribute: (k: string) => rootAttrs.add(k), removeAttribute: (k: string) => rootAttrs.delete(k) }
+        ? {
+            setAttribute: (k: string) => rootAttrs.add(k),
+            removeAttribute: (k: string) => rootAttrs.delete(k),
+          }
         : null,
   });
-  vi.stubGlobal('history', {
+  const history = {
     get state() {
       return stack[stack.length - 1];
     },
@@ -53,12 +56,17 @@ beforeEach(() => {
       stack.pop();
       [...pops].forEach((cb) => cb());
     },
-  });
+  };
   vi.stubGlobal('window', {
+    history,
     addEventListener: (t: string, cb: () => void) => t === 'popstate' && pops.add(cb),
     removeEventListener: (t: string, cb: () => void) => t === 'popstate' && pops.delete(cb),
   });
-  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined, removeItem: () => undefined });
+  vi.stubGlobal('localStorage', {
+    getItem: () => null,
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  });
   resetCamera();
 });
 
@@ -95,7 +103,7 @@ describe('the scene view', () => {
     openSceneView();
     const seen = vi.fn();
     subscribeSceneView(seen);
-    history.back();
+    window.history.back();
     expect(getSceneView().open).toBe(false);
     expect(stack).toHaveLength(1);
     expect(back).toBe(1); // that one was the browser's; the close did not go back again

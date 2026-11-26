@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SkyChoice } from './ridge/skyMoment';
-import { FALLBACK_VIEW } from './ridge/view';
+import type { SkyChoice } from '../ridge/skyMoment';
+import { FALLBACK_VIEW } from '../ridge/view';
 import {
   MENU_CHOICES,
   SkyMomentPicker,
-  SkyStateControl,
+  TimeSubmenu,
   choiceLabel,
   useNativeChange,
-} from './SkyStateControl';
+} from './TimeSubmenu';
 
 // The component's hooks are held still, as in RoomOutbox.actions.test.tsx: state is its initial value, refs are plain boxes, effects are
 // kept to be run once the test has put an element in each ref. The element tree it returns is read and its native events are dispatched
@@ -34,11 +34,10 @@ vi.mock('react', async (importOriginal) => {
     useEffect,
   };
 });
-vi.mock('../../hooks/useSkyState', () => ({
+vi.mock('../../../hooks/useSkyState', () => ({
   useSkyChoice: () => held.choice,
   useDrawnPlace: () => FALLBACK_VIEW.place,
 }));
-vi.mock('../../hooks/useClientConfig', () => ({ useClientConfig: () => ({}) }));
 
 type El = { type?: unknown; ref?: unknown; props?: Record<string, unknown> };
 /** Every element reachable through any prop (children, `content`, `after`). */
@@ -67,9 +66,9 @@ beforeEach(() => {
   held.choice = { kind: 'auto' };
 });
 
-describe('the sky menu choices', () => {
-  const tree = () => walk(SkyStateControl());
-  const radios = () => tree().filter((e) => e.props?.role === 'menuitemradio');
+describe('the Time submenu choices', () => {
+  const tree = () => walk(TimeSubmenu());
+  const radios = () => tree().filter((e) => e.props?.role === 'radio');
 
   it('lists Auto and the six named moments, then Pick a moment', () => {
     expect(MENU_CHOICES.map(choiceLabel)).toEqual([
@@ -81,6 +80,7 @@ describe('the sky menu choices', () => {
       'Dusk',
       'Night',
     ]);
+    expect(tree().find((e) => e.props?.role === 'radiogroup')?.props?.['aria-label']).toBe('Time');
     expect(radios().map((e) => textOf(e))).toEqual([
       'Auto',
       'Dawn',
@@ -101,16 +101,6 @@ describe('the sky menu choices', () => {
   ] as Array<[SkyChoice, number]>)('aria-checked follows the choice %j', (choice, checked) => {
     held.choice = choice;
     radios().forEach((e, i) => expect(e.props?.['aria-checked'], `item ${i}`).toBe(i === checked));
-  });
-
-  it("the button reads 'Sky: Auto', 'Sky: Dawn' or 'Sky: <date> <time>'", () => {
-    const label = () =>
-      tree().find((e) => e.props?.['aria-haspopup'] === 'menu')?.props?.['aria-label'];
-    expect(label()).toBe('Sky: Auto');
-    held.choice = { kind: 'named', id: 'dawn' };
-    expect(label()).toBe('Sky: Dawn');
-    held.choice = { kind: 'free', date: '2026-12-21', minutes: 6 * 60 + 40 };
-    expect(label()).toBe('Sky: 2026-12-21 06:40');
   });
 });
 

@@ -55,7 +55,7 @@ import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
 import { DeskEntry } from '../desk';
-import { SkyStateControl } from '../scene/SkyStateControl';
+import { SceneViewEntry } from '../scene/SkyStateControl';
 
 type IconSrc = ComponentProps<typeof Icon>['src'];
 
@@ -389,7 +389,7 @@ export function EstateNavigator() {
               {title}
             </Text>
           </Box>
-          <SkyStateControl />
+          <SceneViewEntry />
           <IconButton
             variant="Background"
             aria-label="Find a room"
