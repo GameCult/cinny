@@ -58,7 +58,14 @@ export function BackgroundScene() {
       {enabled && (
         <div
           aria-hidden
-          style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none', overflow: 'hidden' }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: -1,
+            pointerEvents: 'none',
+            overflow: 'hidden',
+            visibility: 'visible', // the scene is what the scene view shows: it stays when the app (#root, its ancestor) is hidden
+          }}
         >
           <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
         </div>
