@@ -22,7 +22,7 @@ import { AsyncStatus, useAsyncCallback } from '../../hooks/useAsyncCallback';
 import { LOGIN_PATH, REGISTER_PATH, RESET_PASSWORD_PATH } from '../paths';
 import RatatoskrSVG from '../../../../public/res/svg/ratatoskr.svg';
 import { LogoMark } from '../../components/logo/logoMark.css';
-import { SceneViewEntry } from '../../features/scene/SkyStateControl';
+import { SceneViewEntry } from '../../features/scene/SceneViewEntry';
 import { ServerPicker } from './ServerPicker';
 import { AutoDiscoveryAction, autoDiscovery } from '../../cs-api';
 import { SpecVersionsLoader } from '../../components/SpecVersionsLoader';

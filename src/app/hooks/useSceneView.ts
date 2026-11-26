@@ -6,6 +6,7 @@ import type { SceneViewState } from '../features/scene/sceneView';
 import { getConstellationLines, subscribe as subscribeSky } from '../features/scene/skyState';
 import { loadManifest } from '../features/scene/ridge/manifest';
 import type { RidgeManifest } from '../features/scene/ridge/manifest';
+import { readCapabilities, resolveTier } from '../features/scene/tier';
 import { useClientConfig } from './useClientConfig';
 
 /** Whether the scene view is open and which submenu is up (sceneView.ts). */
@@ -46,4 +47,10 @@ export function useRidgeManifest(): RidgeManifest | undefined {
     };
   }, [ridgeOn, config?.place]);
   return ridgeOn ? manifest : undefined;
+}
+
+/** Whether the scene view is offered: the background scene is not switched off (tier). The one answer, for the entry and the host. */
+export function useSceneViewOffered(): boolean {
+  const config = useClientConfig().backgroundScene;
+  return resolveTier(config, readCapabilities(navigator)) !== 'off';
 }

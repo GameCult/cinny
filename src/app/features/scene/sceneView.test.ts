@@ -5,6 +5,8 @@ import {
   SCENE_VIEW_HISTORY_MARK,
   closeSceneView,
   getSceneView,
+  loadSceneView,
+  loadSceneViewOrClose,
   openSceneView,
   setSubmenu,
   subscribeSceneView,
@@ -136,5 +138,26 @@ describe('the scene view', () => {
     closeSceneView();
     expect(isHeld()).toBe(false);
     expect(getCamera().mode).toBe(mode);
+  });
+});
+
+describe('the view code failing to load', () => {
+  it('closes an open view: the app is live again, nothing stays hidden, and the next open can ask again', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    openSceneView();
+    const got = await loadSceneViewOrClose(() => Promise.reject(new Error('chunk')));
+    expect(got).toBeUndefined();
+    expect(getSceneView().open).toBe(false);
+    expect(rootAttrs.size).toBe(0);
+    expect(attrs.size).toBe(0);
+    openSceneView();
+    expect(getSceneView().open).toBe(true);
+  });
+
+  it('a load that succeeds leaves the view open and hands back the module', async () => {
+    openSceneView();
+    const mod = { default: () => null } as unknown as Awaited<ReturnType<typeof loadSceneView>>;
+    expect(await loadSceneViewOrClose(() => Promise.resolve(mod))).toBe(mod);
+    expect(getSceneView().open).toBe(true);
   });
 });

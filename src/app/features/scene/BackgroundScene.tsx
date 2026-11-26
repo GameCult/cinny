@@ -1,29 +1,12 @@
-import React, { Suspense, lazy, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useRef } from 'react';
 import { useClientConfig } from '../../hooks/useClientConfig';
 import { getFallbackSession } from '../../state/sessions';
 import { mountBackgroundScene } from './host';
 import { setSceneDrawn } from './sceneDrawn';
-import { loadSceneView } from './sceneView';
-import { useSceneViewState } from '../../hooks/useSceneView';
+import { SceneViewHost } from './SceneViewHost';
 import { readCapabilities, resolveTier } from './tier';
 import './sceneShell.css';
 import './sceneButtons.css';
-
-const SceneView = lazy(loadSceneView);
-
-/** The scene view (sceneView.ts) in the portal layer while it is open: over the scene, outside the app it hides. */
-function SceneViewHost() {
-  const { open } = useSceneViewState();
-  const portal = document.getElementById('portalContainer');
-  if (!open || !portal) return null;
-  return createPortal(
-    <Suspense fallback={null}>
-      <SceneView />
-    </Suspense>,
-    portal
-  );
-}
 
 /**
  * The one host for the background scene, mounted once at the app root. Fixed behind everything

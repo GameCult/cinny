@@ -97,3 +97,20 @@ export function setSubmenu(submenu: Submenu | undefined): void {
 
 /** The view's code, a chunk of its own: asked for when the entry is hovered or focused, and by the host when the view opens. */
 export const loadSceneView = () => import('./view/SceneView');
+
+/**
+ * The view's code for the host: a failed load closes the view (the app live again, the focus back on the entry), so nothing stays hidden behind a view that
+ * will not come. The next open asks for the chunk again. Resolves to the module, or undefined when the load failed.
+ */
+export async function loadSceneViewOrClose(
+  load: typeof loadSceneView = loadSceneView
+): Promise<Awaited<ReturnType<typeof loadSceneView>> | undefined> {
+  try {
+    return await load();
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('Scene view unavailable:', e);
+    closeSceneView();
+    return undefined;
+  }
+}

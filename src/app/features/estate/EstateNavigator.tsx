@@ -55,7 +55,7 @@ import { activateEstateRoom, awaitMyJoin } from './joinEstateRoom';
 import { useEstate, useEstateRootId } from './useEstate';
 import * as css from './EstateNavigator.css';
 import { DeskEntry } from '../desk';
-import { SceneViewEntry } from '../scene/SkyStateControl';
+import { SceneViewEntry } from '../scene/SceneViewEntry';
 
 type IconSrc = ComponentProps<typeof Icon>['src'];
 
