@@ -26,6 +26,9 @@ export const Surface = style({
   selectors: { '&:active': { cursor: 'grabbing' } },
 });
 
+/** How much of the rail and the panel is left while a finger is down: they step out of the way of the turn (ruling ridge-view-phone-one-finger). */
+export const TURNING_CHROME_OPACITY = 0.12;
+
 /** The rail and the panel, top left. It takes no pointer itself, so a drag over its gaps turns the view; its plates do. It fades while a finger is down. */
 export const Chrome = style({
   position: 'absolute',
@@ -36,7 +39,7 @@ export const Chrome = style({
   gap: config.space.S200,
   pointerEvents: 'none',
   transition: 'opacity 150ms',
-  selectors: { [`${Root}[data-turning="true"] &`]: { opacity: 0.12 } },
+  selectors: { [`${Root}[data-turning="true"] &`]: { opacity: TURNING_CHROME_OPACITY } },
 });
 
 const Plate = style({

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PhoneHit } from '../../../styles/PhoneHit.css';
 import SceneView, { Rail, SUBMENUS } from './SceneView';
+import { TURNING_CHROME_OPACITY } from './SceneView.css';
 
 // The hooks are held still (TimeSubmenu.test.tsx): the element tree is read, a function component is expanded by calling it.
 const held = vi.hoisted(() => ({
@@ -8,12 +9,14 @@ const held = vi.hoisted(() => ({
   submenu: undefined as unknown,
   closed: 0,
   picked: [] as unknown[],
+  turning: [] as boolean[],
+  turner: [] as Array<[string, ...unknown[]]>,
 }));
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react')>();
   const useState = (init: unknown) => [
     typeof init === 'function' ? (init as () => unknown)() : init,
-    () => undefined,
+    (v: unknown) => typeof v === 'boolean' && held.turning.push(v),
   ];
   const useRef = (init: unknown) => ({ current: init });
   const useMemo = (fn: () => unknown) => fn();
@@ -39,6 +42,16 @@ vi.mock('../sceneView', () => ({
   },
   setSubmenu: (s: unknown) => held.picked.push(s),
 }));
+vi.mock('./turning', () => ({
+  pxPerDegreeOf: () => 20,
+  createTurner: () => ({
+    down: (x: number) => held.turner.push(['down', x]),
+    move: (x: number) => held.turner.push(['move', x]),
+    up: () => held.turner.push(['up']),
+    wheel: (dx: number) => held.turner.push(['wheel', dx]),
+    key: () => false,
+  }),
+}));
 vi.mock('focus-trap-react', () => ({ default: ({ children }: { children: unknown }) => children }));
 
 type El = { type?: unknown; ref?: unknown; key?: unknown; props?: Record<string, unknown> };
@@ -57,6 +70,8 @@ beforeEach(() => {
   held.submenu = undefined;
   held.closed = 0;
   held.picked.length = 0;
+  held.turning.length = 0;
+  held.turner.length = 0;
   vi.stubGlobal('window', {
     innerWidth: 1280,
     innerHeight: 720,
@@ -158,5 +173,54 @@ describe('the view', () => {
     held.effects.forEach((run) => run());
     listeners.keydown({ key: 'Escape', stopPropagation: () => undefined });
     expect(held.closed).toBe(1);
+  });
+});
+
+describe('one finger on the phone (ruling ridge-view-phone-one-finger)', () => {
+  const surface = () =>
+    walk(SceneView()).find((e) => typeof e.props?.onPointerDown === 'function') as El;
+  const on = (name: string, evt: Record<string, unknown>) =>
+    (surface().props?.[name] as (e: unknown) => void)({
+      currentTarget: { setPointerCapture: () => undefined },
+      pointerId: 1,
+      pointerType: 'touch',
+      isPrimary: true,
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+      ...evt,
+    });
+
+  it('the rail and the panel fade while a finger is down and come back when it lifts', () => {
+    expect(TURNING_CHROME_OPACITY).toBeGreaterThan(0);
+    expect(TURNING_CHROME_OPACITY).toBeLessThan(0.5);
+    on('onPointerDown', { clientX: 100 });
+    on('onPointerUp', {});
+    on('onPointerDown', { clientX: 100 });
+    on('onPointerCancel', {});
+    expect(held.turning).toEqual([true, false, true, false]);
+  });
+
+  it('only horizontal movement turns: the vertical is never given to the turner', () => {
+    on('onPointerDown', { clientX: 100, clientY: 50 });
+    on('onPointerMove', { clientX: 140, clientY: 900 });
+    on('onPointerMove', { clientX: 140, clientY: -900 });
+    expect(held.turner).toEqual([['down', 100], ['move', 140], ['move', 140]]);
+    held.turner.length = 0;
+    on('onWheel', { deltaX: 2, deltaY: 90 });
+    expect(held.turner).toEqual([]); // a mostly vertical wheel is not a turn either
+  });
+
+  it('a second finger (not the primary pointer) starts nothing', () => {
+    on('onPointerDown', { isPrimary: false, clientX: 100 });
+    expect(held.turner).toEqual([]);
+    expect(held.turning).toEqual([]);
+  });
+
+  it('a mouse turns only with its main button', () => {
+    on('onPointerDown', { pointerType: 'mouse', button: 2, clientX: 100 });
+    expect(held.turner).toEqual([]);
+    on('onPointerDown', { pointerType: 'mouse', button: 0, clientX: 100 });
+    expect(held.turner).toEqual([['down', 100]]);
   });
 });
