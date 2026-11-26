@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setSkyClock } from '../features/scene/skyState';
+import { useSkyMinute } from './useSkyState';
 
 // useSkyMinute is state and one effect: react is held so the effect can be run and cleaned up by hand.
 const held = vi.hoisted(() => ({
@@ -18,7 +19,6 @@ vi.mock('react', async (importOriginal) => {
   };
   return { ...actual, useState, useEffect };
 });
-const { useSkyMinute } = await import('./useSkyState');
 
 const at = (iso: string) => setSkyClock(() => new Date(iso));
 beforeEach(() => {
