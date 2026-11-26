@@ -1,22 +1,46 @@
 // The weather over the viewpoint as one `weather.ts` number, read from a static `weather.json` next to the page (config.json's
 // neighbour). The browser never calls a weather service: Eureka's refresher (gamecult-ops, docs/weather-feed.md; the only writer)
-// writes the file from GeoSphere Austria's TAWES 10-minute observations (station 11035, Wien Hohe
-// Warte). Rain is the gauge. CLOUD IS AN ESTIMATE: TAWES has no cloud cover. By day it is the measured global radiation (GLOW) against
+// writes the file from GeoSphere Austria's TAWES 10-minute observations (the Wien Hohe Warte station, WEATHER_FEEDS below). Rain is the gauge. CLOUD IS AN ESTIMATE: TAWES has no cloud cover. By day it is the measured global radiation (GLOW) against
 // what a clear sky gives at the sun's position now (`clearSkyGhi`, Haurwitz), cross-checked by the sunshine duration (`SO`, seconds of
 // 600 the direct beam was strong enough to burn the card); with the sun low or down it is a ramp of the humidity. A file that is
-// missing, unreadable, malformed or stale (below) is no observation, and no observation is a clear sky.
-import { WEATHER_CREDIT } from './credits';
+// missing, unreadable, malformed or stale (below) is no observation, and no observation is a clear sky. A place with no row in WEATHER_FEEDS has no
+// observation source at all: it is drawn clear and the file is not read for it.
 import { sunAt } from './sunAt';
 import type { Place } from './view';
 
 /** Reader rule of docs/weather-feed.md: the file is stale 30 minutes after it was fetched or 40 after the observation it holds (the station reports every 10). */
 export const STALE_MS = 30 * 60_000;
 export const OBSERVATION_STALE_MS = 40 * 60_000;
-export const STATION = 11035;
 const SKEW_MS = 5 * 60_000;
 export const CLEAR_SKY = 0;
-/** The credit GeoSphere's legal page asks for. */
-export const WEATHER_ATTRIBUTION = WEATHER_CREDIT;
+
+/** What a place's observation source owes: the station its rows are read from, the credit GeoSphere's legal page asks for (`credit`, then `url`: it names no licence, the dataset's below does) and the dataset with its licence as the dataset page names it. */
+export interface WeatherFeed {
+  station: number;
+  credit: string;
+  url: string;
+  dataset: string;
+}
+
+/**
+ * The places that have a weather source, by place id. A new place gets weather by adding its row here and a source in the refresher (gamecult-ops
+ * `docs/weather-feed.md`); no other edit. Every place without a row is drawn with a clear sky (`skyForState.ts` `loadWeather`).
+ */
+export const WEATHER_FEEDS: Readonly<Record<string, WeatherFeed>> = {
+  vienna: {
+    station: 11035,
+    credit: 'Datenquelle: GeoSphere Austria',
+    url: 'https://data.hub.geosphere.at',
+    dataset: 'TAWES weather stations, 10-minute data (station 11035), CC BY 4.0',
+  },
+};
+
+/** The feed that serves a place, or undefined for a place with none. */
+export const feedFor = (placeId: string): WeatherFeed | undefined =>
+  Object.prototype.hasOwnProperty.call(WEATHER_FEEDS, placeId) ? WEATHER_FEEDS[placeId] : undefined;
+
+/** The credit as one line: the source and where it is. */
+export const creditLine = (f: WeatherFeed): string => `${f.credit} - ${f.url}`;
 
 /** The file's shape; every measurement is null when the station did not report it. Times are ISO 8601. */
 export interface WeatherFile {
@@ -38,21 +62,21 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const isZonedTime = (v: unknown): v is string =>
   typeof v === 'string' && /(Z|[+-]\d\d:?\d\d)$/.test(v) && !Number.isNaN(Date.parse(v));
 
-/** A `WeatherFile` from parsed JSON, or null when it does not have the shape (times missing or unparseable). */
-export function parseWeatherFile(json: unknown): WeatherFile | null {
+/** A `WeatherFile` from parsed JSON, or null when it does not have the shape (times missing or unparseable) or is not the feed's station's. */
+export function parseWeatherFile(json: unknown, feed: WeatherFeed): WeatherFile | null {
   const j = json as Record<string, unknown> | null;
   if (!j || typeof j !== 'object') return null;
   if (!isZonedTime(j.observed_at) || !isZonedTime(j.fetched_at)) return null;
-  if (j.station !== STATION) return null;
+  if (j.station !== feed.station) return null;
   return {
     fetched_at: j.fetched_at,
     observed_at: j.observed_at,
-    station: STATION,
+    station: feed.station,
     precip_mm_10min: num(j.precip_mm_10min),
     humidity_pct: num(j.humidity_pct),
     glow_wm2: num(j.glow_wm2),
     sunshine_s_10min: num(j.sunshine_s_10min),
-    attribution: typeof j.attribution === 'string' ? j.attribution : WEATHER_ATTRIBUTION,
+    attribution: typeof j.attribution === 'string' ? j.attribution : creditLine(feed),
   };
 }
 
@@ -123,14 +147,15 @@ export function currentWeather(f: WeatherFile | null, place: Place, now: Date = 
   return weatherFromFile(f, sunAt(place, new Date(Date.parse(f.observed_at) - 5 * 60_000)).elevation);
 }
 
-/** Fetch and parse `weather.json`; null on any failure. */
+/** Fetch and parse `weather.json` as the feed's station's; null on any failure. */
 export async function fetchWeatherFile(
   url: string,
+  feed: WeatherFeed,
   fetcher: typeof fetch = fetch
 ): Promise<WeatherFile | null> {
   try {
     const res = await fetcher(url, { cache: 'no-store' });
-    return res.ok ? parseWeatherFile(await res.json()) : null;
+    return res.ok ? parseWeatherFile(await res.json(), feed) : null;
   } catch {
     return null;
   }

@@ -23,7 +23,7 @@ export const MOMENT_LABEL: Record<MomentId, string> = {
   night: 'Night',
 };
 
-const hhmm = (minutes: number): string =>
+export const hhmm = (minutes: number): string =>
   `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 /** What the panel calls a choice: Auto, the moment's name, or the free moment's place-local date and time. */

@@ -9,11 +9,12 @@ import { ridgeSkyFor } from './skyForState';
 import { forgetManifests } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
 import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
+import { forgetPlaceChoice, setPlaceChoice } from './placeState';
 import { hold, poseAt, resetHeading } from './ridge/heading';
 import { resetCamera, setCamera } from './cameraState';
 import { sunAt } from './ridge/sunAt';
 import { ridgeWeather } from './ridge/weather';
-import { parseWeatherFile, WEATHER_ATTRIBUTION, weatherFromFile } from './ridge/weatherFeed';
+import { creditLine, parseWeatherFile, WEATHER_FEEDS, weatherFromFile } from './ridge/weatherFeed';
 
 const { createRidgeScene, createScene, createBackdrop } = vi.hoisted(() => ({
   createRidgeScene: vi.fn(),
@@ -126,6 +127,7 @@ beforeEach(() => {
   createRidgeScene.mockReset();
   createScene.mockReset();
   createBackdrop.mockReset();
+  forgetPlaceChoice();
 });
 afterEach(() => {
   setSkyClock();
@@ -404,6 +406,61 @@ describe('the ridge planes', () => {
     expect(ctl.calls).toHaveLength(1);
     expect(ctl.calls[0]).toBe(opts.sky.physical); // the sky the cards were lit for is the sky the scene paints
     expect(ctl.calls[0].state).toBe('night'); // midnight by the clock
+    scene?.dispose();
+  });
+
+  it("draws the place the viewer picks: one rebuild over that place's manifest; an id the index does not list decides nothing", async () => {
+    served();
+    loader();
+    createRidgeScene.mockReturnValue(fakeScene());
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    const placeOf = (n: number) => createRidgeScene.mock.calls[n][0].backdrop.manifest.view.place.id;
+    expect(placeOf(0)).toBe('vienna');
+    setPlaceChoice('graz');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(placeOf(1)).toBe('graz');
+    expect(getSkyPlace()?.id).toBe('graz');
+    setPlaceChoice('atlantis'); // not in the index: the choice is ignored, so the default is drawn
+    await flush();
+    expect(placeOf(2)).toBe('vienna');
+    expect(createRidgeScene).toHaveBeenCalledTimes(3);
+    scene?.dispose();
+    setPlaceChoice('graz');
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(3); // disposed: the door no longer listens to the choice
+  });
+
+  it('a picked place whose tiles do not come is not the drawn place: the store stays on the scene that is up, nothing loops, and a later pick of it builds afresh', async () => {
+    served();
+    const d = loader();
+    const [vienna, graz] = [fakeScene(), fakeScene()];
+    createRidgeScene.mockReturnValueOnce(vienna).mockReturnValueOnce(graz);
+    const scene = await startBackgroundScene(config, caps, { canvas });
+    expect(getSkyPlace()?.id).toBe('vienna');
+    d.ctl.fail = true; // graz's tiles answer 503
+    setPlaceChoice('graz');
+    for (let i = 0; i < 5; i += 1) await flush();
+    expect(d.ctl.made).toHaveLength(2); // one backdrop for the pick, asked once: the loader's own backoff retries it, the door builds nothing more
+    expect(d.ctl.made[1].manifest.view.place.id).toBe('graz');
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    expect(getSkyPlace()?.id).toBe('vienna'); // the canvas draws vienna, and so does the store
+    expect(vienna.dispose).not.toHaveBeenCalled();
+    setPlaceChoice('graz'); // a tap on the same place asks again: the pending build is given up for a fresh one
+    for (let i = 0; i < 5; i += 1) await flush();
+    expect(d.ctl.made).toHaveLength(3);
+    expect(d.ctl.made[1].dispose).toHaveBeenCalledOnce();
+    expect(getSkyPlace()?.id).toBe('vienna');
+    setPlaceChoice('vienna'); // back to the place that is up: nothing to build, the pending graz is left to its pick
+    for (let i = 0; i < 5; i += 1) await flush();
+    expect(createRidgeScene).toHaveBeenCalledOnce();
+    setPlaceChoice('graz');
+    for (let i = 0; i < 5; i += 1) await flush();
+    d.ctl.arrive(); // the tiles come
+    await flush();
+    expect(createRidgeScene).toHaveBeenCalledTimes(2);
+    expect(getSkyPlace()?.id).toBe('graz');
+    expect(vienna.dispose).toHaveBeenCalledOnce();
     scene?.dispose();
   });
 
@@ -840,7 +897,7 @@ describe('the ridge cards and the live scene', () => {
     expect(createRidgeScene).toHaveBeenCalledOnce();
     forgetManifests();
     serve({ ...w, place: { ...w.place, id: 'graz' } });
-    setSkyPlace(undefined);
+    setSkyPlace(FALLBACK_VIEW.place); // the store only moves on a made scene, so the test moves it to wake the door once more
     await flush();
     expect(createRidgeScene).toHaveBeenCalledTimes(2);
     expect(createRidgeScene.mock.calls[1][0].backdrop.manifest.view.place.id).toBe('graz');
@@ -849,7 +906,7 @@ describe('the ridge cards and the live scene', () => {
 
   it("reads the weather against the manifest place's sun, not the fallback place's", async () => {
     const w = wireManifest() as any;
-    const place = { ...w.place, id: 'weather-place', lat: -33, lon: -163.65, tz_h: -11 };
+    const place = { ...w.place, id: 'vienna', lat: -33, lon: -163.65, tz_h: -11 };
     const now = new Date('2026-11-11T10:50:00Z');
     const wx = {
       fetched_at: '2026-11-11T10:45:00Z',
@@ -859,7 +916,7 @@ describe('the ridge cards and the live scene', () => {
       humidity_pct: 60,
       sunshine_s_10min: null,
       glow_wm2: 100,
-      attribution: WEATHER_ATTRIBUTION,
+      attribution: creditLine(WEATHER_FEEDS.vienna),
     };
     vi.stubGlobal(
       'fetch',
@@ -878,7 +935,7 @@ describe('the ridge cards and the live scene', () => {
     setSkyClock(() => now);
     createRidgeScene.mockReturnValue(fakeScene());
     (await startBackgroundScene(config, caps, { canvas }))?.dispose();
-    const file = parseWeatherFile(wx)!;
+    const file = parseWeatherFile(wx, WEATHER_FEEDS.vienna)!;
     const at = (p: { lat: number; lon: number }) =>
       weatherFromFile(
         file,

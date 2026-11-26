@@ -2,7 +2,7 @@
 // contract) and the page; no daemon state. Main-chunk safe: types, a parser and fetch only. Wire names are snake_case; the parsed manifest is
 // camelCase and its `view` is the View (`view.ts`) the sky and the cards share. Schema 3: the whole 360 degree ring, K G-buffer cards cut into
 // azimuth tiles, each tile two files.
-import { groundRowsNeeded, type View } from './view';
+import { groundRowsNeeded, type Place, type View } from './view';
 
 /** As export.py MAX_CARDS: the decode budget holds this many. */
 export const MAX_CARDS = 6;
@@ -198,10 +198,31 @@ async function getJson(url: string, init?: RequestInit): Promise<unknown> {
   return res.json();
 }
 
+/** A baked place as the Place submenu lists it: the manifest's own name and place (its card reads the moment drawn there, in its zone). */
+export interface PlaceListing {
+  id: string;
+  name: string;
+  place: Place;
+}
+
 const memo = new Map<string, Promise<RidgeManifest>>();
+const indexMemo = new Map<string, Promise<RidgeIndex>>();
+const listMemo = new Map<string, Promise<PlaceListing[]>>();
+
+/** The baked places' index (`${baseUrl}public/ridge/index.json`), memoised per URL; a failure is not remembered. */
+export function loadIndex(baseUrl: string): Promise<RidgeIndex> {
+  const root = `${baseUrl}public/ridge/`;
+  const hit = indexMemo.get(root);
+  if (hit) return hit;
+  // The index is the one mutable pointer (a rebake deletes the old directory it named); the manifest and tiles are content-addressed.
+  const p = getJson(`${root}index.json`, { cache: 'no-cache' }).then(parseIndex);
+  indexMemo.set(root, p);
+  p.catch(() => indexMemo.delete(root));
+  return p;
+}
 
 /**
- * The manifest of a baked place: `${baseUrl}public/ridge/index.json` names each place's directory, then `<dir>/manifest.json` is read.
+ * The manifest of a baked place: the index names each place's directory, then `<dir>/manifest.json` is read.
  * `placeId` picks the entry (unknown or absent: the index's default). Memoised per index URL and place; a failure is not remembered.
  * Rejects on any failure: the caller degrades to the sky-only scene.
  */
@@ -211,10 +232,7 @@ export function loadManifest(baseUrl: string, placeId?: string): Promise<RidgeMa
   const hit = memo.get(key);
   if (hit) return hit;
   const p = (async () => {
-    const index = parseIndex(
-      // The index is the one mutable pointer (a rebake deletes the old directory it named); the manifest and tiles are content-addressed.
-      await getJson(`${root}index.json`, { cache: 'no-cache' })
-    );
+    const index = await loadIndex(baseUrl);
     const id = placeId !== undefined && placeId in index.places ? placeId : index.default;
     const name = index.places[id];
     if (name === undefined) throw new Error(`ridge: index has no place ${id}`);
@@ -226,5 +244,29 @@ export function loadManifest(baseUrl: string, placeId?: string): Promise<RidgeMa
   return p;
 }
 
+/** The baked places in the index's order, named by their manifests; a place whose manifest fails to load is left out. Memoised per index URL; a failure is not remembered. */
+export function listPlaces(baseUrl: string): Promise<PlaceListing[]> {
+  const root = `${baseUrl}public/ridge/`;
+  const hit = listMemo.get(root);
+  if (hit) return hit;
+  const p = (async () => {
+    const index = await loadIndex(baseUrl);
+    const found = await Promise.allSettled(
+      Object.keys(index.places).map(async (id): Promise<PlaceListing> => {
+        const m = await loadManifest(baseUrl, id);
+        return { id, name: m.name, place: m.view.place };
+      })
+    );
+    return found.flatMap((f) => (f.status === 'fulfilled' ? [f.value] : []));
+  })();
+  listMemo.set(root, p);
+  p.catch(() => listMemo.delete(root));
+  return p;
+}
+
 /** For tests: forget every memoised manifest. */
-export const forgetManifests = (): void => memo.clear();
+export const forgetManifests = (): void => {
+  memo.clear();
+  indexMemo.clear();
+  listMemo.clear();
+};

@@ -1,9 +1,10 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
 import { debugOverlaysAllowed } from './debugOverlays';
-import { getConstellationLines, getResolvedSkyState, getSkyChoice, subscribe } from './skyState';
+import { getConstellationLines, getSkyChoice, skyBandAt, subscribe } from './skyState';
 import type { FixedSkyState, SkyChoice } from './ridge/skyMoment';
 import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
+import { subscribePlaceChoice } from './placeState';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
 import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
@@ -84,13 +85,16 @@ async function prepare(
   };
   superseded.addEventListener('abort', release, { once: true });
   let band: FixedSkyState | undefined;
-  const guarded = (make: () => Scene | null): Prepared => ({
+  /** `commit` runs when the scene is made, never before: only then is its place the drawn one (`drawnView`). */
+  const guarded = (make: () => Scene | null, commit?: () => void): Prepared => ({
     planesFail: null,
     sky: band,
     discard: release,
     make: () => {
       try {
-        return make();
+        const scene = make();
+        if (scene) commit?.();
+        return scene;
       } catch (e) {
         release();
         options.onCompileFail?.(e instanceof Error ? e : new Error(String(e)));
@@ -116,7 +120,6 @@ async function prepare(
     if (manifest) {
       try {
         const manifestSky = ridgeSkyFor(choice, manifest.view);
-        band = getResolvedSkyState();
         const { createBackdrop } = await import('./ridge/Backdrop');
         const heading = await import('./ridge/heading');
         backdrop = createBackdrop(manifest, manifestSky.physical as NonNullable<typeof manifestSky.physical>);
@@ -147,17 +150,20 @@ async function prepare(
         planesFail = e instanceof Error ? e : new Error(String(e));
       }
     }
-    const view = drawnView(backdrop ? manifest : null);
+    // What this build draws. The store's place is told when the scene is made (`commit`), so a build that is still loading, or that is given up, names nothing.
+    const view = backdrop && manifest ? manifest.view : FALLBACK_VIEW;
     if (!lit) await loadWeather(weatherUrl(), view.place);
     const sky = lit ?? ridgeSkyFor(choice, view);
-    if (!lit) band = getResolvedSkyState();
-    const made = guarded(() =>
-      createRidgeScene({
-        ...options,
-        sky,
-        backdrop: backdrop ?? undefined,
-        lines: getConstellationLines(),
-      })
+    band = skyBandAt(choice, view.place);
+    const made = guarded(
+      () =>
+        createRidgeScene({
+          ...options,
+          sky,
+          backdrop: backdrop ?? undefined,
+          lines: getConstellationLines(),
+        }),
+      () => drawnView(backdrop ? manifest : null)
     );
     return { ...made, planesFail };
   } catch (e) {
@@ -271,7 +277,18 @@ export async function startBackgroundScene(
       if (loggedIn) scene.login();
     }
   };
-  const off = subscribe(rebuild);
+  // A place picked in the Place submenu is a rebuild: `skyKey` re-resolves the pick (skyPlace.ts) into the place to build, and so the key's; the store's place stays the
+  // drawn one until that scene is made. A pick is also a request to try again: what stands pending (a place whose tiles do not come) is given up for a fresh build, and
+  // a pick of the place already up is the key of the scene shown, so it builds nothing.
+  const offSky = subscribe(rebuild);
+  const offPlace = subscribePlaceChoice(() => {
+    built = shown;
+    rebuild();
+  });
+  const off = () => {
+    offSky();
+    offPlace();
+  };
   // A change that landed while the first build was awaited was missed by the subscription.
   rebuild();
   return {

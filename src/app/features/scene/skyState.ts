@@ -99,15 +99,18 @@ export const getSkyChoice = (): SkyChoice => {
   return current;
 };
 
-/** The place the sky is over: the loaded manifest's, set by skyPlace.ts; undefined until one is known. */
+/** The place the sky is over: the place of the scene that is up, set by skyPlace.ts when a scene is made; undefined until one is. */
 export const getSkyPlace = (): Place | undefined => place;
 
 /** The moment the sky is drawn for: the real time, or the test clock. */
 export const skyNow = (): Date => clock();
 
 /** The band being drawn: the choice at the place, through `momentFor` and `skyBand`; undefined until a place is known (no sky is drawn for ink). */
-export const getResolvedSkyState = (): FixedSkyState | undefined =>
-  place && skyBand(sunAt(place, momentFor(getSkyChoice(), place, skyNow())).elevation);
+export const getResolvedSkyState = (): FixedSkyState | undefined => place && skyBandAt(getSkyChoice(), place);
+
+/** The band of `choice` at `at`, for any place: what a build for a place not yet drawn is told, since the store holds only the drawn one. */
+export const skyBandAt = (choice: SkyChoice, at: Place, now: Date = skyNow()): FixedSkyState =>
+  skyBand(sunAt(at, momentFor(choice, at, now)).elevation);
 
 /** What a rebuild would be for, of the moment now drawn (`momentKey`): a named moment's changes when the place-local day rolls over. */
 const drawnKey = (): string | undefined => place && momentKey(getSkyChoice(), place, skyNow());
@@ -155,7 +158,7 @@ export function setSkyChoice(c: SkyChoice): void {
   }
 }
 
-/** The place the sky is over (skyPlace.ts, once the manifest is loaded). Listeners hear it, since the band depends on it. */
+/** The place the sky is over (skyPlace.ts `drawnView`, when a scene is made). Listeners hear it, since the band depends on it. */
 export function setSkyPlace(p: Place | undefined): void {
   if (p?.id === place?.id && p?.tz === place?.tz && p?.lat === place?.lat && p?.lon === place?.lon) {
     return;

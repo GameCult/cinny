@@ -4,8 +4,10 @@ import type { CameraChoice } from '../features/scene/cameraState';
 import { getSceneView, subscribeSceneView } from '../features/scene/sceneView';
 import type { SceneViewState } from '../features/scene/sceneView';
 import { getConstellationLines, subscribe as subscribeSky } from '../features/scene/skyState';
-import { loadManifest } from '../features/scene/ridge/manifest';
-import type { RidgeManifest } from '../features/scene/ridge/manifest';
+import { listPlaces } from '../features/scene/ridge/manifest';
+import type { PlaceListing, RidgeManifest } from '../features/scene/ridge/manifest';
+import { getPlaceChoice, subscribePlaceChoice } from '../features/scene/placeState';
+import { loadPlaceManifest } from '../features/scene/skyPlace';
 import { readCapabilities, resolveTier } from '../features/scene/tier';
 import { useClientConfig } from './useClientConfig';
 
@@ -30,22 +32,43 @@ export const useCameraHeld = (): boolean => useSyncExternalStore(onCamera, isHel
 export const useConstellationLines = (): boolean =>
   useSyncExternalStore(subscribeSky, getConstellationLines);
 
-/** The manifest of the configured place when the ridge scene is on and it has loaded (memoised by `loadManifest`, so this fetches nothing the scene did not). */
+/** The viewer's picked place id (placeState.ts), undefined for none. */
+export const usePlaceChoice = (): string | undefined =>
+  useSyncExternalStore(subscribePlaceChoice, getPlaceChoice);
+
+/** The baked places the carousel offers (`listPlaces`: memoised, so the session reads them once); undefined until they have loaded, and when the index or its manifests do not load. */
+export function usePlaceList(): PlaceListing[] | undefined {
+  const [list, setList] = useState<PlaceListing[]>();
+  useEffect(() => {
+    let live = true;
+    listPlaces(import.meta.env.BASE_URL).then(
+      (l) => live && setList(l),
+      () => live && setList(undefined)
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  return list;
+}
+
+/** The manifest of the place being drawn (the viewer's choice, else the config's, else the index's default: skyPlace.ts) when the ridge scene is on and it has loaded (memoised by `loadManifest`, so this fetches nothing the scene did not). */
 export function useRidgeManifest(): RidgeManifest | undefined {
   const config = useClientConfig().backgroundScene;
   const ridgeOn = !!config && config.style !== 'raymarch';
+  const choice = usePlaceChoice();
   const [manifest, setManifest] = useState<RidgeManifest>();
   useEffect(() => {
     if (!ridgeOn) return undefined;
     let live = true;
-    loadManifest(import.meta.env.BASE_URL, config?.place).then(
+    loadPlaceManifest(config).then(
       (m) => live && setManifest(m),
       () => live && setManifest(undefined)
     );
     return () => {
       live = false;
     };
-  }, [ridgeOn, config?.place]);
+  }, [ridgeOn, config, choice]);
   return ridgeOn ? manifest : undefined;
 }
 
