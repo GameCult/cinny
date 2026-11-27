@@ -1,13 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   cardArc,
   cardPose,
+  deviceScale,
   FALLBACK_VIEW,
   groundRowsNeeded,
   HFOV_MAX_DEG,
   HORIZON_AT,
+  LIT_BYTES_MAX,
+  LIT_SCALE_STEP,
+  litScale,
+  litScaleCap,
   maxSpeed,
   offsetRange,
+  residentLitBytes,
   RIDGE_BAND_FRAC,
   SEGMENT_S,
   SPEED_CEILING_DEG_S,
@@ -17,7 +23,7 @@ import {
 import { KEEP_MARGIN_TILES, residentTiles, runTiles } from './ring';
 import { parseManifest } from './manifest';
 import { wireManifest } from './manifest.fixture';
-import type { View } from './view';
+import type { ResidentSource, View } from './view';
 
 const VIEWPORTS: [number, number][] = [
   [390, 844],
@@ -340,5 +346,94 @@ describe('sweepArc', () => {
     const endFrom = Math.min(...ends.map((a) => a.fromDeg));
     const endTo = Math.max(...ends.map((a) => a.toDeg));
     expect(endFrom - from > 1 || to - endTo > 1).toBe(true);
+  });
+});
+
+describe('deviceScale', () => {
+  it('is 2 on a display of density 2 or more and 1 below it or when the browser says nothing', () => {
+    const at = (devicePixelRatio: number | undefined) => {
+      vi.stubGlobal('window', { devicePixelRatio });
+      const v = deviceScale();
+      vi.unstubAllGlobals();
+      return v;
+    };
+    expect([at(1), at(1.5), at(2), at(3), at(undefined), at(0)]).toEqual([1, 1, 2, 2, 1, 1]);
+  });
+});
+
+describe('residentLitBytes', () => {
+  it('counts the worst cyclic run of the resident tiles, 4 bytes x (tileW + 2) x band rows per card, at lit scale 1', () => {
+    const src = (h: number): ResidentSource => ({
+      view: { tiles: 32, tileW: 200 },
+      camera: { rMaxM: 50, rMaxForwardM: 50 },
+      tiles: Array.from({ length: 32 }, () => [{ h, distanceM: 1000 }, { h: 2 * h, distanceM: 10000 }]),
+    });
+    const n = runTiles({ tiles: 32 }, HFOV_MAX_DEG, 50, 1000);
+    const got = residentLitBytes(src(10));
+    expect(got.n).toBe(n);
+    expect(got.bytes).toBe(n * 4 * 202 * 30); // every tile holds 10 + 20 rows
+    // A ring that is lit unevenly: the run that lands on the heavy tiles is the one counted.
+    const uneven = src(10);
+    uneven.tiles[5] = [{ h: 100, distanceM: 1000 }];
+    expect(residentLitBytes(uneven).bytes).toBe((n - 1) * 4 * 202 * 30 + 4 * 202 * 100);
+    // A tile with no card is no bytes; the nearest distance is card 0's smallest over the tiles.
+    const gap = src(10);
+    gap.tiles[3] = [null, null];
+    expect(residentLitBytes(gap).bytes).toBe(n * 4 * 202 * 30); // a run that misses the gap is as heavy as before
+  });
+
+  it('is the same N the manifest parser hands the runtime: a parsed manifest is a source', () => {
+    const got = residentLitBytes(manifest);
+    expect(got.n).toBeGreaterThan(0);
+    expect(got.n).toBeLessThanOrEqual(manifest.view.tiles);
+  });
+});
+
+describe('litScale', () => {
+  const heavy = (h: number) => ({
+    view: { tiles: 32, tileW: 200 },
+    camera: { rMaxM: 50, rMaxForwardM: 50 },
+    tiles: Array.from({ length: 32 }, () => [{ h, distanceM: 1000 }]),
+  });
+  const win = (scale: number) => ({ camera: windowFor(FALLBACK_VIEW, 1920, 1080).camera, plane: { scale, h: 0, bottom: 0 } });
+
+  it('is the texels the display shows, device pixels a texel, under the cap, in quarter steps', () => {
+    expect(litScale(heavy(10), win(0.8), 2)).toBe(1.75); // 1.6 rounded up
+    expect(litScale(heavy(10), win(1.2), 1)).toBe(1.25);
+    expect(litScale(heavy(10), win(1), 1)).toBe(1);
+    expect(LIT_SCALE_STEP).toBe(0.25);
+  });
+
+  it('is capped by the resident bytes: the cap from residentLitBytes and LIT_BYTES_MAX above it, the scale rounded up to the next step', () => {
+    const m = heavy(3000);
+    const cap = Math.sqrt(LIT_BYTES_MAX / residentLitBytes(m).bytes);
+    expect(litScaleCap(m)).toBeCloseTo(cap, 12);
+    expect(cap).toBeGreaterThan(1);
+    expect(cap).toBeLessThan(2);
+    expect(litScale(m, win(2), 2)).toBe(Math.ceil(cap / 0.25) * 0.25);
+    expect(litScale(m, win(2), 2)).toBeLessThan(2);
+    expect(litScale(m, win(0.5), 1)).toBe(1); // under the cap the display decides
+  });
+
+  it('is never below 1, whatever the cap or the display', () => {
+    expect(litScale(heavy(100000), win(3), 2)).toBe(1); // a cap under 1
+    expect(litScale(heavy(10), win(0.2), 1)).toBe(1);
+  });
+
+  it('is a multiple of the step over every viewport', () => {
+    for (const [w, h] of VIEWPORTS) {
+      for (const dpr of [1, 2]) {
+        const s = litScale(manifest, windowFor(manifest.view, w, h), dpr);
+        expect(s).toBeGreaterThanOrEqual(1);
+        expect(s / LIT_SCALE_STEP).toBeCloseTo(Math.round(s / LIT_SCALE_STEP), 12);
+      }
+    }
+  });
+
+  it('takes a probe override whole, and ignores one that is not a positive number', () => {
+    expect(litScale(heavy(10), win(0.8), 2, 3)).toBe(3);
+    expect(litScale(heavy(10), win(0.8), 2, 1.1)).toBe(1.1);
+    expect(litScale(heavy(10), win(0.8), 2, 0)).toBe(1.75);
+    expect(litScale(heavy(10), win(0.8), 2, Number.NaN)).toBe(1.75);
   });
 });

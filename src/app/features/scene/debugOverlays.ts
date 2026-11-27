@@ -13,3 +13,10 @@ export const debugOverlaysAllowed = (config: BackgroundSceneConfig | undefined):
 /** The page URL asks for this overlay (`?name=1`), and the overlays are allowed. */
 export const overlayRequested = (name: 'probe' | 'tierlabel', allowed: boolean): boolean =>
   allowed && new URLSearchParams(window.location.search).get(name) === '1';
+
+/** The lit scale the page URL asks for under `?probe=1` (`?litScale=1.5`), to measure a scale on a device; undefined when it asks for none or the overlays are not allowed. */
+export const litScaleRequested = (allowed: boolean): number | undefined => {
+  if (!overlayRequested('probe', allowed)) return undefined;
+  const v = Number(new URLSearchParams(window.location.search).get('litScale'));
+  return Number.isFinite(v) && v > 0 ? v : undefined;
+};

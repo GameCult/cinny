@@ -111,6 +111,58 @@ export function windowFor(view: View, viewportW: number, viewportH: number): Win
   };
 }
 
+/** The device pixels per CSS pixel the scene draws at: 2 on a high-density display, else 1. The one place `devicePixelRatio` is read in the ridge scene. */
+export const deviceScale = (): number => ((window.devicePixelRatio || 1) >= 2 ? 2 : 1);
+
+/**
+ * What the lit scale may spend: the bytes of the worst resident run of lit canvases, 4 bytes a pixel. A first guess, set from the probe's phone measurement
+ * (ruling ridge-look-tuned-by-eye: a look is shown, not gated), never from an estimate. The scale is rounded up to `LIT_SCALE_STEP`, so a run may exceed it by one step.
+ */
+export const LIT_BYTES_MAX = 64_000_000;
+/** The lit scale is a multiple of this: fewer scales to measure and to relight for. */
+export const LIT_SCALE_STEP = 0.25;
+
+/** The part of a manifest the resident run reads (`RidgeManifest` is one): the ring's tiles, each card's band rows and distance, the offset bounds. */
+export interface ResidentSource {
+  view: Pick<ManifestView, 'tiles' | 'tileW'>;
+  camera: { rMaxM: number; rMaxForwardM: number };
+  tiles: ({ h: number; distanceM: number } | null)[][];
+}
+
+/**
+ * N and the lit bytes, at lit scale 1, of the worst run of N consecutive tiles of the ring (cyclic): 4 bytes x (tileW + 2) x band rows per card, the same N and
+ * the same sum as `export.py` `run_tiles` and `resident_bytes`, recomputed from the manifest alone at the larger of the two offsets the bake ships. The nearest
+ * distance is card 0's smallest over the tiles. The one owner of the resident run in TS.
+ */
+export function residentLitBytes(m: ResidentSource): { n: number; bytes: number } {
+  const { tiles, tileW } = m.view;
+  const rmin = Math.min(...m.tiles.flatMap((row) => (row[0] ? [row[0].distanceM] : [])));
+  const n = runTiles({ tiles }, HFOV_MAX_DEG, Math.max(m.camera.rMaxM, m.camera.rMaxForwardM), rmin);
+  const per = m.tiles.map((row) => row.reduce((a, e) => a + (e ? 4 * (tileW + 2) * e.h : 0), 0));
+  let worst = 0;
+  for (let t = 0; t < tiles; t += 1) {
+    let sum = 0;
+    for (let k = 0; k < n; k += 1) sum += per[(t + k) % tiles];
+    worst = Math.max(worst, sum);
+  }
+  return { n, bytes: worst };
+}
+
+/** The largest lit scale the byte budget allows this bake, before rounding: the resident run grows with the square of the scale. */
+export const litScaleCap = (manifest: ResidentSource): number =>
+  Math.sqrt(LIT_BYTES_MAX / residentLitBytes(manifest).bytes);
+
+/**
+ * The lit scale S, output pixels per bake texel: the one owner of how finely a card is lit. The texels a viewport shows at its device resolution
+ * (`win.plane.scale` CSS px per texel x `dpr`), under the cap the resident bytes allow, rounded up to `LIT_SCALE_STEP`, never below 1. `override` (a probe's
+ * `?litScale`, see `debugOverlays.ts`) replaces it for measurement.
+ */
+export function litScale(manifest: ResidentSource, win: Window, dpr: number, override?: number): number {
+  if (override !== undefined && Number.isFinite(override) && override > 0) return override;
+  const want = Math.min(win.plane.scale * dpr, litScaleCap(manifest));
+  return Math.max(1, Math.ceil(want / LIT_SCALE_STEP - 1e-9) * LIT_SCALE_STEP);
+}
+
 /** Nearest card's nearest tile distance, metres: where the camera first meets a card. */
 const nearestM = (manifest: RidgeManifest): number =>
   Math.min(...manifest.tiles.map((row) => row[0]?.distanceM ?? Infinity));

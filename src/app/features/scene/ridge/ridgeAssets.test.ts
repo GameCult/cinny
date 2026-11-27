@@ -9,8 +9,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MAX_CARDS, parseIndex, parseManifest } from './manifest';
-import { runTiles } from './ring';
-import { groundRowsNeeded, HFOV_MAX_DEG } from './view';
+import { groundRowsNeeded, residentLitBytes } from './view';
 
 /** The same constants as scripts/ridge-bake/export.py. */
 export const TILE_BYTES_MAX = 235_000;
@@ -43,23 +42,13 @@ const files = (e: WireTile | null): WireFile[] => (e ? [e.colour, e.geometry] : 
 const bytesOf = (row: (WireTile | null)[]): number =>
   row.flatMap(files).reduce((a, f) => a + f.bytes, 0);
 
-/**
- * N and the lit bytes of the worst run of N consecutive tiles (4 bytes x (tile_w + 2) x band rows, per card), cyclic: the same N and the same sum as
- * export.py `run_tiles` and `resident_bytes`, recomputed from the manifest alone, at the larger of the two offsets the bake ships. The nearest distance is card 0's smallest over the tiles.
- */
-export function residentBytes(m: WireManifest): { n: number; bytes: number } {
-  const { tiles, tile_w } = m.view;
-  const rmin = Math.min(...m.tiles.flatMap((row) => (row[0] ? [row[0].distance_m] : [])));
-  const n = runTiles({ tiles }, HFOV_MAX_DEG, Math.max(m.camera.r_max_m, m.camera.r_max_forward_m), rmin);
-  const per = m.tiles.map((row) => row.reduce((a, e) => a + (e ? 4 * (tile_w + 2) * e.h : 0), 0));
-  let worst = 0;
-  for (let t = 0; t < tiles; t += 1) {
-    let sum = 0;
-    for (let k = 0; k < n; k += 1) sum += per[(t + k) % tiles];
-    worst = Math.max(worst, sum);
-  }
-  return { n, bytes: worst };
-}
+/** The resident run of a wire manifest, from `view.ts` `residentLitBytes` (the runtime owner of it, equal to export.py `run_tiles` and `resident_bytes`). */
+const residentOf = (m: WireManifest): { n: number; bytes: number } =>
+  residentLitBytes({
+    view: { tiles: m.view.tiles, tileW: m.view.tile_w },
+    camera: { rMaxM: m.camera.r_max_m, rMaxForwardM: m.camera.r_max_forward_m },
+    tiles: m.tiles.map((row) => row.map((e) => (e ? { h: e.h, distanceM: e.distance_m } : null))),
+  });
 
 /** Why a manifest breaks the size gate, or undefined: too many cards, a tile or the place too many bytes, or the resident run lit past the budget. */
 export function sizeGate(m: WireManifest): string | undefined {
@@ -69,7 +58,7 @@ export function sizeGate(m: WireManifest): string | undefined {
   if (worst >= 0) return `tile ${worst} is ${tileBytes[worst]} bytes, above ${TILE_BYTES_MAX}`;
   const total = tileBytes.reduce((a, b) => a + b, 0);
   if (total > PLACE_BYTES_MAX) return `the place is ${total} bytes, above ${PLACE_BYTES_MAX}`;
-  const res = residentBytes(m);
+  const res = residentOf(m);
   return res.bytes > RESIDENT_BYTES_MAX
     ? `${res.n} consecutive tiles light to ${res.bytes} bytes, above ${RESIDENT_BYTES_MAX}`
     : undefined;
@@ -197,7 +186,7 @@ describe('the committed ridge assets', () => {
 
       it('keeps the place inside the tile, place and resident budgets, computed from the manifest alone', () => {
         expect(sizeGate(raw)).toBeUndefined();
-        expect(residentBytes(raw).n).toBeLessThanOrEqual(raw.view.tiles);
+        expect(residentOf(raw).n).toBeLessThanOrEqual(raw.view.tiles);
       });
 
       it('keeps the ground rows the runtime needs under the horizon and nothing nearer than the near clip: card 0 stands at or beyond 500 m in every tile', () => {
@@ -309,7 +298,7 @@ describe('sizeGate', () => {
 
   it('fails a seventh card, and a ring that lights past the resident budget by a row', () => {
     expect(sizeGate({ ...ring(32, 1, 10), cards: Array(7).fill({}) })).toMatch(/7 cards/);
-    const n = residentBytes(ring(32, 1, 100)).n;
+    const n = residentOf(ring(32, 1, 100)).n;
     const rows = Math.floor(RESIDENT_BYTES_MAX / (n * 4 * 202)); // the most rows N tiles can hold lit within the budget
     expect(sizeGate(ring(32, 1, rows))).toBeUndefined();
     expect(sizeGate(ring(32, 1, rows + 1))).toMatch(/consecutive tiles light to/);
