@@ -16,7 +16,7 @@ import { DEFAULT_LOOK, PHYSICAL_LOOK, createLighter } from '../../src/app/featur
 import type { RidgeLook } from '../../src/app/features/scene/ridge/lightCards';
 import { parseIndex, parseManifest } from '../../src/app/features/scene/ridge/manifest';
 import { makePhysicalSky } from '../../src/app/features/scene/ridge/physicalSky';
-import { HFOV_MAX_DEG, windowFor } from '../../src/app/features/scene/ridge/view';
+import { HFOV_MAX_DEG, litScale, windowFor } from '../../src/app/features/scene/ridge/view';
 import { onScreen } from '../../src/app/features/scene/ridge/nightBodies';
 import { createBackdrop } from '../../src/app/features/scene/ridge/Backdrop';
 import { createRidgeScene } from '../../src/app/features/scene/ridge/Ridge';
@@ -250,7 +250,9 @@ async function main() {
       setCamera({ mode: 'offset', speedDegPerS: 1, offsetM: v.r }, t0); // the offset-only rotation mode for phi seconds at 1 degree per second ...
       hold(v.h, t0 + v.phi * 1000); // ... then the view is held at h: the mode is still, the camera stays at phi (phi 0 is the camera on its heading)
 
-      const backdrop = createBackdrop(manifest, physical, { lighter: (m, s) => createLighter(m, s, rows[r].look) });
+      const backdrop = createBackdrop(manifest, physical, litScale(manifest, win, 1, Number(q.get('litScale')) || undefined), {
+        lighter: (m, s, sc) => createLighter(m, s, rows[r].look, sc),
+      });
       await backdrop.ensure({ fromDeg: v.h - HFOV_MAX_DEG, toDeg: v.h + HFOV_MAX_DEG });
       const scene = createRidgeScene({ canvas: cell, tier: 'still', sky, backdrop, lines: withLines });
       scene?.dispose();

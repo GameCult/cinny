@@ -14,7 +14,7 @@ import { parseIndex, parseManifest } from './manifest';
 import { ELSEWHERE_VIEW, wireManifest } from './manifest.fixture';
 import type { Arc, Backdrop, LitTile } from './Backdrop';
 import type { Mock } from 'vitest';
-import { cardArc, cardPose, FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
+import { cardArc, cardPose, FALLBACK_VIEW, HFOV_MAX_DEG, litScale, maxSpeed, offsetRange, SEGMENT_S, windowFor } from './view';
 import { LATENESS_S, plateCamera, plateSize, SLACK_MIN_DEG, slackFor } from './skyTurn';
 import { ringAzimuth, sunColumns, sunInColumn } from './lightCards';
 import { norm, residentTiles } from './ring';
@@ -611,6 +611,8 @@ describe('the ridge cards in the scene', () => {
       litTiles: () => lit,
       onTile: () => () => undefined,
       dispose: vi.fn(),
+      setScale: vi.fn(),
+      stats: () => ({ scale: 1, renderer: 'test', lightMs: [], litPx: 0, litBytes: 0 }),
     };
   };
   const night: SkyColours = {
@@ -669,6 +671,44 @@ describe('the ridge cards in the scene', () => {
     expect(parent.children.indexOf(rig)).toBeGreaterThan(parent.children.indexOf(plate));
     expect(draws.filter((d) => d === 'image')).toHaveLength(1); // only the plate's sky upscale: nothing in the host canvas, the cards are DOM above the plate
     expect(live(plate)).toHaveLength(1); // one animation slides it
+  });
+
+  it('a resize lights the cards again at the scale of the size it has, before the scene is built; a tile that arrives does not', async () => {
+    vi.useFakeTimers();
+    (window as any).setTimeout = setTimeout;
+    (window as any).clearTimeout = clearTimeout;
+    const bd = litCards();
+    const { canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, backdrop: bd })!;
+    expect(bd.setScale).not.toHaveBeenCalled(); // the first build is lit at the scale the backdrop was made for
+    Object.assign(window, { innerWidth: 1280, innerHeight: 720 });
+    window.dispatchEvent(new Event('resize'));
+    vi.advanceTimersByTime(300);
+    expect(bd.setScale).toHaveBeenCalledTimes(1);
+    expect(bd.setScale).toHaveBeenCalledWith(litScale(bd.manifest, windowFor(bd.manifest.view, 1280, 720), 2));
+    s.dispose();
+    vi.useRealTimers();
+  });
+
+  it('?probe=1 adds what the lighting costs to the readout: the scale and its bounds, the light times, the resident lit bytes, the renderer, and the same in console.table', () => {
+    search = '?probe=1';
+    const table = vi.spyOn(console, 'table').mockImplementation(() => undefined);
+    const bd = litCards();
+    bd.stats = () => ({ scale: 1.5, renderer: 'Mali-G78', lightMs: [2, 4, 6], litPx: 2_000_000, litBytes: 8_000_000 });
+    const { parent, canvas } = host();
+    const s = createRidgeScene({ canvas, tier: 'full', sky: DAY, debug: true, backdrop: bd })!;
+    const readout = parent.children[parent.children.length - 1];
+    runFrames(16.7, 300);
+    expect(readout.textContent).toMatch(/median 16\.\d ms · p95 1[67]\.\d ms\n/);
+    expect(readout.textContent).toContain('lit S 1.5 · device 2 · cap ');
+    expect(readout.textContent).toContain('2.00 Mpx');
+    expect(readout.textContent).toContain('light 3 cards · median 4.0 ms · p95 6.0 ms');
+    expect(readout.textContent).toContain('resident lit 8.0 MB');
+    expect(readout.textContent).toContain('Mali-G78');
+    expect(table).toHaveBeenCalled();
+    expect(table.mock.calls[0][0].ridge).toMatchObject({ litScale: 1.5, deviceScale: 2, lightMedianMs: 4, lightP95Ms: 6, residentLitMB: 8, renderer: 'Mali-G78' });
+    s.dispose();
+    table.mockRestore();
   });
 
   it('stacks the rig after the twinkle canvas and before the rain, with no z-index and no fixed position, and disposes the backdrop with itself', () => {
@@ -1226,6 +1266,8 @@ describe('the ridge cards in the scene', () => {
         litTiles: () => lit,
         onTile: () => () => undefined,
         dispose: vi.fn(),
+        setScale: vi.fn(),
+        stats: () => ({ scale: 1, renderer: 'test', lightMs: [], litPx: 0, litBytes: 0 }),
       };
     };
     const frame = (box: any, n: number) => live(box)[0].keyframes[n].transform as string;
@@ -1832,6 +1874,8 @@ describe('the ridge cards in the scene', () => {
         litTiles: () => lit,
         onTile: (cb: () => void) => (heard.add(cb), () => void heard.delete(cb)),
         dispose: vi.fn(),
+        setScale: vi.fn(),
+        stats: () => ({ scale: 1, renderer: 'test', lightMs: [], litPx: 0, litBytes: 0 }),
       };
       const arrive = (tile: number) => {
         lit.push(...all.filter((t) => t.tile === tile));

@@ -8,7 +8,7 @@ import { createBackdrop } from '../../src/app/features/scene/ridge/Backdrop';
 import { createRidgeScene } from '../../src/app/features/scene/ridge/Ridge';
 import { anchor, hold, poseAt } from '../../src/app/features/scene/ridge/heading';
 import { setCamera } from '../../src/app/features/scene/cameraState';
-import { HFOV_MAX_DEG, windowFor } from '../../src/app/features/scene/ridge/view';
+import { deviceScale, HFOV_MAX_DEG, litScale, windowFor } from '../../src/app/features/scene/ridge/view';
 import { paintSky } from '../../src/app/features/scene/ridge/physicalSky';
 import { nightBodies } from '../../src/app/features/scene/ridge/nightBodies';
 import { plateCamera, plateSize, SLACK_MIN_DEG } from '../../src/app/features/scene/ridge/skyTurn';
@@ -35,7 +35,7 @@ async function main() {
   const h0 = Number(q.get('h') ?? view.lookAzDeg);
   anchor(view.place.id, h0, performance.now());
   setCamera({ mode: 'both', speedDegPerS: Number(q.get('speed') ?? 0), offsetM: 200 });
-  const backdrop = createBackdrop(manifest, physical);
+  const backdrop = createBackdrop(manifest, physical, litScale(manifest, windowFor(view, innerWidth, innerHeight), deviceScale(), Number(q.get('litScale')) || undefined));
   await backdrop.ensure({ fromDeg: h0 - HFOV_MAX_DEG, toDeg: h0 + HFOV_MAX_DEG });
   const canvas = document.getElementById('c') as HTMLCanvasElement;
   const scene = createRidgeScene({ canvas, tier: 'full', sky: { ...physical.stops, physical }, backdrop, lines: q.get('lines') === '1' });
@@ -52,7 +52,7 @@ async function main() {
       const w = innerWidth;
       const h = innerHeight;
       const win = windowFor(view, w, h);
-      const { cssW } = plateSize(win, w, h, devicePixelRatio >= 2 ? 2 : 1, SLACK_MIN_DEG);
+      const { cssW } = plateSize(win, w, h, deviceScale(), SLACK_MIN_DEG);
       const t0 = performance.now();
       for (let i = 0; i < n; i += 1) nightBodies(physical, paintSky(physical, cssW, h, plateCamera(win, 214 + i, SLACK_MIN_DEG)), true);
       return (performance.now() - t0) / n;

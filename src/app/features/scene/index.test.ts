@@ -6,9 +6,9 @@ import { getResolvedSkyState, getSkyPlace, setConstellationLines, setSkyChoice, 
 import { skyBand } from './ridge/skyMoment';
 import type { SkyChoice } from './ridge/skyMoment';
 import { ridgeSkyFor } from './skyForState';
-import { forgetManifests } from './ridge/manifest';
+import { forgetManifests, parseManifest } from './ridge/manifest';
 import { wireIndex, wireManifest } from './ridge/manifest.fixture';
-import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
+import { FALLBACK_VIEW, HFOV_MAX_DEG, litScaleCap, maxSpeed } from './ridge/view';
 import { forgetPlaceChoice, setPlaceChoice } from './placeState';
 import { hold, poseAt, resetHeading } from './ridge/heading';
 import { resetCamera, setCamera } from './cameraState';
@@ -115,6 +115,7 @@ const fakeScene = () => ({ login: vi.fn(), dispose: vi.fn() });
 const hex = (c: readonly number[]) => `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
 beforeEach(() => {
+  vi.stubGlobal('window', { innerWidth: 1280, innerHeight: 720, devicePixelRatio: 1, location: { search: '' } }); // the first lit scale reads the viewport and the display
   vi.stubGlobal('localStorage', {
     getItem: () => null,
     setItem: () => undefined,
@@ -407,6 +408,23 @@ describe('the ridge planes', () => {
     expect(ctl.calls[0]).toBe(opts.sky.physical); // the sky the cards were lit for is the sky the scene paints
     expect(ctl.calls[0].state).toBe('night'); // midnight by the clock
     scene?.dispose();
+  });
+
+  it('lights the cards at the scale view.ts litScale gives the viewport and the display: texels shown at device resolution, in quarter steps', async () => {
+    const at = async (devicePixelRatio: number) => {
+      vi.stubGlobal('window', { innerWidth: 1280, innerHeight: 720, devicePixelRatio, location: { search: '' } });
+      served();
+      loader();
+      createBackdrop.mockClear();
+      createRidgeScene.mockReturnValue(fakeScene());
+      (await startBackgroundScene(config, caps, { canvas }))?.dispose();
+      return createBackdrop.mock.calls[0][2];
+    };
+    expect(await at(1)).toBe(1.25); // 1280 px over 65.45 degrees of 17.78 texels: 1.1 px a texel
+    // 2.2 device pixels a texel would be 2.25; the fixture's lit bytes cap it, rounded up to the step.
+    const cap = litScaleCap(parseManifest(wireManifest(), '/d/'));
+    expect(cap).toBeLessThan(2.2);
+    expect(await at(2)).toBe(Math.ceil(cap / 0.25) * 0.25);
   });
 
   it("draws the place the viewer picks: one rebuild over that place's manifest; an id the index does not list decides nothing", async () => {

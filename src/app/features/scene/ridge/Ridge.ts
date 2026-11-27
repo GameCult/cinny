@@ -1,9 +1,9 @@
 import type { Scene, SceneOptions } from '../Scene';
-import { overlayRequested } from '../debugOverlays';
-import { FrameSampler, FrameStats } from './probe';
+import { litScaleRequested, overlayRequested } from '../debugOverlays';
+import { FrameSampler, frameStats, FrameStats } from './probe';
 import { skyColours, SkyColours, Srgb } from './skyColour';
 import { paintSky as paintPhysicalSky } from './physicalSky';
-import { cardArc, cardPose, HFOV_MAX_DEG, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
+import { cardArc, cardPose, deviceScale, HFOV_MAX_DEG, litScale, litScaleCap, offsetRange, SEGMENT_S, sweepArc, windowFor } from './view';
 import type { Camera, CardPose, View } from './view';
 import type { TileCard } from './manifest';
 import { residentTiles } from './ring';
@@ -219,10 +219,16 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
   const viewSize = () => {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
-    return { w, h, scale: (window.devicePixelRatio || 1) >= 2 ? 2 : 1 };
+    return { w, h, scale: deviceScale() };
   };
 
   const makeCanvas = () => document.createElement('canvas');
+
+  /** The lit scale for the viewport as it is now (`view.ts` `litScale`, the one owner; a probe's `?litScale` replaces it for measurement). */
+  const litScaleNow = (bd: Backdrop): number => {
+    const { w, h, scale } = viewSize();
+    return litScale(bd.manifest, windowFor(bd.manifest.view, w, h), scale, litScaleRequested(opts.debug === true));
+  };
 
   const teardown = () => {
     built?.plate?.stop();
@@ -680,13 +686,48 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
     report(true);
   };
 
+  /** What the lighting costs, measured on this device: the scale and what bounds it, the light times of the cards, the lit canvases held, the GPU. The same numbers go to console.table. */
+  let sinceTable = -Infinity;
+  const lightingLines = (frames: FrameStats): string => {
+    const bd = opts.backdrop as Backdrop;
+    const st = bd.stats();
+    const light = frameStats(st.lightMs);
+    const cap = litScaleCap(bd.manifest);
+    const mb = st.litBytes / 1e6;
+    const now = performance.now();
+    if (now - sinceTable > 5000 && typeof console.table === 'function') {
+      sinceTable = now;
+      // eslint-disable-next-line no-console
+      console.table({
+        ridge: {
+          litScale: st.scale,
+          deviceScale: deviceScale(),
+          cap: Number(cap.toFixed(3)),
+          litMpx: Number((st.litPx / 1e6).toFixed(3)),
+          cards: light.n,
+          lightMedianMs: Number(light.medianMs.toFixed(2)),
+          lightP95Ms: Number(light.p95Ms.toFixed(2)),
+          residentLitMB: Number(mb.toFixed(2)),
+          frameMedianMs: Number(frames.medianMs.toFixed(2)),
+          frameP95Ms: Number(frames.p95Ms.toFixed(2)),
+          renderer: st.renderer,
+        },
+      });
+    }
+    return [
+      `lit S ${st.scale} · device ${deviceScale()} · cap ${cap.toFixed(2)} · ${(st.litPx / 1e6).toFixed(2)} Mpx`,
+      `light ${light.n} cards · median ${light.medianMs.toFixed(1)} ms · p95 ${light.p95Ms.toFixed(1)} ms`,
+      `resident lit ${mb.toFixed(1)} MB`,
+      st.renderer,
+    ].join('\n');
+  };
+
   const report = (stillNow: boolean) => {
     const s = { ...sampler.stats(), still: stillNow };
     opts.onProbe?.(s);
     if (readout) {
-      readout.textContent = `ridge · n ${s.n} · median ${s.medianMs.toFixed(
-        1
-      )} ms · p95 ${s.p95Ms.toFixed(1)} ms${stillNow ? ' · STILL' : ''}`;
+      const frameLine = `ridge · n ${s.n} · median ${s.medianMs.toFixed(1)} ms · p95 ${s.p95Ms.toFixed(1)} ms${stillNow ? ' · STILL' : ''}`;
+      readout.textContent = opts.backdrop ? `${frameLine}\n${lightingLines(s)}` : frameLine;
     }
   };
 
@@ -729,6 +770,7 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       padding: '2px 6px',
       borderRadius: '3px',
       pointerEvents: 'none',
+      whiteSpace: 'pre',
     });
     parent.appendChild(readout);
   }
@@ -748,7 +790,8 @@ export function createRidgeScene(opts: RidgeOptions): Scene | null {
       if (disposed) return;
       const wasStill = still;
       if (freshPose) {
-        // A resize is a new view: a still takes the pose the heading has now and asks for the tiles of it; the arrivals then repaint that pose.
+        // A resize is a new view: the cards are lit at the scale this size takes, first; a still takes the pose the heading has now and asks for the tiles of it; the arrivals then repaint that pose.
+        if (opts.backdrop) opts.backdrop.setScale(litScaleNow(opts.backdrop));
         stillPose = undefined;
         if (wasStill && opts.backdrop) {
           const { h } = headingPose(clock());

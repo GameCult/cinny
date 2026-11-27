@@ -1,13 +1,13 @@
 import type { Scene, SceneOptions } from './Scene';
 import { BackgroundSceneConfig, Capabilities, SceneTier, resolveTier } from './tier';
-import { debugOverlaysAllowed } from './debugOverlays';
+import { debugOverlaysAllowed, litScaleRequested } from './debugOverlays';
 import { getConstellationLines, getSkyChoice, skyBandAt, subscribe } from './skyState';
 import type { FixedSkyState, SkyChoice } from './ridge/skyMoment';
 import { drawnView, ensureSkyPlace, resetSkyPlanes } from './skyPlace';
 import { subscribePlaceChoice } from './placeState';
 import type { SkyColours } from './ridge/skyColour';
 import type { Backdrop } from './ridge/Backdrop';
-import { FALLBACK_VIEW, HFOV_MAX_DEG, maxSpeed } from './ridge/view';
+import { deviceScale, FALLBACK_VIEW, HFOV_MAX_DEG, litScale, maxSpeed, windowFor } from './ridge/view';
 
 export type { Scene, SceneStats } from './Scene';
 
@@ -122,7 +122,11 @@ async function prepare(
         const manifestSky = ridgeSkyFor(choice, manifest.view);
         const { createBackdrop } = await import('./ridge/Backdrop');
         const heading = await import('./ridge/heading');
-        backdrop = createBackdrop(manifest, manifestSky.physical as NonNullable<typeof manifestSky.physical>);
+        backdrop = createBackdrop(
+          manifest,
+          manifestSky.physical as NonNullable<typeof manifestSky.physical>,
+          litScale(manifest, windowFor(manifest.view, window.innerWidth, window.innerHeight), deviceScale(), litScaleRequested(options.debug === true))
+        );
         // A place not shown before faces its rest azimuth; a rebuild for a sky keeps the heading the view has turned to. The speed is bounded from here on, not
         // from the scene's first frame: the view does not turn further than the place sustains while the tiles load.
         const now = performance.now();
