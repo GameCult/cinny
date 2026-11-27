@@ -6,7 +6,7 @@
 // not asked for again while its tile stays: the scene draws the cards of the tile that came. Nothing is thrown into the scene.
 import type { RidgeManifest } from './manifest';
 import type { PhysicalSky } from './physicalSky';
-import { createLighter } from './lightCards';
+import { createLighter, DEFAULT_LOOK } from './lightCards';
 import type { CardBitmaps, Lighter } from './lightCards';
 import { KEEP_MARGIN_TILES, LOAD_MARGIN_TILES, residentTiles } from './ring';
 
@@ -34,6 +34,14 @@ export interface Backdrop {
   litTiles(): readonly LitTile[];
   /** Hear each tile as it is made and held, however late (a still scene has no timer of its own and draws only what it held); not a tile that failed. Returns the way to stop. */
   onTile(cb: () => void): () => void;
+  /**
+   * Light at scale `s` (`view.ts` `litScale`) from now on: a new lighter, every held tile marked stale and made again nearest the view first on the passes that follow.
+   * An old canvas stays held, and drawn, until its replacement is made, so a rescale never blanks a tile. The same scale does nothing; a lighter that cannot be made
+   * leaves the scale as it was.
+   */
+  setScale(s: number): void;
+  /** What the lighting is costing now, for the probe: the scale, the renderer, the last light times (ms) at this scale, and the pixels and bytes of the lit canvases held. */
+  stats(): { scale: number; renderer: string; lightMs: readonly number[]; litPx: number; litBytes: number };
   /** Let go of everything, the lighting context included. Idempotent. */
   dispose(): void;
 }
@@ -42,7 +50,7 @@ export interface BackdropDeps {
   /** Rejects with `NotFound` when the server has no such file, with anything else for a failure that may pass. `signal` aborts it. */
   fetchBlob: (url: string, signal?: AbortSignal) => Promise<Blob>;
   decode: (blob: Blob) => Promise<ImageBitmap>;
-  lighter: (manifest: RidgeManifest, sky: PhysicalSky) => Lighter;
+  lighter: (manifest: RidgeManifest, sky: PhysicalSky, scale: number) => Lighter;
   /** The clock (ms) the pauses between a tile's attempts run on. */
   now: () => number;
 }
@@ -74,16 +82,27 @@ const decode = (blob: Blob): Promise<ImageBitmap> =>
 export function createBackdrop(
   manifest: RidgeManifest,
   sky: PhysicalSky,
+  scale: number,
   deps: Partial<BackdropDeps> = {}
 ): Backdrop {
   const get = deps.fetchBlob ?? fetchBlob;
   const open = deps.decode ?? decode;
-  const makeLighter = deps.lighter ?? createLighter;
+  const makeLighter = deps.lighter ?? ((m: RidgeManifest, sk: PhysicalSky, sc: number) => createLighter(m, sk, DEFAULT_LOOK, sc));
   const now = deps.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
   const { view } = manifest;
   const tileDeg = 360 / view.tiles;
-  let lighter = makeLighter(manifest, sky);
+  /** The scale tiles are lit at now (`setScale` changes it). */
+  let lit = scale;
+  let lighter = makeLighter(manifest, sky, lit);
   const held = new Map<number, LitTile[]>();
+  /** Held tiles lit at a scale since left: made again, nearest the view first, each replacing its canvases only once the new ones exist. */
+  const stale = new Set<number>();
+  /**
+   * Canvases a replacement made unused. A scene may still have one mounted until its next mount, so they are not emptied when replaced: `litTiles` is the scene's
+   * read of what is held, and a canvas retired before its second-to-last call has been left out of one mount by then.
+   */
+  let retiring: HTMLCanvasElement[] = [];
+  let retired: HTMLCanvasElement[] = [];
   /** Tiles that failed, when they may be asked for again and the pause after the next failure. */
   const failed = new Map<number, { until: number; pause: number }>();
   const heard = new Set<() => void>();
@@ -98,12 +117,14 @@ export function createBackdrop(
   /** The pass that is on the wire: dispose gives up its requests, as a newer arc does. */
   let current: AbortController | null = null;
 
+  const empty = (c: HTMLCanvasElement) => {
+    c.width = 0;
+    c.height = 0;
+  };
   const drop = (tile: number) => {
-    held.get(tile)?.forEach((t) => {
-      t.canvas.width = 0;
-      t.canvas.height = 0;
-    });
+    held.get(tile)?.forEach((t) => empty(t.canvas));
     held.delete(tile);
+    stale.delete(tile);
   };
 
   // At most FETCH_PARALLEL requests at once over every tile, each with its own timeout (the signal is passed on, and a fetch that ignores it is still given up on).
@@ -162,11 +183,12 @@ export function createBackdrop(
   async function make(tile: number, fetched: { card: number; files: Fetched[] }[]): Promise<void> {
     const made: LitTile[] = [];
     const bitmaps: ImageBitmap[] = [];
+    const at = lit;
     try {
       if (fetched.some((f) => f.files.includes('failed'))) throw new Error('ridge: a file of the tile failed');
       if (lighter.lost) {
         lighter.release();
-        lighter = makeLighter(manifest, sky);
+        lighter = makeLighter(manifest, sky, lit);
       }
       for (const { card, files } of fetched) {
         if (files.includes('gone')) continue;
@@ -180,7 +202,10 @@ export function createBackdrop(
         if (disposed) return;
         made.push({ tile, card, canvas: lighter.light({ colour, geometry }, tile, card) });
       }
+      held.get(tile)?.forEach((t) => retiring.push(t.canvas));
       held.set(tile, made);
+      stale.delete(tile);
+      if (at !== lit) stale.add(tile); // the scale changed while this tile was made: it is made again
       failed.delete(tile);
       heard.forEach((cb) => cb());
     } catch {
@@ -206,7 +231,7 @@ export function createBackdrop(
     const order = [...near]
       .sort((a, b) => Math.abs(from(a) - from0) - Math.abs(from(b) - from0))
       .map((r) => r.tile)
-      .filter((t) => !held.has(t) && (failed.get(t)?.until ?? 0) <= now());
+      .filter((t) => (!held.has(t) || stale.has(t)) && (failed.get(t)?.until ?? 0) <= now());
     // Every tile's files are asked for at once (the requests queue to FETCH_PARALLEL, in this order) and made one tile at a time as they arrive.
     const stop = new AbortController();
     current = stop;
@@ -233,7 +258,7 @@ export function createBackdrop(
     const { arc } = wanted;
     const half = (arc.toDeg - arc.fromDeg) / 2 + LOAD_MARGIN_TILES * tileDeg;
     const due = residentTiles(view, (arc.fromDeg + arc.toDeg) / 2, half)
-      .filter((r) => !held.has(r.tile) && failed.has(r.tile))
+      .filter((r) => (!held.has(r.tile) || stale.has(r.tile)) && failed.has(r.tile))
       .map((r) => (failed.get(r.tile) as { until: number }).until);
     if (!due.length) return;
     retry = setTimeout(() => {
@@ -262,7 +287,31 @@ export function createBackdrop(
       });
       return running;
     },
-    litTiles: () => [...held.values()].flat(),
+    litTiles: () => {
+      retired.forEach(empty);
+      retired = retiring;
+      retiring = [];
+      return [...held.values()].flat();
+    },
+    setScale(s) {
+      if (disposed || s === lit) return;
+      let next: Lighter;
+      try {
+        next = makeLighter(manifest, sky, s);
+      } catch {
+        return;
+      }
+      lighter.release();
+      lighter = next;
+      lit = s;
+      held.forEach((_, tile) => stale.add(tile));
+      askAgain();
+    },
+    stats() {
+      const canvases = [...held.values()].flat().map((t) => t.canvas);
+      const litPx = canvases.reduce((a, c) => a + c.width * c.height, 0);
+      return { scale: lit, renderer: lighter.renderer, lightMs: lighter.lightMs, litPx, litBytes: litPx * 4 };
+    },
     onTile(cb) {
       heard.add(cb);
       return () => heard.delete(cb);
@@ -276,6 +325,9 @@ export function createBackdrop(
       clearTimeout(retry);
       current?.abort(); // a scene that did not wait for its tiles, or was replaced, leaves nothing asking for them
       [...held.keys()].forEach(drop);
+      [...retired, ...retiring].forEach(empty);
+      retired = [];
+      retiring = [];
       lighter.release();
     },
   };

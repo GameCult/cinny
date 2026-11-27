@@ -47,6 +47,9 @@ const rig = (fail: (url: string) => boolean = () => false, missing: (url: string
   const canvases: { tile: number; card: number; width: number; height: number }[] = [];
   const lighter = (): Lighter & { light: Mock<[CardBitmaps, number, number], HTMLCanvasElement> } => ({
     lost: false,
+    scale: 1,
+    lightMs: [],
+    renderer: 'test',
     release: vi.fn(),
     light: vi.fn((_b: CardBitmaps, tile: number, card: number) => {
       const c = { tile, card, width: 202, height: 100 };
@@ -80,7 +83,7 @@ afterEach(() => {
 describe('createBackdrop', () => {
   it('fetches nothing until it is asked, and then the files of the tiles of the arc and one tile beyond it, straight, and no others', async () => {
     const r = rig();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     expect(r.fetchBlob).not.toHaveBeenCalled();
     await bd.ensure(arc72(180));
     const want = residentTiles(manifest.view, 180, 36 + LOAD_MARGIN_TILES * 11.25).map((t) => t.tile);
@@ -95,7 +98,7 @@ describe('createBackdrop', () => {
   it('lights each card of a tile that holds it, naming the tile and the card, and leaves a card the tile lacks out', async () => {
     const r = rig();
     const lighter = r.lighter();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: () => lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: () => lighter });
     await bd.ensure({ fromDeg: 208, toDeg: 209 });
     const calls = lighter.light.mock.calls.map((c) => [c[1], c[2]]);
     // Tile 17 holds three cards; tile 18 (18 % 4 = 2) holds only two: card 2 is absent there.
@@ -116,7 +119,7 @@ describe('createBackdrop', () => {
       })
     );
     const r = rig();
-    const bd = createBackdrop(manifest, sky, { fetchBlob: r.fetchBlob, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { fetchBlob: r.fetchBlob, lighter: r.lighter });
     await bd.ensure({ fromDeg: 0, toDeg: 1 });
     expect(made.length).toBeGreaterThan(0);
     made.forEach((o) => expect(o).toEqual({ premultiplyAlpha: 'none', colorSpaceConversion: 'none' }));
@@ -125,7 +128,7 @@ describe('createBackdrop', () => {
 
   it('decodes one tile at a time', async () => {
     const r = rig();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     await bd.ensure(arc72(100));
     expect(r.decode).toHaveBeenCalled();
     expect(r.mostTiles()).toBe(1);
@@ -133,7 +136,7 @@ describe('createBackdrop', () => {
 
   it('sweeping the heading through 360 degrees fetches each tile once on the way and never holds more than the baker counted', async () => {
     const r = rig();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     const N = runTiles(manifest.view, HFOV_MAX_DEG, manifest.camera.rMaxM, 1000);
     const per = new Map<number, number>();
     let most = 0;
@@ -158,7 +161,7 @@ describe('createBackdrop', () => {
   it('lets go of the tiles beyond the arc and two tiles of margin, and makes nothing twice that it still holds', async () => {
     const r = rig();
     const lighter = r.lighter();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: () => lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: () => lighter });
     await bd.ensure(arc72(180));
     const first = bd.litTiles();
     const lit = lighter.light.mock.calls.length;
@@ -180,7 +183,7 @@ describe('createBackdrop', () => {
     let broken = true;
     const r = rig((u) => broken && tileOf(u) === 16 && u.includes('card-1-'));
     const lighter = r.lighter();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: () => lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: () => lighter });
     await expect(bd.ensure({ fromDeg: 180, toDeg: 181 })).resolves.toBeUndefined();
     expect(bd.litTiles().some((t) => t.tile === 16)).toBe(false); // a tile is lit whole or not at all
     expect(bd.litTiles().some((t) => t.tile === 15)).toBe(true);
@@ -197,7 +200,7 @@ describe('createBackdrop', () => {
     lighter.light.mockImplementation(() => {
       throw new Error('no 2D context');
     });
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: () => lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: () => lighter });
     await expect(bd.ensure({ fromDeg: 0, toDeg: 1 })).resolves.toBeUndefined();
     expect(bd.litTiles()).toEqual([]);
     r.bitmaps.forEach((b) => expect(b.closed).toBe(true));
@@ -206,7 +209,7 @@ describe('createBackdrop', () => {
   it('is made only where the cards can be lit: a lighter that throws is the caller to answer for', () => {
     const r = rig();
     expect(() =>
-      createBackdrop(manifest, sky, {
+      createBackdrop(manifest, sky, 1, {
         ...r,
         lighter: () => {
           throw new Error('ridge: no WebGL2');
@@ -220,7 +223,7 @@ describe('createBackdrop', () => {
     const first = r.lighter();
     const second = r.lighter();
     const make = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: make });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: make });
     await bd.ensure({ fromDeg: 0, toDeg: 1 });
     expect(first.light).toHaveBeenCalled();
     (first as { lost: boolean }).lost = true;
@@ -232,7 +235,7 @@ describe('createBackdrop', () => {
 
   it('takes the newest arc when asked again mid-pass, and answers every caller once everything it could make is made', async () => {
     const r = rig();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     const a = bd.ensure(arc72(40));
     const b = bd.ensure(arc72(220));
     await Promise.all([a, b]);
@@ -242,7 +245,7 @@ describe('createBackdrop', () => {
 
   it('tells a listener of each tile as it is made, not of a tile that failed, and no longer once it stops listening or the backdrop is disposed', async () => {
     const r = rig((url) => tileOf(url) === 17);
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     const seen: number[] = [];
     const off = bd.onTile(() => seen.push(bd.litTiles().length));
     await bd.ensure({ fromDeg: 180, toDeg: 181 }); // tiles 15 to 17 and the margin: 17 fails
@@ -263,7 +266,7 @@ describe('createBackdrop', () => {
   it('disposes: the canvases are dropped, the lighting context released, and a later ensure does nothing', async () => {
     const r = rig();
     const lighter = r.lighter();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: () => lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: () => lighter });
     await bd.ensure({ fromDeg: 0, toDeg: 1 });
     const lit = bd.litTiles().map((t) => t.canvas);
     expect(lit.length).toBeGreaterThan(0);
@@ -279,7 +282,7 @@ describe('createBackdrop', () => {
 
   it('asks for the tile under the view first and then outward, not outward from the middle of the sweep', async () => {
     const r = rig();
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     // The sweep spans 144 to 216 degrees; the view is at its start, in tile 13 (146.25 to 157.5).
     await bd.ensure({ fromDeg: 144, toDeg: 216 }, { fromDeg: 150, toDeg: 152 });
     const order = [...new Set(r.fetched.map(tileOf))];
@@ -288,7 +291,7 @@ describe('createBackdrop', () => {
     expect(order.map(dist)).toEqual([...order.map(dist)].sort((a, b) => a - b));
     // Without a view it is outward from the middle of the arc, as before.
     const r2 = rig();
-    const bd2 = createBackdrop(manifest, sky, { ...r2, lighter: r2.lighter });
+    const bd2 = createBackdrop(manifest, sky, 1, { ...r2, lighter: r2.lighter });
     await bd2.ensure({ fromDeg: 144, toDeg: 216 });
     expect([15, 16]).toContain(tileOf(r2.fetched[0])); // the two tiles either side of 180
   });
@@ -304,7 +307,7 @@ describe('createBackdrop', () => {
       active -= 1;
       return { url } as unknown as Blob;
     });
-    const bd = createBackdrop(manifest, sky, { ...r, fetchBlob, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, fetchBlob, lighter: r.lighter });
     await bd.ensure(arc72(180)); // ten tiles of up to six files each
     expect(most).toBeGreaterThan(1); // the files are not asked for one after another
     expect(most).toBe(FETCH_PARALLEL); // and the pipe is kept full while there is more to ask, and no fuller
@@ -332,7 +335,7 @@ describe('createBackdrop', () => {
           });
         })
     );
-    const bd = createBackdrop(manifest, sky, { ...r, fetchBlob, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, fetchBlob, lighter: r.lighter });
     for (let i = 0; i < 60; i += 1) {
       void bd.ensure({ fromDeg: 100 + i * 2, toDeg: 180 + i * 2 }); // a turning view: a new arc every half second, each one aborting the last
       await vi.advanceTimersByTimeAsync(500);
@@ -352,7 +355,7 @@ describe('createBackdrop', () => {
       }
       return Promise.resolve({ url } as unknown as Blob);
     });
-    const bd = createBackdrop(manifest, sky, { ...r, fetchBlob, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, fetchBlob, lighter: r.lighter });
     const done = bd.ensure({ fromDeg: 200, toDeg: 201 });
     await vi.advanceTimersByTimeAsync(FETCH_TIMEOUT_MS + 10);
     await done;
@@ -364,7 +367,7 @@ describe('createBackdrop', () => {
 
   it('does not ask again at once for a tile that failed: the pause doubles to a cap, so a tile that keeps failing is a few requests a minute', async () => {
     const r = rig((u) => tileOf(u) === 19);
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     const tile19 = () =>
       r.fetched.filter((u) => tileOf(u) === 19 && u.includes('card-0-') && u.endsWith('colour.webp')).length;
     await bd.ensure({ fromDeg: 215, toDeg: 216 });
@@ -393,7 +396,7 @@ describe('createBackdrop', () => {
       vi.useFakeTimers();
       let broken = true;
       const { r, deps } = quick((u) => broken && tileOf(u) === 16 && u.includes('card-1-'));
-      const bd = createBackdrop(manifest, sky, deps);
+      const bd = createBackdrop(manifest, sky, 1, deps);
       const heard = vi.fn();
       bd.onTile(heard);
       await bd.ensure({ fromDeg: 180, toDeg: 181 }); // the only ask: a still has no timer to make another
@@ -417,7 +420,7 @@ describe('createBackdrop', () => {
     it('keeps asking, on a pause that doubles, while the arc wants the tile, and stops when the arc has moved on or the backdrop is gone', async () => {
       vi.useFakeTimers();
       const { r, deps } = quick((u) => tileOf(u) === 19);
-      const bd = createBackdrop(manifest, sky, deps);
+      const bd = createBackdrop(manifest, sky, 1, deps);
       await bd.ensure({ fromDeg: 215, toDeg: 216 });
       expect(tile(r, 19)).toBe(1);
       for (let s = 0; s < 120; s += 1) {
@@ -447,7 +450,7 @@ describe('createBackdrop', () => {
       () => false,
       (u) => tileOf(u) === 19 && u.includes('card-1-')
     );
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     const tile19 = () => r.fetched.filter((u) => tileOf(u) === 19).length;
     await bd.ensure({ fromDeg: 215, toDeg: 216 });
     const first = tile19();
@@ -466,7 +469,7 @@ describe('createBackdrop', () => {
       () => false,
       (u) => tileOf(u) === 19
     );
-    const bd = createBackdrop(manifest, sky, { ...r, lighter: r.lighter });
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: r.lighter });
     await bd.ensure({ fromDeg: 215, toDeg: 216 });
     const n = r.fetched.length;
     r.tick(RETRY_MAX_MS * 2);
@@ -474,5 +477,120 @@ describe('createBackdrop', () => {
     expect(r.fetched.length).toBe(n);
     expect(bd.litTiles().some((t) => t.tile === 19)).toBe(false);
     expect(bd.litTiles().some((t) => t.tile === 18)).toBe(true);
+  });
+});
+
+describe('setScale', () => {
+  type Fake = { tile: number; card: number; scale: number; width: number; height: number };
+  /** A lighter factory that lights canvases as wide as their scale says and remembers every lighter made, in order. */
+  const scaled = () => {
+    const made: { scale: number; lighter: Lighter; lit: Fake[] }[] = [];
+    const lighterAt = (_m: unknown, _s: unknown, scale: number): Lighter => {
+      const lit: Fake[] = [];
+      const lighter: Lighter = {
+        lost: false,
+        scale,
+        lightMs: [],
+        renderer: 'test',
+        release: vi.fn(),
+        light: vi.fn((_b: CardBitmaps, tile: number, card: number) => {
+          const c = { tile, card, scale, width: Math.round(202 * scale), height: Math.round(100 * scale) };
+          lit.push(c);
+          return c as unknown as HTMLCanvasElement;
+        }),
+      };
+      made.push({ scale, lighter, lit });
+      return lighter;
+    };
+    return { made, lighterAt };
+  };
+  const keys = (bd: ReturnType<typeof createBackdrop>) =>
+    bd
+      .litTiles()
+      .map((t) => `${t.tile}.${t.card}`)
+      .sort();
+
+  it('lights every held tile again at the new scale, nearest the view first, and never leaves a tile without a canvas in between', async () => {
+    const r = rig();
+    const { made, lighterAt } = scaled();
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: lighterAt });
+    const arc = { fromDeg: 150, toDeg: 160 };
+    await bd.ensure(arc);
+    const before = bd.litTiles();
+    const names = keys(bd);
+    expect(before.length).toBeGreaterThan(4);
+    expect(before.every((t) => (t.canvas as unknown as Fake).scale === 1)).toBe(true);
+
+    // At every tile made while the rescale runs, the same tiles and cards are held, whichever canvases they are.
+    const seen: string[][] = [];
+    bd.onTile(() => seen.push(keys(bd)));
+    bd.setScale(2);
+    expect(made.map((m) => m.scale)).toEqual([1, 2]);
+    expect(made[0].lighter.release).toHaveBeenCalled();
+    expect(keys(bd)).toEqual(names); // nothing is blanked by asking
+    expect(bd.litTiles().every((t) => (t.canvas as unknown as Fake).scale === 1)).toBe(true); // the old canvases are held and drawn until replaced
+    await bd.ensure(arc, { fromDeg: 150, toDeg: 152 });
+    expect(seen.length).toBeGreaterThan(0);
+    seen.forEach((k) => expect(k).toEqual(names));
+    expect(keys(bd)).toEqual(names);
+    expect(bd.litTiles().every((t) => (t.canvas as unknown as Fake).scale === 2)).toBe(true);
+    // Nearest the view first: the tiles of the second lighter come in order of their distance from the view's 151 degrees.
+    const order = [...new Set(made[1].lit.map((c) => c.tile))];
+    const dist = (t: number) => Math.abs(t * 11.25 + 5.625 - 151);
+    expect(order.map(dist)).toEqual([...order.map(dist)].sort((a, b) => a - b));
+    expect(order[0]).toBe(13);
+    expect(bd.stats().scale).toBe(2);
+  });
+
+  it('does nothing at the scale it has, and keeps its scale when the new lighter cannot be made', async () => {
+    const r = rig();
+    const { made, lighterAt } = scaled();
+    let fail = false;
+    const bd = createBackdrop(manifest, sky, 1.5, {
+      ...r,
+      lighter: (m, s, sc) => {
+        if (fail) throw new Error('ridge: no WebGL2');
+        return lighterAt(m, s, sc);
+      },
+    });
+    await bd.ensure({ fromDeg: 150, toDeg: 160 });
+    const fetched = r.fetched.length;
+    bd.setScale(1.5);
+    await bd.ensure({ fromDeg: 150, toDeg: 160 });
+    expect(made).toHaveLength(1);
+    expect(r.fetched.length).toBe(fetched); // not one file asked for again
+    fail = true;
+    bd.setScale(2);
+    await bd.ensure({ fromDeg: 150, toDeg: 160 });
+    expect(bd.stats().scale).toBe(1.5);
+    expect(made[0].lighter.release).not.toHaveBeenCalled();
+    expect(bd.litTiles().every((t) => (t.canvas as unknown as Fake).scale === 1.5)).toBe(true);
+  });
+
+  it('empties a replaced canvas only after the scene has read the held tiles twice, so a mount that has it up is not blanked', async () => {
+    const r = rig();
+    const { lighterAt } = scaled();
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: lighterAt });
+    await bd.ensure({ fromDeg: 150, toDeg: 160 });
+    const old = bd.litTiles().map((t) => t.canvas as unknown as Fake);
+    bd.setScale(2);
+    await bd.ensure({ fromDeg: 150, toDeg: 160 });
+    expect(old.every((c) => c.width > 0)).toBe(true); // replaced, still not emptied
+    bd.litTiles(); // the scene's mount that leaves them out
+    expect(old.every((c) => c.width > 0)).toBe(true);
+    bd.litTiles();
+    expect(old.every((c) => c.width === 0)).toBe(true);
+  });
+
+  it('lights a tile again that was made while the scale changed under it', async () => {
+    const r = rig();
+    const { made, lighterAt } = scaled();
+    const bd = createBackdrop(manifest, sky, 1, { ...r, lighter: lighterAt });
+    const done = bd.ensure({ fromDeg: 150, toDeg: 160 });
+    bd.setScale(2); // while the first pass is on the wire
+    await done;
+    await bd.ensure({ fromDeg: 150, toDeg: 160 });
+    expect(made.map((m) => m.scale)).toEqual([1, 2]);
+    expect(bd.litTiles().every((t) => (t.canvas as unknown as Fake).scale === 2)).toBe(true);
   });
 });
