@@ -1,9 +1,14 @@
 // The one lighting pass of the ridge cards (ruling ridge-cards-runtime-lit): each baked G-buffer card tile (colour with straight alpha, geometry with the
 // 'rt8' normal and log-distance, `scripts/ridge-bake/export.py`) is lit once, for the sky this scene build was made for, in one WebGL2 context on a
-// canvas of its own (a lighter, one per sky), and copied into a 2D canvas of the tile's interior plus one overlap column each side. The sun and the sky's
-// haze are tables over the whole ring in absolute azimuth, so a tile is lit from its own files alone and the apron (the neighbours' real columns, read for
-// the ink pass and dropped) makes its edges equal what a lit neighbour would give. There is no per-frame WebGL, and the host canvas stays 2D
+// canvas of its own (a lighter, one per sky and lit scale), and copied into a 2D canvas of the tile's interior plus one overlap column each side. The sun
+// and the sky's haze are tables over the whole ring in absolute azimuth, so a tile is lit from its own files alone and the apron (the neighbours' real
+// columns, read by the filter and dropped) makes its edges equal what a lit neighbour would give. There is no per-frame WebGL, and the host canvas stays 2D
 // (`Ridge.ts`). A sky change rebuilds the scene and makes a new lighter; nothing patches the lit canvases.
+//
+// Lighting is per OUTPUT pixel at the lit scale S (`view.ts` `litScale`, the one owner of it): the canvas is S output pixels per bake texel, and each output pixel
+// takes the value of the card at its own sub-texel point, `sampleCard` in the shader (the one owner of that value). A texel is a sample of the card, not a unit
+// of lighting: normals, log-distance and albedo are filtered from the taps around the point (cubic B-spline within a class of surface, bilinear for albedo and
+// alpha), band edges and ink are smoothstep edges one output pixel wide (`fwidth`), so nothing between the taps is a texel staircase.
 //
 // Per pixel: the normal from the geometry card in the column's frame (r along the ray, t across it, up), the sun brought into that frame per column;
 // radiance = albedo x (sun transmittance x max(n.s, 0) + ambient irradiance) / pi; aerial perspective L T(d) + Lsky (1 - T(d)) with d from the
@@ -290,7 +295,8 @@ uniform sampler2D uColour;
 uniform sampler2D uGeo;
 uniform sampler2D uSun;
 uniform sampler2D uSky;
-uniform ivec2 uSize;
+uniform ivec2 uSize; // the file's texels
+uniform float uScale; // output pixels per file texel (the lit scale)
 uniform ivec2 uSkySize;
 uniform int uTop;
 uniform int uCol0; // the ring column of the file's first texel (a tile's first column less its apron; may be below 0)
@@ -374,10 +380,10 @@ float curve1(float v) {
 }
 vec3 curve(vec3 c) { return vec3(curve1(c.r), curve1(c.g), curve1(c.b)); }
 
-// lightCards.ts celShade: flat bands of n.s, edges at i / bands.
+// lightCards.ts celShade: flat bands of n.s, edges at i / bands, each at least one output pixel wide (fwidth), so no edge is a staircase.
 float cel(float x) {
   int n = int(uCel.x);
-  float w = uCel.y * 0.5;
+  float w = max(uCel.y * 0.5, 0.5 * fwidth(x));
   float l = uBandLevels[0];
   for (int i = 1; i < ${CEL_MAX}; i++) {
     if (i >= n) break;
@@ -418,66 +424,235 @@ float fbm(vec2 p) {
   return sum / 0.9375;
 }
 
-struct Geo { vec3 n; float logD; bool wall; };
-Geo geoAt(ivec2 p) {
-  vec4 g = texelFetch(uGeo, p, 0);
-  vec2 rt = g.rg * 2.0 - 1.0;
-  float rt2 = dot(rt, rt);
-  Geo o;
-  o.wall = rt2 > WALL_RT2;
-  o.logD = uLogD.x + g.b * uLogD.y;
-  o.n = o.wall ? vec3(0.0, 0.0, 1.0) : vec3(rt, sqrt(max(0.0, 1.0 - rt2)));
+// The ambient is coarse too: surfaces facing the sky keep it whole, the rest keep a fraction; the step's edge is one output pixel at least.
+float ambientStep(vec3 n) {
+  float w = max(uCel.y * 0.5, 0.5 * fwidth(n.z));
+  return mix(uCel.z, 1.0, smoothstep(uCel.w - w, uCel.w + w + 1e-4, n.z));
+}
+
+// ---- sampleCard: the value of a card at a sub-texel point u (file texels, texel centres at k + 0.5) ----------------------------------------------------
+// The 4x4 taps around the point are fetched by hand (the geometry file's channels are data: the sampler cannot filter them or mask them).
+// Class split: over the 2x2 footprint the nearest tap is the reference and a tap is front when it is no more than occludeLogD behind it; m is the
+// bilinear share of the front taps. Within a class, cubic B-spline weights over the 4x4 (C2, so a band edge is a smooth curve, and the approximating kernel
+// averages out the 8-bit quantisation of the normal); taps of the other class, wall taps (for the normal) and alpha-0 taps weigh nothing, the rest are
+// renormalised by their sum. Albedo is bilinear over the 2x2 and weighted by alpha, so the zeroed colour under alpha 0 does not darken a crest.
+struct Cls { vec3 n; float logD; vec3 albedo; bool wall; bool has; };
+
+float gA[16];
+vec3 gC[16];
+vec3 gN[16];
+float gD[16];
+float gWall[16];
+vec2 gF;
+vec4 gWx;
+vec4 gWy;
+float gRef;
+
+// Cubic B-spline weights of the taps at -1, 0, +1, +2 texels from the one at or before the point, f in [0, 1).
+vec4 bspline(float f) {
+  float f2 = f * f;
+  float f3 = f2 * f;
+  return vec4(1.0 - 3.0 * f + 3.0 * f2 - f3, 4.0 - 6.0 * f2 + 3.0 * f3, 1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3, f3) / 6.0;
+}
+
+void fetchTaps(ivec2 b) {
+  for (int j = 0; j < 4; j++) {
+    for (int i = 0; i < 4; i++) {
+      int k = j * 4 + i;
+      ivec2 p = clamp(b + ivec2(i - 1, j - 1), ivec2(0), uSize - ivec2(1));
+      vec4 c = texelFetch(uColour, p, 0);
+      vec4 g = texelFetch(uGeo, p, 0);
+      vec2 rt = g.rg * 2.0 - 1.0;
+      float rt2 = dot(rt, rt);
+      gA[k] = c.a;
+      gC[k] = c.rgb;
+      gWall[k] = rt2 > WALL_RT2 ? 1.0 : 0.0;
+      gN[k] = vec3(rt, sqrt(max(0.0, 1.0 - rt2)));
+      gD[k] = uLogD.x + g.b * uLogD.y;
+    }
+  }
+}
+
+// The bilinear weight of tap (i, j), i and j in 1..2: the 2x2 around the point.
+float bil(int i, int j) {
+  return (i == 1 ? 1.0 - gF.x : gF.x) * (j == 1 ? 1.0 - gF.y : gF.y);
+}
+
+bool frontTap(int k) {
+  return gD[k] - gRef <= uInkGeometry.x;
+}
+
+Cls classOf(bool front) {
+  Cls o;
+  o.n = vec3(0.0, 0.0, 1.0);
+  o.logD = uLogD.x;
+  o.albedo = vec3(0.0);
+  o.wall = false;
+  o.has = false;
+  float sw = 0.0;
+  float sd = 0.0;
+  float sn = 0.0;
+  vec3 nSum = vec3(0.0);
+  for (int j = 0; j < 4; j++) {
+    for (int i = 0; i < 4; i++) {
+      int k = j * 4 + i;
+      if (gA[k] <= 0.0 || frontTap(k) != front) continue;
+      float w = gWx[i] * gWy[j];
+      sw += w;
+      sd += w * gD[k];
+      if (gWall[k] < 0.5) {
+        sn += w;
+        nSum += w * gN[k];
+      }
+    }
+  }
+  if (sw <= 1e-6) return o;
+  o.has = true;
+  o.logD = sd / sw;
+  float bw = 0.0;
+  float wallW = 0.0;
+  float aw = 0.0;
+  vec3 alb = vec3(0.0);
+  for (int j = 1; j < 3; j++) {
+    for (int i = 1; i < 3; i++) {
+      int k = j * 4 + i;
+      if (gA[k] <= 0.0 || frontTap(k) != front) continue;
+      float w = bil(i, j);
+      bw += w;
+      wallW += w * gWall[k];
+      aw += w * gA[k];
+      alb += w * gA[k] * toLinear(gC[k]);
+    }
+  }
+  o.wall = bw > 1e-6 ? wallW >= 0.5 * bw : sn <= 1e-6;
+  // The normal of the class: the normalised average of the unit normals, not an average of the bytes (inferred, not sourced).
+  o.n = (o.wall || dot(nSum, nSum) < 1e-8) ? vec3(0.0, 0.0, 1.0) : normalize(nSum);
+  o.albedo = aw > 1e-6 ? alb / aw : vec3(0.0);
   return o;
 }
 
-void main() {
-  ivec2 p = ivec2(int(gl_FragCoord.x), uSize.y - 1 - int(gl_FragCoord.y));
-  vec4 c = texelFetch(uColour, p, 0);
-  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
-  Geo g = geoAt(p);
-
-  int col = ((uCol0 + p.x) % uRingW + uRingW) % uRingW;
-  vec3 s = texelFetch(uSun, ivec2(col, 0), 0).xyz;
-  if (uRelief.y > 0.0) s = normalize(mix(s, uFixedLight, uRelief.y));
-  float dist = exp(g.logD);
-  // The ground's noise is a function of the ground point, dist x (sin psi, cos psi) for the column's absolute azimuth psi, so it is periodic over the wrap.
-  float psi = (float(col) + 0.5) / float(uRingW) * 2.0 * PI;
+// The light of a surface (before the ink): its albedo and noise, the relief, the card's own tone, the haze in front of it.
+vec3 shade(Cls k, float lit, float amb, vec3 s, vec3 haze, float psi, float rowFrac) {
+  float dist = exp(k.logD);
+  // The ground's noise is a function of the ground point, dist x (sin psi, cos psi) for the absolute azimuth psi, so it is periodic over the wrap.
   vec2 world = vec2(sin(psi), cos(psi)) * dist;
-  vec3 albedo = toLinear(c.rgb);
+  vec3 albedo = k.albedo;
   if (uGround.x > 0.0) albedo *= max(1.0 + uGround.x * (2.0 * fbm(world / 250.0) - 1.0), 0.0);
   float cloud = uGround.y > 0.0 ? 1.0 - uGround.y * smoothstep(0.5, 0.72, fbm(world / 4000.0 + 17.0)) : 1.0;
-  float lit = uCel.x > 0.5 ? cel(dot(g.n, s)) : max(dot(g.n, s), 0.0);
   float ndl = mix(max(s.z, 0.0), lit, uRelief.x);
-  float ambStep = uCel.x > 0.5 ? mix(uCel.z, 1.0, smoothstep(uCel.w - uCel.y * 0.5, uCel.w + uCel.y * 0.5 + 1e-4, g.n.z)) : 1.0;
-  vec3 radiance = albedo * (uTSun * ndl * cloud + uAmbient * mix(1.0, ambStep, uRelief.x)) / PI;
-  float dn = clamp((g.logD - uLogD.x) / uLogD.y, 0.0, 1.0);
+  vec3 radiance = albedo * (uTSun * ndl * cloud + uAmbient * mix(1.0, amb, uRelief.x)) / PI;
+  float dn = clamp((k.logD - uLogD.x) / uLogD.y, 0.0, 1.0);
   if (uDist.y != 0.0) {
     vec3 flatTone = albedo * (uTSun * max(s.z, 0.0) * cloud + uAmbient) / PI;
     radiance = flatTone + (radiance - flatTone) * exp(uDist.y * (1.0 - 2.0 * dn));
   }
   radiance *= mix(vec3(1.0), NEAR_WARM, uDist.x * (1.0 - dn));
   vec3 T = exp(-uExt * (dist / 1000.0));
-  vec2 uv = vec2((float(col) + 0.5) / float(uRingW), (float(uTop + p.y) + 0.5) / uPlaneH);
-  vec3 haze = skyAt(uv);
-  haze += uHazeTint * dot(haze, LUMA);
   radiance = radiance * T + haze * (1.0 - T);
-  radiance *= max(uCard.x * (1.0 + uCard.y * ((float(p.y) + 0.5) / float(uSize.y) - 0.5)), 0.0);
+  return radiance * max(uCard.x * (1.0 + uCard.y * (rowFrac - 0.5)), 0.0);
+}
 
-  float keep = 1.0;
-  ivec2 dirs[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
-  for (int k = 0; k < 4; k++) {
-    ivec2 q = p + dirs[k];
-    if (q.x < 0 || q.y < 0 || q.x >= uSize.x || q.y >= uSize.y) continue;
-    float an = texelFetch(uColour, q, 0).a;
-    Geo gn = geoAt(q);
-    if (c.a >= 0.5 && an < 0.5) keep = min(keep, uInkKeep.x);
-    else if (an >= 0.5 && gn.logD - g.logD > uInkGeometry.x) keep = min(keep, uInkKeep.y);
-    else if (an >= 0.5 && !g.wall && !gn.wall && dot(g.n, gn.n) < uInkGeometry.y) keep = min(keep, uInkKeep.z);
+float creaseGrad(vec3 n) {
+  return max(length(dFdx(n)), length(dFdy(n))) * uScale; // the change of the normal per texel
+}
+
+// One output pixel's antialiased band of a distance d (texels) inside [0, 1] texels; px is one output pixel in texels.
+float band(float d, float px) {
+  return smoothstep(-0.5 * px, 0.5 * px, d) * (1.0 - smoothstep(1.0 - 0.5 * px, 1.0 + 0.5 * px, d));
+}
+
+void main() {
+  vec2 u = vec2(gl_FragCoord.x / uScale, float(uSize.y) - gl_FragCoord.y / uScale);
+  vec2 q = u - 0.5;
+  ivec2 b = ivec2(floor(q));
+  gF = q - vec2(b);
+  gWx = bspline(gF.x);
+  gWy = bspline(gF.y);
+  fetchTaps(b);
+
+  gRef = 1e9;
+  for (int j = 1; j < 3; j++) {
+    for (int i = 1; i < 3; i++) {
+      int k = j * 4 + i;
+      if (gA[k] > 0.0) gRef = min(gRef, gD[k]);
+    }
   }
+  float mFront = 0.0;
+  float mAll = 0.0;
+  for (int j = 1; j < 3; j++) {
+    for (int i = 1; i < 3; i++) {
+      int k = j * 4 + i;
+      if (gA[k] <= 0.0) continue;
+      float w = bil(i, j);
+      mAll += w;
+      if (frontTap(k)) mFront += w;
+    }
+  }
+  float m = mAll > 1e-6 ? mFront / mAll : 1.0;
+  Cls F = classOf(true);
+  Cls B = classOf(false);
+  if (!B.has) B = F;
+  float a = texture(uColour, u / vec2(uSize)).a;
+
+  int col = ((uCol0 + int(floor(u.x))) % uRingW + uRingW) % uRingW;
+  vec3 s = texelFetch(uSun, ivec2(col, 0), 0).xyz;
+  if (uRelief.y > 0.0) s = normalize(mix(s, uFixedLight, uRelief.y));
+  float ringX = float(uCol0) + u.x;
+  float psi = ringX / float(uRingW) * 2.0 * PI;
+  vec3 haze = skyAt(vec2(ringX / float(uRingW), (float(uTop) + u.y) / uPlaneH));
+  haze += uHazeTint * dot(haze, LUMA);
+  float rowFrac = u.y / float(uSize.y);
+
+  // Everything that takes a screen derivative is read here, before the first branch that differs between pixels.
+  bool celOn = uCel.x > 0.5;
+  float litF = celOn ? cel(dot(F.n, s)) : max(dot(F.n, s), 0.0);
+  float litB = celOn ? cel(dot(B.n, s)) : max(dot(B.n, s), 0.0);
+  float ambF = celOn ? ambientStep(F.n) : 1.0;
+  float ambB = celOn ? ambientStep(B.n) : 1.0;
+  float creaseF = creaseGrad(F.n);
+  float creaseB = creaseGrad(B.n);
+  float creaseFw = fwidth(creaseF);
+  float creaseBw = fwidth(creaseB);
+  float wallFw = fwidth(F.wall ? 1.0 : 0.0);
+  float wallBw = fwidth(B.wall ? 1.0 : 0.0);
+  vec2 dA = vec2(dFdx(a), dFdy(a)) * uScale;
+  vec2 dM = vec2(dFdx(m), dFdy(m)) * uScale;
+  float mFw = fwidth(m);
+
+  if (a <= 0.0) {
+    outColor = vec4(0.0);
+    return;
+  }
+
+  // The class split is a cut one output pixel wide, not a blur: both classes are shaded only where the cut falls.
+  float t = 1.0;
+  if (m < 1.0) {
+    float fm = max(0.5 * mFw, 1e-4);
+    t = smoothstep(0.5 - fm, 0.5 + fm, m);
+  }
+  vec3 radiance;
+  if (t >= 1.0) radiance = shade(F, litF, ambF, s, haze, psi, rowFrac);
+  else if (t <= 0.0) radiance = shade(B, litB, ambB, s, haze, psi, rowFrac);
+  else radiance = mix(shade(B, litB, ambB, s, haze, psi, rowFrac), shade(F, litF, ambF, s, haze, psi, rowFrac), t);
+
+  // Ink from the fields, per output pixel, within one texel of its line: the edge of the silhouette (inside it), the front side of a class split, a crease of the normal.
+  float px = 1.0 / uScale;
+  float keep = 1.0;
+  float de = (a - 0.5) / max(length(dA), 1e-6);
+  keep = min(keep, mix(1.0, uInkKeep.x, band(de, px)));
+  float dm = (m - 0.5) / max(length(dM), 1e-6);
+  keep = min(keep, mix(1.0, uInkKeep.y, band(dm, px)));
+  bool frontShown = m >= 0.5;
+  float crease = frontShown ? creaseF : creaseB;
+  float creaseW = max(0.5 * (frontShown ? creaseFw : creaseBw), 1e-3);
+  bool noCrease = frontShown ? (F.wall || wallFw > 0.0) : (B.wall || wallBw > 0.0);
+  float thr = sqrt(2.0 * (1.0 - uInkGeometry.y));
+  float kc = noCrease ? 0.0 : smoothstep(thr - creaseW, thr + creaseW, crease);
+  keep = min(keep, mix(1.0, uInkKeep.z, kc));
   radiance *= 1.0 - (1.0 - keep) * uInkScale;
 
   vec3 rgb = toSrgb(curve(aces(scotopic(radiance, uGrade) * uExposure)));
-  outColor = vec4(rgb * c.a, c.a);
+  outColor = vec4(rgb * a, a);
 }
 `;
 
@@ -509,13 +684,13 @@ function program(gl: WebGL2RenderingContext): WebGLProgram {
   return p;
 }
 
-function texture(gl: WebGL2RenderingContext, unit: number): WebGLTexture {
+function texture(gl: WebGL2RenderingContext, unit: number, filter: number): WebGLTexture {
   const t = gl.createTexture();
   if (!t) throw new Error('ridge: no texture');
   gl.activeTexture(gl.TEXTURE0 + unit);
   gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   return t;
@@ -528,13 +703,13 @@ function floatTexture(
   h: number,
   data: Float32Array
 ): WebGLTexture {
-  const t = texture(gl, unit);
+  const t = texture(gl, unit, gl.NEAREST); // read by texelFetch: RGBA32F is not filterable
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, data);
   return t;
 }
 
-function bitmapTexture(gl: WebGL2RenderingContext, unit: number, bmp: ImageBitmap): WebGLTexture {
-  const t = texture(gl, unit);
+function bitmapTexture(gl: WebGL2RenderingContext, unit: number, bmp: ImageBitmap, filter: number): WebGLTexture {
+  const t = texture(gl, unit, filter);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
   return t;
 }
@@ -545,14 +720,23 @@ export interface CardBitmaps {
   geometry: ImageBitmap;
 }
 
-/** One sky's lighting of the ring's tiles. */
+/** How many light times a lighter keeps for the probe's median and p95. */
+export const LIGHT_MS_KEPT = 256;
+
+/** One sky's lighting of the ring's tiles, at one lit scale. */
 export interface Lighter {
   /**
-   * Light card `card` of tile `tile` from its decoded files: a 2D canvas of the tile's interior columns plus one overlap column each side (the apron is
-   * read and dropped; the overlap hides the hairline between adjacent canvases at a fractional scale), premultiplied by the card's alpha. The bitmaps
-   * stay the caller's to close. Throws when the context is lost or the tile holds no such card.
+   * Light card `card` of tile `tile` from its decoded files: a 2D canvas of round((tileW + 2) S) x round(h S) pixels, the tile's interior columns plus one overlap
+   * column each side (the apron is read by the filter and dropped; the overlap hides the hairline between adjacent canvases at a fractional scale), premultiplied
+   * by the card's alpha. The bitmaps stay the caller's to close. Throws when the context is lost or the tile holds no such card.
    */
   light(bitmaps: CardBitmaps, tile: number, card: number): HTMLCanvasElement;
+  /** Output pixels per bake texel: what this lighter lights at. */
+  readonly scale: number;
+  /** Wall-clock ms of the last lit cards (the draw, finished, and the copy out of the GL canvas), at most `LIGHT_MS_KEPT`, oldest first. */
+  readonly lightMs: readonly number[];
+  /** The GPU's own name for itself when the browser exposes WEBGL_debug_renderer_info, else 'unknown'. */
+  readonly renderer: string;
   /** True once the GL context was lost: this lighter is spent and the next ensure makes another. */
   readonly lost: boolean;
   /** Let go of the GL context and its tables. */
@@ -566,7 +750,8 @@ export interface Lighter {
 export function createLighter(
   manifest: RidgeManifest,
   sky: PhysicalSky,
-  look: RidgeLook = DEFAULT_LOOK
+  look: RidgeLook = DEFAULT_LOOK,
+  scale = 1
 ): Lighter {
   const glCanvas = document.createElement('canvas');
   const gl = glCanvas.getContext('webgl2', {
@@ -588,7 +773,8 @@ export function createLighter(
     lost = true;
   });
   const { view } = manifest;
-  const litW = view.tileW + 2;
+  const litW = Math.round((view.tileW + 2) * scale);
+  const lightMs: number[] = [];
   try {
     const lit = lightingOf(manifest, sky, look);
     const prog = program(gl);
@@ -598,6 +784,7 @@ export function createLighter(
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     ['uColour', 'uGeo', 'uSun', 'uSky'].forEach((n, i) => gl.uniform1i(u(n), i));
+    gl.uniform1f(u('uScale'), scale);
     gl.uniform1i(u('uRingW'), lit.ringW);
     gl.uniform1f(u('uPlaneH'), lit.planeH);
     gl.uniform2f(u('uLogD'), lit.logDMin, lit.logDSpan);
@@ -629,21 +816,28 @@ export function createLighter(
     gl.uniform2i(u('uSkySize'), SKY_LUT.w, SKY_LUT.h);
     floatTexture(gl, 2, lit.ringW, 1, sunColumns(view, lit.key));
     floatTexture(gl, 3, SKY_LUT.w, SKY_LUT.h, skyLut(sky, view, SKY_LUT.w, SKY_LUT.h));
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : 'unknown';
     return {
       get lost() {
         return lost;
       },
+      scale,
+      lightMs,
+      renderer,
       release,
       light(bitmaps, tile, card) {
         const entry = manifest.tiles[tile]?.[card];
         if (!entry) throw new Error(`ridge: tile ${tile} holds no card ${card}`);
         if (lost || released) throw new Error('ridge: the lighting context is gone');
         const { colour, geometry } = bitmaps;
-        glCanvas.width = colour.width;
-        glCanvas.height = colour.height;
-        gl.viewport(0, 0, colour.width, colour.height);
-        const colourTex = bitmapTexture(gl, 0, colour);
-        const geoTex = bitmapTexture(gl, 1, geometry);
+        const outW = Math.round(colour.width * scale);
+        const outH = Math.round(colour.height * scale);
+        glCanvas.width = outW;
+        glCanvas.height = outH;
+        gl.viewport(0, 0, outW, outH);
+        const colourTex = bitmapTexture(gl, 0, colour, gl.LINEAR);
+        const geoTex = bitmapTexture(gl, 1, geometry, gl.NEAREST); // its taps are fetched by hand
         gl.uniform2i(u('uSize'), colour.width, colour.height);
         gl.uniform1i(u('uTop'), entry.top);
         gl.uniform1i(u('uCol0'), tile * view.tileW - view.apron);
@@ -654,14 +848,20 @@ export function createLighter(
         );
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
+        const t0 = performance.now();
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.finish(); // a browser may copy canvas to canvas on the GPU without waiting: the time the probe reports is the draw done, not queued
         const canvas = document.createElement('canvas');
         canvas.width = litW;
-        canvas.height = colour.height;
+        canvas.height = outH;
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('ridge: no 2D context for a lit tile');
-        // The file's columns apron - 1 .. apron + tileW (inclusive): the interior and one overlap column each side.
-        ctx.drawImage(glCanvas, view.apron - 1, 0, litW, colour.height, 0, 0, litW, colour.height);
+        // The file's columns apron - 1 .. apron + tileW (inclusive): the interior and one overlap column each side, at whole output pixels (a fractional scale
+        // lands the crop at most half a pixel off, the same for every tile, and the overlap column covers the join).
+        const x0 = Math.min(Math.round((view.apron - 1) * scale), Math.max(0, outW - litW));
+        ctx.drawImage(glCanvas, x0, 0, litW, outH, 0, 0, litW, outH);
+        lightMs.push(performance.now() - t0);
+        if (lightMs.length > LIGHT_MS_KEPT) lightMs.shift();
         gl.deleteTexture(colourTex);
         gl.deleteTexture(geoTex);
         return canvas;

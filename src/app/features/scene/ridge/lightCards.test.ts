@@ -164,18 +164,18 @@ describe('the lighting inputs', () => {
 
 describe('the ring in the shader', () => {
   it('reads the sun and the sky by the column of the ring, not of the file, and wraps at the ends', () => {
-    expect(FRAGMENT).toContain('int col = ((uCol0 + p.x) % uRingW + uRingW) % uRingW;');
+    expect(FRAGMENT).toContain('int col = ((uCol0 + int(floor(u.x))) % uRingW + uRingW) % uRingW;');
     expect(FRAGMENT).toContain('texelFetch(uSun, ivec2(col, 0), 0)');
-    expect(FRAGMENT).toContain('(float(col) + 0.5) / float(uRingW)');
+    expect(FRAGMENT).toContain('float ringX = float(uCol0) + u.x;');
     expect(FRAGMENT).toContain('(int(b.x) % w + w) % w'); // the sky table wraps in azimuth
   });
   it('gives the ground noise the ground point, so it is the same at ring column 0 and column 6400', () => {
     // The noise coordinate is dist x (sin psi, cos psi) with psi from the wrapped column: sin and cos of 0 and of a whole turn are one point.
     expect(FRAGMENT).toContain('vec2 world = vec2(sin(psi), cos(psi)) * dist;');
-    expect(FRAGMENT).toContain('float psi = (float(col) + 0.5) / float(uRingW) * 2.0 * PI;');
+    expect(FRAGMENT).toContain('float psi = ringX / float(uRingW) * 2.0 * PI;');
     expect(FRAGMENT).not.toContain("uRadPerPx");
     const at = (col: number, w: number) => {
-      const psi = ((((col % w) + w) % w) + 0.5) / w * 2 * Math.PI;
+      const psi = (col + 0.5) / w * 2 * Math.PI; // the shader takes psi from the unwrapped ring position, sin and cos wrap by themselves
       return [Math.sin(psi), Math.cos(psi)];
     };
     expect(at(6400, 6400)[0]).toBeCloseTo(at(0, 6400)[0], 12);
@@ -199,7 +199,7 @@ describe('the display of the shader', () => {
 
 describe('the look reaches the shader', () => {
   // A recording WebGL2: every uniform call is kept by the name of its location, nothing is drawn.
-  const run = (look?: Partial<RidgeLook>, tile = 0) => {
+  const run = (look?: Partial<RidgeLook>, tile = 0, scale = 1) => {
     const uniforms: Record<string, number[]> = {};
     const crops: number[][] = [];
     const gl = new Proxy(
@@ -238,13 +238,15 @@ describe('the look reaches the shader', () => {
     } as unknown as PhysicalSky;
     const one = { ...manifest, cards: manifest.cards.slice(0, 1) };
     let canvas: { width: number; height: number } | undefined;
+    let lighterOut: ReturnType<typeof createLighter> | undefined;
     try {
-      const lighter = createLighter(one, sky, look && { ...DEFAULT_LOOK, ...look });
+      const lighter = createLighter(one, sky, look && { ...DEFAULT_LOOK, ...look }, scale);
+      lighterOut = lighter;
       canvas = lighter.light({ colour: bmp, geometry: bmp }, tile, 0) as unknown as typeof canvas;
     } finally {
       vi.unstubAllGlobals();
     }
-    return Object.assign(uniforms, { crops, canvas });
+    return Object.assign(uniforms, { crops, canvas, lighter: lighterOut as ReturnType<typeof createLighter> });
   };
 
   it('lights a tile from its own columns: the ring column of the file, the band, and the interior with one overlap column each side', () => {
@@ -257,6 +259,26 @@ describe('the look reaches the shader', () => {
     // The file holds tileW + 2 apron columns; the canvas keeps columns apron - 1 .. apron + tileW: the interior and one column each side.
     expect(u.crops).toEqual([[view.apron - 1, 0, view.tileW + 2, 7, 0, 0, view.tileW + 2, 7]]);
     expect(u.canvas).toMatchObject({ width: view.tileW + 2, height: 7 });
+    expect(u.uScale).toEqual([1]);
+  });
+
+  it.each([1, 1.5, 2.5])('lights at scale %s: the GL canvas and the lit canvas are the file and the tile at that many pixels a texel, uScale is set', (S) => {
+    const u = run(undefined, 0, S);
+    const { view } = manifest;
+    const litW = Math.round((view.tileW + 2) * S);
+    const h = Math.round(7 * S);
+    expect(u.uScale).toEqual([S]);
+    expect(u.canvas).toMatchObject({ width: litW, height: h });
+    // The crop starts at file column apron - 1, at whole output pixels, and is the canvas 1:1.
+    expect(u.crops).toEqual([[Math.round((view.apron - 1) * S), 0, litW, h, 0, 0, litW, h]]);
+  });
+
+  it('keeps the light times of the cards it lit, for the probe, and the renderer it lit on', () => {
+    const { lighter } = run(undefined, 0, 2);
+    expect(lighter.scale).toBe(2);
+    expect(lighter.lightMs).toHaveLength(1);
+    expect(lighter.lightMs[0]).toBeGreaterThanOrEqual(0);
+    expect(lighter.renderer).toBe('unknown'); // the recording context exposes no WEBGL_debug_renderer_info
   });
 
   it('throws without WebGL2: the caller makes the sky alone', () => {
@@ -405,5 +427,49 @@ describe('cel shading', () => {
     expect(PHYSICAL_LOOK.celBands).toBe(0);
     expect(FRAGMENT).toContain('float cel(float x)');
     expect(FRAGMENT).toContain('uBandLevels[6]');
+  });
+  it('widens every band edge, and the ambient step, to at least one output pixel by the screen derivative', () => {
+    expect(FRAGMENT).toContain('float w = max(uCel.y * 0.5, 0.5 * fwidth(x));');
+    expect(FRAGMENT).toContain('float w = max(uCel.y * 0.5, 0.5 * fwidth(n.z));');
+    expect(FRAGMENT).toContain('smoothstep(uCel.w - w, uCel.w + w + 1e-4, n.z)');
+  });
+});
+
+describe('the card sampled per output pixel', () => {
+  it('addresses the card by the output pixel centre in file texels, y flipped, and lights nothing from the own texel of the fragment', () => {
+    expect(FRAGMENT).toContain('uniform float uScale;');
+    expect(FRAGMENT).toContain('vec2 u = vec2(gl_FragCoord.x / uScale, float(uSize.y) - gl_FragCoord.y / uScale);');
+    expect(FRAGMENT).not.toContain('ivec2(int(gl_FragCoord.x)');
+    expect(FRAGMENT).not.toContain('texelFetch(uColour, p, 0);\n  if (c.a');
+  });
+  it('filters the normal and the log-distance by cubic B-spline weights over the 4x4 taps of a class, and the albedo bilinear and alpha-weighted', () => {
+    expect(FRAGMENT).toContain('vec4 bspline(float f)');
+    expect(FRAGMENT).toContain('float w = gWx[i] * gWy[j];');
+    expect(FRAGMENT).toContain('if (gA[k] <= 0.0 || frontTap(k) != front) continue;'); // alpha-0 and other-class taps weigh nothing
+    expect(FRAGMENT).toContain('if (gWall[k] < 0.5) {'); // wall taps weigh nothing for the normal
+    expect(FRAGMENT).toContain('normalize(nSum)'); // the normalised average of unit normals
+    expect(FRAGMENT).toContain('alb += w * gA[k] * toLinear(gC[k]);');
+    expect(FRAGMENT).toContain('float a = texture(uColour, u / vec2(uSize)).a;'); // alpha is the sampler's bilinear, never B-spline filtered
+  });
+  it('splits an occlusion edge into classes by the 2x2 footprint and cuts between them one output pixel wide', () => {
+    expect(FRAGMENT).toContain('return gD[k] - gRef <= uInkGeometry.x;');
+    expect(FRAGMENT).toContain('t = smoothstep(0.5 - fm, 0.5 + fm, m);');
+    expect(FRAGMENT).toContain('float fm = max(0.5 * mFw, 1e-4);');
+  });
+  it('reads every screen derivative before the first branch that differs between pixels, the transparent return included', () => {
+    const derivatives = FRAGMENT.indexOf('float mFw = fwidth(m);');
+    expect(derivatives).toBeGreaterThan(0);
+    expect(FRAGMENT.indexOf('if (a <= 0.0) {')).toBeGreaterThan(derivatives);
+    const afterReturn = FRAGMENT.slice(FRAGMENT.indexOf('if (a <= 0.0) {'));
+    expect(afterReturn).not.toMatch(/fwidth\(|dFdx\(|dFdy\(/);
+  });
+  it('draws ink from the filtered fields per output pixel: the edge of the alpha, the front side of the class split, the crease of the normal, none of them from a neighbour texel', () => {
+    expect(FRAGMENT).toContain('float de = (a - 0.5) / max(length(dA), 1e-6);');
+    expect(FRAGMENT).toContain('float dm = (m - 0.5) / max(length(dM), 1e-6);');
+    expect(FRAGMENT).toContain('float thr = sqrt(2.0 * (1.0 - uInkGeometry.y));');
+    expect(FRAGMENT).toContain('float band(float d, float px)');
+    expect(FRAGMENT).not.toContain('for (int k = 0; k < 4; k++)');
+    expect(FRAGMENT).not.toContain('ivec2 dirs');
+    expect(FRAGMENT).not.toContain('Geo geoAt');
   });
 });
