@@ -233,19 +233,19 @@ def write_bake(out, place, view, meta, packed, opaque, default=None):
     return dest
 
 # ------------------------------------------------------------------------------------ the bake
-def cut_ring(d, a, h, splits_km, near):
+def cut_ring(d, a, h, splits_km, near, material):
     """The ring cut of a prefiltered march (set_view done) and its near march (ridge.near_march): coverage, the periodic seams and the opaque view on the far march (d, a), the join of the near ground and the normals on all RING_W columns (ridge.join_near), then ridge.cards per tile on its TILE_W + 2 APRON columns of the joined march.  Returns dict(cards [TILES][cards] (ridge.cards arrays),
     splits_km, seams (K, ring) in m, cov (bins, ring), opaque [TILES] (rows, TILE_W + 2 APRON) coverage, edges)."""
     import ridge
     cov = ridge.coverage(d, a); sm = ridge.seams(cov, [k * 1000.0 for k in splits_km], d); op = ridge.opaque(a); D, A, Hc, nrm = ridge.join_near(d, a, h, near); cols = lambda x, t: ridge.ring_cols(x, t * TILE_W - APRON, TILE_W + 2 * APRON); tiles = []
-    for t in range(TILES): tiles.append(ridge.cards(D, cols(A, t), cols(Hc, t), cols(sm, t), tuple(cols(x, t) for x in nrm))); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
+    for t in range(TILES): tiles.append(ridge.cards(D, cols(A, t), cols(Hc, t), cols(sm, t), tuple(cols(x, t) for x in nrm), material=material)); print(f'tile {t + 1}/{TILES}', file=sys.stderr, flush=True)
     return dict(cards=tiles, splits_km=list(splits_km), seams=sm, cov=cov, opaque=[cols(op, t) for t in range(TILES)], edges=ridge.log_edges(d))
 
 def bake_place(pid):
     """stage 0, prefilter, set_view on the whole ring, cut_ring: dict(place, view, meta, v, and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
     import ridge
     assert ridge.W == RING_W and ridge.H > 0
-    p = ridge.configure(ridge.load_preset(pid)); ridge.mosaic(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0)); ring = cut_ring(d, a, h, p['card_split_km'], ridge.near_march(p.get('prefilter_m', 0) or 0))
+    p = ridge.load_preset(pid); material = ridge.load_material(p.get('material', 'alpine')); p = ridge.configure(p); ridge.mosaic(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0)); ring = cut_ring(d, a, h, p['card_split_km'], ridge.near_march(p.get('prefilter_m', 0) or 0), material)
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'], tz=p['tz'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])))
