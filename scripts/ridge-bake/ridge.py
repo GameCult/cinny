@@ -254,18 +254,29 @@ def seams(cov, targets, d):
     return out[:, n:2 * n]
 
 # ====================================================================== cards: layered depth, one per band between seams
-GRASS, FOREST, ROCK, SNOW = (0.36, 0.44, 0.26), (0.22, 0.31, 0.20), (0.47, 0.44, 0.41), (0.93, 0.95, 0.97)
-def albedo(h, n_up):
-    """The authored material, a few numbers: valley green to forest to rock by height, rock where the face is steep, snow above the tree line.  Straight colour, no light in it."""
-    t = lambda a, b: np.clip((h - a) / (b - a), 0, 1)[..., None]; c = np.asarray(GRASS) + (np.asarray(FOREST) - GRASS) * t(150, 900); c = c + (np.asarray(ROCK) - c) * t(1300, 2000)
-    c = c + (np.asarray(ROCK) - c) * np.clip((0.93 - n_up) / 0.25, 0, 1)[..., None]; return c + (np.asarray(SNOW) - c) * (t(1900, 2300) * np.clip((n_up - 0.55) / 0.3, 0, 1)[..., None])
+def load_material(name, path=Path(__file__).resolve().parent / 'places.json'):
+    """The named material of places.json `materials` (its one owner), checked for shape; an unknown name is a Refusal, never a fallback.  A material: base rgb, ramps [{from_m, to_m, colour}] lerped over height in order, steep {colour} | None (the steep-face override), snow {from_m, to_m, colour} | None (gated by flatness)."""
+    tab = json.load(open(path)).get('materials') or {}
+    if name not in tab: raise Refusal(f"material {name!r} is not in places.json materials ({', '.join(sorted(tab)) or 'none'})")
+    m = tab[name]; rgb = lambda c: isinstance(c, list) and len(c) == 3 and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in c)
+    ok = isinstance(m, dict) and set(m) == {'base', 'ramps', 'steep', 'snow'} and rgb(m['base']) and isinstance(m['ramps'], list) and all(isinstance(r, dict) and set(r) == {'from_m', 'to_m', 'colour'} and r['from_m'] < r['to_m'] and rgb(r['colour']) for r in m['ramps'])
+    ok = ok and (m['steep'] is None or (isinstance(m['steep'], dict) and set(m['steep']) == {'colour'} and rgb(m['steep']['colour']))) and (m['snow'] is None or (isinstance(m['snow'], dict) and set(m['snow']) == {'from_m', 'to_m', 'colour'} and m['snow']['from_m'] < m['snow']['to_m'] and rgb(m['snow']['colour'])))
+    if not ok: raise Refusal(f"material {name!r} is malformed (base rgb, ramps [{{from_m < to_m, colour}}], steep {{colour}} | null, snow {{from_m < to_m, colour}} | null; rgb in 0..1)")
+    return m
+def albedo(h, n_up, material):
+    """Evaluate a material (load_material) at height h and up-component n_up: the base colour, each ramp lerped by height in order, the steep colour where the face is steep, the snow colour above its band where the face is flat.  Straight colour, no light in it."""
+    t = lambda a, b: np.clip((h - a) / (b - a), 0, 1)[..., None]; c = np.asarray(material['base'])
+    for r in material['ramps']: c = c + (np.asarray(r['colour']) - c) * t(r['from_m'], r['to_m'])
+    if material['steep']: c = c + (np.asarray(material['steep']['colour']) - c) * np.clip((0.93 - n_up) / 0.25, 0, 1)[..., None]
+    sn = material['snow']
+    return c + (np.asarray(sn['colour']) - c) * (t(sn['from_m'], sn['to_m']) * np.clip((n_up - 0.55) / 0.3, 0, 1)[..., None]) if sn else c
 
-def cards(d, a, h, seams, nrm=None):
+def cards(d, a, h, seams, nrm=None, *, material):
     """K+1 cards, nearest first, from the angles a and heights h (samples, n) of n columns and the (K, n) seams (m).  Card i holds per pixel the FIRST VISIBLE hit at or beyond seam i-1 (less XF): layered depth, so a farther
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
-    nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
+    material is the place's (load_material), the one colour rule of wall, near and far rows.  nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
     and `wall` flags them (card 0's first sample is the near march's NEAR_START_M, so no row of it is wall under a real frame).  Card 0 draws the near march (join_near; the samples nearer than NEAR_CLIP_M) under the silhouette of the terrain at the clip as ordinary terrain: its own normal, the albedo of its own height and n_up; `near` (h, n) bool flags the pixels whose hit lies on the near side of the clip sample (the rows that were card 0's wall), whose distance is then never above the clip.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool, near (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
     if d[0] >= NEAR_CLIP_M: raise Refusal(f"card 0 draws the ground under the near clip from the near march, but the first sample is at {d[0]:g} m (the clip is {NEAR_CLIP_M:g} m): pass join_near")
@@ -290,5 +301,5 @@ def cards(d, a, h, seams, nrm=None):
         rows = np.flatnonzero(al.max(1) > 0)
         if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool), near=np.zeros((0, n), bool))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
-        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz)).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy(), near=Nr[i, sl].copy()))
+        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz), material).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy(), near=Nr[i, sl].copy()))
     return out
