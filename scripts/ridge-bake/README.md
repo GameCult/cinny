@@ -49,6 +49,10 @@ Files per card `i` and tile `t`: `card-<i>-t<tt>-colour.webp` (lossy RGB albedo,
 
 Budgets (`check_budget`; a cap is never raised to fit a bake, the lever is `TILES` = 64): every file of one tile at most 235 kB (1.5 MB per 72 degrees), every file of the place at most 7.5 MB, at most 6 cards, and the lit canvases (4 bytes x 202 columns x band rows, per card) of the worst run of N consecutive tiles, cyclic, at most 20 MB, where N = ceil(arc_max / 11.25) + 5 and arc_max = `HFOV_MAX_DEG` / s_min + 2 (r_max / Rmin) 57.3 degrees with Rmin the nearest card's smallest tile distance and s_min = Rmin / (Rmin + r_max). The loader decodes one tile at a time, so the decode transient is not gated.
 
+## Materials
+
+`places.json` `materials` is the one owner of ground colour (ruling `ridge-place-colour-authored`: the topology is real, the colour is authored). A material is `{ base: rgb, ramps: [{ from_m, to_m, colour }], steep: { colour } | null, snow: { from_m, to_m, colour } | null }`: `ridge.albedo(h, n_up, material)` lerps `base` through each ramp in order by height, then to the steep colour on steep faces (null: strata hold on cliffs), then to the snow colour on flat ground above its band. A place names its `material` (absent: `alpine`, the numbers the baker had before materials, pinned by an oracle test); an unknown name is refused (`ridge.load_material`). The material is part of the bake id. `canyon` (Grand Canyon strata by height at the Unkar reach) is a first draft, tuned by eye on the contact sheet.
+
 ## Licence
 
 Elevation: Copernicus DEM GLO-30. The credit line is written into every manifest (`attribution`) and must be shown with any rendering:

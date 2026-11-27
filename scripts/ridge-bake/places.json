@@ -1,5 +1,143 @@
 {
  "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing is the rest azimuth, where the view looks at rest (or az_deg); the ring itself is the whole 360 degrees, absolute compass, column 0 = north; tz = the place's IANA time zone (required, never defaulted: the runtime draws named sky moments in the place's local day); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); card_split_km = the ordered list of 1 to MAX_CARDS - 1 authored seam depths in km (the seam search refines each per column; K splits make K+1 cards; required, never defaulted); prefilter_m = Gaussian sigma in metres of the height low-pass before the cards are cut (default 0).",
+ "_materials": "materials = the authored ground colour of a place (the topology is real, the colour is GameCult's own depiction; ruling ridge-place-colour-authored). A material: base = rgb under every ramp; ramps = [{from_m, to_m, colour}] lerped over height in order (each takes the running colour to its own over from_m..to_m, then holds it); steep = {colour} | null: the colour of steep faces (n_up under 0.93, full at 0.68), null keeps the height colour on cliffs; snow = {from_m, to_m, colour} | null: lerped in over its band on flat ground. A place names its `material`; absent means alpine; an unknown name is refused by the baker.",
+ "materials": {
+  "alpine": {
+   "base": [
+    0.36,
+    0.44,
+    0.26
+   ],
+   "ramps": [
+    {
+     "from_m": 150,
+     "to_m": 900,
+     "colour": [
+      0.22,
+      0.31,
+      0.2
+     ]
+    },
+    {
+     "from_m": 1300,
+     "to_m": 2000,
+     "colour": [
+      0.47,
+      0.44,
+      0.41
+     ]
+    }
+   ],
+   "steep": {
+    "colour": [
+     0.47,
+     0.44,
+     0.41
+    ]
+   },
+   "snow": {
+    "from_m": 1900,
+    "to_m": 2300,
+    "colour": [
+     0.93,
+     0.95,
+     0.97
+    ]
+   }
+  },
+  "canyon": {
+   "base": [
+    0.62,
+    0.52,
+    0.4
+   ],
+   "ramps": [
+    {
+     "from_m": 1000,
+     "to_m": 1080,
+     "colour": [
+      0.55,
+      0.3,
+      0.2
+     ]
+    },
+    {
+     "from_m": 1150,
+     "to_m": 1300,
+     "colour": [
+      0.72,
+      0.38,
+      0.22
+     ]
+    },
+    {
+     "from_m": 1300,
+     "to_m": 1350,
+     "colour": [
+      0.45,
+      0.33,
+      0.25
+     ]
+    },
+    {
+     "from_m": 1400,
+     "to_m": 1450,
+     "colour": [
+      0.5,
+      0.52,
+      0.42
+     ]
+    },
+    {
+     "from_m": 1550,
+     "to_m": 1600,
+     "colour": [
+      0.62,
+      0.48,
+      0.42
+     ]
+    },
+    {
+     "from_m": 1800,
+     "to_m": 1850,
+     "colour": [
+      0.52,
+      0.24,
+      0.18
+     ]
+    },
+    {
+     "from_m": 2050,
+     "to_m": 2070,
+     "colour": [
+      0.85,
+      0.76,
+      0.58
+     ]
+    },
+    {
+     "from_m": 2150,
+     "to_m": 2170,
+     "colour": [
+      0.72,
+      0.68,
+      0.58
+     ]
+    },
+    {
+     "from_m": 2300,
+     "to_m": 2400,
+     "colour": [
+      0.3,
+      0.38,
+      0.24
+     ]
+    }
+   ],
+   "steep": null,
+   "snow": null
+  }
+ },
  "presets": [
   {
    "id": "vienna",
@@ -658,6 +796,7 @@
    "tz": "America/Phoenix",
    "name": "Grand Canyon from Unkar and Cardenas",
    "kind": "inner canyon from the river: walls rise above the horizon, layered strata",
+   "material": "canyon",
    "lat": 36.0817,
    "lon": -111.8551,
    "eye_h_m": 1.6,
