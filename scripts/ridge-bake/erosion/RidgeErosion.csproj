@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The ridge baker's erosion helper (Void, baker-local). CultMath is referenced from CULTLIB_DIR at the commit in CULTMATH_PIN; build.sh refuses any other. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <CultMathCommit Condition="'$(CultMathCommit)' == ''">unpinned</CultMathCommit>
+    <SourceSha256 Condition="'$(SourceSha256)' == ''">unbuilt</SourceSha256>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ErosionFilter.cs;Program.cs" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>cultmath_commit</_Parameter1>
+      <_Parameter2>$(CultMathCommit)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>source_sha256</_Parameter1>
+      <_Parameter2>$(SourceSha256)</_Parameter2>
+    </AssemblyAttribute>
+    <ProjectReference Include="$(CULTLIB_DIR)/packages/cultmath/src/CultMath/CultMath.csproj" />
+  </ItemGroup>
+</Project>
