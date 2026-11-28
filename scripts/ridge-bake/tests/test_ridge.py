@@ -61,7 +61,7 @@ def _bake(hfun, splits_km, sigma=0.0, fixed_m=None):
     A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, sigma); v = ridge.set_view(a.max(0)); cov_ring = ridge.coverage(D, a); cov = _w(cov_ring)
     sm = _w(ridge.seams(cov_ring, [k * 1000.0 for k in splits_km], D)) if fixed_m is None else np.array([np.full(NW, float(v)) for v in fixed_m])
     Dj, aj, hj, nj = ridge.join_near(D, a, h, near_rays(hfun, sigma)); aw, hw, nrm = _w(aj), _w(hj), tuple(_w(x) for x in nj)
-    return dict(cards=ridge.cards(Dj, aw, hw, sm, nrm, material=ALPINE), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(_w(a)), edges=ridge.log_edges(D), D=Dj, a=aw, h=hw, nrm=nrm, v=v)
+    return dict(cards=ridge.cards(Dj, aw, hw, sm, nrm), splits_km=list(splits_km), seams=sm, cov=cov, opaque=ridge.opaque(_w(a)), edges=ridge.log_edges(D), D=Dj, a=aw, h=hw, nrm=nrm, v=v)
 def _canvas(card, key='alpha'):
     out = np.zeros((H, NW) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
 def _row(deg): return int(np.argmin(np.abs(ridge.rowang - deg)))
@@ -114,7 +114,7 @@ def test_far_card_keeps_terrain_hidden_behind_a_nearer_ridge():
 def test_crossfade_is_complementary():
     """A ridge across the seam (seam fixed at 6 km, the ridge's front face at 5.9 km inside the cross-fade): the nearer card is partly transparent over the window, the farther card is opaque on the ridge, and the composite stays at coverage 1 below the crest."""
     hf = terrain(block(0, 359.99, 5900, 6100, 900)); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw = _w(A); Dj, aj, hj, nj = _join(hf, A, Hh)
-    cs = ridge.cards(Dj, aj, hj, np.full((1, NW), 6000.0), nj, material=ALPINE); c0, c1 = _canvas(cs[0]), _canvas(cs[1]); crest = int(np.argmax(ridge.opaque(aw)[:, 500] > 0.5)); r = crest + 6
+    cs = ridge.cards(Dj, aj, hj, np.full((1, NW), 6000.0), nj); c0, c1 = _canvas(cs[0]), _canvas(cs[1]); crest = int(np.argmax(ridge.opaque(aw)[:, 500] > 0.5)); r = crest + 6
     assert 0.2 < c0[r, 500] < 0.8, ('the near card does not fade over the window', c0[r, 500]); assert c1[r, 500] > 0.99, 'the far card is not opaque on the ridge'
     comp = 1 - (1 - c0) * (1 - c1); assert (comp[crest + 3:, :] > 0.999).all(), 'the composite dips below coverage 1 under the crest'
 def test_normals_of_a_tilted_plane():
@@ -144,7 +144,7 @@ def test_prefilter_flattens_roofs_and_keeps_hills():
     assert np.allclose(ridge.prefilter(D, Hh, 0.0)[1], Hh), 'sigma 0 changed the heights'
 def test_crest_rows_have_fractional_coverage():
     """The top row of a card's run has alpha equal to the share of its angular span under the running maximum, and the rows below it are 1 (a lower ridge in columns 0..640 so its crest is not at the frame's top edge)."""
-    hf = terrain(block(0, 36, 5000, 5600, 500), block(36, 359.99, 5000, 5600, 560)); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw = _w(A); Dj, aj, hj, nj = _join(hf, A, Hh); c = ridge.cards(Dj, aj, hj, np.zeros((0, NW)), nj, material=ALPINE)[0]
+    hf = terrain(block(0, 36, 5000, 5600, 500), block(36, 359.99, 5000, 5600, 560)); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); aw = _w(A); Dj, aj, hj, nj = _join(hf, A, Hh); c = ridge.cards(Dj, aj, hj, np.zeros((0, NW)), nj)[0]
     cv = _canvas(c)[:, 300]; r = int(np.argmax(cv > 0)); top = float(aw.max(0)[300]); p = 1.0 / ridge.PXDEG_V; want = (top - (ridge.rowang[r] - 0.5 * p)) / p
     assert 0.0 < want < 1.0 and abs(cv[r] - want) < 0.01, (cv[r], want, r); assert (cv[r + 1:] > 0.999).all()
 def test_cards_composite_to_the_opaque_view():
@@ -161,10 +161,10 @@ _RING = {}
 def _ring(key, hfun, splits_km):
     """export.cut_ring on synthetic rays (prefilter, whole-ring set_view, then the ring cut), cached by key: dict(bake = what export.bake_place returns, minus the place)."""
     if key not in _RING:
-        A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); v = ridge.set_view(a.max(0)); r = export.cut_ring(D, a, h, splits_km, near_rays(hfun), ALPINE)
+        A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); v = ridge.set_view(a.max(0)); r = export.cut_ring(D, a, h, splits_km, near_rays(hfun))
         _RING[key] = dict(r, op_ring=ridge.opaque(a), place=dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE, tz='Europe/Vienna'), v=v,
                           view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H),
-                          meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1]))))
+                          meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), material=ALPINE, relief=None), material=ALPINE)
     return _RING[key]
 def _tile_canvas(card, key='alpha'):
     out = np.zeros((H, TW) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
@@ -198,10 +198,10 @@ def test_every_tile_is_cut_at_its_own_seam():
 def test_tile_is_a_crop_of_the_columns():
     """ridge.cards on a tile's columns (the 200 it owns and the apron) equals the same columns of ridge.cards on a wider run of columns, pixel for pixel, for fixed seams: the tile cut changes no pixel and adds no seam."""
     b = _bake(terrain(_receding, block(0, 359.99, 3000, 3600, 350)), [6]); x0 = 500; n = export.TILE_W + 2 * export.APRON; sl = slice(x0, x0 + n)
-    tile = ridge.cards(b['D'], b['a'][:, sl], b['h'][:, sl], b['seams'][:, sl], tuple(x[:, sl] for x in b['nrm']), material=ALPINE)
+    tile = ridge.cards(b['D'], b['a'][:, sl], b['h'][:, sl], b['seams'][:, sl], tuple(x[:, sl] for x in b['nrm']))
     for c, w in zip(tile, b['cards']):
         assert np.array_equal(_canvas(w)[:, sl], _tile_canvas(c)), 'a tile is not a crop of the columns'; seen = _tile_canvas(c) > 0
-        for key in ('albedo', 'n_r', 'n_t', 'logd', 'wall', 'near'): assert np.array_equal(_canvas(w, key)[:, sl][seen], _tile_canvas(c, key)[seen]), ('a tile is not a crop of the columns', key)
+        for key in ('h', 'n_r', 'n_t', 'logd', 'wall', 'near'): assert np.array_equal(_canvas(w, key)[:, sl][seen], _tile_canvas(c, key)[seen]), ('a tile is not a crop of the columns', key)
 
 # ---------------------------------------------------------------------------------------- toy bakes: tile data made by hand, for the packer and the writer
 def _toy(dists=(3000.0, 15000.0, 50000.0), bands=(300, 400, 500), tops=(300, 150, 60), amp=0.01):
@@ -209,28 +209,28 @@ def _toy(dists=(3000.0, 15000.0, 50000.0), bands=(300, 400, 500), tops=(300, 150
     n = export.TILE_W + 2 * export.APRON; x = np.arange(n); tile = []; k = len(dists)
     for i in range(k):
         ld = np.log(dists[i] * (1 + amp * np.sin(x * 0.3)))[None, :].repeat(bands[i], 0).astype(np.float32)
-        tile.append(dict(top=tops[i], alpha=np.ones((bands[i], n), np.float32), albedo=np.full((bands[i], n, 3), 0.4, np.float32), n_r=np.full((bands[i], n), 0.1, np.float32), n_t=np.full((bands[i], n), -0.1, np.float32), logd=ld, wall=np.zeros((bands[i], n), bool), near=np.zeros((bands[i], n), bool)))
+        tile.append(dict(top=tops[i], alpha=np.ones((bands[i], n), np.float32), h=np.full((bands[i], n), 1500.0, np.float32), n_r=np.full((bands[i], n), 0.1, np.float32), n_t=np.full((bands[i], n), -0.1, np.float32), logd=ld, wall=np.zeros((bands[i], n), bool), near=np.zeros((bands[i], n), bool)))
     comp = export.composite_alpha([(c['top'], c['alpha']) for c in tile], H, n)
     return dict(cards=[[dict(c) for c in tile] for _ in range(export.TILES)], splits_km=[6.0 * (j + 1) for j in range(k - 1)], seams=np.tile(np.array(dists[:-1])[:, None] * 0.5, (1, W)), opaque=[comp.copy() for _ in range(export.TILES)],
-                view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=100.0, exaggeration=5.0, horizon_row=60.0, sky_row=24.0, near_row=396.0), meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(500.0), log_d_max=math.log(100000.0))),
+                view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=100.0, exaggeration=5.0, horizon_row=60.0, sky_row=24.0, near_row=396.0), meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(500.0), log_d_max=math.log(100000.0)), material=ALPINE, relief=None),
                 place=dict(id='toy', name='Toy', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'))
 def _write(out, b, packed, **kw):
-    args = dict(place=b['place'], view=b['view'], meta=b['meta'], packed=packed, opaque=b['opaque']); args.update(kw); return export.write_bake(out, **args)
+    args = dict(place=b['place'], view=b['view'], meta=b['meta'], packed=packed, opaque=b['opaque'], switch_index=True); args.update(kw); return export.write_bake(out, **args)
 def _refuses(out, b, packed, why, **kw):
     try: _write(out, b, packed, **kw)
     except export.Refusal: assert not os.path.exists(out), ('a refused bake left files', why)
     else: assert False, why
 def _pins():
-    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 2, 6, 7), 'the ring layout is pinned'
+    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 3, 6, 8), 'the ring layout is pinned'
     assert (export.TILE_BYTES_MAX, export.PLACE_BYTES_MAX, export.RESIDENT_BYTES_MAX, export.FIT_PX_MAX, export.R_MAX_FLOOR_M, export.PHI_STEPS) == (235_000, 7_500_000, 20_000_000, 24.0, 25.0, 24), 'the budgets and the fit bound are pinned'
     assert abs(export.HFOV_MAX_DEG - 72 / 1.1) < 1e-12
 
-def test_schema3():
-    """The manifest validates; a tile array of the wrong length, a missing apron, a file named for another tile, and any key of schema 2 left behind (the camera's heading range and offset, the window, the plane width, the card's median and scale, the whole-bake w and h) are refused; the schema file is pinned; the layout constants are pinned."""
+def test_schema4():
+    """The schema 4 manifest validates; a tile array of the wrong length, a missing apron, a file named for another tile, and any key of schema 2 left behind (the camera's heading range and offset, the window, the plane width, the card's median and scale, the whole-bake w and h) are refused; the schema file is pinned; the layout constants are pinned."""
     _pins(); d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); mk = lambda: json.loads(json.dumps(m))
-        assert m['schema'] == 3 and m['baker_version'] == 7 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
+        assert m['schema'] == 4 and m['baker_version'] == 8 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
         def bad(f, why):
             x = mk(); f(x)
             try: export.validate_manifest(x)
@@ -238,7 +238,7 @@ def test_schema3():
             raise AssertionError(why)
         bad(lambda x: x['camera'].pop('r_max_forward_m'), 'a camera without its forward offset validated'); bad(lambda x: x['camera'].pop('r_max_m'), 'a camera without its offset validated')
         bad(lambda x: x['tiles'].pop(), 'a manifest of 31 tiles validated'); bad(lambda x: x['tiles'][3].pop(), 'a tile with a card missing validated'); bad(lambda x: x['tiles'][3].append(None), 'a tile with an extra card validated'); bad(lambda x: x['view'].pop('apron'), 'a missing apron validated')
-        bad(lambda x: x['view'].update(apron=0), 'an apron of 0 validated'); bad(lambda x: x['tiles'][2][1]['colour'].update(file='card-1-t03-colour.webp'), 'a file named for another tile validated')
+        bad(lambda x: x['view'].update(apron=0), 'an apron of 0 validated'); bad(lambda x: x['tiles'][2][1]['surface'].update(file='card-1-t03-surface.webp'), 'a file named for another tile validated')
         bad(lambda x: x['tiles'].__setitem__(slice(None), [[None] * 3 for _ in range(32)]), 'a card null in every tile validated'); bad(lambda x: x.update(bytes=x['bytes'] + 1), 'a wrong byte total validated')
         for where, key in (('camera', 'heading_max' + '_deg'), ('view', 'window' + '_deg'), ('view', 'plane' + '_w'), ('view', 'rows_above'), ('camera', 'r_m'), (None, 'w'), (None, 'h')):       # schema 2's names are spelled in pieces: the baker's tree must hold none of them
              bad(lambda x: (x[where] if where else x).update({key: 1}), f'a leftover {key} validated')
@@ -246,12 +246,12 @@ def test_schema3():
         bad(lambda x: x['tiles'][0][0].update(distance_m='far'), 'a distance that is not a number validated'); bad(lambda x: x['place'].update(tz='Mars/Olympus'), 'a zone the system does not know validated')
         assert json.load(open(os.path.join(SRC, 'ridge-bake.schema.json'))) == json.loads(json.dumps(export.SCHEMA)), 'ridge-bake.schema.json is stale (export.py --write-schema)'
     finally: shutil.rmtree(d)
-def test_manifest_v3_writer():
-    """Two packs of one bake give the same bytes and bake_id; tiles[t][i] files are where the manifest says with the sizes it says and decode to tile_w + 2 apron columns; the bake_id is the sha256 of the files tile-major, then card, colour then geometry; the index points at the dir, a
+def test_manifest_v4_writer():
+    """Two packs of one bake give the same bytes and bake_id; tiles[t][i] files are where the manifest says with the sizes it says and decode to tile_w + 2 apron columns; the bake_id is the sha256 of the files tile-major, then card, surface then geometry; the index points at the dir, a
     rebake replaces the old dir, cards are nearest first with their seam medians, the attribution is the four pinned strings."""
     d = tempfile.mkdtemp()
     try:
-        b = _toy(); pk = export.pack(b); pk2 = export.pack(b); files = lambda p: [(e['colour'], e['geometry']) for row in p['tiles'] for e in row if e]; assert files(pk) == files(pk2), 'two packs gave different bytes'
+        b = _toy(); pk = export.pack(b); pk2 = export.pack(b); files = lambda p: [(e['surface'], e['geometry']) for row in p['tiles'] for e in row if e]; assert files(pk) == files(pk2), 'two packs gave different bytes'
         a = _write(d + '/a', b, pk); m = json.load(open(a / 'manifest.json')); export.validate_manifest(m); text = (a / 'manifest.json').read_bytes().decode('utf-8'); blank = text.replace(f'"bake_id": "{m["bake_id"]}"', f'"bake_id": "{export.BAKE_ID_BLANK}"'); assert blank != text and a.name == 'toy-' + m['bake_id'] and sorted(os.listdir(d + '/a')) == sorted(['index.json', a.name])
         import hashlib; want = hashlib.sha256(blank.encode() + b''.join(c + g for c, g in files(pk))).hexdigest()[:12]; assert m['bake_id'] == want and export.bake_id(blank, files(pk)) == want, 'bake_id is not the sha256 of the manifest with its id blanked, then the tile files tile-major, then card, colour then geometry'
         assert export.bake_id(blank, [(g, c) for c, g in files(pk)]) != want and export.bake_id(blank, files(pk)[::-1]) != want and export.bake_id(blank, [f for i, f in enumerate(files(pk)) if i % 3 != 1] + [f for i, f in enumerate(files(pk)) if i % 3 == 1]) != want, 'bake_id ignores the file order'
@@ -262,12 +262,12 @@ def test_manifest_v3_writer():
         finally: pathlib.Path.write_text = was
         raw = (w / 'manifest.json').read_bytes(); idx_raw = open(d + '/crlf/index.json', 'rb').read(); assert w.name == a.name and b'\r' not in raw and b'\r' not in idx_raw, 'the manifest or the index was written with the platform newline: the bytes served are not the bytes the id was hashed from'
         assert hashlib.sha256(raw.replace(m['bake_id'].encode(), export.BAKE_ID_BLANK.encode()) + b''.join(c + g for c, g in files(pk))).hexdigest()[:12] == m['bake_id']
-        pk4 = dict(pk, camera=dict(pk['camera'], r_max_forward_m=pk['camera']['r_max_forward_m'] + 0.1)); a4 = _write(d + '/d', b, pk4); assert a4.name != a.name and [(e['colour'], e['geometry']) for row in pk4['tiles'] for e in row if e] == files(pk), 'a manifest moved under the same bake id (tile bytes identical, camera differs)'
+        pk4 = dict(pk, camera=dict(pk['camera'], r_max_forward_m=pk['camera']['r_max_forward_m'] + 0.1)); a4 = _write(d + '/d', b, pk4); assert a4.name != a.name and [(e['surface'], e['geometry']) for row in pk4['tiles'] for e in row if e] == files(pk), 'a manifest moved under the same bake id (tile bytes identical, camera differs)'
         assert m['cards'][0]['near_m'] is None and m['cards'][-1]['far_m'] is None and m['cards'][0]['far_m'] == m['cards'][1]['near_m'] and len(m['cards']) == 3
         for t, row in enumerate(m['tiles']):
             for i, e in enumerate(row):
-                for kind in ('colour', 'geometry'): f = a / e[kind]['file']; assert f.stat().st_size == e[kind]['bytes'] and export.decode(f.read_bytes()).shape[:2] == (e['h'], export.TILE_W + 2 * export.APRON), (t, i, kind)
-        assert m['bytes'] == sum(e[k]['bytes'] for row in m['tiles'] for e in row for k in ('colour', 'geometry')) and m['encoding']['normal'] == 'rt8' and m['curvature'] == dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF)
+                for kind in export.KINDS: f = a / e[kind]['file']; assert f.stat().st_size == e[kind]['bytes'] and export.decode(f.read_bytes()).shape[:2] == (e['h'], export.TILE_W + 2 * export.APRON), (t, i, kind)
+        assert m['bytes'] == sum(e[k]['bytes'] for row in m['tiles'] for e in row for k in export.KINDS) and m['encoding']['normal'] == 'rt8-up-walls' and m['curvature'] == dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF)
         idx = json.load(open(d + '/a/index.json')); export.validate(idx, export.SCHEMA['$defs']['index']); assert idx == dict(schema=1, default='toy', places={'toy': a.name})
         want = dict(credit_line='Contains modified Copernicus data: DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.',
                     licence='Copernicus DEM licence: free, full and open access, with the credit line shown', dem_source='Copernicus DEM GLO-30 (30 m)', url='https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model'); assert m['attribution'] == want, m['attribution']
@@ -284,10 +284,10 @@ def test_tile_crop_and_null():
         for t in (0, 9, 31):
             for c, e in zip(b['cards'][t], m['tiles'][t]):
                 rows = np.flatnonzero(np.rint(_tile_canvas(c) * 255).max(1) > 0); assert e['top'] == rows[0] and e['h'] == rows[-1] - rows[0] + 1 == c['alpha'].shape[0], (t, e, rows[0], rows[-1])
-                col = export.decode((dest / e['colour']['file']).read_bytes()); assert col.shape[:2] == (e['h'], export.TILE_W + 2 * export.APRON) and np.abs(col[..., 3].astype(int) - np.rint(c['alpha'] * 255)).max() == 0, 'the written alpha is not the card alpha'
-        t0 = _toy(); cs = [[dict(c) for c in tile] for tile in t0['cards']]; empty = dict(top=0, alpha=np.zeros((0, 204), np.float32), albedo=np.zeros((0, 204, 3), np.float32), n_r=np.zeros((0, 204), np.float32), n_t=np.zeros((0, 204), np.float32), logd=np.zeros((0, 204), np.float32), wall=np.zeros((0, 204), bool))
-        cs[5][2] = empty; op = [x.copy() for x in t0['opaque']]; op[5] = export.composite_alpha([(c['top'], c['alpha']) for c in cs[5] if c['alpha'].shape[0]], H, 204); b5 = dict(t0, cards=cs, opaque=op); pk5 = export.pack(b5)
-        assert pk5['tiles'][5][2] is None and pk5['tiles'][4][2] is not None; dest = _write(d + '/null', b5, pk5); m5 = json.load(open(dest / 'manifest.json')); assert m5['tiles'][5][2] is None and not (dest / export.tile_file(2, 5, 'colour')).exists() and (dest / export.tile_file(2, 4, 'colour')).exists()
+                col = export.decode((dest / e['surface']['file']).read_bytes()); assert col.shape[:2] == (e['h'], export.TILE_W + 2 * export.APRON) and np.abs(col[..., 3].astype(int) - np.rint(c['alpha'] * 255)).max() == 0, 'the written alpha is not the card alpha'
+        t0 = _toy(); cs = [[dict(c) for c in tile] for tile in t0['cards']]; empty = dict(top=0, alpha=np.zeros((0, TW), np.float32), h=np.zeros((0, TW), np.float32), n_r=np.zeros((0, TW), np.float32), n_t=np.zeros((0, TW), np.float32), logd=np.zeros((0, TW), np.float32), wall=np.zeros((0, TW), bool))
+        cs[5][2] = empty; op = [x.copy() for x in t0['opaque']]; op[5] = export.composite_alpha([(c['top'], c['alpha']) for c in cs[5] if c['alpha'].shape[0]], H, TW); b5 = dict(t0, cards=cs, opaque=op); pk5 = export.pack(b5)
+        assert pk5['tiles'][5][2] is None and pk5['tiles'][4][2] is not None; dest = _write(d + '/null', b5, pk5); m5 = json.load(open(dest / 'manifest.json')); assert m5['tiles'][5][2] is None and not (dest / export.tile_file(2, 5, 'surface')).exists() and (dest / export.tile_file(2, 4, 'surface')).exists()
         for i, why in ((1, '20 km'), (2, '55 km')):
             gone = [[empty if j == i else c for j, c in enumerate(tile)] for tile in b['cards']]
             try: export.pack(dict(b, cards=gone))
@@ -303,23 +303,24 @@ def test_tile_crop_and_null():
         else: assert False, 'a card that is all wall was packed'
     finally: shutil.rmtree(d)
 def test_cover_and_size_refusals_write_nothing():
-    """write_bake measures the files it is handed: a hole in one tile's card (alpha zeroed over a band of columns) fails that tile's cover check and names the tile, a card leaving the frame, a tile file without its apron, colour and geometry of two sizes and an opaque view of the wrong
+    """write_bake measures the files it is handed: a hole in one tile's card (alpha zeroed over a band of columns) fails that tile's cover check and names the tile, a card leaving the frame, a tile file without its apron, surface and geometry of two sizes and an opaque view of the wrong
     rows are refused, and nothing is written."""
     d = tempfile.mkdtemp()
     try:
-        b = _toy(); pk = export.pack(b); c = b['cards'][3][2]; hole = c['alpha'].copy(); hole[:, 100:140] = 0; bad = [list(r) for r in pk['tiles']]; bad[3][2] = dict(bad[3][2], colour=export.encode_colour(c['albedo'], hole)); _refuses(d + '/hole', b, dict(pk, tiles=bad), 'a bake whose card leaves a hole was written')
+        b = _toy(); pk = export.pack(b); c = b['cards'][3][2]; hole = c['alpha'].copy(); hole[:, 100:140] = 0; bad = [list(r) for r in pk['tiles']]; bad[3][2] = dict(bad[3][2], surface=export.encode_surface(c['h'], pk['encoding'], c['wall'], hole)); _refuses(d + '/hole', b, dict(pk, tiles=bad), 'a bake whose card leaves a hole was written')
         try: _write(d + '/hole', b, dict(pk, tiles=bad))
         except export.Refusal as e: assert 'tile 3' in str(e), str(e)
         off = [list(r) for r in pk['tiles']]; off[7][0] = dict(off[7][0], top=H - 5); _refuses(d + '/off', b, dict(pk, tiles=off), 'a card leaving the frame was written')
-        narrow = [list(r) for r in pk['tiles']]; c0 = b['cards'][2][0]; narrow[2][0] = dict(narrow[2][0], colour=export.encode_colour(c0['albedo'][:, 2:-2], c0['alpha'][:, 2:-2]), geometry=export.encode_geometry(c0['n_r'][:, 2:-2], c0['n_t'][:, 2:-2], c0['logd'][:, 2:-2], b['meta']['encoding'])); _refuses(d + '/apron', b, dict(pk, tiles=narrow), 'a tile without its apron was written')
+        narrow = [list(r) for r in pk['tiles']]; c0 = b['cards'][2][0]; narrow[2][0] = dict(narrow[2][0], surface=export.encode_surface(c0['h'][:, 2:-2], pk['encoding'], c0['wall'][:, 2:-2], c0['alpha'][:, 2:-2]), geometry=export.encode_geometry(c0['n_r'][:, 2:-2], c0['n_t'][:, 2:-2], c0['logd'][:, 2:-2], b['meta']['encoding'])); _refuses(d + '/apron', b, dict(pk, tiles=narrow), 'a tile without its apron was written')
         try: _write(d + '/apron', b, dict(pk, tiles=narrow))
         except export.Refusal as e: assert 'apron' in str(e), str(e)
-        mism = [list(r) for r in pk['tiles']]; mism[4][1] = dict(mism[4][1], geometry=export.encode_geometry(c0['n_r'][:50], c0['n_t'][:50], c0['logd'][:50], b['meta']['encoding'])); _refuses(d + '/size', b, dict(pk, tiles=mism), 'a colour and geometry of two sizes were written')
+        mism = [list(r) for r in pk['tiles']]; mism[4][1] = dict(mism[4][1], geometry=export.encode_geometry(c0['n_r'][:50], c0['n_t'][:50], c0['logd'][:50], b['meta']['encoding'])); _refuses(d + '/size', b, dict(pk, tiles=mism), 'a surface and geometry of two sizes were written')
         _refuses(d + '/rows', b, pk, 'view plane_h disagreeing with the opaque view was written', view=dict(b['view'], plane_h=H + 1)); _refuses(d + '/short', b, dict(pk, tiles=pk['tiles'][:31]), 'a bake of 31 tiles was written')
     finally: shutil.rmtree(d)
+ENC4 = dict(log_d_min=0.0, log_d_max=1.0, h_min_m=0.0, h_max_m=1.0)
 def _flat_entry(top, h, w=export.TILE_W + 2 * export.APRON, seed=0, noise=False, distance_m=1000.0):
-    rng = np.random.default_rng(seed); alpha = np.ones((h, w), np.float32); rgb = rng.random((h, w, 3)).astype(np.float32) if noise else np.full((h, w, 3), 0.5, np.float32); geo = rng.random((h, w)).astype(np.float32) if noise else np.full((h, w), 0.5, np.float32)
-    enc = dict(log_d_min=0.0, log_d_max=1.0); return dict(top=top, colour=export.encode_colour(rgb, alpha), geometry=export.encode_geometry(geo, geo, geo, enc), distance_m=distance_m)
+    rng = np.random.default_rng(seed); alpha = np.ones((h, w), np.float32); rgb = rng.random((h, w)).astype(np.float32) if noise else np.full((h, w), 0.5, np.float32); geo = rng.random((h, w)).astype(np.float32) if noise else np.full((h, w), 0.5, np.float32)
+    enc = ENC4; return dict(top=top, surface=export.encode_surface(rgb, enc, np.zeros((h, w), bool), alpha), geometry=export.encode_geometry(geo, geo, geo, enc), distance_m=distance_m)
 def test_card_cap_refusals():
     """A preset with 6 splits, or splits not increasing, is refused by load_preset before any march; a bake of 7 cards is refused; 6 cards that fit the budgets are written; 6 full-frame cards in every tile (the lit canvases of 13 tiles are 38 MB) are refused and write nothing."""
     d = tempfile.mkdtemp()
@@ -339,14 +340,14 @@ def test_card_cap_refusals():
             try: ridge.load_preset('x', p)
             except export.Refusal: pass
             else: assert False, ('a preset with tz', bad_tz, 'was accepted')
-        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0)); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
-        full = [np.ones((H, 204)) for _ in range(32)]; cards = lambda k: [dict(near_m=None if i == 0 else 1.0, far_m=None if i == k - 1 else 1.0) for i in range(k)]; cam = dict(r_max_m=100.0, r_max_forward_m=100.0)
-        big = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, H) for _ in range(5)] for _ in range(32)], camera=cam)
+        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0), material=ALPINE, relief=None); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
+        full = [np.ones((H, TW)) for _ in range(32)]; cards = lambda k: [dict(near_m=None if i == 0 else 1.0, far_m=None if i == k - 1 else 1.0) for i in range(k)]; cam = dict(r_max_m=100.0, r_max_forward_m=100.0)
+        big = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, H) for _ in range(5)] for _ in range(32)], camera=cam, encoding=ENC4)
         try: export.write_bake(d + '/big', place, view, meta, big, full)
         except export.Refusal as e: assert 'consecutive tiles' in str(e), str(e)
         else: assert False, 'six full-frame cards in every tile were written'
         assert not os.path.exists(d + '/big')
-        ok = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, 100, seed=i) for i in range(1, 6)] for _ in range(32)], camera=cam); dest = export.write_bake(d + '/six', place, view, meta, ok, full); assert len(json.load(open(dest / 'manifest.json'))['cards']) == 6
+        ok = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, 100, seed=i) for i in range(1, 6)] for _ in range(32)], camera=cam, encoding=ENC4); dest = export.write_bake(d + '/six', place, view, meta, ok, full); assert len(json.load(open(dest / 'manifest.json'))['cards']) == 6
         fwd = lambda r: dict(ok, camera=dict(r_max_m=100.0, r_max_forward_m=r)); bands6 = [[H] + [100] * 5] * 32; assert export.resident_bytes(bands6, export.run_tiles(100.0, 1000.0)) <= export.RESIDENT_BYTES_MAX < export.resident_bytes(bands6, export.run_tiles(1e6, 1000.0)), 'the fixture cannot tell the gate at r_max_forward_m from the gate at r_max_m'
         try: export.write_bake(d + '/fwd', place, view, meta, fwd(1e6), full)
         except export.Refusal as e: assert 'consecutive tiles' in str(e), str(e)
@@ -413,9 +414,9 @@ def test_r_max():
 def test_pack_distance_and_r_max_in_the_bake():
     """pack: a card tile's distance_m is exp(median ln d) over the interior solid pixels that are not wall (not the wall rows, not the apron columns); the manifest camera is the r_max_m of those distances and no per-card scale or median is written."""
     b = _toy(); cs = [[dict(c) for c in tile] for tile in b['cards']]; c = dict(cs[10][1]); n = c['alpha'].shape[0]; wall = np.zeros_like(c['wall']); wall[:n * 3 // 4] = True; ld = np.where(wall, c['logd'] + 3.0, c['logd']).copy(); ld[:, :2] += 2.0; ld[:, -2:] += 2.0; cs[10][1] = dict(c, wall=wall, logd=ld)
-    pk = export.pack(dict(b, cards=cs)); inner = (slice(None), slice(2, -2)); want = float(np.exp(np.median(ld[inner][~wall[inner]]))); with_wall = float(np.exp(np.median(ld[inner]))); assert abs(with_wall - want) > 0.05 * want, 'the fixture cannot tell wall rows from ground'
-    assert abs(pk['tiles'][10][1]['distance_m'] - want) < 1e-9 * want, ('the distance counted wall rows or the apron', pk['tiles'][10][1]['distance_m'], want); assert set(pk['tiles'][10][1]) == {'top', 'colour', 'geometry', 'distance_m'} and set(pk['cards'][0]) == {'near_m', 'far_m'}
-    base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and base['camera']['r_max_forward_m'] >= base['camera']['r_max_m'] and abs(base['report']['nearest_m'] - min(float(np.exp(c[0]['logd'][:, 2:-2].min())) for c in b['cards'])) < 1e-6 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
+    pk = export.pack(dict(b, cards=cs)); inner = (slice(None), slice(export.APRON, -export.APRON)); want = float(np.exp(np.median(ld[inner][~wall[inner]]))); with_wall = float(np.exp(np.median(ld[inner]))); assert abs(with_wall - want) > 0.05 * want, 'the fixture cannot tell wall rows from ground'
+    assert abs(pk['tiles'][10][1]['distance_m'] - want) < 1e-9 * want, ('the distance counted wall rows or the apron', pk['tiles'][10][1]['distance_m'], want); assert set(pk['tiles'][10][1]) == {'top', 'surface', 'geometry', 'distance_m'} and set(pk['cards'][0]) == {'near_m', 'far_m'}
+    base = export.pack(b); assert base['camera']['r_max_m'] >= 25 and base['camera']['r_max_forward_m'] >= base['camera']['r_max_m'] and abs(base['report']['nearest_m'] - min(float(np.exp(c[0]['logd'][:, export.APRON:-export.APRON].min())) for c in b['cards'])) < 1e-6 and len(base['report']['fit_px']) == 3 and max(base['report']['fit_px']) <= export.FIT_PX_MAX + 1e-6
     near = export.pack(_toy(dists=(1500.0, 15000.0, 50000.0))); assert near['camera']['r_max_forward_m'] > near['camera']['r_max_m'] + 5, ('the forward offset was searched over the whole circle', near['camera'])
     assert abs(base['cards'][0]['far_m'] - 1500.0) < 1e-6 and base['cards'][0]['near_m'] is None and base['cards'][1]['near_m'] == base['cards'][0]['far_m']
 def test_the_sheet_draws_the_ring():
@@ -438,7 +439,7 @@ def _vienna_ring(splits, tiles):
     try:
         p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); sm = ridge.seams(ridge.coverage(d, a), [k * 1000.0 for k in splits], d); op = ridge.opaque(a); D_, A_, H_, nrm = ridge.join_near(d, a, h, ridge.near_march(p['prefilter_m']))
         cols = lambda x, t: ridge.ring_cols(x, t * export.TILE_W - export.APRON, export.TILE_W + 2 * export.APRON)
-        return d, sm, {t: ridge.cards(D_, cols(A_, t), cols(H_, t), cols(sm, t), tuple(cols(x, t) for x in nrm), material=ALPINE) for t in tiles}, {t: cols(op, t) for t in tiles}
+        return d, sm, {t: ridge.cards(D_, cols(A_, t), cols(H_, t), cols(sm, t), tuple(cols(x, t) for x in nrm)) for t in tiles}, {t: cols(op, t) for t in tiles}
     finally: ridge.P = saved
 def test_vienna_k1_k2_k3():
     """Vienna with card_split_km [6], [6, 40] and [6, 20, 40]: 2, 3 and 4 cards, seams ordered in every column of the ring, each composite of a tile (the rest azimuth's, the north's and the last one) equals the opaque view within 0.02; the cross-fade column count is printed."""
@@ -465,27 +466,27 @@ def test_bake_place_manifest_fields_on_vienna():
     try:
         pk = export.pack(b); rp = pk['report']; print('   vienna r_max_m', pk['camera']['r_max_m'], 'r_max_forward_m', pk['camera']['r_max_forward_m'], 'nearest card m', round(rp['nearest_m']), 'resident run', rp['run_tiles'], 'tiles', rp['resident_bytes'], 'bytes; worst fit error per card (card px)', [round(x, 1) for x in rp['fit_px']], 'sky/low deg', round(b['v']['sky_deg'], 2), round(b['v']['low_deg'], 2), 'exaggeration', round(view['exaggeration'], 2))
         dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); assert m['camera']['r_max_m'] >= export.R_MAX_FLOOR_M and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m']
-        assert json.load(open(d + '/index.json'))['default'] == 'vienna' and sorted(os.listdir(d)) == sorted(['index.json', dest.name]), os.listdir(d); print('   vienna manifest bytes', m['bytes'], 'largest tile', max(sum(e[k]['bytes'] for e in row if e for k in ('colour', 'geometry')) for row in m['tiles']))
+        assert json.load(open(d + '/index.json'))['default'] == 'vienna' and sorted(os.listdir(d)) == sorted(['index.json', dest.name]), os.listdir(d); print('   vienna manifest bytes', m['bytes'], 'largest tile', max(sum(e[k]['bytes'] for e in row if e for k in export.KINDS) for row in m['tiles']))
     finally: shutil.rmtree(d)
 
 # ---------------------------------------------------------------------------------------- the written files are the cards
 def test_written_cards_decode_to_the_cards_in_memory():
-    """Vienna's cards in three tiles (north, the rest azimuth's, the wrap), written and decoded again: alpha exactly, albedo within the lossy codec (and straight, not premultiplied, at partial alpha), the normal channels in their order (R along the ray, G across it), and the log-distance over the encoding
+    """Vienna's cards in three tiles (north, the rest azimuth's, the wrap), written and decoded again: alpha exactly, the height within one step of the 16-bit range, the wall flag on exactly the wall pixels, the normal channels in their order (R along the ray, G across it, a wall face up), and the log-distance over the encoding
     range, within quantisation."""
     b = _vienna_bake(); d = tempfile.mkdtemp()
     try:
-        dest = _write(d, b, export.pack(b)); m = json.load(open(dest / 'manifest.json')); enc = m['encoding']; span = enc['log_d_max'] - enc['log_d_min']; partial_seen = near_seen = 0
+        dest = _write(d, b, export.pack(b)); m = json.load(open(dest / 'manifest.json')); enc = m['encoding']; span = enc['log_d_max'] - enc['log_d_min']; hs = enc['h_max_m'] - enc['h_min_m']; partial_seen = near_seen = wall_seen = 0; heights = []
         for t in (0, 19, 31):
             for c, rec in zip(b['cards'][t], m['tiles'][t]):
-                col = export.decode((dest / rec['colour']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; wall = c['wall']; nr = c['near']; solid = (al > 0) & ~wall & ~nr; part = (al > 0.05) & (al < 0.95) & ~wall & ~nr; partial_seen += int(part.sum()); near_seen += int((nr & (al > 0)).sum())
-                assert (col[..., 3] == np.rint(al * 255)).all(), 'alpha is not exact'; e = np.abs(col[..., :3] / 255.0 - c['albedo']).max(-1)
-                assert e[solid].mean() < 0.021 and np.percentile(e[solid], 99) < 0.081, ('albedo is off', e[solid].mean(), np.percentile(e[solid], 99)); assert part.sum() == 0 or e[part].mean() < 0.1, ('albedo at partial alpha is off: premultiplied?', e[part].mean())
-                assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6; assert (((geo[..., 0] == 255) & (geo[..., 1] == 255)) == wall).all(), 'the wall code is not R = G = 255 on exactly the wall pixels'
+                sf = export.decode((dest / rec['surface']['file']).read_bytes()); geo = export.decode((dest / rec['geometry']['file']).read_bytes()); al = c['alpha']; wall = c['wall']; nr = c['near']; live = al > 0; solid = live & ~wall & ~nr; part = (al > 0.05) & (al < 0.95) & ~wall & ~nr; partial_seen += int(part.sum()); near_seen += int((nr & live).sum()); wall_seen += int((wall & live).sum())
+                assert (sf[..., 3] == np.rint(al * 255)).all(), 'alpha is not exact'; hh = enc['h_min_m'] + (sf[..., 0].astype(int) * 256 + sf[..., 1]) / 65535.0 * hs; assert np.abs(hh - c['h'])[live].max() <= hs / 65535.0 * 0.5 + 1e-3, ('the height is off', float(np.abs(hh - c['h'])[live].max()))
+                assert ((sf[..., 2] == 255) == (wall & live)).all() and (sf[..., 2][~wall] == 0).all(), 'the wall flag is not B = 255 on exactly the wall pixels'; assert (sf[..., :3][~live] == 0).all(), 'a zero alpha carries data'
+                assert (geo[..., 3] == 255).all(); q = 1.0 / 255 + 1e-6; assert (geo[..., 0][wall] == 128).all() and (geo[..., 1][wall] == 128).all(), 'a wall is not written face up'
                 assert np.abs(geo[..., 0] / 255.0 * 2 - 1 - c['n_r'])[solid].max() < 2 * q and np.abs(geo[..., 1] / 255.0 * 2 - 1 - c['n_t'])[solid].max() < 2 * q, 'a normal channel is off or swapped'
                 assert np.abs(enc['log_d_min'] + geo[..., 2] / 255.0 * span - c['logd'])[solid].max() < span * q, 'the log-distance is off or not over the encoding range'
                 assert np.abs(c['n_r'][solid]).mean() > 0.05 and np.abs(c['n_t'][solid]).mean() > 0.01 and np.abs(c['n_r'][solid].mean() - c['n_t'][solid].mean()) > 0.0, 'the fixture does not tell the channels apart'
-                assert col[..., :3][solid].mean() > 20, 'albedo is zeroed'; assert (geo[..., 2][nr & (al > 0)] == 0).all(), 'a near pixel is not at the clip distance (B = 0)'
-        assert partial_seen > 0, 'the fixture has no partial alpha'; assert near_seen > 1000, 'the fixture has no near ground'
+                heights.append(hh[solid]); assert (geo[..., 2][nr & live] == 0).all(), 'a near pixel is not at the clip distance (B = 0)'
+        assert partial_seen > 0, 'the fixture has no partial alpha'; assert near_seen > 1000, 'the fixture has no near ground'; assert wall_seen > 0, 'the fixture has no wall'; assert np.concatenate(heights).std() > 5.0, 'the heights are flat'
     finally: shutil.rmtree(d)
 
 # ---------------------------------------------------------------------------------------- wall rows
@@ -493,31 +494,31 @@ def _first_sample_angle(b, i):
     """Per column, the angle of the first sample card i reads: the first sample at or beyond its near seam, less the cross-fade half-width (card 0: sample 0 of the joined march, the near start)."""
     k0 = np.zeros(NW, int) if i == 0 else np.array([np.searchsorted(b['D'], b['seams'][i - 1][x] * math.exp(-ridge.XF)) for x in range(NW)]); return k0, b['a'][k0, np.arange(NW)]
 def test_wall_rows_flagged():
-    """Every card, card 0 included, flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at; card 0's first sample is the near march's, under the frame, so it has none); the wall carries R = G = 255 in the geometry file and no other pixel has r2 + t2 above 1.02; wall pixels keep that sample's
-    distance and their albedo is the ground material of the sample's height with the face up (so a steep face is not rock), constant down the column."""
+    """Every card, card 0 included, flags as wall exactly the rows below the angle of its first sample (the extruded face of the ridge it starts at; card 0's first sample is the near march's, under the frame, so it has none); the wall is written face up in the geometry file (R = G = 128) and no pixel has r2 + t2 above 1.02; wall pixels keep that sample's
+    distance and their height is that sample's, constant down the column."""
     steep = 0
     for make in (lambda: _bake(WALLED, [20]), lambda: _bake(WIDE3, [20, 55]), lambda: _bake(_receding, [6]), lambda: _bake(_ramp, [20], fixed_m=[20000.0])):       # the ramp's seam is fixed: the wall must stand on the slope, below the height where every material is rock or snow
         b = make(); lo = ridge.rowang - 0.5 / ridge.PXDEG_V; seen = 0
         for i, c in enumerate(b['cards']):
             k0, a0 = _first_sample_angle(b, i); want = (lo[:, None] < a0[None, :])[c['top']:c['top'] + c['alpha'].shape[0]]; assert (c['wall'] == want).all(), ('wall rows are not the rows below the first sample', i, int((c['wall'] != want).sum())); seen += int(want.sum())
-            geo = export.decode(export.encode_geometry(c['n_r'], c['n_t'], c['logd'], dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), c['wall'])); r, t = geo[..., 0] / 255.0 * 2 - 1, geo[..., 1] / 255.0 * 2 - 1; code = (geo[..., 0] == 255) & (geo[..., 1] == 255)
-            assert (code == c['wall']).all() and (r[~code] ** 2 + t[~code] ** 2 <= 1.02).all(), 'the wall code is not on exactly the wall pixels, or a real normal reaches it'
+            geo = export.decode(export.encode_geometry(c['n_r'], c['n_t'], c['logd'], dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), c['wall'])); r, t = geo[..., 0] / 255.0 * 2 - 1, geo[..., 1] / 255.0 * 2 - 1
+            assert (np.abs(r[c['wall']]) < 0.01).all() and (np.abs(t[c['wall']]) < 0.01).all() and (r ** 2 + t ** 2 <= 1.02).all(), 'a wall is not written face up'
             for x in np.flatnonzero(c['wall'].any(0)):
                 rows = np.flatnonzero(c['wall'][:, x]); ld = c['logd'][rows, x]; assert np.ptp(ld) < 1e-5 and abs(math.exp(ld[0]) - b['D'][k0[x]]) < 1e-3 * b['D'][k0[x]] + 60, ('a wall keeps its sample distance', x)
-                want_alb = ridge.albedo(np.array([b['h'][k0[x], x]]), np.array([1.0]), ALPINE)[0]; assert np.abs(c['albedo'][rows, x] - want_alb).max() < 1e-5, ('wall albedo is not the ground material with the face up', x)
+                assert np.abs(c['h'][rows, x] - b['h'][k0[x], x]).max() < 1e-3, ('a wall keeps its sample height', x)
         assert seen > 1000, 'the fixture has no wall'
         for i in range(1, len(b['cards'])):
             c = b['cards'][i]; steep += int((np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1))[c['wall']] < 0.93).sum())
     assert steep > 1000, 'no wall pixel has a steep face under it: a wall lit by its own normal would pass'
 def test_the_sheet_lights_a_wall_with_the_face_up():
-    """The contact sheet shades a wall pixel as an up-facing one whatever normal the card carries there, and a non-wall pixel by its normal."""
-    n = 4; c = dict(albedo=np.ones((n, n, 3), np.float32), alpha=np.ones((n, n), np.float32), n_r=np.full((n, n), 0.9, np.float32), n_t=np.zeros((n, n), np.float32), wall=np.zeros((n, n), bool)); c['wall'][:, :2] = True
-    rgb, _ = export.lit(c); L = np.array(export.SHEET_LIGHT) / np.linalg.norm(export.SHEET_LIGHT); up = 0.35 + 0.65 * L[2]; tilted = 0.35 + 0.65 * np.clip(0.9 * L[0] + np.sqrt(1 - 0.81) * L[2], 0, 1)
-    assert np.allclose(rgb[:, :2], up) and np.allclose(rgb[:, 2:], tilted) and abs(up - tilted) > 0.05, (rgb[0, 0], rgb[0, 3])
+    """The contact sheet shades a wall pixel as an up-facing one whatever normal the card carries there, and a non-wall pixel by its normal, both over the colour its material gives its height (ridge.albedo, the sheet's evaluator)."""
+    n = 4; c = dict(h=np.full((n, n), 100.0, np.float32), alpha=np.ones((n, n), np.float32), n_r=np.full((n, n), 0.9, np.float32), n_t=np.zeros((n, n), np.float32), wall=np.zeros((n, n), bool)); c['wall'][:, :2] = True
+    rgb, _ = export.lit(c, ALPINE); L = np.array(export.SHEET_LIGHT) / np.linalg.norm(export.SHEET_LIGHT); up = 0.35 + 0.65 * L[2]; tilted = 0.35 + 0.65 * np.clip(0.9 * L[0] + np.sqrt(1 - 0.81) * L[2], 0, 1); nu = np.sqrt(1 - 0.81)
+    assert np.allclose(rgb[:, :2], ridge.albedo(np.full((n, 2), 100.0), np.ones((n, 2)), ALPINE) * up) and np.allclose(rgb[:, 2:], ridge.albedo(np.full((n, 2), 100.0), np.full((n, 2), nu), ALPINE) * tilted) and abs(up - tilted) > 0.05, (rgb[0, 0], rgb[0, 3])
 # ---------------------------------------------------------------------------------------- the near clip, the ground rows
 def _nearest_solid(c):
     """The nearest solid (alpha >= 0.5) pixel that is neither wall nor near ground of a card tile's interior columns, metres; None where there is none (computed here from the arrays, not by pack)."""
-    ld, al, wl, nr = (c[k][:, 2:-2] for k in ('logd', 'alpha', 'wall', 'near')); m = (al >= 0.5) & ~wl & ~nr; return float(np.exp(np.float64(ld[m].min()))) if m.any() else None
+    ld, al, wl, nr = (c[k][:, export.APRON:-export.APRON] for k in ('logd', 'alpha', 'wall', 'near')); m = (al >= 0.5) & ~wl & ~nr; return float(np.exp(np.float64(ld[m].min()))) if m.any() else None
 def test_r_max_holds_for_the_nearest_terrain_of_every_tile_and_near_only_tiles_bind_at_the_clip():
     """The offset range is where the linear map holds for the NEAREST solid terrain each card draws in each tile (ruling ridge-offset-range-fit), not its median: a tile whose card 0 spans 600 to 2000 m has its median near 1200 m, and at the r_max the median would give the 600 m pixels err past FIT_PX_MAX.
     So the fit at every tile's nearest solid pixel is within the bound at r_max_m (over the circle) and at r_max_forward_m (phi 0), and the bound is reached: a little more offset breaks it at the binding tile.  A tile whose card 0 draws only near ground (under the clip) is slid at the clip distance (its distance_m) and binds there."""
@@ -588,25 +589,25 @@ def test_near_ground_draws_inside_the_clip_silhouette():
     try:
         far = block(36, 359.99, 20000, 21500, 1500); hf = lambda dk, az: np.maximum(np.where((dk >= 150) & (dk < 300), 0.4 * (dk - 150), 0.0), np.asarray(far(dk, az), float))
         A, Hh = rays(hf, eye=1.6); a, h = ridge.prefilter(D, Hh, 0.0); ridge.set_view(a.max(0)); near = near_rays(hf); Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, near); aw, hw, nj = _w(Aj), _w(Hj), tuple(_w(x) for x in Nj)
-        c = ridge.cards(Dj, aw, hw, np.zeros((0, NW)), nj, material=ALPINE)[0]; comp = _canvas(c); opq = ridge.opaque(_w(a)); err = np.abs(comp - opq).max(); assert err < export.COVER_TOL, ('card 0 draws outside the silhouette of the terrain at the clip', err)
-        free = ridge.cards(Dj, _w(np.concatenate([near[1], a])), hw, np.zeros((0, NW)), nj, material=ALPINE)[0]; assert np.abs(_canvas(free) - opq).max() > 5 * export.COVER_TOL, 'the fixture cannot tell a hill above the clip line (the cap is not tested)'
+        c = ridge.cards(Dj, aw, hw, np.zeros((0, NW)), nj)[0]; comp = _canvas(c); opq = ridge.opaque(_w(a)); err = np.abs(comp - opq).max(); assert err < export.COVER_TOL, ('card 0 draws outside the silhouette of the terrain at the clip', err)
+        free = ridge.cards(Dj, _w(np.concatenate([near[1], a])), hw, np.zeros((0, NW)), nj)[0]; assert np.abs(_canvas(free) - opq).max() > 5 * export.COVER_TOL, 'the fixture cannot tell a hill above the clip line (the cap is not tested)'
         x = 300; al, nrr, wl, ld = c['alpha'][:, x], c['near'][:, x], c['wall'], c['logd'][:, x]; sel = (al > 0.99) & nrr; assert sel.sum() > 20 and not wl.any(), ('card 0 has wall rows', int(wl.sum()), int(sel.sum())); assert nrr[al > 0.5].mean() > 0.9, 'the rows under the clip are not flagged near'
         L = np.log(Dj); q = ld[sel].astype(np.float64); want = np.stack([_blend(L, q, nj[0], x), _blend(L, q, nj[1], x), _blend(L, q, nj[2], x)]); m = np.sqrt((want ** 2).sum(0))
         assert np.abs(c['n_r'][sel, x] - want[0] / m).max() < 2e-3 and np.abs(c['n_t'][sel, x] - want[1] / m).max() < 2e-3, 'a near row has not its own normal'; assert (np.abs(c['n_r'][sel, x]) > 0.5).sum() > 5, 'the fixture has no ramp rows'
     finally: ridge.P.update(eye_m=saved)
-def test_near_ground_has_the_material_and_relief_of_its_own_heights():
-    """Near heights stepping in blocks of 20 columns across the grass, forest and rock thresholds (100, 1000, 2100 m, the forest block a 45 degree hill) while the far march stands at 1000 m everywhere: every near row carries albedo(its own height, its own n_up), so the blocks differ where the ground does, and the hill face is steep (n_up < 0.93) and rock."""
+def test_near_ground_has_the_height_and_relief_of_its_own_ground():
+    """Near heights stepping in blocks of 20 columns across the grass, forest and rock thresholds (100, 1000, 2100 m, the forest block a 45 degree hill) while the far march stands at 1000 m everywhere: every near row carries its own height, so the blocks differ where the ground does, and the hill face is steep (n_up < 0.93)."""
     dn = ridge.near_schedule(); K, Kn = len(D), len(dn); a = np.tile(np.linspace(5.0, 12.0, K)[:, None], (1, W)); h = np.full((K, W), 1000.0); blk = (np.arange(W) // 20) % 3; base = np.array([100.0, 1000.0, 2100.0])[blk]
     hn = np.broadcast_to(base[None, :], (Kn, W)).copy(); hn[:, blk == 1] += dn[:, None]; an = np.tile(np.linspace(-8.0, 5.0, Kn)[:, None], (1, W)); ridge.P.update(eye_m=EYE); ridge.set_view(a.max(0))
     Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, (dn, an, hn)); assert all(np.array_equal(u[Kn:], w) for u, w in zip(Nj, ridge.normals(D, h))), 'the far normals are not those of the far march alone'
-    c = ridge.cards(Dj, _w(Aj), _w(Hj), np.zeros((0, NW)), tuple(_w(x) for x in Nj), material=ALPINE)[0]; up = np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1)); got = {}
+    c = ridge.cards(Dj, _w(Aj), _w(Hj), np.zeros((0, NW)), tuple(_w(x) for x in Nj))[0]; up = np.sqrt(np.clip(1 - c['n_r'] ** 2 - c['n_t'] ** 2, 0, 1)); got = {}
     for x in range(NW):
         if not 3 <= x % 20 <= 16: continue
         sel = (c['alpha'][:, x] > 0.99) & c['near'][:, x] & (c['logd'][:, x] < math.log(ridge.NEAR_CLIP_M) - 1e-6); assert sel.sum() > 50, ('no near rows', x)       # the crest row that meets the clip sample itself is not under the clip
-        if blk[x] == 1: assert up[sel, x].max() < 0.93 and np.abs(c['albedo'][sel, x] - np.asarray(ALPINE['steep']['colour'])).max() < 1e-4, ('the hill face is not steep rock', x, float(up[sel, x].max()))
-        else: assert np.abs(c['albedo'][sel, x] - ridge.albedo(np.full(int(sel.sum()), base[x]), up[sel, x], ALPINE)).max() < 1e-5, ('a near row has not the material of its own height', x)
-        got[blk[x]] = c['albedo'][sel, x].mean(0)
-    assert np.abs(got[0] - got[1]).max() > 0.05 and np.abs(got[1] - got[2]).max() > 0.05 and np.abs(got[0] - got[2]).max() > 0.05, ('the blocks do not differ where the ground does', got)
+        if blk[x] == 1: assert up[sel, x].max() < 0.93 and c['h'][sel, x].min() >= base[x] - 1e-3, ('the hill face is not steep', x, float(up[sel, x].max()))
+        else: assert np.abs(c['h'][sel, x] - base[x]).max() < 1e-3, ('a near row has not the height of its own ground', x)
+        got[blk[x]] = float(c['h'][sel, x].mean())
+    assert abs(got[0] - got[1]) > 100 and abs(got[1] - got[2]) > 100 and abs(got[0] - got[2]) > 100, ('the blocks do not differ where the ground does', got)
 def test_near_pixels_bind_at_the_clip_wherever_they_are():
     """Near pixels are drawn at the clip, so each tile's near pixels count in the r_max fit as terrain at the clip alongside its solid pixels, and never in distance_m.  Card 0, every other tile 3000 m away: (a) a tile whose lower third is near ground at 150 m keeps its distance_m but binds at 500 m, and without those pixels binds nothing;
     (b) a tile of near ground only has distance_m == NEAR_CLIP_M, binds exactly like terrain at 500 m, and write_bake accepts it; (c) a tile of near ground with a few stray solid pixels at 3000 m binds the same, whatever the stray count (no threshold)."""
@@ -630,7 +631,7 @@ def test_near_pixels_bind_at_the_clip_wherever_they_are():
 def test_cards_refuses_a_march_without_the_near_ground():
     """ridge.cards on a march whose first sample is the near clip (not joined to the near march) raises, naming join_near: card 0 can never extrude the clip sample again."""
     A, Hh = rays(THREE); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0))
-    try: ridge.cards(D, _w(A), _w(Hh), np.zeros((0, NW)), material=ALPINE)
+    try: ridge.cards(D, _w(A), _w(Hh), np.zeros((0, NW)))
     except export.Refusal as e: assert 'join_near' in str(e), str(e)
     else: assert False, 'cards drew a march that starts at the near clip'
 def test_near_march_starts_at_your_feet():
@@ -640,7 +641,7 @@ def test_near_march_starts_at_your_feet():
     saved = ridge.P.get('eye_m'); ridge.P.update(eye_m=1.6)
     try:
         hf = lambda dk, az: np.zeros_like(az); A, Hh = rays(hf, eye=1.6); a, h = ridge.prefilter(D, Hh, 0.0); sk = np.full(W, -5.0); sk[::2] = 2.0; ridge.set_view(sk); assert ridge.BOTTOM_DEG < -8.0, ridge.BOTTOM_DEG
-        Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, near_rays(hf)); c = ridge.cards(Dj, _w(Aj), _w(Hj), np.zeros((0, NW)), tuple(_w(x) for x in Nj), material=ALPINE)[0]
+        Dj, Aj, Hj, Nj = ridge.join_near(D, a, h, near_rays(hf)); c = ridge.cards(Dj, _w(Aj), _w(Hj), np.zeros((0, NW)), tuple(_w(x) for x in Nj))[0]
         assert not c['wall'].any() and c['near'].any(), ('card 0 has wall under the frame bottom', int(c['wall'].sum())); assert _canvas(c)[H - 1, 300] > 0.99 and c['near'][H - 1 - c['top'], 300], 'the bottom row is not near ground'
     finally: ridge.P.update(eye_m=saved)
 def test_near_march_is_float64_and_prefiltered():
@@ -674,7 +675,7 @@ def test_cards_interpolate_between_samples_and_renormalise():
     that is not renormalised, or a hit that is not interpolated, differs)."""
     hf = terrain(lambda dk, az: np.where(dk >= 4000, GROUND + 0.5 * (dk - 4000), 0.0) + 0 * az); A, Hh = rays(hf); ridge.P.update(eye_m=EYE); ridge.set_view(A.max(0)); Dj, aw, hw, _ = _join(hf, A, Hh); k = np.arange(len(Dj))[:, None]
     nr = np.broadcast_to(np.where(k % 2 == 0, -0.8, 0.8), aw.shape).astype(float); nt = np.broadcast_to(np.where(k % 3 == 0, 0.3, -0.3), aw.shape).astype(float); nu = np.sqrt(1 - nr ** 2 - nt ** 2) * 0 + 0.5
-    c = ridge.cards(Dj, aw, hw, np.zeros((0, NW)), nrm=(nr, nt, nu), material=ALPINE)[0]; x = 300; sel = np.flatnonzero(c['alpha'][:, x] > 0.999); ld = c['logd'][sel, x].astype(np.float64); L = np.log(Dj); kk = np.searchsorted(L, ld, 'left'); kp = kk - 1; ok = kp >= 0
+    c = ridge.cards(Dj, aw, hw, np.zeros((0, NW)), nrm=(nr, nt, nu))[0]; x = 300; sel = np.flatnonzero(c['alpha'][:, x] > 0.999); ld = c['logd'][sel, x].astype(np.float64); L = np.log(Dj); kk = np.searchsorted(L, ld, 'left'); kp = kk - 1; ok = kp >= 0
     t = (ld - L[np.maximum(kp, 0)]) / (L[kk] - L[np.maximum(kp, 0)]); inner = ok & (t > 0.02) & (t < 0.98); assert inner.sum() > 0.3 * len(sel), ('hits sit on samples, not between them', int(inner.sum()), len(sel))
     mix = lambda arr: arr[np.maximum(kp, 0), x] + t * (arr[kk, x] - arr[np.maximum(kp, 0), x]); m = np.sqrt(mix(nr) ** 2 + mix(nt) ** 2 + mix(nu) ** 2); er = np.abs(c['n_r'][sel, x] - mix(nr) / m)[inner]; et = np.abs(c['n_t'][sel, x] - mix(nt) / m)[inner]
     assert er.max() < 1e-3 and et.max() < 1e-3, ('the normal is not the normalised blend of the two samples', er.max(), et.max())
@@ -710,11 +711,212 @@ def test_an_unknown_material_name_is_refused():
         except export.Refusal: pass
         else: assert False, 'a file without materials gave a material'
 
-def test_the_ring_cut_paints_with_the_material_it_is_given():
-    """export.cut_ring hands its material to every card: the same terrain cut with the canyon material has a different albedo in tile 0 than with the alpine one, and the same alpha."""
-    b = _ring('wide3', WIDE3, [20, 55]); A, Hh = rays(WIDE3); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); ridge.set_view(a.max(0))
-    c = export.cut_ring(D, a, h, [20, 55], near_rays(WIDE3), ridge.load_material('canyon'))['cards'][0]
-    assert any(not np.array_equal(x['albedo'], y['albedo']) and np.array_equal(x['alpha'], y['alpha']) for x, y in zip(c, b['cards'][0])), 'the ring cut ignores its material'
+def test_the_sheet_paints_with_the_material_it_is_given():
+    """The sheet evaluates the place's material over the card heights: the same cards lit with the canyon material differ from the alpine ones in colour only (the card has no colour of its own), alpha untouched."""
+    b = _ring('wide3', WIDE3, [20, 55]); c = [x for x in b['cards'][0] if x['alpha'].shape[0]]; assert c and all('albedo' not in x for x in c), 'a card carries a colour'
+    ca = [export.lit(x, ridge.load_material('canyon')) for x in c]; al = [export.lit(x, ALPINE) for x in c]
+    assert any(not np.array_equal(p[0], q[0]) for p, q in zip(ca, al)) and all(np.array_equal(p[1], q[1]) for p, q in zip(ca, al)), 'the sheet ignores its material'
+
+# ---------------------------------------------------------------------------------------- the terrain surface: cubic, relief, keys, eye ground
+KN = dict(detail=3, ridge_removal=2, ridge_gain=0.25, ridge_sharpness=1.5, valley_removal=2, valley_gain=0.3, valley_limit=0.8, slope_threshold_deg=25, max_shift_m=60)       # the shipped defaults of places.json
+CY, CX = ridge.cell_m(dict(lat=47.0))            # 31 m north-south, 21 m east-west
+def _bil(a, lat_top, lon_left, lat, lon):
+    """Bilinear sampling, the kernel the baker no longer has: the reference the cubic is measured against."""
+    y = (lat_top - lat) * 3600 - 0.5; x = (lon - lon_left) * 3600 - 0.5; y0 = np.clip(np.floor(y).astype(int), 0, a.shape[0] - 2); x0 = np.clip(np.floor(x).astype(int), 0, a.shape[1] - 2); fy = np.clip(y - y0, 0, 1); fx = np.clip(x - x0, 0, 1)
+    return a[y0, x0] * (1 - fx) * (1 - fy) + a[y0, x0 + 1] * fx * (1 - fy) + a[y0 + 1, x0] * (1 - fx) * fy + a[y0 + 1, x0 + 1] * fx * fy
+def _knife(n=121, tilt=2.0):
+    """A knife ridge 300 m high running north-south at column 60, its crest sloping down 2 m a post to the south (so the crest has a slope of its own), on 2000 m."""
+    x = np.arange(n)[None, :]; y = np.arange(n)[:, None]; return (2000.0 + np.maximum(0.0, 300.0 - 30.0 * np.abs(x - 60)) - tilt * y).astype(np.float32)
+def _trough(n=121):
+    x = np.arange(n)[None, :]; y = np.arange(n)[:, None]; return (2000.0 + np.minimum(300.0, 30.0 * np.abs(x - 60)) + 0 * y).astype(np.float32)
+
+def test_cubic_interpolates_posts_and_is_c1():
+    """cubic equals the DEM at every post; on a tent ridge its gradient is continuous across the cell edge at the crest post (the two one-sided slopes agree), where bilinear sampling jumps by two posts' worth of slope; a linear surface is reproduced exactly."""
+    rng = np.random.default_rng(5); a = rng.random((16, 16)) * 100; lt, ll = 47.0, 11.0; px = 1 / 3600.0
+    ii, jj = np.meshgrid(np.arange(2, 14), np.arange(2, 14), indexing='ij'); got = ridge.cubic(a, lt, ll, lt - (ii + 0.5) * px, ll + (jj + 0.5) * px); assert np.abs(got - a[ii, jj]).max() < 1e-9, 'cubic does not pass through the posts'
+    tent = np.tile(np.minimum(np.arange(16), 8 * 2 - np.arange(16)) * 30.0, (16, 1)); lat = np.full(1, lt - 8.5 * px); eps = 1e-3 * px
+    slope = lambda f, c: (f(tent, lt, ll, lat, ll + (c + 0.5) * px + eps) - f(tent, lt, ll, lat, ll + (c + 0.5) * px)) / 1e-3                 # per post, just right of post c
+    left = lambda f, c: (f(tent, lt, ll, lat, ll + (c + 0.5) * px) - f(tent, lt, ll, lat, ll + (c + 0.5) * px - eps)) / 1e-3
+    assert abs(slope(ridge.cubic, 8) - left(ridge.cubic, 8)) < 1.0 and abs(slope(_bil, 8) - left(_bil, 8)) > 50, ('the gradient at the crest post', slope(ridge.cubic, 8), left(ridge.cubic, 8), slope(_bil, 8), left(_bil, 8))
+    ramp = (3.0 * np.arange(16)[None, :] + 2.0 * np.arange(16)[:, None]).astype(np.float64); lat = np.array([lt - 6.3 * px]); lon = np.array([ll + 7.7 * px]); assert abs(float(ridge.cubic(ramp, lt, ll, lat, lon)[0]) - (3.0 * 7.2 + 2.0 * 5.8)) < 1e-9, 'a linear surface is not reproduced'
+def test_rays_key_names_the_kernel():
+    """Changing the sampling kernel changes the ray cache key (a ray cache of another kernel is never read), and the key is the v2 one."""
+    saved = ridge.P, ridge.KERNEL
+    try:
+        ridge.P = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0); k0 = ridge.rays_key(False); ridge.KERNEL = 'bilinear'; assert ridge.rays_key(False) != k0, 'the ray key ignores the kernel'
+    finally: ridge.P, ridge.KERNEL = saved
+    assert 'rays.v1' not in open(os.path.join(SRC, 'ridge.py')).read()
+
+def test_surface_round_trips_height_wall_alpha():
+    """encode_surface then decode: the height within half a step of the 16-bit range, the wall flag on exactly the wall pixels with coverage, the alpha exact, every channel zero under a zero alpha."""
+    rng = np.random.default_rng(3); h = rng.random((40, 50)) * 4300 + 100; al = rng.random((40, 50)); al[rng.random(al.shape) < 0.3] = 0; al[:, :5] = 1; wall = rng.random(al.shape) < 0.4; enc = dict(h_min_m=90.0, h_max_m=4410.0)
+    b = export.encode_surface(h, enc, wall, al); s = export.decode(b); live = s[..., 3] > 0; assert (s[..., 3] == np.rint(al * 255)).all() and live.any() and (~live).any()
+    got = enc['h_min_m'] + (s[..., 0].astype(int) * 256 + s[..., 1]) / 65535.0 * (enc['h_max_m'] - enc['h_min_m']); assert np.abs(got - h)[live].max() <= (4320 / 65535) * 0.5 + 1e-9, float(np.abs(got - h)[live].max())
+    assert ((s[..., 2] == 255) == (wall & live)).all() and (s[~live][..., :3] == 0).all(), 'the wall flag or the zero alpha is wrong'; full = export.decode(export.encode_surface(h, enc, wall, np.ones_like(al))); assert full.shape[-1] == 4 and (full[..., 3] == 255).all()
+def test_schema4_writer_and_material_in_manifest():
+    """The manifest validates as schema 4 with surface and geometry entries, the height range and the place's material; a material change is a new bake id; a malformed material, a schema 3 colour entry, the old normal code and an empty height range are refused."""
+    d = tempfile.mkdtemp()
+    try:
+        b = _toy(); pk = export.pack(b); a = _write(d + '/a', b, pk); m = json.load(open(a / 'manifest.json')); export.validate_manifest(m)
+        assert m['schema'] == 4 and m['material'] == ALPINE and m['relief'] is None and m['view']['apron'] == 3 and set(m['tiles'][0][0]) == {'top', 'h', 'distance_m', 'surface', 'geometry'} and m['encoding']['h_min_m'] < m['encoding']['h_max_m'] and m['encoding']['normal'] == 'rt8-up-walls'
+        b2 = dict(b, meta=dict(b['meta'], material=ridge.load_material('canyon'))); a2 = _write(d + '/b', b2, pk); assert a2.name != a.name and json.load(open(a2 / 'manifest.json'))['material'] == ridge.load_material('canyon'), 'a material change kept the bake id'
+        def bad(f, why):
+            x = json.loads(json.dumps(m)); f(x)
+            try: export.validate_manifest(x)
+            except export.Refusal: return
+            raise AssertionError(why)
+        bad(lambda x: x['material'].update(base=[2, 0, 0]), 'a malformed material validated'); bad(lambda x: x.pop('material'), 'a manifest without a material validated'); bad(lambda x: x['tiles'][0][0].update(colour=x['tiles'][0][0]['surface']), 'a schema 3 colour entry validated')
+        bad(lambda x: x['encoding'].update(normal='rt8'), 'the old normal code validated'); bad(lambda x: x['encoding'].update(h_max_m=x['encoding']['h_min_m']), 'an empty height range validated'); bad(lambda x: x.update(schema=3), 'schema 3 validated')
+        bad(lambda x: x['material']['ramps'][0].update(from_m=5000.0), 'a material ramp running backwards validated')
+    finally: shutil.rmtree(d)
+def test_index_is_left_alone_unless_switched():
+    """write_bake without switch_index writes the bake directory and neither creates nor changes index.json nor deletes the place's previous directory; with it, the index names the new directory and the old one goes."""
+    d = tempfile.mkdtemp()
+    try:
+        b = _toy(); pk = export.pack(b); first = _write(d, b, pk, switch_index=False); assert not os.path.exists(d + '/index.json') and os.listdir(d) == [first.name]
+        idx = dict(schema=1, default='toy', places={'toy': 'toy-old'}); os.makedirs(d + '/toy-old'); open(d + '/index.json', 'w').write(json.dumps(idx)); pk2 = dict(pk, camera=dict(pk['camera'], r_max_forward_m=pk['camera']['r_max_forward_m'] + 0.1)); second = _write(d, b, pk2, switch_index=False)
+        assert json.load(open(d + '/index.json')) == idx and os.path.isdir(d + '/toy-old') and second.exists(), 'the index or the old bake was touched'
+        third = _write(d, b, pk2, switch_index=True); assert json.load(open(d + '/index.json'))['places']['toy'] == third.name and not os.path.exists(d + '/toy-old')
+    finally: shutil.rmtree(d)
+
+def test_near_ground_normals_have_no_cell_edge_jumps():
+    """On the real near ground of the Grand Canyon (the preset's raw mosaic, the 1 to 500 m march on all 6400 columns), the Catmull-Rom march's column-to-column and row-to-row normal steps have a p99 under 0.8 of the bilinear march's: the bilinear gradient jumps at every 30 m cell edge, the cubic's does not."""
+    saved = (ridge.P, ridge.PXDEG_V); p = ridge.load_preset('grandcanyon'); m, lt, ll = ridge.raw_mosaic(p); iy, ix = int((lt - p['lat']) * 3600), int((p['lon'] - ll) * 3600); r = 90; win = np.array(m[iy - r:iy + r, ix - r:ix + r], np.float64); lt2, ll2 = lt - (iy - r) / 3600.0, ll + (ix - r) / 3600.0
+    ridge.P = dict(id='nearreal', lat=p['lat'], lon=p['lon'], rmax_km=1, eye_m=float(win[r, r]) + 1.6); ridge.PXDEG_V = 100.0; key = (ridge.P['id'], ridge.mosaic_key(ridge.P))
+    try:
+        ridge._mos[key] = (win, lt2, ll2); dn, an, hn = ridge.near_march(0.0); az = np.radians((np.arange(W) + 0.5) / W * 360.0); cosl = math.cos(math.radians(p['lat'])); sa, ca = np.sin(az), np.cos(az)
+        hb = np.stack([_bil(win, lt2, ll2, p['lat'] + dk * ca / 111320.0, p['lon'] + dk * sa / (111320.0 * cosl)) for dk in dn]); nc, nb = ridge.normals(dn, hn), ridge.normals(dn, hb); sel = slice(20, None)       # from 20 m out: nearer, a column is under a metre wide
+        step = lambda n: np.concatenate([np.abs(np.diff(n[0][sel], axis=1)).ravel(), np.abs(np.diff(n[1][sel], axis=1)).ravel(), np.abs(np.diff(n[0][sel], axis=0)).ravel(), np.abs(np.diff(n[1][sel], axis=0)).ravel()])
+        pc, pb = np.percentile(step(nc), 99), np.percentile(step(nb), 99); print(f'   near normal step p99 cubic {pc:.4f} bilinear {pb:.4f}'); assert pc < 0.8 * pb, ('the cubic near ground still has cell edges', pc, pb)
+    finally: ridge.P, ridge.PXDEG_V = saved; ridge._mos.pop(key, None)
+
+def test_relief_identity_at_neutral_knobs():
+    """detail 0, ridge_gain 0 and valley_gain 0 return the input array (equal bit for bit), an absent relief and an all-neutral one give the same mosaic_key (None), max_shift_m alone changes nothing, and any one live knob changes the key."""
+    M = np.random.default_rng(1).random((50, 60)).astype(np.float32) * 500; base = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0)
+    for k in (dict(detail=0, ridge_gain=0, valley_gain=0), dict(detail=0, ridge_gain=0, valley_gain=0, max_shift_m=30, ridge_removal=9, slope_threshold_deg=10), {}):
+        out = ridge.relief(M, k, CY, CX); assert np.array_equal(out, M) and ridge.canon_relief(k) is None, k; assert ridge.mosaic_key(dict(base, relief=k)) == ridge.mosaic_key(base) == ridge.mosaic_key(dict(base, relief=None))
+    for knob, v in (('detail', 1), ('ridge_gain', 0.1), ('valley_gain', 0.1)): assert ridge.mosaic_key(dict(base, relief={knob: v})) != ridge.mosaic_key(base), knob
+    assert not np.array_equal(ridge.relief(M, dict(detail=3), CY, CX), M), 'a base low-pass alone did nothing'
+def test_relief_knobs_are_checked():
+    """Unknown keys, negative, non-numeric and out-of-range knobs are a Refusal from canon_relief and from load_preset (before any march); a null max_shift_m is unbounded."""
+    for bad in (dict(detial=3), dict(detail=-1), dict(ridge_gain='x'), dict(valley_gain=1.5), dict(slope_threshold_deg=90), dict(max_shift_m=0), dict(detail=True), 5):
+        try: ridge.canon_relief(bad)
+        except export.Refusal: pass
+        else: assert False, ('a relief of', bad, 'was accepted')
+    assert ridge.canon_relief(dict(KN, max_shift_m=None))['max_shift_m'] is None and ridge.canon_relief(KN)['max_shift_m'] == 60.0
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'p.json'); json.dump(dict(presets=[dict(id='x', tz='UTC', card_split_km=[6], relief=dict(KN, sharpness=1))]), open(p, 'w'))
+        try: ridge.load_preset('x', p)
+        except export.Refusal as e: assert 'sharpness' in str(e), str(e)
+        else: assert False, 'a preset with an unknown relief knob was loaded'
+def test_shipped_presets_carry_the_defaults():
+    """The five shipped places carry the documented relief defaults (the published 'large scale' preset, detail 3, max_shift_m 60) and halfdome none; the _doc names every knob."""
+    d = json.load(open(os.path.join(SRC, 'places.json'))); by = {p['id']: p for p in d['presets']}
+    for pid in ('vienna', 'matterhorn', 'fuji', 'amadablam', 'grandcanyon'): assert by[pid]['relief'] == KN, pid
+    assert 'relief' not in by['halfdome'] and all(k in d['_doc'] for k in ridge.RELIEF_KNOBS), 'the _doc lacks a knob'
+
+def test_relief_curvature_signs():
+    """On a knife ridge the maximum curvature is positive along the crest and zero five posts out on the flank, the trough measure is zero on it; in a trough the valley measure is positive in the floor, zero on a plane and on the flanks; the plan curvature is negative on a conical summit and positive in a bowl."""
+    Z = _knife(); kmax, plan = ridge.curvature(Z, CY, CX, True); assert kmax[60, 60] > 0 and (kmax[5:-5, 66:] == 0).all() and (kmax[5:-5, :54] == 0).all(), (float(kmax[60, 60]), float(kmax[60, 66]))
+    assert (ridge.curvature(Z, CY, CX, False)[0][5:-5, 55:66] == 0).all(), 'a crest has a trough measure'
+    T = _trough(); m, _ = ridge.curvature(T, CY, CX, False); assert m[60, 60] > 0 and (m[5:-5, 66:] == 0).all() and (m[5:-5, :54] == 0).all() and (ridge.curvature(T, CY, CX, True)[0][5:-5, 55:66] == 0).all(), (float(m[60, 60]), 'the trough floor is not curved up')
+    assert (ridge.curvature(np.full((30, 30), 100.0), CY, CX, False)[0] == 0).all() and (ridge.curvature(np.full((30, 30), 100.0), CY, CX, True)[0] == 0).all(), 'a plane has curvature'
+    y, x = np.mgrid[-30:31, -30:31]; cone = (3000 - 20 * np.hypot(x * CX, y * CY) / 30).astype(np.float32); _, pk = ridge.curvature(cone, CY, CX, True); _, pb = ridge.curvature(6000 - cone, CY, CX, True)
+    assert pk[30, 45] < 0 and pk[45, 30] < 0 and pb[30, 45] > 0 and pb[45, 30] > 0, ('the plan curvature has the wrong sign', float(pk[30, 45]), float(pb[30, 45]))
+def test_relief_accentuates_known_ridge():
+    """A knife ridge of known height over 30 m posts: with detail 0 (and the mountain model everywhere, slope threshold 0, since a symmetric apex has no slope of its own to switch it on) the crest rises and the flank 10 posts out rises less, so crest-over-flank relief grows; at the shipped defaults (detail 3) the crest-over-flank relief is still greater than the input's."""
+    Z = _knife(); crest, flank = Z[50, 60], Z[50, 50]; k0 = ridge.relief(Z, dict(detail=0, ridge_gain=0.25, slope_threshold_deg=0), CY, CX); up_c, up_f = k0[50, 60] - crest, k0[50, 50] - flank
+    print(f'   knife ridge, detail 0: crest +{up_c:.0f} m, flank 10 posts out +{up_f:.0f} m, relief {crest - flank:.0f} -> {k0[50, 60] - k0[50, 50]:.0f}'); assert up_c > up_f > 0 and k0[50, 60] - k0[50, 50] > crest - flank + 100, (up_c, up_f)
+    kd = ridge.relief(Z, KN, CY, CX); print(f'   knife ridge, shipped defaults: crest +{kd[50, 60] - crest:.0f} m, flank +{kd[50, 50] - flank:.0f} m, relief {crest - flank:.0f} -> {kd[50, 60] - kd[50, 50]:.1f}'); assert kd[50, 60] - kd[50, 50] > crest - flank, 'the shipped defaults do not sharpen the crest'
+    kf = ridge.relief(Z, dict(KN, max_shift_m=None), CY, CX); assert kf[50, 60] - kf[50, 50] > kd[50, 60] - kd[50, 50] + 100, 'the unbounded method is not stronger than the bounded one'
+def test_relief_deepens_known_valley():
+    """A trough with a flat floor line: the floor goes down by valley_gain times its elevation where the valley weight is 1 (the lowland model holds where the slope is nil), the rim's plateau beyond the corner is unchanged."""
+    T = _trough(); o = ridge.relief(T, dict(detail=0, valley_gain=0.3), CY, CX); drop = T[60, 60] - o[60, 60]; assert abs(drop - 0.3 * T[60, 60]) < 0.05 * 0.3 * T[60, 60], ('the floor did not go down by valley_gain x its elevation', float(drop)); assert np.abs(o[:, 100:] - T[:, 100:]).max() < 1e-3, 'the rim moved'
+def test_relief_flat_areas_unchanged():
+    """A level plane returns within 1e-3 m everywhere, edges included (zero curvature and zero slope: the flat mask hands it to the lowland model, whose valley weight is zero); on a level plane with a distant bump, posts more than 8 sigma of the largest filter away from the bump are unchanged within 1e-3 m while the bump moves.  A TILTED plane is not
+    returned unchanged by the published weights: the ridge weight is min-max rescaled over the grid, so level curvature sits at a baseline weight above 0 wherever the grid has a hollow (the replicated edge of the tilted plane makes one), and the flat mask weighs a gentle slope in; the interior deviation (25 posts from the edge) is printed and bounded by 1.6 x ridge_gain x elevation x slope / threshold."""
+    n = 140; x = np.arange(n)[None, :]; y = np.arange(n)[:, None]; L = np.full((n, n), 1500.0, np.float32); assert np.abs(ridge.relief(L, KN, CY, CX) - L).max() < 1e-3
+    B = L.copy(); B[40:46, 40:46] += 400.0; ob = ridge.relief(B, KN, CY, CX); far = np.ones(B.shape, bool); far[:40 + 6 + 24, :40 + 6 + 24] = False; assert far.sum() > 8000 and np.abs(ob - B)[far].max() < 1e-3, float(np.abs(ob - B)[far].max()); assert np.abs(ob - B)[38:48, 38:48].max() > 1.0, 'the bump did not move'
+    P = (1500.0 + 0.3 * x + 0.2 * y).astype(np.float32); dev = float(np.abs(ridge.relief(P, KN, CY, CX) - P)[25:-25, 25:-25].max()); print(f'   tilted plane (0.8 deg), interior: deviation {dev:.1f} m of 1500 (bounded by max_shift_m 60)'); assert dev < 0.25 * 1800 * np.radians(1.0) / np.radians(25.0) * 1.6, dev
+def test_relief_shift_is_bounded():
+    """With max_shift_m = s every |out - M| is below s (to float32 rounding, 1e-3 m) on a rugged synthetic surface, out - M is s tanh(unbounded change / s) (smooth and monotone, no clipped plateau), and s = null leaves the change unbounded."""
+    rng = np.random.default_rng(2); r = rng.random((150, 150)); import itertools
+    M = (2200 + 600 * (np.add.outer(np.sin(np.arange(150) / 9.0), np.cos(np.arange(150) / 7.0))) + 80 * r).astype(np.float32); free = ridge.relief(M, dict(KN, max_shift_m=None), CY, CX) - M
+    for s in (20.0, 60.0, 200.0):
+        d = ridge.relief(M, dict(KN, max_shift_m=s), CY, CX) - M; assert np.abs(d).max() < s + 1e-3, (s, float(np.abs(d).max())); assert np.abs(d - s * np.tanh(free / s)).max() < 5e-2, ('not the smooth bound', s); o = np.argsort(free.ravel()); assert (np.diff(d.ravel()[o]) >= -5e-2).all(), 'the bound is not monotone'
+    assert np.abs(free).max() > 300, 'the unbounded change is bounded'
+def test_relief_respects_cell_anisotropy():
+    """The same physical surface sampled with posts 31 m north and 21 m east, and its transpose with the cell sizes swapped, give transposed outputs within 1e-3 m; treating the cells as square would not."""
+    rng = np.random.default_rng(7); M = (150 + 120 * np.add.outer(np.sin(np.arange(110) / 5.0), np.cos(np.arange(130) / 8.0)) + 15 * rng.random((110, 130))).astype(np.float32); k = dict(KN, max_shift_m=None)
+    a = ridge.relief(M, k, CY, CX); b = ridge.relief(np.ascontiguousarray(M.T), k, CX, CY).T; assert np.abs(a - b).max() < 1e-3, float(np.abs(a - b).max()); sq = ridge.relief(M, k, CY, CY); assert np.abs(a - sq).max() > 0.5, 'square cells give the same answer: the cell size is not used'
+def test_mosaic_key_includes_relief():
+    """Changing any knob changes mosaic_key and rays_key while raw_key stays, and the preset id changes neither; the generalised cache file is read only under its own key (each knob set has its own file and content)."""
+    base = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0, relief=KN); saved = ridge.P
+    try:
+        ridge.P = dict(base); k0 = (ridge.mosaic_key(base), ridge.rays_key(False))
+        for knob, v in dict(detail=2, ridge_removal=3, ridge_gain=0.3, ridge_sharpness=1.0, valley_removal=3, valley_gain=0.2, valley_limit=0.5, slope_threshold_deg=15, max_shift_m=40).items():
+            p = dict(base, relief=dict(KN, **{knob: v})); ridge.P = p; assert ridge.mosaic_key(p) != k0[0] and ridge.rays_key(False) != k0[1] and ridge.raw_key(p) == ridge.raw_key(base), knob
+        ridge.P = dict(base, id='other'); assert (ridge.mosaic_key(ridge.P), ridge.rays_key(False)) == k0, 'the preset id changed a key'
+    finally: ridge.P = saved
+    savedB = ridge.B; d = tempfile.mkdtemp(); ridge.B = type(savedB)(d); M = (np.random.default_rng(4).random((40, 40)) * 300 + 1000).astype(np.float32); keys = []
+    try:
+        for rl in (KN, dict(KN, ridge_gain=0.5)):
+            p = dict(base, id='cachetest', relief=rl); raw_k = (p['id'], ridge.raw_key(p)); ridge._raw[raw_k] = (M, 48.0, 10.0); out, _, _ = ridge.mosaic(p); keys.append(ridge.mosaic_key(p)); assert np.allclose(out, ridge.relief(M, rl, *ridge.cell_m(p))) and not np.array_equal(out, M)
+        assert sorted(os.listdir(d)) == sorted(f'relief-cachetest-{k}.npy' for k in keys) and keys[0] != keys[1], os.listdir(d)
+        ridge._mos.clear(); out0, _, _ = ridge.mosaic(dict(base, id='cachetest')); assert np.allclose(out0, ridge.relief(M, KN, *ridge.cell_m(base))), 'a cache file was read under another key'
+        out_n, _, _ = ridge.mosaic(dict(base, id='cachetest', relief=None)); assert np.array_equal(out_n, M), 'no relief did not return the survey'
+    finally:
+        ridge.B = savedB; shutil.rmtree(d, ignore_errors=True)
+        for k in [k for k in ridge._mos if k[0] == 'cachetest']: ridge._mos.pop(k)
+        for k in [k for k in ridge._raw if k[0] == 'cachetest']: ridge._raw.pop(k)
+def test_eye_ground_reads_relief_surface():
+    """On a synthetic mosaic the observer's ground is cubic(M') and nothing else (plus the eye height), ground_override_m still wins, and a generalised ground more than max_shift_m from the survey refuses the bake."""
+    n = 60; lat, lon = 47.0, 11.0; lt, ll = lat + 30.5 / 3600, lon - 30.5 / 3600; M = np.full((n, n), 1000.0, np.float32); M[28:32, 28:32] = 1100.0; M2 = M + 40.0
+    p = dict(id='eyetest', lat=lat, lon=lon, rmax_km=1, eye_h_m=1.6, az_deg=0.0, relief=dict(KN)); rk = (p['id'], ridge.raw_key(p)); mk = (p['id'], ridge.mosaic_key(p)); saved = ridge.P
+    try:
+        ridge._raw[rk] = (M, lt, ll); ridge._mos[mk] = (M2, lt, ll); q = ridge.configure(dict(p)); want = float(ridge.cubic(M2, lt, ll, np.array(lat), np.array(lon))); assert q['ground_m'] == want and abs(q['eye_m'] - (want + 1.6)) < 1e-9 and q['ground_raw_m'] != q['ground_m'], (q['ground_m'], want)
+        assert ridge.configure(dict(p, ground_override_m=123.0))['ground_m'] == 123.0
+        ridge._mos[mk] = (M + 100.0, lt, ll)
+        try: ridge.configure(dict(p))
+        except export.Refusal as e: assert 'max_shift_m' in str(e), str(e)
+        else: assert False, 'a ground 100 m from the survey passed a 60 m bound'
+        ridge._mos[mk] = (M + 100.0, lt, ll); assert ridge.configure(dict(p, relief=dict(KN, max_shift_m=None)))  # unbounded: no refusal
+    finally: ridge.P = saved; ridge._raw.pop(rk, None); [ridge._mos.pop(k, None) for k in [mk, (p['id'], ridge.mosaic_key(dict(p, relief=dict(KN, max_shift_m=None))))]]
+def test_schema4_carries_relief():
+    """The manifest validates with relief an object (the canonical knobs) or null; an unknown knob, a missing one and a non-object are refused; a relief change is a new bake id."""
+    d = tempfile.mkdtemp()
+    try:
+        b = _toy(); pk = export.pack(b); a = _write(d + '/a', b, pk); b2 = dict(b, meta=dict(b['meta'], relief=ridge.canon_relief(KN))); a2 = _write(d + '/b', b2, pk); m2 = json.load(open(a2 / 'manifest.json')); export.validate_manifest(m2)
+        assert a2.name != a.name and m2['relief'] == ridge.canon_relief(KN) and json.load(open(a / 'manifest.json'))['relief'] is None
+        for f, why in ((lambda x: x['relief'].update(sharpness=1.0), 'an unknown knob'), (lambda x: x['relief'].pop('detail'), 'a missing knob'), (lambda x: x.update(relief=3), 'a relief that is not an object'), (lambda x: x['relief'].update(detail='3'), 'a knob that is not a number')):
+            x = json.loads(json.dumps(m2)); f(x)
+            try: export.validate_manifest(x)
+            except export.Refusal: continue
+            raise AssertionError(why + ' validated')
+    finally: shutil.rmtree(d)
+def test_no_gpl_source_in_tree():
+    """No .java file, no class or package name of the GPL Java source of Terrain Sculptor and no path to a checkout of it anywhere in scripts/ or src/ (text files), and the baker's own files cite the 2010 papers only."""
+    import re
+    root = os.path.abspath(os.path.join(SRC, '..', '..')); pat = re.compile('|'.join(['Terrain' + 'SculptorFilter', 'Grid' + 'GaussLowPass', 'Positive' + 'MaximumCurvature', 'Negative' + 'MinimumCurvature', 'Curvature' + 'Combine', 'Weighted' + 'ScaleOperator', 'package ' + 'ika', 'import ' + 'ika'])); path_pat = re.compile('/tmp' + '/ts|OSU' + 'Cartography'); seen = 0
+    for top in ('scripts', 'src'):
+        for dp, dn, fn in os.walk(os.path.join(root, top)):
+            dn[:] = [x for x in dn if x not in ('node_modules', '__pycache__', '.git')]
+            for f in fn:
+                assert not f.endswith('.java'), ('a Java file in the tree', f); p = os.path.join(dp, f)
+                try: t = open(p, encoding='utf-8').read()
+                except (UnicodeDecodeError, OSError): continue
+                seen += 1; assert not pat.search(t), ('a Terrain Sculptor source name in', p, pat.search(t).group(0))
+                if p.startswith(SRC) or os.path.abspath(p).startswith(os.path.abspath(SRC)): assert not path_pat.search(t), ('a path to the Java checkout in', p)
+    assert seen > 5, 'the scan saw no files'
+    ridge_t = open(os.path.join(SRC, 'ridge.py'), encoding='utf-8').read(); assert 'Leonowicz' in ridge_t and 'def bil(' not in ridge_t
+
+def test_march_and_near_march_read_the_surface_not_the_survey():
+    """With the survey a plane at 1000 m and the generalised surface a plane at 1200 m under one key, the far march and the near march both sample 1200 m: no stage after mosaic() reads the survey."""
+    lat, lon = 47.0, 11.0; n = 400; lt, ll = lat + 200 / 3600.0, lon - 200 / 3600.0; saved = (ridge.P, ridge.PXDEG_V); ridge.P = dict(id='surfread', lat=lat, lon=lon, rmax_km=2, eye_m=1300.0, relief=dict(KN)); rk = (ridge.P['id'], ridge.raw_key(ridge.P)); mk = (ridge.P['id'], ridge.mosaic_key(ridge.P)); ridge.PXDEG_V = 100.0
+    try:
+        ridge._raw[rk] = (np.full((n, n), 1000.0, np.float32), lt, ll); ridge._mos[mk] = (np.full((n, n), 1200.0, np.float32), lt, ll); d, A, Hh = ridge.march(); dn, an, hn = ridge.near_march(0.0)
+        assert np.abs(Hh - 1200.0).max() < 1e-3 and np.abs(hn - 1200.0).max() < 1e-3, (float(Hh.min()), float(Hh.max()), float(hn.min()), float(hn.max()))
+    finally: ridge.P, ridge.PXDEG_V = saved; ridge._raw.pop(rk, None); ridge._mos.pop(mk, None)
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 if __name__ == '__main__':
