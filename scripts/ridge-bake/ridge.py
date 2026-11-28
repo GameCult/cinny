@@ -1,13 +1,14 @@
 """Ridge baker: the ray march of a place, cut into K+1 layered-depth G-buffer cards by K authored seams (places.json), no painter, no sun.
 Offline baker for the ridge backdrop (scripts/ridge-bake); export.py drives it.
 
-  load_preset(id) -> configure()  : observer, tiles, mosaic origin, ring radius, rest azimuth, card splits and prefilter from places.json
+  load_preset(id) -> configure()  : observer, tiles, surface origin, ring radius, rest azimuth, card splits and prefilter from places.json
   stage0(detail)                   : ray march of all 6400 azimuth columns (curvature+refraction), optional authored sub-DEM foreground detail, cached
   prefilter(d, h, sigma_m)         : Gaussian low-pass of the sampled heights (along each ray, across rays at equal distance), angles recomputed with elev
   set_view(skyline)                : authored Y mapping from the march skyline of the whole ring: angle -> row, see set_view
   ring_cols(a, c0, n)              : n columns of the ring from column c0, periodic (the tile cut)
   coverage(d, a) / seams(cov, ..)  : visible rows per log-distance bin; one forward-energy seam per authored split, per column, periodic round the ring
-  normals(d, h) / cards(...)       : per-sample normals; the K+1 cards (coverage, distance, normal, albedo), each cropped to its band of rows
+  normals(d, h) / cards(...)       : per-sample normals; the K+1 cards (coverage, distance, normal, height), each cropped to its band of rows
+  relief / mosaic                  : the terrain surface M' (the survey generalised by curvature, ruling ridge-terrain-curvature-generalisation): the one array every stage after it reads, through cubic
 Vertical exaggeration is AUTHORED and derived per view by set_view (printed on the page).  The client owns lighting, haze and ink (ruling ridge-cards-runtime-lit)."""
 import sys, time, math, json
 import os, hashlib
@@ -28,6 +29,7 @@ HPX_DEG = W / 360.0
 H = 600                                # frame rows
 COLW = math.radians(360.0 / W)
 R_EARTH, KREF = 6371000.0, 0.13
+KERNEL = 'catmull-rom'                 # the DEM sampling kernel of the march (cubic): part of the ray cache key
 
 P = {}                                 # configured preset
 rowang = np.zeros(H); PXDEG_V = 100.0; TOP_DEG = 2.6; BOTTOM_DEG = -3.4
@@ -42,6 +44,7 @@ def load_preset(pid, path=Path(__file__).resolve().parent / 'places.json'):
     if not isinstance(tz, str) or not tz: raise Refusal(f"preset {pid}: tz is required (an IANA time zone name such as Europe/Vienna)")
     try: ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError, OSError): raise Refusal(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
+    canon_relief(p.get('relief'))
     return p
 
 # ====================================================================== configuration, DEM
@@ -59,13 +62,99 @@ def cache_key(*parts):
     h = hashlib.sha256()
     for q in parts: h.update(q.tobytes() if isinstance(q, np.ndarray) else repr(q).encode()); h.update(b'|')
     return h.hexdigest()[:12]
-def mosaic_key(p): return cache_key('mosaic.v1', sorted(tiles_for(p)), 3600)
 
-_mos = {}
-def mosaic(p):
-    """Tile grid covering the circle (bounding rows/cols), cached as .npy per preset.  Missing tiles (open sea has no GLO-30 tile) are zero."""
-    key = (p['id'], mosaic_key(p))
-    if key in _mos: return _mos[key]
+# ====================================================================== the terrain surface: raw survey -> relief() -> the one array every later stage reads
+RELIEF_VERSION = 1                     # bump with any change to relief() or its helpers: it is part of mosaic_key, so no stale generalised array is read
+RELIEF_KNOBS = dict(detail=0.0, ridge_removal=2.0, ridge_gain=0.0, ridge_sharpness=1.5, valley_removal=2.0, valley_gain=0.0, valley_limit=0.8, slope_threshold_deg=25.0, max_shift_m=None)
+def canon_relief(r):
+    """The canonical knob dict of a places.json `relief` object, or None for the identity: absent, or detail, ridge_gain and valley_gain all 0 (max_shift_m alone moves nothing).  Unknown keys and out-of-range values are a Refusal.  Knobs are in the published tool's own units: the sigmas, in posts of 30 m, are 0.4 detail, 0.7 ridge_removal and 0.7 valley_removal."""
+    if r is None: return None
+    if not isinstance(r, dict): raise Refusal("relief must be an object of knobs or absent")
+    bad = sorted(set(r) - set(RELIEF_KNOBS))
+    if bad: raise Refusal(f"relief: unknown knob {', '.join(bad)} (known: {', '.join(RELIEF_KNOBS)})")
+    k = dict(RELIEF_KNOBS, **r)
+    for n, v in k.items():
+        if v is None and n == 'max_shift_m': continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0: raise Refusal(f"relief.{n} must be a number of at least 0, not {v!r}")
+    if k['max_shift_m'] == 0 or k['slope_threshold_deg'] >= 90 or k['valley_gain'] > 1: raise Refusal("relief: max_shift_m must be above 0 (null: unbounded), slope_threshold_deg below 90 and valley_gain at most 1")
+    if k['detail'] == 0 and k['ridge_gain'] == 0 and k['valley_gain'] == 0: return None
+    return {n: None if v is None else float(v) for n, v in k.items()}
+
+def gauss(X, s, cy, cx):
+    """Separable Gaussian low-pass of the grid X with sigma s posts of 30 m, i.e. 30 s metres, in pixels per axis from the true cell size (cy m north-south, cx m east-west) so it is round on the ground; kernel radius ceil(3 sigma), edge samples replicated; s = 0 returns X itself (callers never modify the result in place)."""
+    if s <= 0: return X
+    for ax, c in ((0, cy), (1, cx)):
+        sg = 30.0 * s / c; r = int(math.ceil(3 * sg)); n = X.shape[ax]
+        if r == 0: continue
+        k = np.exp(-0.5 * (np.arange(r + 1) / sg) ** 2); k /= k[0] + 2 * k[1:].sum(); k = k.astype(np.float32)
+        pad = np.pad(X, ((r, r), (0, 0)) if ax == 0 else ((0, 0), (r, r)), mode='edge'); sl = (lambda a: (slice(a, a + n), slice(None))) if ax == 0 else (lambda a: (slice(None), slice(a, a + n)))
+        acc = pad[sl(r)] * k[0]
+        for i in range(1, r + 1): acc += k[i] * (pad[sl(r - i)] + pad[sl(r + i)])
+        X = acc
+    return X
+
+def _strips(Z, rows=512):
+    """(a, b, S) for row strips [a, b) of the grid Z: S is the strip with one replicated neighbour row and column all round, float64, shape (b - a + 2, columns + 2)."""
+    n = Z.shape[0]
+    for a in range(0, n, rows):
+        b = min(a + rows, n); S = np.asarray(Z[np.clip(np.arange(a - 1, b + 1), 0, n - 1)], np.float64); yield a, b, np.pad(S, ((0, 0), (1, 1)), mode='edge')
+def curvature(Z, cy, cx, ridge):
+    """Evans-Young curvature of Z: a 3x3 quadratic fit per post with the true cell sizes (r = d2z/dx2 east, t = d2z/dy2 north, s = d2z/dxdy, slopes p east and q north; Evans 1979, Zevenbergen and Thorne 1987, Pennock 1987, Wood 1996, Shary 2002).  The principal curvatures are the eigenvalues of [[r, s], [s, t]]: a crest bends down (lmin < 0), a trough bends up (lmax > 0).
+    ridge: (kmax, plan) float32, kmax = max(0, -lmin) the bend of a crest, plan = (r q2 - 2 s p q + t p2) / (p2 + q2) (0 on level ground): negative where a contour bulges out like a spur, positive in a hollow.  Not ridge: (m, None), m = max(0, lmax) the bend of a trough."""
+    out = np.zeros(Z.shape, np.float32); pl = np.zeros(Z.shape, np.float32) if ridge else None
+    for a, b, S in _strips(Z):
+        m = S.shape[1] - 2; v = lambda di, dj: S[1 + di:1 + di + b - a, 1 + dj:1 + dj + m]
+        z1, z2, z3, z4, z5, z6, z7, z8, z9 = (v(-1, -1), v(-1, 0), v(-1, 1), v(0, -1), v(0, 0), v(0, 1), v(1, -1), v(1, 0), v(1, 1))
+        r = (z1 + z3 + z4 + z6 + z7 + z9 - 2 * (z2 + z5 + z8)) / (3 * cx * cx); t = (z1 + z2 + z3 + z7 + z8 + z9 - 2 * (z4 + z5 + z6)) / (3 * cy * cy); s = (z3 + z7 - z1 - z9) / (4 * cx * cy)
+        w = np.sqrt(((r - t) / 2) ** 2 + s * s); mid = (r + t) / 2
+        if ridge:
+            p = (z3 + z6 + z9 - z1 - z4 - z7) / (6 * cx); q = (z1 + z2 + z3 - z7 - z8 - z9) / (6 * cy); den = p * p + q * q; ok = den > 1e-18
+            out[a:b] = np.maximum(0.0, w - mid); pl[a:b] = np.where(ok, (r * q * q - 2 * s * p * q + t * p * p) / np.where(ok, den, 1.0), 0.0)
+        else: out[a:b] = np.maximum(0.0, mid + w)
+    return out, pl
+def _unit(X):
+    lo, hi = float(X.min()), float(X.max()); return (X - lo) / np.float32(hi - lo) if hi > lo else np.zeros_like(X)
+
+def relief(M, k, cell_y_m, cell_x_m):
+    """The terrain generalisation: M (rows north to south, float32 metres, posts cell_y_m north-south and cell_x_m east-west) -> float32 of the same shape; M itself when the knobs are the identity (canon_relief None).  After the published method of Leonowicz, Jenny and Hurni (2010, Cartographica 45(1) 64-74; Cartographic Perspectives 67, 51-60): a base surface, a
+    ridge weight and a valley weight from the curvature of low-passed copies, a flat mask from slope, a ridge-lifted and a valley-deepened copy of the base, blended by the mask.  G(X, s) is gauss(): sigma s posts.
+      B = G(M, 0.4 detail).   wr: kmax of Z = G(M, 0.7 ridge_removal), rescaled 0..1, plus the plan curvature mapped to +-ridge_sharpness (a spur positive, a hollow negative, each over its own extreme), G(., 0.7), rescaled 0..1.
+      ws: slope of M by central differences, G(., 0.4 detail), min(., T) / T with T = slope_threshold_deg, G(., 0.4 detail); T = 0 gives 1.   wv: the bend m of a trough in Z = G(M, 0.7 valley_removal), min(m / (valley_limit max m), 1), 0 where there is none.
+      Hm = B (1 + ridge_gain wr), Hl = B (1 - valley_gain wv), out = ws Hm + (1 - ws) Hl: the factors act on absolute elevation, so sea level is the fixed point.  max_shift_m s: out = M + s tanh((out - M) / s), so no post moves s or more.  Heights, never colour: this is the one owner of the accentuation."""
+    k = canon_relief(k)
+    if k is None: return M
+    cy, cx = cell_y_m, cell_x_m; M = np.asarray(M, np.float32); g = lambda X, s: gauss(X, s, cy, cx); det = 0.4 * k['detail']; B = g(M, det)
+    if k['ridge_gain']:
+        kmax, plan = curvature(g(M, 0.7 * k['ridge_removal']), cy, cx, True); pmax, pmin = float(plan.max()), float(plan.min()); plan = np.where(plan > 0, plan / pmax if pmax > 0 else 0.0, plan / -pmin if pmin < 0 else 0.0).astype(np.float32)
+        wr = _unit(g(_unit(kmax) - np.float32(k['ridge_sharpness']) * plan, 0.7)); del kmax, plan; Hm = B * (1 + np.float32(k['ridge_gain']) * wr); del wr
+    else: Hm = B
+    if k['valley_gain']:
+        m, _ = curvature(g(M, 0.7 * k['valley_removal']), cy, cx, False); top = float(m.max())
+        wv = np.minimum(m / np.float32(k['valley_limit'] * top), 1) if top > 0 and k['valley_limit'] > 0 else np.zeros_like(m); del m; Hl = B * (1 - np.float32(k['valley_gain']) * wv); del wv
+    else: Hl = B
+    if Hm is Hl: out = np.array(B, np.float32)
+    else:
+        T = math.radians(k['slope_threshold_deg'])
+        if T > 0:
+            sl = np.zeros(M.shape, np.float32)
+            for a, b, S in _strips(M): sl[a:b] = np.arctan(np.hypot((S[1:-1, 2:] - S[1:-1, :-2]) / (2 * cx), (S[:-2, 1:-1] - S[2:, 1:-1]) / (2 * cy)))
+            ws = g(np.minimum(g(sl, det), np.float32(T)) / np.float32(T), det); del sl
+        else: ws = np.ones(M.shape, np.float32)
+        out = np.array(Hm, np.float32); out -= Hl; out *= ws; out += Hl
+    del Hm, Hl
+    if k['max_shift_m'] is not None: s = np.float32(k['max_shift_m']); out -= M; out /= s; np.tanh(out, out=out); out *= s; out += M
+    return out
+
+def raw_key(p): return cache_key('raw', sorted(tiles_for(p)), 3600)
+def mosaic_key(p):
+    """The identity of the terrain surface M' of a preset: the raw survey, the canonical relief knobs and the relief code version.  An absent and an all-neutral relief are one key."""
+    return cache_key('mosaic.v2', raw_key(p), canon_relief(p.get('relief')), RELIEF_VERSION)
+
+_raw, _mos, STATS = {}, {}, {}
+def raw_mosaic(p):
+    """The survey: the GLO-30 tiles covering the circle (bounding rows and columns) as one float32 array, cached as .npy per preset under raw_key; returns (array, lat_top, lon_left).  Missing tiles (open sea has no GLO-30 tile) are zero.  Read by relief() and raw_ground() alone."""
+    key = (p['id'], raw_key(p))
+    if key in _raw: return _raw[key]
     ts = tiles_for(p); las = [t[0] for t in ts]; los = [t[1] for t in ts]; lat_top = max(las) + 1; lon_left = min(los)
     c = B / f"mosaic-{p['id']}-{key[1]}.npy"
     if c.exists(): m = np.load(c, mmap_mode='r')
@@ -74,20 +163,45 @@ def mosaic(p):
         for la in range(max(las), min(las) - 1, -1):
             rows.append(np.concatenate([tifffile.imread(tile_path(la, lo)) if tile_path(la, lo).exists() else np.zeros((3600, 3600), np.float32) for lo in range(min(los), max(los) + 1)], axis=1))
         m = np.concatenate(rows, axis=0).astype(np.float32); np.save(c, m)
-    _mos[key] = (m, lat_top, lon_left); return _mos[key]
+    _raw[key] = (m, lat_top, lon_left); return _raw[key]
+def cell_m(p):
+    """(north-south, east-west) post spacing in metres of a preset's mosaic at its latitude: 21 m east-west against 31 m north-south at 47 N."""
+    cy = 111320.0 / 3600.0; return cy, cy * math.cos(math.radians(p['lat']))
+def _rss_mb():
+    import resource; return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+def mosaic(p):
+    """The terrain surface M' every later stage reads: the survey through relief(), cached as .npy under mosaic_key (the survey itself when the relief is the identity).  Returns (M', lat_top, lon_left)."""
+    key = (p['id'], mosaic_key(p))
+    if key in _mos: return _mos[key]
+    m, lt, ll = raw_mosaic(p); k = canon_relief(p.get('relief'))
+    if k is not None:
+        c = B / f"relief-{p['id']}-{key[1]}.npy"
+        if not c.exists():
+            t0 = time.time(); r = relief(m, k, *cell_m(p)); STATS.update(relief_s=time.time() - t0, relief_rss_mb=_rss_mb()); tmp = c.with_name(c.stem + '.tmp.npy'); np.save(tmp, r); os.replace(tmp, c); del r
+        m = np.load(c, mmap_mode='r')
+    _mos[key] = (m, lt, ll); return _mos[key]
+def raw_ground(p):
+    """The survey's own ground at the observer: for the report and the drift bound of configure alone, no stage reads the survey for geometry."""
+    m, lt, ll = raw_mosaic(p); return float(cubic(m, lt, ll, np.array(p['lat']), np.array(p['lon'])))
 
-def bil(a, lat_top, lon_left, lat, lon):
-    y = (lat_top - lat) * 3600 - 0.5; x = (lon - lon_left) * 3600 - 0.5
-    y0 = np.clip(np.floor(y).astype(int), 0, a.shape[0] - 2); x0 = np.clip(np.floor(x).astype(int), 0, a.shape[1] - 2)
-    fy = np.clip(y - y0, 0, 1); fx = np.clip(x - x0, 0, 1)
-    return (a[y0, x0] * (1 - fx) * (1 - fy) + a[y0, x0 + 1] * fx * (1 - fy) + a[y0 + 1, x0] * (1 - fx) * fy + a[y0 + 1, x0 + 1] * fx * fy)
+def cubic(a, lat_top, lon_left, lat, lon):
+    """Catmull-Rom bicubic sample of the grid a (16 taps) at lat, lon (arrays of one shape): it passes through every post and its gradient is continuous across cell edges (a bilinear read creases at every 30 m cell).  Taps beyond the grid replicate the edge."""
+    y = (lat_top - np.asarray(lat, np.float64)) * 3600 - 0.5; x = (np.asarray(lon, np.float64) - lon_left) * 3600 - 0.5
+    y0 = np.floor(y); x0 = np.floor(x); fy = y - y0; fx = x - x0; y0 = y0.astype(int); x0 = x0.astype(int)
+    w = lambda f: (0.5 * (-f ** 3 + 2 * f ** 2 - f), 0.5 * (3 * f ** 3 - 5 * f ** 2 + 2), 0.5 * (-3 * f ** 3 + 4 * f ** 2 + f), 0.5 * (f ** 3 - f ** 2)); wy, wx = w(fy), w(fx); out = 0.0
+    for j in range(4):
+        yi = np.clip(y0 + j - 1, 0, a.shape[0] - 1)
+        for i in range(4): out = out + wy[j] * wx[i] * a[yi, np.clip(x0 + i - 1, 0, a.shape[1] - 1)]
+    return out
 
 def configure(p):
-    """Set the module state for a preset: observer, eye elevation (DEM ground + eye height, or ground_override), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
+    """Set the module state for a preset: observer, eye elevation (ground of the terrain surface M' at the observer, cubic, + eye height, or ground_override; prints the survey's ground beside it and refuses a generalised ground more than max_shift_m from it), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
     global P
-    P = p; m, lt, ll = mosaic(p)
-    ground = p['ground_override_m'] if 'ground_override_m' in p else float(bil(m, lt, ll, np.array(p['lat']), np.array(p['lon'])))
-    P['ground_m'] = ground; P['eye_m'] = ground + p['eye_h_m']
+    P = p; m, lt, ll = mosaic(p); g = float(cubic(m, lt, ll, np.array(p['lat']), np.array(p['lon']))); rg = raw_ground(p); k = canon_relief(p.get('relief')); s = k and k['max_shift_m']
+    print(f"{p['id']}: ground at the observer raw {rg:.1f} m, generalised {g:.1f} m, difference {g - rg:+.1f} m", file=sys.stderr, flush=True)
+    if s is not None and abs(g - rg) > s: raise Refusal(f"preset {p['id']}: the generalised ground at the observer differs from the survey by {abs(g - rg):.1f} m, above max_shift_m {s:g}")
+    ground = p['ground_override_m'] if 'ground_override_m' in p else g
+    P['ground_m'] = ground; P['eye_m'] = ground + p['eye_h_m']; P['ground_raw_m'] = rg; P['ground_gen_m'] = g
     if 'look_at' in p:
         la, lo = p['look_at']; P['az_center'] = (math.degrees(math.atan2((lo - p['lon']) * math.cos(math.radians(p['lat'])), la - p['lat'])) + 360) % 360
     else: P['az_center'] = p['az_deg']
@@ -135,14 +249,14 @@ def march(detail=False, curvature=True):
     A = np.zeros((len(d), W), np.float32); Hh = np.zeros_like(A); sa, ca = np.sin(az), np.cos(az)
     for k, dk in enumerate(d):
         lat = P['lat'] + dk * ca / 111320.0; lon = P['lon'] + dk * sa / (111320.0 * cosl)
-        h = bil(m, lt, ll, lat, lon)
+        h = cubic(m, lt, ll, lat, lon)
         if detail and dk < DETAIL['fade_to_m']: h = h + detail_height(dk * sa, dk * ca, dk)
         A[k] = elev(h, dk, curvature); Hh[k] = h
     return d, A, Hh
 
 def rays_key(detail):
     """Inputs of the ray march: observer, eye elevation, range, the DEM mosaic, the sample schedule (hashed as the array it produces), the Earth / refraction constants, the ring width, and (detail) the foreground detail noise."""
-    return cache_key('rays.v1', P['lat'], P['lon'], P['rmax_km'], round(float(P['eye_m']), 3), mosaic_key(P), schedule(detail), R_EARTH, KREF, W, bool(detail),
+    return cache_key('rays.v2', KERNEL, P['lat'], P['lon'], P['rmax_km'], round(float(P['eye_m']), 3), mosaic_key(P), schedule(detail), R_EARTH, KREF, W, bool(detail),
                      (sorted(DETAIL.items()), LACUN, WEIGHT_GAIN, AMP_GAIN, CRAG) if detail else None)
 def stage0(detail=False, force=False):
     c = B / f"rays-{P['id']}{'-detail' if detail else ''}-{rays_key(detail)}.npz"
@@ -159,10 +273,14 @@ def near_schedule():
     while d[-1] + min(10.0, max(1.0, 0.02 * d[-1])) < NEAR_CLIP_M: d.append(d[-1] + min(10.0, max(1.0, 0.02 * d[-1])))
     return np.array(d)
 def near_march(sigma_m=0.0):
-    """(d, a, h) of the ground under the near clip: the place's own DEM, bilinear, sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
+    """(d, a, h) of the ground under the near clip: the place's own terrain surface M', Catmull-Rom (cubic), sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
     m, lt, ll = mosaic(P); az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = near_schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
-    h = np.stack([np.asarray(bil(m, lt, ll, P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
+    h = np.stack([np.asarray(cubic(m, lt, ll, P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
     return d, a, h
+def check_eye_clear(near):
+    """Refuse a bake whose near march stands above the eye within 5 m of the observer: the generalised surface may not put the ground through the eye."""
+    d, a, h = near; hi = float(np.asarray(h)[np.asarray(d) <= 5.0].max())
+    if hi > P['eye_m']: raise Refusal(f"preset {P['id']}: the near ground within 5 m of the observer stands {hi:.1f} m, above the eye at {P['eye_m']:.1f} m")
 def join_near(d, a, h, near):
     """The one join of the near march to the far march (d, a, h: (K, W), set_view done): returns (D, A, Hc, nrm) for cards, near samples first.  The near angles are capped per column at the angle of the far march's first sample, a[0]: the near ground draws inside the silhouette of the terrain at the clip
     and no near hill rises above it (ruling ridge-near-ground-outline).  The normals of the two marches are computed apart and concatenated, so the far normals are those of the far march alone.  Needs the whole ring (the cap and the lateral normal read ring columns): cut the tiles from the result."""
@@ -258,26 +376,28 @@ def load_material(name, path=Path(__file__).resolve().parent / 'places.json'):
     """The named material of places.json `materials` (its one owner), checked for shape; an unknown name is a Refusal, never a fallback.  A material: base rgb, ramps [{from_m, to_m, colour}] lerped over height in order, steep {colour} | None (the steep-face override), snow {from_m, to_m, colour} | None (gated by flatness)."""
     tab = json.load(open(path)).get('materials') or {}
     if name not in tab: raise Refusal(f"material {name!r} is not in places.json materials ({', '.join(sorted(tab)) or 'none'})")
-    m = tab[name]; rgb = lambda c: isinstance(c, list) and len(c) == 3 and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in c)
+    return check_material(tab[name], name)
+def check_material(m, name='material'):
+    """m itself if it has the shape of a places.json material, else a Refusal."""
+    rgb = lambda c: isinstance(c, list) and len(c) == 3 and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in c)
     ok = isinstance(m, dict) and set(m) == {'base', 'ramps', 'steep', 'snow'} and rgb(m['base']) and isinstance(m['ramps'], list) and all(isinstance(r, dict) and set(r) == {'from_m', 'to_m', 'colour'} and r['from_m'] < r['to_m'] and rgb(r['colour']) for r in m['ramps'])
     ok = ok and (m['steep'] is None or (isinstance(m['steep'], dict) and set(m['steep']) == {'colour'} and rgb(m['steep']['colour']))) and (m['snow'] is None or (isinstance(m['snow'], dict) and set(m['snow']) == {'from_m', 'to_m', 'colour'} and m['snow']['from_m'] < m['snow']['to_m'] and rgb(m['snow']['colour'])))
     if not ok: raise Refusal(f"material {name!r} is malformed (base rgb, ramps [{{from_m < to_m, colour}}], steep {{colour}} | null, snow {{from_m < to_m, colour}} | null; rgb in 0..1)")
     return m
 def albedo(h, n_up, material):
-    """Evaluate a material (load_material) at height h and up-component n_up: the base colour, each ramp lerped by height in order, the steep colour where the face is steep, the snow colour above its band where the face is flat.  Straight colour, no light in it."""
+    """The contact sheet's evaluator, never a shipped pixel: a material (load_material) at height h and up-component n_up: the base colour, each ramp lerped by height in order, the steep colour where the face is steep, the snow colour above its band where the face is flat.  Straight colour, no light in it."""
     t = lambda a, b: np.clip((h - a) / (b - a), 0, 1)[..., None]; c = np.asarray(material['base'])
     for r in material['ramps']: c = c + (np.asarray(r['colour']) - c) * t(r['from_m'], r['to_m'])
     if material['steep']: c = c + (np.asarray(material['steep']['colour']) - c) * np.clip((0.93 - n_up) / 0.25, 0, 1)[..., None]
     sn = material['snow']
     return c + (np.asarray(sn['colour']) - c) * (t(sn['from_m'], sn['to_m']) * np.clip((n_up - 0.55) / 0.3, 0, 1)[..., None]) if sn else c
 
-def cards(d, a, h, seams, nrm=None, *, material):
+def cards(d, a, h, seams, nrm=None):
     """K+1 cards, nearest first, from the angles a and heights h (samples, n) of n columns and the (K, n) seams (m).  Card i holds per pixel the FIRST VISIBLE hit at or beyond seam i-1 (less XF): layered depth, so a farther
     card keeps the terrain a nearer ridge hides.  Its alpha is that pixel's coverage (a crest row holds the share of its angular span under the card's running maximum) times 1 - smoothstep over seam i +- XF in
     log-distance of the hit; card 0 owns the rows below the first sample, the last card has no far edge.  Alphas are then made nested so the alpha-over composite of all cards is exactly the opaque coverage (a row two
     cards both hold partly is not counted twice).  Distance and normal are interpolated between sample k-1 and k by angle.  Each card is cropped to the rows where its 8-bit alpha is not zero.
-    material is the place's (load_material), the one colour rule of wall, near and far rows.  nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance, their albedo is the ground material at their height with the face up (n_up = 1),
-    and `wall` flags them (card 0's first sample is the near march's NEAR_START_M, so no row of it is wall under a real frame).  Card 0 draws the near march (join_near; the samples nearer than NEAR_CLIP_M) under the silhouette of the terrain at the clip as ordinary terrain: its own normal, the albedo of its own height and n_up; `near` (h, n) bool flags the pixels whose hit lies on the near side of the clip sample (the rows that were card 0's wall), whose distance is then never above the clip.  Each card: dict(top, alpha (h,n), albedo (h,n,3), n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool, near (h,n) bool)."""
+    The height h of the terrain surface at each pixel is output, never a colour (ruling ridge-place-colour-authored: the material is the client's).  nrm is normals(d, h) of the same columns (default: computed from h as given, so pass it for columns cut from the ring: the lateral slope reads the neighbouring columns).  Rows of any card below the angle of its first sample (hit and idx == 0) are its wall: they keep that sample's distance and height, and `wall` flags them (their normal is read face up) (card 0's first sample is the near march's NEAR_START_M, so no row of it is wall under a real frame).  Card 0 draws the near march (join_near; the samples nearer than NEAR_CLIP_M) under the silhouette of the terrain at the clip as ordinary terrain: its own normal and height; `near` (h, n) bool flags the pixels whose hit lies on the near side of the clip sample (the rows that were card 0's wall), whose distance is then never above the clip.  Each card: dict(top, alpha (h,n), h (h,n) metres, n_r, n_t, logd (ln metres) (h,n), wall (h,n) bool, near (h,n) bool)."""
     d = np.asarray(d, np.float64); a = np.asarray(a, np.float64); h = np.asarray(h, np.float64); seams = np.asarray(seams, np.float64); nk, n = a.shape; nc = len(seams) + 1
     if d[0] >= NEAR_CLIP_M: raise Refusal(f"card 0 draws the ground under the near clip from the near march, but the first sample is at {d[0]:g} m (the clip is {NEAR_CLIP_M:g} m): pass join_near")
     n_r, n_t, n_u = nrm if nrm is not None else normals(d, h); ld = np.broadcast_to(np.log(d)[:, None], (nk, n)); p = 1.0 / PXDEG_V; lo = rowang - 0.5 * p; kn = int(np.searchsorted(d, NEAR_CLIP_M))           # kn: the samples nearer than the clip
@@ -299,7 +419,7 @@ def cards(d, a, h, seams, nrm=None, *, material):
     for i in range(nc):
         part = np.where(F[i] < 1, np.clip((np.maximum(A, F[i]) - A) / np.maximum(1 - A, 1e-6), 0, 1), F[i]); al = np.where(np.rint(X[i] * part * 255) > 0, X[i] * part, 0.0); A = 1 - (1 - A) * (1 - al)
         rows = np.flatnonzero(al.max(1) > 0)
-        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), albedo=np.zeros((0, n, 3), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool), near=np.zeros((0, n), bool))); continue
+        if not len(rows): out.append(dict(top=0, alpha=np.zeros((0, n), np.float32), h=np.zeros((0, n), np.float32), n_r=np.zeros((0, n), np.float32), n_t=np.zeros((0, n), np.float32), logd=np.zeros((0, n), np.float32), wall=np.zeros((0, n), bool), near=np.zeros((0, n), bool))); continue
         sl = slice(int(rows[0]), int(rows[-1]) + 1); g = G[i, :, sl]; nz = np.sqrt(g[2] ** 2 + g[3] ** 2 + g[4] ** 2) + 1e-12
-        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), albedo=albedo(g[1], np.where(Wl[i, sl], 1.0, g[4] / nz), material).astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy(), near=Nr[i, sl].copy()))
+        out.append(dict(top=int(rows[0]), alpha=al[sl].astype(np.float32), h=g[1].astype(np.float32), n_r=(g[2] / nz).astype(np.float32), n_t=(g[3] / nz).astype(np.float32), logd=g[0].astype(np.float32), wall=Wl[i, sl].copy(), near=Nr[i, sl].copy()))
     return out

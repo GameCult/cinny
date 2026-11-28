@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "title": "ridge-bake manifest v3 and index v1",
+ "title": "ridge-bake manifest v4 and index v1",
  "$defs": {
   "manifest": {
    "type": "object",
@@ -12,6 +12,8 @@
     "view",
     "curvature",
     "encoding",
+    "material",
+    "relief",
     "camera",
     "cards",
     "tiles",
@@ -21,7 +23,7 @@
    "additionalProperties": false,
    "properties": {
     "schema": {
-     "const": 3
+     "const": 4
     },
     "baker_version": {
      "type": "integer"
@@ -97,7 +99,7 @@
        "const": 32
       },
       "apron": {
-       "const": 2
+       "const": 3
       },
       "plane_h": {
        "type": "integer"
@@ -143,6 +145,8 @@
      "required": [
       "log_d_min",
       "log_d_max",
+      "h_min_m",
+      "h_max_m",
       "normal"
      ],
      "additionalProperties": false,
@@ -153,10 +157,164 @@
       "log_d_max": {
        "type": "number"
       },
+      "h_min_m": {
+       "type": "number"
+      },
+      "h_max_m": {
+       "type": "number"
+      },
       "normal": {
-       "const": "rt8"
+       "const": "rt8-up-walls"
       }
      }
+    },
+    "material": {
+     "type": "object",
+     "required": [
+      "base",
+      "ramps",
+      "steep",
+      "snow"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "base": {
+       "type": "array",
+       "minItems": 3,
+       "maxItems": 3,
+       "items": {
+        "type": "number"
+       }
+      },
+      "ramps": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "from_m",
+         "to_m",
+         "colour"
+        ],
+        "additionalProperties": false,
+        "properties": {
+         "from_m": {
+          "type": "number"
+         },
+         "to_m": {
+          "type": "number"
+         },
+         "colour": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+           "type": "number"
+          }
+         }
+        }
+       }
+      },
+      "steep": {
+       "type": [
+        "object",
+        "null"
+       ],
+       "required": [
+        "colour"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "colour": {
+         "type": "array",
+         "minItems": 3,
+         "maxItems": 3,
+         "items": {
+          "type": "number"
+         }
+        }
+       }
+      },
+      "snow": {
+       "type": [
+        "object",
+        "null"
+       ],
+       "required": [
+        "from_m",
+        "to_m",
+        "colour"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "from_m": {
+         "type": "number"
+        },
+        "to_m": {
+         "type": "number"
+        },
+        "colour": {
+         "type": "array",
+         "minItems": 3,
+         "maxItems": 3,
+         "items": {
+          "type": "number"
+         }
+        }
+       }
+      }
+     },
+     "description": "The place's authored ground material (places.json materials, ridge.check_material), copied here: the client shades the surface's height with it."
+    },
+    "relief": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "detail",
+      "ridge_removal",
+      "ridge_gain",
+      "ridge_sharpness",
+      "valley_removal",
+      "valley_gain",
+      "valley_limit",
+      "slope_threshold_deg",
+      "max_shift_m"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "detail": {
+       "type": "number"
+      },
+      "ridge_removal": {
+       "type": "number"
+      },
+      "ridge_gain": {
+       "type": "number"
+      },
+      "ridge_sharpness": {
+       "type": "number"
+      },
+      "valley_removal": {
+       "type": "number"
+      },
+      "valley_gain": {
+       "type": "number"
+      },
+      "valley_limit": {
+       "type": "number"
+      },
+      "slope_threshold_deg": {
+       "type": "number"
+      },
+      "max_shift_m": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     },
+     "description": "The generalisation knobs the terrain was baked with (places.json relief, canonical), null for the survey as it is.  Provenance only: the runtime never reads it."
     },
     "camera": {
      "type": "object",
@@ -220,7 +378,7 @@
         "top",
         "h",
         "distance_m",
-        "colour",
+        "surface",
         "geometry"
        ],
        "additionalProperties": false,
@@ -234,7 +392,7 @@
         "distance_m": {
          "type": "number"
         },
-        "colour": {
+        "surface": {
          "type": "object",
          "required": [
           "file",
@@ -269,7 +427,7 @@
        }
       }
      },
-     "description": "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are neither wall nor near ground, under the near clip (the interior tile_w columns); a tile whose card draws only near ground gets the clip distance."
+     "description": "tiles[t][i] is card i in tile t, or null where the card holds nothing in that tile (the client takes its distance from the neighbouring tiles).  Tile t owns the ring columns [tile_w t, tile_w (t + 1)), column c at azimuth (c + 0.5) / ring_w x 360, 0 = north; its files hold [tile_w t - apron, tile_w (t + 1) + apron), wrapping at the ring's end, and are tile_w + 2 apron columns wide.  top and h place the card's band back at its rows of the frame; distance_m = exp(median ln d) of the card's solid pixels in the tile that are neither wall nor near ground, under the near clip (the interior tile_w columns); a tile whose card draws only near ground gets the clip distance.  surface: RGBA, R G the height of the terrain (16 bit, R high) between encoding.h_min_m and h_max_m, B 255 on wall pixels, A coverage; geometry: R G the normal (walls face up), B the log-distance."
     },
     "bytes": {
      "type": "integer"

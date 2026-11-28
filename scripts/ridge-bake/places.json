@@ -1,5 +1,5 @@
 {
- "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing is the rest azimuth, where the view looks at rest (or az_deg); the ring itself is the whole 360 degrees, absolute compass, column 0 = north; tz = the place's IANA time zone (required, never defaulted: the runtime draws named sky moments in the place's local day); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); card_split_km = the ordered list of 1 to MAX_CARDS - 1 authored seam depths in km (the seam search refines each per column; K splits make K+1 cards; required, never defaulted); prefilter_m = Gaussian sigma in metres of the height low-pass before the cards are cut (default 0).",
+ "_doc": "Place presets for the A+D baker (ridge.py). eye = observer lat/lon; eye_h_m = eye above the local DEM surface (ground_override_m replaces the DEM ground elevation, used for Vienna to keep round 1's 183.3 m); look_at = target lat/lon whose bearing is the rest azimuth, where the view looks at rest (or az_deg); the ring itself is the whole 360 degrees, absolute compass, column 0 = north; tz = the place's IANA time zone (required, never defaulted: the runtime draws named sky moments in the place's local day); rmax_km = ring radius (decides the tile list: every 1x1 deg GLO-30 tile whose rectangle intersects the circle); card_split_km = the ordered list of 1 to MAX_CARDS - 1 authored seam depths in km (the seam search refines each per column; K splits make K+1 cards; required, never defaulted); prefilter_m = Gaussian sigma in metres of the height low-pass before the cards are cut (default 0). relief = optional, the curvature generalisation of the terrain (ridge.relief, after Leonowicz, Jenny and Hurni 2010; ruling ridge-terrain-curvature-generalisation), knobs in the published tool's own units, all look knobs tuned by eye on the contact sheets: detail = the base low-pass, sigma 0.4 detail posts of 30 m (0 with both gains 0 is the identity: the survey as it is); ridge_removal = sigma 0.7 ridge_removal posts of the copy the ridge weight is read from; ridge_gain = the crest lift, absolute elevation x (1 + ridge_gain x ridge weight), i.e. exaggeration - 1; ridge_sharpness = the share of plan curvature in the ridge weight; valley_removal = sigma 0.7 valley_removal posts for the valley weight; valley_gain = the trough cut, elevation x (1 - valley_gain x valley weight), i.e. 1 - valley factor (at most 1); valley_limit = the share of the strongest trough bend that counts as a full valley; slope_threshold_deg = slopes above it take the mountain model, below it the lowland one (0: mountain everywhere); max_shift_m = no post moves that far or more from the survey, smoothly (tanh; null: unbounded, the published method: sea level is the only fixed height). Unknown keys are refused. The shipped defaults are the published tool's 'large scale' preset with detail 3 and max_shift_m 60.",
  "_materials": "materials = the authored ground colour of a place (the topology is real, the colour is GameCult's own depiction; ruling ridge-place-colour-authored). A material: base = rgb under every ramp; ramps = [{from_m, to_m, colour}] lerped over height in order (each takes the running colour to its own over from_m..to_m, then holds it); steep = {colour} | null: the colour of steep faces (n_up under 0.93, full at 0.68), null keeps the height colour on cliffs; snow = {from_m, to_m, colour} | null: lerped in over its band on flat ground. A place names its `material`; absent means alpine; an unknown name is refused by the baker.",
  "materials": {
   "alpine": {
@@ -154,6 +154,17 @@
     6,
     40
    ],
+   "relief": {
+    "detail": 3,
+    "ridge_removal": 2,
+    "ridge_gain": 0.25,
+    "ridge_sharpness": 1.5,
+    "valley_removal": 2,
+    "valley_gain": 0.3,
+    "valley_limit": 0.8,
+    "slope_threshold_deg": 25,
+    "max_shift_m": 60
+   },
    "prefilter_m": 100,
    "viewpoint_source": {
     "status": "existing observer of the round-1 mockup (the scene camera used by the game), not photo-sourced; eye 30 m above ground as in round 1"
@@ -292,7 +303,18 @@
     18,
     28,
     43
-   ]
+   ],
+   "relief": {
+    "detail": 3,
+    "ridge_removal": 2,
+    "ridge_gain": 0.25,
+    "ridge_sharpness": 1.5,
+    "valley_removal": 2,
+    "valley_gain": 0.3,
+    "valley_limit": 0.8,
+    "slope_threshold_deg": 25,
+    "max_shift_m": 60
+   }
   },
   {
    "id": "fuji",
@@ -443,7 +465,18 @@
    "card_split_km": [
     1.5,
     16
-   ]
+   ],
+   "relief": {
+    "detail": 3,
+    "ridge_removal": 2,
+    "ridge_gain": 0.25,
+    "ridge_sharpness": 1.5,
+    "valley_removal": 2,
+    "valley_gain": 0.3,
+    "valley_limit": 0.8,
+    "slope_threshold_deg": 25,
+    "max_shift_m": 60
+   }
   },
   {
    "id": "halfdome",
@@ -681,7 +714,18 @@
     2,
     18,
     34
-   ]
+   ],
+   "relief": {
+    "detail": 3,
+    "ridge_removal": 2,
+    "ridge_gain": 0.25,
+    "ridge_sharpness": 1.5,
+    "valley_removal": 2,
+    "valley_gain": 0.3,
+    "valley_limit": 0.8,
+    "slope_threshold_deg": 25,
+    "max_shift_m": 60
+   }
   },
   {
    "id": "trecime",
@@ -807,6 +851,17 @@
     17.3,
     28.2
    ],
+   "relief": {
+    "detail": 3,
+    "ridge_removal": 2,
+    "ridge_gain": 0.25,
+    "ridge_sharpness": 1.5,
+    "valley_removal": 2,
+    "valley_gain": 0.3,
+    "valley_limit": 0.8,
+    "slope_threshold_deg": 25,
+    "max_shift_m": 60
+   },
    "viewpoint_source": {
     "status": "chosen from three scanned river candidates (Nankoweap, Unkar/Cardenas, Phantom Ranch) by the operator, ruling ridge-grandcanyon-spot-unkar; the camera stands by the Colorado River inside the canyon (ruling ridge-grandcanyon-camera-inside); the preset is the cand-unkar preset of the candidate bakes (36.0817, -111.8551, az 290), whose camera_r_m -100 is not a field of the ring baker"
    }
