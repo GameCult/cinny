@@ -810,9 +810,9 @@ def test_relief_knobs_are_checked():
         except export.Refusal as e: assert 'sharpness' in str(e), str(e)
         else: assert False, 'a preset with an unknown relief knob was loaded'
 def test_shipped_presets_carry_the_defaults():
-    """The five shipped places carry the documented relief defaults (the published 'large scale' preset, detail 3, max_shift_m 60) and halfdome none; the _doc names every knob."""
+    """The five shipped places carry the documented relief defaults (the published 'large scale' preset, detail 3, max_shift_m null: unbounded for now) and halfdome none; the _doc names every knob."""
     d = json.load(open(os.path.join(SRC, 'places.json'))); by = {p['id']: p for p in d['presets']}
-    for pid in ('vienna', 'matterhorn', 'fuji', 'amadablam', 'grandcanyon'): assert by[pid]['relief'] == KN, pid
+    for pid in ('vienna', 'matterhorn', 'fuji', 'amadablam', 'grandcanyon'): assert by[pid]['relief'] == dict(KN, max_shift_m=None), pid
     assert 'relief' not in by['halfdome'] and all(k in d['_doc'] for k in ridge.RELIEF_KNOBS), 'the _doc lacks a knob'
 
 def test_relief_curvature_signs():
