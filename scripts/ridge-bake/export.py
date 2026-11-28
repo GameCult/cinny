@@ -391,11 +391,12 @@ def vs_raw(pid, out_dir, old_dir):
 
 EROSION_SPREAD = (('mild', dict(amplitude_m=4.0, cell_m=240.0)), ('default', dict(amplitude_m=8.0, cell_m=240.0)), ('strong', dict(amplitude_m=16.0, cell_m=160.0)))   # strengths the operator picks between by eye (look knobs; the preset's own octaves, gully weight, detail and fade stay)
 RAW_BASES = ('fuji', 'amadablam')      # places whose sheet also shows the raw survey as a base, erosion with and without the generalisation
-def vs_erosion(pid, out_dir):
+def vs_erosion(pid, out_dir, erosion=None):
     """The operator's erosion sheets of one place (nothing is written under public/ridge): the base surfaces 'medium' (the preset's relief under CAND_B, the Sculptor medium scale) and, for RAW_BASES, 'raw' (no relief), each as panels top to bottom: no erosion, then the preset's erosion at each EROSION_SPREAD strength.  Every panel is the same code path (bake_place), erosion removed or changed in the preset.
     Files <place>__<base>__ring-quarter-width__<panels>.png (the ring at 1/4 of its width, the view's rows whole), <place>__<base>__look-crop-fullres__<panels>.png (1200 ring columns round the rest azimuth, every pixel, no scaling) and <place>__erosion-table.txt: per panel the helper seconds and calls, the bake seconds, the skyline drift against that base's own no-erosion panel (max and p99, metres and rows), the eye ground, the near ground angle and the worst tile against TILE_BYTES_MAX."""
     import ridge
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True); p0 = ridge.load_preset(pid)
+    if erosion is not None: p0 = dict(p0, erosion=erosion)       # the sheet's own base knobs for a place that ships none (vienna, for the record)
     if not ridge.canon_erosion(p0.get('erosion')) or not p0.get('relief'): raise Refusal(f'{pid} has no erosion and relief: there is nothing to compare')
     bases = [('medium', dict(p0, relief=dict(p0['relief'], **CAND_B)))] + ([('raw', {k: v for k, v in p0.items() if k != 'relief'})] if pid in RAW_BASES else []); lines = [f'{pid}  erosion {json.dumps(p0["erosion"])}  spread {json.dumps(dict(EROSION_SPREAD))}']; q = lambda a: a.reshape((a.shape[0], RING_W // 4, 4, 3)).mean(2)
     for base, pb in bases:
@@ -419,7 +420,7 @@ def vs_erosion(pid, out_dir):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0]); ap.add_argument('place', nargs='?'); ap.add_argument('--tiles'); ap.add_argument('--out'); ap.add_argument('--work'); ap.add_argument('--sheet', help='a contact sheet png; with --vs-raw, the directory of the operator sheets')
-    ap.add_argument('--vs-raw', action='store_true', help='the operator sheets of the place: old bake | its relief | candidate B, and the tables (writes nothing under --out)'); ap.add_argument('--vs-erosion', action='store_true', help='the erosion sheets of the place: the Sculptor medium surface (and the raw survey for fuji, amadablam) without and with erosion at a spread of strengths (writes nothing under --out)'); ap.add_argument('--old', default=str(HERE.parent.parent / 'public' / 'ridge'), help='the schema 3 bakes of --vs-raw'); ap.add_argument('--write-schema', action='store_true')
+    ap.add_argument('--vs-raw', action='store_true', help='the operator sheets of the place: old bake | its relief | candidate B, and the tables (writes nothing under --out)'); ap.add_argument('--erosion', help='--vs-erosion: the base erosion knobs as JSON, for a place whose preset ships none'); ap.add_argument('--vs-erosion', action='store_true', help='the erosion sheets of the place: the Sculptor medium surface (and the raw survey for fuji, amadablam) without and with erosion at a spread of strengths (writes nothing under --out)'); ap.add_argument('--old', default=str(HERE.parent.parent / 'public' / 'ridge'), help='the schema 3 bakes of --vs-raw'); ap.add_argument('--write-schema', action='store_true')
     ap.add_argument('--switch-index', action='store_true', help='point out/index.json at the new bake and delete the previous one (without it the index is left alone)')
     a = ap.parse_args(argv)
     if a.write_schema: (HERE / 'ridge-bake.schema.json').write_bytes((json.dumps(SCHEMA, indent=1, ensure_ascii=False) + '\n').encode('utf-8')); return 0
@@ -427,7 +428,7 @@ def main(argv=None):
     os.environ['RIDGE_TILES'] = a.tiles; os.environ['RIDGE_WORK'] = a.work or os.path.join(os.environ.get('TMPDIR', tempfile.gettempdir()), 'ridge-bake-work'); os.makedirs(os.environ['RIDGE_WORK'], exist_ok=True)
     if a.vs_erosion:
         if not a.sheet: ap.error('--vs-erosion needs --sheet DIR')
-        vs_erosion(a.place, a.sheet); return 0
+        vs_erosion(a.place, a.sheet, json.loads(a.erosion) if a.erosion else None); return 0
     if a.vs_raw:
         if not a.sheet: ap.error('--vs-raw needs --sheet DIR')
         vs_raw(a.place, a.sheet, a.old); return 0
