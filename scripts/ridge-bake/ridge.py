@@ -2,7 +2,8 @@
 Offline baker for the ridge backdrop (scripts/ridge-bake); export.py drives it.
 
   load_preset(id) -> configure()  : observer, tiles, surface origin, ring radius, rest azimuth, card splits and prefilter from places.json
-  stage0(detail)                   : ray march of all 6400 azimuth columns (curvature+refraction), optional authored sub-DEM foreground detail, cached
+  surface(lat, lon, E, N, F)       : the one height function every sample reads: cubic(M') plus the erosion delta of the helper (erosion/), band-limited to the footprint F of the sample
+  stage0()                         : ray march of all 6400 azimuth columns (curvature+refraction) through surface(), cached
   prefilter(d, h, sigma_m)         : Gaussian low-pass of the sampled heights (along each ray, across rays at equal distance), angles recomputed with elev
   set_view(skyline)                : authored Y mapping from the march skyline of the whole ring: angle -> row, see set_view
   ring_cols(a, c0, n)              : n columns of the ring from column c0, periodic (the tile cut)
@@ -11,7 +12,7 @@ Offline baker for the ridge backdrop (scripts/ridge-bake); export.py drives it.
   relief / mosaic                  : the terrain surface M' (the survey generalised by curvature, ruling ridge-terrain-curvature-generalisation): the one array every stage after it reads, through cubic
 Vertical exaggeration is AUTHORED and derived per view by set_view (printed on the page).  The client owns lighting, haze and ink (ruling ridge-cards-runtime-lit)."""
 import sys, time, math, json
-import os, hashlib
+import os, hashlib, subprocess, tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -45,7 +46,7 @@ def load_preset(pid, path=Path(__file__).resolve().parent / 'places.json'):
     try: ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError, OSError): raise Refusal(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
     if 'ground_override_m' in p: raise Refusal(f"preset {pid}: ground_override_m is gone: the eye stands eye_h_m above the final surface at the observer, never at a stored altitude")
-    canon_relief(p.get('relief'))
+    canon_relief(p.get('relief')); canon_erosion(p.get('erosion'))
     return p
 
 # ====================================================================== configuration, DEM
@@ -185,27 +186,78 @@ def raw_ground(p):
     """The survey's own ground at the observer: for the report and the drift bound of configure alone, no stage reads the survey for geometry."""
     m, lt, ll = raw_mosaic(p); return float(cubic(m, lt, ll, np.array(p['lat']), np.array(p['lon'])))
 
-def cubic(a, lat_top, lon_left, lat, lon):
-    """Catmull-Rom bicubic sample of the grid a (16 taps) at lat, lon (arrays of one shape): it passes through every post and its gradient is continuous across cell edges (a bilinear read creases at every 30 m cell).  Taps beyond the grid replicate the edge."""
+def cubic(a, lat_top, lon_left, lat, lon, grad=False):
+    """Catmull-Rom bicubic sample of the grid a (16 taps) at lat, lon (arrays of one shape): it passes through every post and its gradient is continuous across cell edges (a bilinear read creases at every 30 m cell).  Taps beyond the grid replicate the edge.
+    grad=True returns (h, dh/dE, dh/dN): the analytic derivative of the same 16 taps, per metre east and north, with the post spacing cell_m(P) (the grid rows run north to south)."""
     y = (lat_top - np.asarray(lat, np.float64)) * 3600 - 0.5; x = (np.asarray(lon, np.float64) - lon_left) * 3600 - 0.5
     y0 = np.floor(y); x0 = np.floor(x); fy = y - y0; fx = x - x0; y0 = y0.astype(int); x0 = x0.astype(int)
     w = lambda f: (0.5 * (-f ** 3 + 2 * f ** 2 - f), 0.5 * (3 * f ** 3 - 5 * f ** 2 + 2), 0.5 * (-3 * f ** 3 + 4 * f ** 2 + f), 0.5 * (f ** 3 - f ** 2)); wy, wx = w(fy), w(fx); out = 0.0
+    if grad: dw = lambda f: (0.5 * (-3 * f ** 2 + 4 * f - 1), 0.5 * (9 * f ** 2 - 10 * f), 0.5 * (-9 * f ** 2 + 8 * f + 1), 0.5 * (3 * f ** 2 - 2 * f)); dwy, dwx = dw(fy), dw(fx); gx = gy = 0.0
     for j in range(4):
         yi = np.clip(y0 + j - 1, 0, a.shape[0] - 1)
-        for i in range(4): out = out + wy[j] * wx[i] * a[yi, np.clip(x0 + i - 1, 0, a.shape[1] - 1)]
-    return out
+        for i in range(4):
+            t = a[yi, np.clip(x0 + i - 1, 0, a.shape[1] - 1)]; out = out + wy[j] * wx[i] * t
+            if grad: gx = gx + wy[j] * dwx[i] * t; gy = gy + dwy[j] * wx[i] * t
+    if not grad: return out
+    cy, cx = cell_m(P); return out, gx / cx, -gy / cy
 
-def surface(lat, lon):
-    """The final terrain surface at lat, lon (arrays of one shape): the one reader the eye and the near march stand on.  It is the Catmull-Rom (cubic) read of the generalised mosaic M'; the erosion detail of cut-ridge-erosion-detail joins here, so the eye and every ground sample see the same surface."""
-    m, lt, ll = mosaic(P); return cubic(m, lt, ll, lat, lon)
+# ====================================================================== erosion detail: Johansen's erosion filter over CultMath Phacelle, in a .NET helper (cut-ridge-erosion-detail)
+EROSION_VERSION = 1                    # bump with any change of the helper's behaviour that its source sha does not show: it is part of rays_key
+EROSION_KNOBS = dict(amplitude_m=0.0, cell_m=240.0, octaves=6, gully_weight=0.5, detail=1.5, fade_low_m=None, fade_high_m=None)
+EROSION_OCTAVES_MAX = 8
+FAR_FLOOR_M = 10.0                     # the far march's step floor: one schedule for every place, erosion on or off
+HELPER_DLL = Path(__file__).resolve().parent / 'erosion' / 'out' / 'RidgeErosion.dll'
+CHUNK = 1 << 20                        # points per cubic() call of surface()
+def canon_erosion(e):
+    """The canonical knob dict of a places.json `erosion` object, or None for the identity: absent, or amplitude_m 0.  Knobs in metres, every one a look knob tuned by eye on the sheets: amplitude_m = the height of the first octave's gullies (stacking octaves reach about it), cell_m = the wavelength scale of the first octave (octave o has cell cell_m / 2^o and stripes 1 / 0.7 of that), octaves = the cap (at most 8; the footprint of the sample stops it earlier), gully_weight, detail = the published filter's, fade_low_m / fade_high_m = the altitudes the gullies fade towards valleys (-1) and peaks (+1) between.  Unknown keys, negatives, octaves above 8 and fade_high_m <= fade_low_m are a Refusal."""
+    if e is None: return None
+    if not isinstance(e, dict): raise Refusal("erosion must be an object of knobs or absent")
+    bad = sorted(set(e) - set(EROSION_KNOBS))
+    if bad: raise Refusal(f"erosion: unknown knob {', '.join(bad)} (known: {', '.join(EROSION_KNOBS)})")
+    k = dict(EROSION_KNOBS, **e)
+    for n, v in k.items():
+        if v is None and n in ('fade_low_m', 'fade_high_m'): continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0: raise Refusal(f"erosion.{n} must be a number of at least 0, not {v!r}")
+    if k['amplitude_m'] == 0: return None
+    if k['cell_m'] <= 0 or int(k['octaves']) != k['octaves'] or not 1 <= k['octaves'] <= EROSION_OCTAVES_MAX: raise Refusal(f"erosion: cell_m must be above 0 and octaves a whole number from 1 to {EROSION_OCTAVES_MAX}")
+    if k['fade_low_m'] is None or k['fade_high_m'] is None or k['fade_high_m'] <= k['fade_low_m']: raise Refusal("erosion: fade_low_m and fade_high_m are required, fade_high_m above fade_low_m")
+    return {n: int(v) if n == 'octaves' else float(v) for n, v in k.items()}
+
+_HV = {}
+def helper_version():
+    """{cultmath_commit, source_sha256} of the built helper (its --version), part of rays_key; a missing helper is a Refusal (the identity case never asks)."""
+    if 'v' not in _HV:
+        if not HELPER_DLL.exists(): raise Refusal(f"the erosion helper is not built ({HELPER_DLL}): run scripts/ridge-bake/erosion/build.sh with CULTLIB_DIR at the commit in erosion/CULTMATH_PIN")
+        _HV['v'] = json.loads(subprocess.run(['dotnet', str(HELPER_DLL), '--version'], capture_output=True, text=True, check=True).stdout)
+    return _HV['v']
+def erode(E, N, h, gE, gN, F, k):
+    """The erosion height delta (m, float64, the shape of h) of samples at E, N metres east and north of the observer on ground of height h with slope gE, gN and footprint F (m), k = canon_erosion: one helper call.  Rows (E, N, h, dh/dE, dh/dN, F) float32 in, one float32 per row out."""
+    helper_version(); shp = np.shape(h); n = int(np.prod(shp)); rows = np.empty((n, 6), np.float32)
+    for c, x in enumerate((E, N, h, gE, gN, F)): rows[:, c] = np.broadcast_to(np.asarray(x), shp).reshape(-1)
+    t0 = time.time()
+    with tempfile.TemporaryDirectory(dir=B) as td:
+        fi, fo = os.path.join(td, 'in.f32'), os.path.join(td, 'out.f32'); rows.tofile(fi); del rows
+        r = subprocess.run(['dotnet', str(HELPER_DLL), '--knobs', json.dumps(k, sort_keys=True), fi, fo], capture_output=True, text=True)
+        if r.returncode: raise RuntimeError(f"erosion helper failed ({r.returncode}): {r.stderr[-400:]}")
+        d = np.fromfile(fo, np.float32)
+    st = json.loads(r.stderr.strip().splitlines()[-1]); S = STATS
+    S['erosion_s'] = S.get('erosion_s', 0.0) + time.time() - t0; S['erosion_helper_s'] = S.get('erosion_helper_s', 0.0) + st['seconds']; S['erosion_calls'] = S.get('erosion_calls', 0) + st['phacelle_calls']; S['erosion_active'] = S.get('erosion_active', 0) + st['active']; S['erosion_samples'] = S.get('erosion_samples', 0) + st['samples']
+    return d.astype(np.float64).reshape(shp)
+
+def surface(lat, lon, E, N, F):
+    """The final terrain surface at lat, lon (arrays of one shape; E, N the same points in metres east and north of the observer, F their footprint in metres: the march's own step): the one height every sample and the eye stands on reads.  It is the Catmull-Rom (cubic) read of the generalised mosaic M' plus, where the place has erosion knobs, the helper's band-limited gully delta (cubic's analytic gradient steers the gullies; the helper never reads the DEM).  Without erosion it is cubic() exactly."""
+    m, lt, ll = mosaic(P); k = canon_erosion(P.get('erosion')); lat, lon = np.broadcast_arrays(np.asarray(lat, np.float64), np.asarray(lon, np.float64)); shp = lat.shape; la, lo = lat.reshape(-1), lon.reshape(-1); n = la.size
+    if k is None: return np.concatenate([cubic(m, lt, ll, la[a:a + CHUNK], lo[a:a + CHUNK]) for a in range(0, n, CHUNK)] or [np.zeros(0)]).reshape(shp)
+    parts = [cubic(m, lt, ll, la[a:a + CHUNK], lo[a:a + CHUNK], grad=True) for a in range(0, n, CHUNK)]; h, gE, gN = (np.concatenate([q[i] for q in parts]) for i in range(3))
+    return (h + erode(np.broadcast_to(E, shp).reshape(-1), np.broadcast_to(N, shp).reshape(-1), h, gE, gN, np.broadcast_to(F, shp).reshape(-1), k)).reshape(shp)
 
 def configure(p):
-    """Set the module state for a preset: observer, eye elevation (the final surface at the observer, ridge.surface, + eye height: never a stored altitude; prints the survey's ground, the generalised ground and the final ground, and refuses a generalised ground more than max_shift_m from the survey), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
+    """Set the module state for a preset: observer, eye elevation (the final surface at the observer, ridge.surface at F = NEAR_START_M, + eye height: never a stored altitude; prints the survey's ground, the generalised ground and the final, eroded ground, and refuses a generalised ground more than max_shift_m from the survey), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
     global P
-    P = p; mosaic(p); g = float(surface(np.array(p['lat']), np.array(p['lon']))); rg = raw_ground(p); k = canon_relief(p.get('relief')); s = k and k['max_shift_m']
-    print(f"{p['id']}: ground at the observer survey {rg:.1f} m, generalised {g:.1f} m, final {g:.1f} m (generalised {g - rg:+.1f} m from the survey)", file=sys.stderr, flush=True)
-    if s is not None and abs(g - rg) > s: raise Refusal(f"preset {p['id']}: the generalised ground at the observer differs from the survey by {abs(g - rg):.1f} m, above max_shift_m {s:g}")
-    P['ground_m'] = g; P['eye_m'] = g + p['eye_h_m']; P['ground_raw_m'] = rg; P['ground_gen_m'] = g
+    P = p; m, lt, ll = mosaic(p); la, lo = np.array(p['lat']), np.array(p['lon']); gen = float(cubic(m, lt, ll, la, lo)); g = float(surface(la, lo, np.zeros(()), np.zeros(()), NEAR_START_M)); rg = raw_ground(p); k = canon_relief(p.get('relief')); s = k and k['max_shift_m']
+    print(f"{p['id']}: ground at the observer survey {rg:.1f} m, generalised {gen:.1f} m, final {g:.1f} m (generalised {gen - rg:+.1f} m from the survey, eroded {g - gen:+.1f} m)", file=sys.stderr, flush=True)
+    if s is not None and abs(gen - rg) > s: raise Refusal(f"preset {p['id']}: the generalised ground at the observer differs from the survey by {abs(gen - rg):.1f} m, above max_shift_m {s:g}")
+    P['ground_m'] = g; P['eye_m'] = g + p['eye_h_m']; P['ground_raw_m'] = rg; P['ground_gen_m'] = gen
     if 'look_at' in p:
         la, lo = p['look_at']; P['az_center'] = (math.degrees(math.atan2((lo - p['lon']) * math.cos(math.radians(p['lat'])), la - p['lat'])) + 360) % 360
     else: P['az_center'] = p['az_deg']
@@ -215,32 +267,13 @@ def ring_cols(a, c0, n):
     """n columns of the ring array a (last axis W) from column c0 (negative or past W wraps): the one periodic take, the wrap at 0 / 360 degrees is handled here."""
     return np.take(a, (c0 + np.arange(n)) % W, axis=-1)
 
-# ====================================================================== authored sub-DEM foreground detail (Aetheria / CultMath ridged multifractal)
-def _frac(v): return v - np.floor(v)
-def _hash2(x, y): return _frac(np.sin(x * 127.1 + y * 311.7) * 43758.5453)          # cultmath_hash(vec2), as Ratatoskr noise.ts
-def _vnoise2(x, y):                                                                  # cultmath_value_noise: 4 hashed corners, smoothstep blend
-    cx, cy = np.floor(x), np.floor(y); u = x - cx; v = y - cy; u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v)
-    a, b, c, d = _hash2(cx, cy), _hash2(cx + 1, cy), _hash2(cx, cy + 1), _hash2(cx + 1, cy + 1)
-    return (a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v
-LACUN, WEIGHT_GAIN, AMP_GAIN, CRAG = 2.07, 2.0, 0.5, 0.5                            # ridgeWorld.ts constants
-DETAIL = dict(cell_m=60.0, octaves=4, amp_m=24.0, fade_from_m=500.0, fade_to_m=4000.0, seed=17)
-def detail_height(E, N, dist):
-    """Ridged multifractal (ridgeWorld.ts `profile`, folded value noise weighted by the previous octave) in WORLD metres (east, north of the observer),
-    so it is automatically periodic around the ring.  First octave wavelength = 60 m = two GLO-30 cells (nothing coarser than the DEM can resolve is
-    touched), then x2.07.  Amplitude fades to zero between fade_from and fade_to metres of distance.  Seeded, deterministic, authored."""
-    cfg = DETAIL; e = 0.03 + (1 - CRAG) * 0.4; top = math.sqrt(1 + e * e); s = 0.0; nrm = 0.0; amp = 1.0; f = 1.0 / cfg['cell_m']; w = 1.0
-    for k in range(cfg['octaves']):
-        v = 2 * _vnoise2(E * f + cfg['seed'] * 7.31, N * f + cfg['seed'] * 3.17 + k * 13) - 1
-        sig = (1 - np.sqrt(v * v + e * e) / top) ** 2 * w; w = np.minimum(1.0, sig * WEIGHT_GAIN); s = s + sig * amp; nrm += amp; amp *= AMP_GAIN; f *= LACUN
-    t = np.clip((dist - cfg['fade_from_m']) / (cfg['fade_to_m'] - cfg['fade_from_m']), 0, 1); fade = 1 - t * t * (3 - 2 * t)
-    return cfg['amp_m'] * fade * (s / nrm - 0.3)
-
 # ====================================================================== stage 0: march
 NEAR_CLIP_M = 500.0                    # authored: the far march's first sample and the boundary of parallax authority: coverage, seams, the encoding range, distance_m and r_max read terrain at or beyond it.  The ground under it is the near march (near_march), drawn by card 0 only
-def schedule(detail):
+def schedule(floor=FAR_FLOOR_M):
+    """Sample distances (m) of the far march: from the near clip, steps of min(250, max(floor, 0.004 d)) to rmax_km.  Its np.gradient is the footprint F of the sample (the radial step, always coarser than the lateral d x COLW)."""
     d = [NEAR_CLIP_M]
     while d[-1] < P['rmax_km'] * 1000:
-        d.append(d[-1] + min(250.0, max(10.0 if detail else 40.0, 0.004 * d[-1])))
+        d.append(d[-1] + min(250.0, max(floor, 0.004 * d[-1])))
     return np.array(d)
 
 def elev(h, d, curvature=True):
@@ -248,26 +281,22 @@ def elev(h, d, curvature=True):
     drop = d * d / (2 * R_EARTH) * (1 - KREF) if curvature else 0.0
     return np.degrees(np.arctan2(h - P['eye_m'] - drop, d))
 
-def march(detail=False, curvature=True):
-    m, lt, ll = mosaic(P); az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = schedule(detail); cosl = math.cos(math.radians(P['lat']))
-    A = np.zeros((len(d), W), np.float32); Hh = np.zeros_like(A); sa, ca = np.sin(az), np.cos(az)
-    for k, dk in enumerate(d):
-        lat = P['lat'] + dk * ca / 111320.0; lon = P['lon'] + dk * sa / (111320.0 * cosl)
-        h = cubic(m, lt, ll, lat, lon)
-        if detail and dk < DETAIL['fade_to_m']: h = h + detail_height(dk * sa, dk * ca, dk)
-        A[k] = elev(h, dk, curvature); Hh[k] = h
-    return d, A, Hh
+def march(curvature=True):
+    """(d, A, Hh): the sample distances, the elevation angles (K, W) float32 and the heights (K, W) float32 of the whole ring, every height from surface() with the footprint F = np.gradient(d) of this schedule."""
+    mosaic(P); az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
+    N = d[:, None] * ca[None, :]; E = d[:, None] * sa[None, :]; h = surface(P['lat'] + N / 111320.0, P['lon'] + E / (111320.0 * cosl), E, N, np.gradient(d)[:, None])
+    return d, elev(h, d[:, None], curvature).astype(np.float32), h.astype(np.float32)
 
-def rays_key(detail):
-    """Inputs of the ray march: observer, eye elevation, range, the DEM mosaic, the sample schedule (hashed as the array it produces), the Earth / refraction constants, the ring width, and (detail) the foreground detail noise."""
-    return cache_key('rays.v2', KERNEL, P['lat'], P['lon'], P['rmax_km'], round(float(P['eye_m']), 3), mosaic_key(P), schedule(detail), R_EARTH, KREF, W, bool(detail),
-                     (sorted(DETAIL.items()), LACUN, WEIGHT_GAIN, AMP_GAIN, CRAG) if detail else None)
-def stage0(detail=False, force=False):
-    c = B / f"rays-{P['id']}{'-detail' if detail else ''}-{rays_key(detail)}.npz"
+def rays_key():
+    """Inputs of the ray march: observer, eye elevation, range, the DEM mosaic, the sample schedule (hashed as the array it produces), the Earth / refraction constants, the ring width, and the canonical erosion knobs with the version, source and CultMath pin of the helper (None without erosion)."""
+    k = canon_erosion(P.get('erosion'))
+    return cache_key('rays.v3', KERNEL, P['lat'], P['lon'], P['rmax_km'], round(float(P['eye_m']), 3), mosaic_key(P), schedule(), R_EARTH, KREF, W, k, EROSION_VERSION, helper_version() if k else None)
+def stage0(force=False):
+    c = B / f"rays-{P['id']}-{rays_key()}.npz"
     if c.exists() and not force:
         z = np.load(c); return z['d'], z['ang'], z['h'], None
-    t0 = time.time(); mosaic(P); t1 = time.time(); d, A, Hh = march(detail); t2 = time.time(); np.savez(c, d=d, ang=A, h=Hh)
-    return d, A, Hh, dict(mosaic=t1 - t0, march=t2 - t1, samples=len(d))
+    t0 = time.time(); mosaic(P); t1 = time.time(); e0 = STATS.get('erosion_s', 0.0); d, A, Hh = march(); t2 = time.time(); np.savez(c, d=d, ang=A, h=Hh)
+    return d, A, Hh, dict(mosaic=t1 - t0, march=t2 - t1, erosion=STATS.get('erosion_s', 0.0) - e0, samples=len(d))
 
 # ====================================================================== the near march: the ground under the near clip
 NEAR_START_M = 1.0                     # authored: the ray of the frame bottom meets flat ground from a 1.6 m eye farther out than this; a 5 m start leaves a wall at grandcanyon h100, where the ground at 5 m stands 8 degrees up
@@ -277,9 +306,9 @@ def near_schedule():
     while d[-1] + min(10.0, max(1.0, 0.02 * d[-1])) < NEAR_CLIP_M: d.append(d[-1] + min(10.0, max(1.0, 0.02 * d[-1])))
     return np.array(d)
 def near_march(sigma_m=0.0):
-    """(d, a, h) of the ground under the near clip: the place's final terrain surface (ridge.surface), sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
+    """(d, a, h) of the ground under the near clip: the place's final terrain surface (ridge.surface, footprint F = np.gradient(near_schedule())), sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
     az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = near_schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
-    h = np.stack([np.asarray(surface(P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
+    N = d[:, None] * ca[None, :]; E = d[:, None] * sa[None, :]; h = np.asarray(surface(P['lat'] + N / 111320.0, P['lon'] + E / (111320.0 * cosl), E, N, np.gradient(d)[:, None]), np.float64); a, h = prefilter(d, h, sigma_m)
     return d, a, h
 def check_eye_clear(near):
     """Refuse a bake whose near ground stands at or above the eye at the first near sample (d <= NEAR_START_M, 1 m): a face steeper than about 58 degrees at the feet puts the eye inside a wall.  Uphill ground above eye level a few metres away is real on a hillside and stays under the 500 m outline (join_near's cap), so only the first sample counts."""

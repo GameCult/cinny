@@ -1,10 +1,11 @@
 """Fixtures for the ridge baker (march, prefilter, coverage, seams, normals, cards, export).  Plain asserts, no pytest needed:  venv/bin/python tests/test_ridge.py   (exit code 1 on failure).
 RIDGE_SRC selects the source directory (default ..) (the mutation runner points it at a patched copy).
 Synthetic terrain has a known right answer; the Vienna tests bake the real preset (its rays come from stage0: RIDGE_TILES needs the tiles, or a cached rays file must exist)."""
-import os, sys, math, json, shutil, tempfile, traceback
+import os, sys, re, math, json, shutil, tempfile, traceback
 from pathlib import Path
 SRC = os.environ.get('RIDGE_SRC') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'); sys.path.insert(0, SRC)   # RIDGE_WORK and RIDGE_TILES must be set (tests/run.sh sets them)
 import numpy as np, ridge, export
+from refusal import Refusal
 from ridge import W, H
 ALPINE = ridge.load_material('alpine')          # the places.json material of every place that names none
 NW = 1280                           # the synthetic bakes' window: columns 0..NW of the ring (azimuth 0..72); the pieces that need the whole ring (seams across the wrap, the tile cut) run on the ring
@@ -13,7 +14,7 @@ _w = lambda x: ridge.ring_cols(x, 0, NW)
 
 EYE = 100.0; GROUND = 50.0          # ground below the eye: every ray climbs, so only the placed blocks make ridges
 ridge.P = dict(id='synthetic', rmax_km=95, eye_m=100.0)
-D = ridge.schedule(False)
+D = ridge.schedule(40.0)                  # r2's far schedule: the synthetic bakes keep it (the shipped floor is ridge.FAR_FLOOR_M)
 def az_of(x): return (x + 0.5) / W * 360.0
 def col_of(az): return int(round(az / 360.0 * W - 0.5)) % W
 
@@ -33,20 +34,21 @@ def in_arc(az, a0, a1): return ((az - a0) % 360.0) <= ((a1 - a0) % 360.0)
 def block(a0, a1, d0, d1, h): return lambda dk, az: np.where(in_arc(az, a0, a1) & (dk >= d0) & (dk < d1), h, 0.0)
 def terrain(*blocks): return lambda dk, az: np.maximum.reduce([np.full_like(az, GROUND)] + [np.asarray(b(dk, az), float) for b in blocks])
 def test_cache_keys_follow_every_input_of_the_cached_array():
-    """mosaic-/rays- cache files are keyed by a digest of their inputs.  Right answer: identical inputs -> identical key (the preset id does not enter), a changed preset field (eye height, range, position), tile list or baker constant (refraction, detail noise) -> a different key."""
+    """mosaic-/rays- cache files are keyed by a digest of their inputs.  Right answer: identical inputs -> identical key (the preset id does not enter), a changed preset field (eye height, range, position), tile list or baker constant (refraction, the far floor) -> a different key."""
     saved = ridge.P
     try:
-        base = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0); ridge.P = dict(base); k0 = (ridge.rays_key(False), ridge.rays_key(True), ridge.mosaic_key(ridge.P))
-        ridge.P = dict(base, id='other'); assert (ridge.rays_key(False), ridge.rays_key(True), ridge.mosaic_key(ridge.P)) == k0, 'the preset id changed the key'
+        base = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0); ridge.P = dict(base); k0 = (ridge.rays_key(), ridge.mosaic_key(ridge.P))
+        ridge.P = dict(base, id='other'); assert (ridge.rays_key(), ridge.mosaic_key(ridge.P)) == k0, 'the preset id changed the key'
         for fld, v in (('eye_m', 2010.0), ('rmax_km', 41), ('lon', 11.001), ('lat', 47.001)):
-            ridge.P = dict(base, **{fld: v}); assert ridge.rays_key(False) != k0[0], ('rays key ignores', fld)
-        ridge.P = dict(base, lat=47.0, lon=13.5); assert ridge.mosaic_key(ridge.P) != k0[2], 'mosaic key ignores the tile list'
+            ridge.P = dict(base, **{fld: v}); assert ridge.rays_key() != k0[0], ('rays key ignores', fld)
+        ridge.P = dict(base, lat=47.0, lon=13.5); assert ridge.mosaic_key(ridge.P) != k0[1], 'mosaic key ignores the tile list'
         ridge.P = dict(base); old = ridge.KREF; ridge.KREF = 0.2
-        try: assert ridge.rays_key(False) != k0[0], 'rays key ignores the refraction constant'
+        try: assert ridge.rays_key() != k0[0], 'rays key ignores the refraction constant'
         finally: ridge.KREF = old
-        old = ridge.DETAIL; ridge.DETAIL = dict(old, amp_m=30.0)
-        try: assert ridge.rays_key(True) != k0[1] and ridge.rays_key(False) == k0[0], 'detail key ignores the noise settings (or the plain key follows them)'
-        finally: ridge.DETAIL = old
+        old = ridge.FAR_FLOOR_M; ridge.FAR_FLOOR_M = 40.0
+        try:
+            ridge.schedule.__defaults__ = (40.0,); assert ridge.rays_key() != k0[0], 'rays key ignores the far floor'
+        finally: ridge.FAR_FLOOR_M = old; ridge.schedule.__defaults__ = (old,)
     finally: ridge.P = saved
 def test_paths_come_from_the_environment_with_no_default():
     """Importing the baker without RIDGE_WORK / RIDGE_TILES fails with a message naming the variable (no location is assumed)."""
@@ -165,7 +167,7 @@ def _ring(key, hfun, splits_km):
         A, Hh = rays(hfun); ridge.P.update(eye_m=EYE); a, h = ridge.prefilter(D, Hh, 0.0); v = ridge.set_view(a.max(0)); r = export.cut_ring(D, a, h, splits_km, near_rays(hfun))
         _RING[key] = dict(r, op_ring=ridge.opaque(a), place=dict(id='synthetic', name='Synthetic', lat=48.0, lon=16.0, altitude_km=0.05, eye_m=EYE, tz='Europe/Vienna'), v=v,
                           view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * H, near_row=v['near_row'] * H),
-                          meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), material=ALPINE, relief=None), material=ALPINE)
+                          meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(D[0]), log_d_max=math.log(D[-1])), material=ALPINE, relief=None, erosion=None), material=ALPINE)
     return _RING[key]
 def _tile_canvas(card, key='alpha'):
     out = np.zeros((H, TW) + card[key].shape[2:], np.float32); out[card['top']:card['top'] + card[key].shape[0]] = card[key]; return out
@@ -213,7 +215,7 @@ def _toy(dists=(3000.0, 15000.0, 50000.0), bands=(300, 400, 500), tops=(300, 150
         tile.append(dict(top=tops[i], alpha=np.ones((bands[i], n), np.float32), h=np.full((bands[i], n), 1500.0, np.float32), n_r=np.full((bands[i], n), 0.1, np.float32), n_t=np.full((bands[i], n), -0.1, np.float32), logd=ld, wall=np.zeros((bands[i], n), bool), near=np.zeros((bands[i], n), bool)))
     comp = export.composite_alpha([(c['top'], c['alpha']) for c in tile], H, n)
     return dict(cards=[[dict(c) for c in tile] for _ in range(export.TILES)], splits_km=[6.0 * (j + 1) for j in range(k - 1)], seams=np.tile(np.array(dists[:-1])[:, None] * 0.5, (1, W)), opaque=[comp.copy() for _ in range(export.TILES)],
-                view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=100.0, exaggeration=5.0, horizon_row=60.0, sky_row=24.0, near_row=396.0), meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(500.0), log_d_max=math.log(100000.0)), material=ALPINE, relief=None),
+                view=dict(look_az_deg=36.0, plane_h=H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=100.0, exaggeration=5.0, horizon_row=60.0, sky_row=24.0, near_row=396.0), meta=dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(500.0), log_d_max=math.log(100000.0)), material=ALPINE, relief=None, erosion=None),
                 place=dict(id='toy', name='Toy', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'))
 def _write(out, b, packed, **kw):
     args = dict(place=b['place'], view=b['view'], meta=b['meta'], packed=packed, opaque=b['opaque'], switch_index=True); args.update(kw); return export.write_bake(out, **args)
@@ -223,7 +225,7 @@ def _refuses(out, b, packed, why, **kw):
     except Exception as e: assert False, ('refused by a crash, not by a Refusal', why, repr(e))
     else: assert False, why
 def _pins():
-    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 3, 6, 8), 'the ring layout is pinned'
+    assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 3, 6, 9), 'the ring layout is pinned'
     assert (export.TILE_BYTES_MAX, export.PLACE_BYTES_MAX, export.RESIDENT_BYTES_MAX, export.FIT_PX_MAX, export.R_MAX_FLOOR_M, export.PHI_STEPS) == (235_000, 7_500_000, 20_000_000, 24.0, 25.0, 24), 'the budgets and the fit bound are pinned'
     assert abs(export.HFOV_MAX_DEG - 72 / 1.1) < 1e-12
 
@@ -232,7 +234,7 @@ def test_schema4():
     _pins(); d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); dest = _write(d, b, pk); m = json.load(open(dest / 'manifest.json')); export.validate_manifest(m); mk = lambda: json.loads(json.dumps(m))
-        assert m['schema'] == 4 and m['baker_version'] == 8 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
+        assert m['schema'] == 4 and m['baker_version'] == 9 and set(m['view']) >= {'ring_w', 'tile_w', 'tiles', 'apron'} and 'rows_above' not in m['view'] and m['camera'] == dict(r_max_m=pk['camera']['r_max_m'], r_max_forward_m=pk['camera']['r_max_forward_m']) and m['camera']['r_max_forward_m'] >= m['camera']['r_max_m'] and len(m['tiles']) == 32 and 'w' not in m and 'h' not in m
         def bad(f, why):
             x = mk(); f(x)
             try: export.validate_manifest(x)
@@ -342,7 +344,7 @@ def test_card_cap_refusals():
             try: ridge.load_preset('x', p)
             except export.Refusal: pass
             else: assert False, ('a preset with tz', bad_tz, 'was accepted')
-        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0), material=ALPINE, relief=None); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
+        place = dict(id='synthetic', name='S', lat=0.0, lon=0.0, altitude_km=0.0, eye_m=1.0, tz='UTC'); meta = dict(curvature=dict(r_earth_m=1.0, k_ref=0.1), encoding=dict(log_d_min=0.0, log_d_max=1.0), material=ALPINE, relief=None, erosion=None); view = dict(look_az_deg=0.0, plane_h=H, px_per_deg_h=1.0, px_per_deg_v=1.0, exaggeration=1.0, horizon_row=1.0, sky_row=1.0, near_row=1.0)
         full = [np.ones((H, TW)) for _ in range(32)]; cards = lambda k: [dict(near_m=None if i == 0 else 1.0, far_m=None if i == k - 1 else 1.0) for i in range(k)]; cam = dict(r_max_m=100.0, r_max_forward_m=100.0)
         big = dict(cards=cards(6), tiles=[[_flat_entry(0, H, seed=0)] + [_flat_entry(0, H) for _ in range(5)] for _ in range(32)], camera=cam, encoding=ENC4)
         try: export.write_bake(d + '/big', place, view, meta, big, full)
@@ -439,7 +441,7 @@ def _vienna_ring(splits, tiles):
     """Vienna's whole-ring march and seams for the given splits, cards on only the given tiles: (d, seams, {t: cards}, {t: opaque})."""
     saved = ridge.P
     try:
-        p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); sm = ridge.seams(ridge.coverage(d, a), [k * 1000.0 for k in splits], d); op = ridge.opaque(a); D_, A_, H_, nrm = ridge.join_near(d, a, h, ridge.near_march(p['prefilter_m']))
+        p = ridge.configure(dict(ridge.load_preset('vienna'), card_split_km=splits)); d, _, Hh, _ = ridge.stage0(); a, h = ridge.prefilter(d, Hh, p['prefilter_m']); ridge.set_view(a.max(0)); sm = ridge.seams(ridge.coverage(d, a), [k * 1000.0 for k in splits], d); op = ridge.opaque(a); D_, A_, H_, nrm = ridge.join_near(d, a, h, ridge.near_march(p['prefilter_m']))
         cols = lambda x, t: ridge.ring_cols(x, t * export.TILE_W - export.APRON, export.TILE_W + 2 * export.APRON)
         return d, sm, {t: ridge.cards(D_, cols(A_, t), cols(H_, t), cols(sm, t), tuple(cols(x, t) for x in nrm)) for t in tiles}, {t: cols(op, t) for t in tiles}
     finally: ridge.P = saved
@@ -567,7 +569,7 @@ def test_set_view_keeps_the_ground_rows_under_the_horizon():
     sk = np.full(W, -9.0); sk[7] = -2.0; v = ridge.set_view(sk); assert v['horizon_row'] < 0.04 * H and v['binds'] != 'horizon', v
 def test_the_near_clip_and_the_ground_rows_are_refused_at_the_writer():
     """The march starts at the authored near clip; write_bake refuses a bake whose card 0 stands nearer than it (nothing nearer is baked as terrain), and validate_manifest, which the writer and the committed bakes go through, refuses a plane with fewer than GROUND_ROWS_MIN rows under the horizon and accepts exactly that many."""
-    assert D[0] == ridge.NEAR_CLIP_M == ridge.schedule(True)[0] and (np.diff(D) > 0).all(), 'the march does not start at the near clip'
+    assert D[0] == ridge.NEAR_CLIP_M == ridge.schedule()[0] and (np.diff(D) > 0).all(), 'the march does not start at the near clip'
     d = tempfile.mkdtemp()
     try:
         b = _toy(); pk = export.pack(b); near = export.pack(_toy(dists=(300.0, 15000.0, 50000.0))); assert near['report']['nearest_m'] < ridge.NEAR_CLIP_M
@@ -745,7 +747,7 @@ def test_rays_key_names_the_kernel():
     """Changing the sampling kernel changes the ray cache key (a ray cache of another kernel is never read), and the key is the v2 one."""
     saved = ridge.P, ridge.KERNEL
     try:
-        ridge.P = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0); k0 = ridge.rays_key(False); ridge.KERNEL = 'bilinear'; assert ridge.rays_key(False) != k0, 'the ray key ignores the kernel'
+        ridge.P = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0); k0 = ridge.rays_key(); ridge.KERNEL = 'bilinear'; assert ridge.rays_key() != k0, 'the ray key ignores the kernel'
     finally: ridge.P, ridge.KERNEL = saved
     assert 'rays.v1' not in open(os.path.join(SRC, 'ridge.py')).read()
 
@@ -855,10 +857,10 @@ def test_mosaic_key_includes_relief():
     """Changing any knob changes mosaic_key and rays_key while raw_key stays, and the preset id changes neither; the generalised cache file is read only under its own key (each knob set has its own file and content)."""
     base = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0, relief=KN); saved = ridge.P
     try:
-        ridge.P = dict(base); k0 = (ridge.mosaic_key(base), ridge.rays_key(False))
+        ridge.P = dict(base); k0 = (ridge.mosaic_key(base), ridge.rays_key())
         for knob, v in dict(detail=2, ridge_removal=3, ridge_gain=0.3, ridge_sharpness=1.0, valley_removal=3, valley_gain=0.2, valley_limit=0.5, slope_threshold_deg=15, max_shift_m=40).items():
-            p = dict(base, relief=dict(KN, **{knob: v})); ridge.P = p; assert ridge.mosaic_key(p) != k0[0] and ridge.rays_key(False) != k0[1] and ridge.raw_key(p) == ridge.raw_key(base), knob
-        ridge.P = dict(base, id='other'); assert (ridge.mosaic_key(ridge.P), ridge.rays_key(False)) == k0, 'the preset id changed a key'
+            p = dict(base, relief=dict(KN, **{knob: v})); ridge.P = p; assert ridge.mosaic_key(p) != k0[0] and ridge.rays_key() != k0[1] and ridge.raw_key(p) == ridge.raw_key(base), knob
+        ridge.P = dict(base, id='other'); assert (ridge.mosaic_key(ridge.P), ridge.rays_key()) == k0, 'the preset id changed a key'
         v = ridge.RELIEF_VERSION; ridge.P = dict(base)
         try: ridge.RELIEF_VERSION = v + 1; assert ridge.mosaic_key(base) != k0[0], 'a new RELIEF_VERSION kept the surface key'
         finally: ridge.RELIEF_VERSION = v
@@ -880,7 +882,7 @@ def test_eye_ground_reads_relief_surface():
     p = dict(id='eyetest', lat=lat, lon=lon, rmax_km=1, eye_h_m=1.6, az_deg=0.0, relief=dict(KN)); rk = (p['id'], ridge.raw_key(p)); mk = (p['id'], ridge.mosaic_key(p)); saved = ridge.P
     try:
         ridge._raw[rk] = (M, lt, ll); ridge._mos[mk] = (M2, lt, ll); q = ridge.configure(dict(p)); want = float(ridge.cubic(M2, lt, ll, np.array(lat), np.array(lon))); assert q['ground_m'] == want and abs(q['eye_m'] - (want + 1.6)) < 1e-9 and q['ground_raw_m'] != q['ground_m'], (q['ground_m'], want)
-        assert abs(float(ridge.surface(np.array(lat), np.array(lon))) - want) < 1e-9
+        assert abs(float(ridge.surface(np.array(lat), np.array(lon), np.zeros(()), np.zeros(()), 1.0)) - want) < 1e-9
         d = tempfile.mkdtemp(); pj = Path(d) / 'places.json'; base = dict(id='x', name='x', lat=lat, lon=lon, eye_h_m=1.6, az_deg=0.0, rmax_km=1, card_split_km=[6], tz='UTC'); pj.write_text(json.dumps(dict(presets=[dict(base, ground_override_m=123.0)])))
         try: ridge.load_preset('x', pj)
         except export.Refusal as e: assert 'ground_override_m' in str(e), str(e)
@@ -948,6 +950,123 @@ def test_eye_check_at_first_sample():
         try: ridge.check_eye_clear(near)
         except export.Refusal as e: raise AssertionError(('the unmodified Grand Canyon survey was refused', str(e)))
     finally: ridge.P = saved
+# ---------------------------------------------------------------------------------------- erosion detail (cut-ridge-erosion-detail)
+EKN = dict(amplitude_m=8.0, cell_m=240.0, octaves=6, gully_weight=0.5, detail=1.5, fade_low_m=0.0, fade_high_m=3000.0)
+def _plane_place(pid, **kw):
+    """A preset on a synthetic tilted-plane mosaic (injected under its own keys, so no tile is read) and its key pair for cleanup: (place, (raw key, mosaic key), ground function of lat, lon)."""
+    lat, lon, n = 47.0, 11.0, 400; lt, ll = lat + 200 / 3600.0, lon - 200 / 3600.0; yy, xx = np.mgrid[0:n, 0:n]; M = (1000.0 + 0.4 * xx - 0.25 * yy).astype(np.float32)
+    p = dict(id=pid, lat=lat, lon=lon, rmax_km=2, eye_h_m=1.6, az_deg=0.0, **kw); rk = (pid, ridge.raw_key(p)); mk = (pid, ridge.mosaic_key(p)); ridge._raw[rk] = (M, lt, ll); ridge._mos[mk] = (M, lt, ll); return p, (rk, mk), (M, lt, ll)
+def _drop(keys): ridge._raw.pop(keys[0], None); ridge._mos.pop(keys[1], None)
+def _with_helper(fake, fn):
+    """Run fn with ridge.erode replaced by fake and a stand-in helper identity, restoring both."""
+    saved = ridge.erode, dict(ridge._HV); ridge.erode = fake; ridge._HV['v'] = dict(cultmath_commit='pin', source_sha256='src')
+    try: return fn()
+    finally: ridge.erode = saved[0]; ridge._HV.clear(); ridge._HV.update(saved[1])
+
+def test_erosion_knobs_refused():
+    """Unknown keys, negatives, octaves above 8 (or not whole), fade_high_m at or under fade_low_m and a missing fade are a Refusal; amplitude_m 0 and an absent object are the identity (None), also from load_preset."""
+    assert ridge.canon_erosion(None) is None and ridge.canon_erosion(dict(EKN, amplitude_m=0)) is None and ridge.canon_erosion({}) is None
+    c = ridge.canon_erosion(EKN); assert c == dict(EKN) and isinstance(c['octaves'], int)
+    for bad in (dict(EKN, ampltude_m=1), dict(EKN, amplitude_m=-1), dict(EKN, octaves=9), dict(EKN, octaves=2.5), dict(EKN, octaves=0), dict(EKN, fade_high_m=0.0), dict(EKN, fade_low_m=None), dict(EKN, cell_m=0), dict(EKN, detail=True), 5):
+        try: ridge.canon_erosion(bad)
+        except Refusal: continue
+        raise AssertionError(f'{bad} validated')
+
+def test_surface_identity_without_erosion():
+    """Absent erosion, an object with amplitude_m 0 and a missing helper binary all give surface() == cubic() bit for bit; at schedule(floor=40) the far rays equal r2's march (a row by row cubic and elev), the helper is never asked."""
+    saved = ridge.P, ridge.HELPER_DLL; ridge.HELPER_DLL = Path('/nonexistent/RidgeErosion.dll'); out = []
+    try:
+        for pid, kw in (('ident1', {}), ('ident2', dict(erosion=dict(EKN, amplitude_m=0)))):
+            p, keys, (M, lt, ll) = _plane_place(pid, **kw); ridge.P = p; la = 47.0 + np.linspace(-0.01, 0.01, 7)[:, None] * np.ones((1, 5)); lo = 11.0 + np.linspace(-0.01, 0.01, 5)[None, :] * np.ones((7, 1))
+            got = ridge.surface(la, lo, np.zeros_like(la), np.zeros_like(la), 5.0); assert np.array_equal(got, ridge.cubic(M, lt, ll, la, lo)), pid
+            ridge.P = dict(p, eye_m=1300.0); ridge.schedule.__defaults__ = (40.0,)
+            try: d, A, Hh = ridge.march()
+            finally: ridge.schedule.__defaults__ = (ridge.FAR_FLOOR_M,)
+            cosl = math.cos(math.radians(47.0)); az = np.radians((np.arange(W) + 0.5) / W * 360.0); sa, ca = np.sin(az), np.cos(az)
+            for k in (0, 7, len(d) - 1):
+                h = ridge.cubic(M, lt, ll, 47.0 + d[k] * ca / 111320.0, 11.0 + d[k] * sa / (111320.0 * cosl)); assert np.array_equal(Hh[k], h.astype(np.float32)) and np.array_equal(A[k], ridge.elev(h, d[k]).astype(np.float32)), (pid, k)
+            out.append(keys)
+    finally:
+        ridge.P, ridge.HELPER_DLL = saved
+        for keys in out: _drop(keys)
+
+def test_rays_key_follows_erosion():
+    """Any erosion knob, EROSION_VERSION, the helper's source sha or its CultMath pin changes rays_key; mosaic_key and raw_key do not change."""
+    saved = ridge.P, ridge.EROSION_VERSION, dict(ridge._HV); base = dict(id='k1', lat=47.0, lon=11.0, rmax_km=40, eye_m=2000.0, relief=KN)
+    try:
+        ridge._HV['v'] = dict(cultmath_commit='pin', source_sha256='src'); ridge.P = dict(base, erosion=dict(EKN)); k0 = (ridge.rays_key(), ridge.mosaic_key(ridge.P), ridge.raw_key(ridge.P)); assert k0[0] != (ridge.P.update(erosion=None), ridge.rays_key())[1], 'erosion on and off share a key'
+        for knob, v in dict(amplitude_m=9.0, cell_m=200.0, octaves=5, gully_weight=0.4, detail=1.0, fade_low_m=10.0, fade_high_m=3100.0).items():
+            ridge.P = dict(base, erosion=dict(EKN, **{knob: v})); assert ridge.rays_key() != k0[0] and ridge.mosaic_key(ridge.P) == k0[1] and ridge.raw_key(ridge.P) == k0[2], knob
+        ridge.P = dict(base, erosion=dict(EKN)); ridge.EROSION_VERSION += 1; assert ridge.rays_key() != k0[0], 'EROSION_VERSION'; ridge.EROSION_VERSION -= 1
+        for fld in ('source_sha256', 'cultmath_commit'): ridge._HV['v'] = dict(ridge._HV['v'], **{fld: 'other'}); assert ridge.rays_key() != k0[0], fld; ridge._HV['v'] = dict(cultmath_commit='pin', source_sha256='src')
+        assert ridge.rays_key() == k0[0]
+    finally: ridge.P, ridge.EROSION_VERSION = saved[0], saved[1]; ridge._HV.clear(); ridge._HV.update(saved[2])
+
+def test_far_floor_schedule():
+    """Far step = min(250, max(10, 0.004 d)) from the near clip, one schedule with no mode; no detail flag is left in the baker."""
+    saved = ridge.P; ridge.P = dict(id='s', rmax_km=60)
+    try:
+        d = ridge.schedule(); st = np.diff(d); want = np.minimum(250.0, np.maximum(10.0, 0.004 * d[:-1])); assert d[0] == ridge.NEAR_CLIP_M and np.allclose(st, want, rtol=0, atol=1e-9) and ridge.FAR_FLOOR_M == 10.0 and len(d) > len(ridge.schedule(40.0)), (len(d),)
+        import inspect; assert 'detail' not in inspect.signature(ridge.schedule).parameters and 'detail' not in inspect.signature(ridge.march).parameters and 'detail' not in inspect.signature(ridge.stage0).parameters
+    finally: ridge.P = saved
+
+def test_footprint_is_the_schedule_step():
+    """The F passed per sample equals np.gradient of the march's own schedule, for both marches; the near march's last F and the far march's first F differ by under 1 m."""
+    p, keys, _ = _plane_place('foot', erosion=dict(EKN)); saved = ridge.P; calls = []
+    def fake(E, N, h, gE, gN, F, k): calls.append((np.asarray(E).copy(), np.asarray(F).copy())); return np.zeros(np.shape(h))
+    try:
+        ridge.P = dict(p, eye_m=1300.0)
+        def run(): ridge.march(); ridge.near_march(0.0)
+        _with_helper(fake, run); (Ef, Ff), (En, Fn) = calls; far = np.gradient(ridge.schedule()); near = np.gradient(ridge.near_schedule())
+        assert np.array_equal(Ff.reshape(len(far), W), np.broadcast_to(far[:, None], (len(far), W))) and np.array_equal(Fn.reshape(len(near), W), np.broadcast_to(near[:, None], (len(near), W)))
+        assert abs(near[-1] - far[0]) < 1.0 and near[-1] <= 10.0 and far[0] == 10.0, (near[-1], far[0])
+    finally: ridge.P = saved; _drop(keys)
+
+def test_eye_ground_on_eroded_surface():
+    """configure sets eye_m to surface() at the observer with F = NEAR_START_M plus eye_h_m, exactly: the eye stands on the eroded ground; the generalised ground stays reported apart; a stored altitude is refused."""
+    p, keys, (M, lt, ll) = _plane_place('eyeero', erosion=dict(EKN)); saved = ridge.P; seen = []
+    def fake(E, N, h, gE, gN, F, k): seen.append((float(np.max(F)), float(np.max(np.abs(E))), float(np.max(np.abs(N))), float(np.ravel(gE)[0]), float(np.ravel(gN)[0]))); return np.full(np.shape(h), 7.0)
+    try:
+        q = _with_helper(fake, lambda: ridge.configure(dict(p))); gen = float(ridge.cubic(M, lt, ll, np.array(47.0), np.array(11.0)))
+        assert len(seen) == 1 and seen[0][:3] == (ridge.NEAR_START_M, 0.0, 0.0) and abs(q['ground_m'] - (gen + 7.0)) < 1e-9 and q['eye_m'] == q['ground_m'] + 1.6 and abs(q['ground_gen_m'] - gen) < 1e-12, (seen, q['ground_m'], gen)
+        assert abs(seen[0][3] - 0.4 / ridge.cell_m(p)[1]) < 1e-4 and abs(seen[0][4] - 0.25 / ridge.cell_m(p)[0]) < 1e-4, ('the slopes handed to the helper are the cubic gradient per metre east and north', seen[0])
+        d = tempfile.mkdtemp()
+        try: pj = Path(d) / 'places.json'; pj.write_text(json.dumps(dict(presets=[dict(id='x', name='x', lat=47.0, lon=11.0, eye_h_m=1.6, az_deg=0.0, rmax_km=1, card_split_km=[6], tz='UTC', ground_override_m=5.0)]))); ridge.load_preset('x', path=pj); raise AssertionError('a stored altitude validated')
+        except Refusal: pass
+        finally: shutil.rmtree(d)
+    finally: ridge.P = saved; _drop(keys)
+
+def test_normals_see_erosion():
+    """On a tilted plane with erosion on, normals() of the near march vary where the delta varies, and the normal comes from normals() alone: a helper returning zeros gives the plane's normal."""
+    p, keys, _ = _plane_place('nrm', erosion=dict(EKN)); saved = ridge.P
+    try:
+        ridge.P = dict(p, eye_m=1300.0)
+        wavy = lambda E, N, h, gE, gN, F, k: 3.0 * np.sin(np.asarray(E) / 40.0); zero = lambda E, N, h, gE, gN, F, k: np.zeros(np.shape(h))
+        dn, an, hw = _with_helper(wavy, lambda: ridge.near_march(0.0)); _, _, hz = _with_helper(zero, lambda: ridge.near_march(0.0)); ridge.P = dict(p, eye_m=1300.0, erosion=None); _, _, hp = ridge.near_march(0.0)
+        assert np.array_equal(hz, hp), 'a helper returning zeros changed the plane'; nw, nz = ridge.normals(dn, hw), ridge.normals(dn, hz)
+        assert max(float(np.abs(a - b).max()) for a, b in zip(nw, nz)) > 0.02 and all(np.array_equal(a, b) for a, b in zip(nz, ridge.normals(dn, hp))), 'normals() does not see the delta (or the plane normal is not its own)'
+    finally: ridge.P = saved; _drop(keys)
+
+def test_helper_end_to_end_when_built():
+    """With the helper built: a sample beyond the footprint of octave 0 is exactly 0, near samples are not, two calls agree bit for bit, amplitude scales the delta, and --version names the pin."""
+    if not ridge.HELPER_DLL.exists(): print('   (helper not built: skipped)'); return
+    saved = ridge.P, dict(ridge._HV); ridge.P = dict(id='e2e', lat=47.0, lon=11.0); rng = np.random.default_rng(5); n = 4000
+    E, N = rng.uniform(-3000, 3000, n), rng.uniform(-3000, 3000, n); h = rng.uniform(500, 2500, n); gE, gN = rng.uniform(-.6, .6, n), rng.uniform(-.6, .6, n); F = np.where(np.arange(n) % 2 == 0, 2.0, 120.0)
+    try:
+        k = ridge.canon_erosion(dict(EKN, fade_low_m=500.0, fade_high_m=2500.0)); a = ridge.erode(E, N, h, gE, gN, F, k); b = ridge.erode(E, N, h, gE, gN, F, k); assert np.array_equal(a, b)
+        assert (a[1::2] == 0).all() and np.abs(a[0::2]).max() > 0.5 and np.abs(a).max() < 4 * k['amplitude_m'], (np.abs(a).max(),)
+        a2 = ridge.erode(E, N, h, gE, gN, F, dict(k, amplitude_m=16.0)); assert np.abs(a2).max() > 1.5 * np.abs(a).max()
+        assert ridge.helper_version()['cultmath_commit'] == open(os.path.join(SRC, 'erosion', 'CULTMATH_PIN')).read().strip()
+    finally: ridge.P = saved[0]; ridge._HV.clear(); ridge._HV.update(saved[1])
+
+def test_no_python_noise_or_detail_flag_left():
+    """The Python copy of the foreground detail (value noise, hash, the detail flag, its cache name) is gone: sub-DEM detail has one owner, the erosion helper."""
+    t = open(os.path.join(SRC, 'ridge.py'), encoding='utf-8').read()
+    for pat in (r'def detail_height|_vnoise2|_hash2|43758\.5453', r'rays_key\(True\)|-detail-'): assert not re.search(pat, t), pat
+    for fn in ('erosion/ErosionFilter.cs',):
+        c = open(os.path.join(SRC, fn), encoding='utf-8').read(); assert 'Mozilla Public License' in c
+    assert 'Mozilla Public License' not in open(os.path.join(SRC, 'erosion/Program.cs'), encoding='utf-8').read()
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 if __name__ == '__main__':
     fails = 0

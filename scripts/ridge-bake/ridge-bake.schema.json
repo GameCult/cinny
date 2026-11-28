@@ -14,6 +14,7 @@
     "encoding",
     "material",
     "relief",
+    "erosion",
     "camera",
     "cards",
     "tiles",
@@ -315,6 +316,46 @@
       }
      },
      "description": "The generalisation knobs the terrain was baked with (places.json relief, canonical), null for the survey as it is.  Provenance only: the runtime never reads it."
+    },
+    "erosion": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "amplitude_m",
+      "cell_m",
+      "octaves",
+      "gully_weight",
+      "detail",
+      "fade_low_m",
+      "fade_high_m"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "amplitude_m": {
+       "type": "number"
+      },
+      "cell_m": {
+       "type": "number"
+      },
+      "octaves": {
+       "type": "integer"
+      },
+      "gully_weight": {
+       "type": "number"
+      },
+      "detail": {
+       "type": "number"
+      },
+      "fade_low_m": {
+       "type": "number"
+      },
+      "fade_high_m": {
+       "type": "number"
+      }
+     },
+     "description": "The erosion detail knobs the surface was baked with (places.json erosion, canonical), null for none.  Provenance only: the runtime never reads it."
     },
     "camera": {
      "type": "object",

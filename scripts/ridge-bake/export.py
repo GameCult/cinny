@@ -2,12 +2,13 @@
 
   python3 -I scripts/ridge-bake/export.py <place-id> --tiles DIR --out public/ridge/ [--work DIR] [--sheet contact.png] [--switch-index]
   python3 -I scripts/ridge-bake/export.py <place-id> --tiles DIR --vs-raw --sheet DIR [--work DIR] [--old public/ridge]       (the operator sheets: old bake | the preset's relief | candidate B)
+  python3 -I scripts/ridge-bake/export.py <place-id> --tiles DIR --vs-erosion --sheet DIR [--work DIR]                        (the erosion sheets: the Sculptor medium surface, and the raw survey where the preset asks, each without and with erosion at a spread of strengths)
   python3 -I scripts/ridge-bake/export.py --write-schema          (rewrites ridge-bake.schema.json from SCHEMA below)
 
 The runtime reads manifest.json (SCHEMA is its contract) and nothing else about the bake.  The ring is the whole 360 degrees (ruling ridge-camera-full-ring), absolute compass, column 0 = north, cut into TILES tiles of TILE_W columns plus an APRON of real neighbour
 columns each side; the bake holds no camera: it ships each card tile's distance_m and camera.r_max_m, the largest offset the per-card linear slide can take (ruling ridge-offset-range-fit); the client lights the cards itself (ruling ridge-cards-runtime-lit).
 The pure parts (budget, bake_id, index, schema check) import no baker; bake_place imports ridge, which needs RIDGE_TILES and RIDGE_WORK (main sets them from --tiles / --work), and so do pack, validate_manifest and write_bake, which read ridge's NEAR_CLIP_M and GROUND_ROWS_MIN."""
-import os, sys, json, math, shutil, hashlib, argparse, tempfile
+import os, sys, json, math, time, shutil, hashlib, argparse, tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 HERE = Path(__file__).resolve().parent
@@ -15,7 +16,7 @@ sys.path.insert(0, str(HERE))
 from refusal import Refusal
 import numpy as np, imagecodecs
 
-BAKER_VERSION = 8
+BAKER_VERSION = 9
 RING_W = 6400                          # the ring's columns (ridge.W, asserted in bake_place): column c is at azimuth (c + 0.5) / RING_W x 360, column 0 = north
 TILES = 32                             # azimuth tiles of the ring, each card cut into TILES files per kind (ruling ridge-camera-full-ring: the client loads the arc near its heading)
 TILE_W = RING_W // TILES               # 200 columns = 11.25 degrees owned by a tile
@@ -50,6 +51,7 @@ def _objnull(**props): return dict(_obj(**props), type=['object', 'null'])
 _file = _obj(file=_str, bytes=_int)
 _rgb = {'type': 'array', 'minItems': 3, 'maxItems': 3, 'items': _num}
 _material = dict(_obj(base=_rgb, ramps={'type': 'array', 'items': _obj(from_m=_num, to_m=_num, colour=_rgb)}, steep=_objnull(colour=_rgb), snow=_objnull(from_m=_num, to_m=_num, colour=_rgb)), description="The place's authored ground material (places.json materials, ridge.check_material), copied here: the client shades the surface's height with it.")
+_erosion = _objnull(amplitude_m=_num, cell_m=_num, octaves=_int, gully_weight=_num, detail=_num, fade_low_m=_num, fade_high_m=_num)
 _relief = _objnull(detail=_num, ridge_removal=_num, ridge_gain=_num, ridge_sharpness=_num, valley_removal=_num, valley_gain=_num, valley_limit=_num, slope_threshold_deg=_num, max_shift_m=_numnull)
 SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'ridge-bake manifest v4 and index v1', '$defs': {
     'manifest': _obj(schema={'const': 4}, baker_version=_int, bake_id=_str,
@@ -59,6 +61,7 @@ SCHEMA = {'$schema': 'https://json-schema.org/draft/2020-12/schema', 'title': 'r
         encoding=_obj(log_d_min=_num, log_d_max=_num, h_min_m=_num, h_max_m=_num, normal={'const': 'rt8-up-walls'}),
         material=_material,
         relief=dict(_relief, description="The generalisation knobs the terrain was baked with (places.json relief, canonical), null for the survey as it is.  Provenance only: the runtime never reads it."),
+        erosion=dict(_erosion, description="The erosion detail knobs the surface was baked with (places.json erosion, canonical), null for none.  Provenance only: the runtime never reads it."),
         camera=dict(_obj(r_max_m=_num, r_max_forward_m=_num), description="r_max_m (every camera angle on its circle) and r_max_forward_m (the camera on its heading) are the offsets up to which the linear slide holds (the fit error at most FIT_PX_MAX card px) for the NEAREST solid terrain (at or beyond the near clip, ridge.NEAR_CLIP_M, 500 m) that each card draws in each tile, not for the tile's median distance_m; a tile whose card 0 draws only near ground (under the clip) is slid at the clip distance (its distance_m) and binds at 500 m. The ground under the clip is drawn by card 0 from the near march and is otherwise not measured."),
         cards={'type': 'array', 'minItems': 1, 'maxItems': MAX_CARDS, 'items': _obj(near_m=_numnull, far_m=_numnull),
             'description': "nearest first; the runtime paints the list last to first.  near_m and far_m are the median seam depths over the ring, null at the ends."},
@@ -198,7 +201,7 @@ def bake_id(manifest_text, files):
 def write_bake(out, place, view, meta, packed, opaque, default=None, switch_index=False):
     """Write out/<place>-<bake_id>/ (tile WebPs + manifest.json; the id addresses both).  out/index.json and the place's previous directory are left alone unless switch_index: then the index names the new directory and the previous one is deleted.  packed: dict(cards [dict(near_m, far_m)], tiles [TILES][cards] of dict(top, surface bytes, geometry bytes, distance_m) or None,
     camera dict(r_max_m, r_max_forward_m), encoding dict(log_d_min, log_d_max, h_min_m, h_max_m)); opaque: TILES arrays (plane_h, TILE_W + 2 APRON), each the opaque view's coverage over a tile's columns.  Refuses before writing a bake whose files decode to the wrong size, leave the frame, break a budget (the resident gate at r_max_m and at r_max_forward_m) or composite
-    away from the opaque view in any tile.  meta: dict(curvature, material, relief).  Returns the directory."""
+    away from the opaque view in any tile.  meta: dict(curvature, material, relief, erosion).  Returns the directory."""
     cards, tiles, camera = packed['cards'], packed['tiles'], packed['camera']; k = len(cards); h = view['plane_h']; w = TILE_W + 2 * APRON
     if len(tiles) != TILES or len(opaque) != TILES or any(len(row) != k for row in tiles): raise Refusal(f'the bake needs {TILES} tiles of {k} cards each')
     for i in range(k):
@@ -222,7 +225,7 @@ def write_bake(out, place, view, meta, packed, opaque, default=None, switch_inde
         try: check_cover([(e['top'], pair[0][..., 3] / 255.0) for e, pair in zip(row, drow) if e], opaque[t])
         except Refusal as ex: raise Refusal(f'tile {t}: {ex}')
     out = Path(out)
-    manifest = dict(schema=4, baker_version=BAKER_VERSION, bake_id=BAKE_ID_BLANK, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(packed['encoding'], normal='rt8-up-walls'), material=meta['material'], relief=meta['relief'], camera=dict(r_max_m=camera['r_max_m'], r_max_forward_m=camera['r_max_forward_m']),
+    manifest = dict(schema=4, baker_version=BAKER_VERSION, bake_id=BAKE_ID_BLANK, place=place, view=dict(view, ring_w=RING_W, tile_w=TILE_W, tiles=TILES, apron=APRON), curvature=meta['curvature'], encoding=dict(packed['encoding'], normal='rt8-up-walls'), material=meta['material'], relief=meta['relief'], erosion=meta['erosion'], camera=dict(r_max_m=camera['r_max_m'], r_max_forward_m=camera['r_max_forward_m']),
                     cards=[dict(near_m=c['near_m'], far_m=c['far_m']) for c in cards],
                     tiles=[[None if e is None else dict(top=e['top'], h=pair[0].shape[0], distance_m=e['distance_m'], surface=dict(file=tile_file(i, t, 'surface'), bytes=len(e['surface'])), geometry=dict(file=tile_file(i, t, 'geometry'), bytes=len(e['geometry'])))
                              for i, (e, pair) in enumerate(zip(row, drow))] for t, (row, drow) in enumerate(zip(tiles, dec))], bytes=sum(tile_bytes), attribution=ATTRIBUTION)
@@ -256,17 +259,17 @@ def cut_ring(d, a, h, splits_km, near):
 def skyline(p):
     """(angle of the skyline in degrees per ring column, the prefiltered ray heights (K, ring)) of a preset's far march: configure, stage 0, prefilter, nothing else.  The contact sheet runs it on a preset without relief, the identity case of the same path, to measure what the generalisation moves."""
     import ridge
-    p = ridge.configure(dict(p)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); return a.max(0), h
+    p = ridge.configure(dict(p)); d, _, Hh, _ = ridge.stage0(); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); return a.max(0), h
 
 def bake_place(p):
     """The preset (ridge.load_preset's dict, or its id): configure (the terrain surface M' and the eye on it), stage 0, prefilter, set_view on the whole ring, the near march and its eye check, cut_ring: dict(place, view, meta, v, material, ground (survey, generalised), near5_deg (the highest near-ground angle above the eye within 5 m, degrees), sky (the skyline angle per column, the ray sample that makes it, the prefiltered ray heights), and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
     import ridge
     assert ridge.W == RING_W and ridge.H > 0
-    p = ridge.load_preset(p) if isinstance(p, str) else dict(p); material = ridge.load_material(p.get('material', 'alpine')); p = ridge.configure(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0))
+    p = ridge.load_preset(p) if isinstance(p, str) else dict(p); material = ridge.load_material(p.get('material', 'alpine')); p = ridge.configure(p); d, _, Hh, _ = ridge.stage0(); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0))
     near = ridge.near_march(p.get('prefilter_m', 0) or 0); ridge.check_eye_clear(near); ring = cut_ring(d, a, h, p['card_split_km'], near)
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'], tz=p['tz'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
-    meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])), material=material, relief=ridge.canon_relief(p.get('relief')))
+    meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])), material=material, relief=ridge.canon_relief(p.get('relief')), erosion=ridge.canon_erosion(p.get('erosion')))
     return dict(place=place, view=view, meta=meta, v=v, material=material, ground=(p['ground_raw_m'], p['ground_gen_m']), near5_deg=float(np.degrees(np.arctan2(np.asarray(near[2])[np.asarray(near[0]) <= 5.0] - p['eye_m'], np.asarray(near[0])[np.asarray(near[0]) <= 5.0][:, None])).max()), sky=(a.max(0), a.argmax(0), h), **ring)
 
 def height_range(bake):
@@ -386,14 +389,45 @@ def vs_raw(pid, out_dir, old_dir):
     if pid == 'grandcanyon': (out / f'{pid}__card0-near-ground-tiles-21-23-4x__{tag}.png').write_bytes(bytes(imagecodecs.png_encode(u8(_stack([_crop(*i, 'near') for i in imgs], 0)))))
     (out / f'{pid}__table.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8'); print('\n'.join(lines), flush=True)
 
+EROSION_SPREAD = (('mild', dict(amplitude_m=4.0, cell_m=240.0)), ('default', dict(amplitude_m=8.0, cell_m=240.0)), ('strong', dict(amplitude_m=16.0, cell_m=160.0)))   # strengths the operator picks between by eye (look knobs; the preset's own octaves, gully weight, detail and fade stay)
+RAW_BASES = ('fuji', 'amadablam')      # places whose sheet also shows the raw survey as a base, erosion with and without the generalisation
+def vs_erosion(pid, out_dir):
+    """The operator's erosion sheets of one place (nothing is written under public/ridge): the base surfaces 'medium' (the preset's relief under CAND_B, the Sculptor medium scale) and, for RAW_BASES, 'raw' (no relief), each as panels top to bottom: no erosion, then the preset's erosion at each EROSION_SPREAD strength.  Every panel is the same code path (bake_place), erosion removed or changed in the preset.
+    Files <place>__<base>__ring-quarter-width__<panels>.png (the ring at 1/4 of its width, the view's rows whole), <place>__<base>__look-crop-fullres__<panels>.png (1200 ring columns round the rest azimuth, every pixel, no scaling) and <place>__erosion-table.txt: per panel the helper seconds and calls, the bake seconds, the skyline drift against that base's own no-erosion panel (max and p99, metres and rows), the eye ground, the near ground angle and the worst tile against TILE_BYTES_MAX."""
+    import ridge
+    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True); p0 = ridge.load_preset(pid)
+    if not ridge.canon_erosion(p0.get('erosion')) or not p0.get('relief'): raise Refusal(f'{pid} has no erosion and relief: there is nothing to compare')
+    bases = [('medium', dict(p0, relief=dict(p0['relief'], **CAND_B)))] + ([('raw', {k: v for k, v in p0.items() if k != 'relief'})] if pid in RAW_BASES else []); lines = [f'{pid}  erosion {json.dumps(p0["erosion"])}  spread {json.dumps(dict(EROSION_SPREAD))}']; q = lambda a: a.reshape((a.shape[0], RING_W // 4, 4, 3)).mean(2)
+    for base, pb in bases:
+        names, imgs, crops, ref = [], [], [], None
+        for label, kn in (('none', None),) + EROSION_SPREAD:
+            p = {k: v for k, v in pb.items() if k != 'erosion'} if kn is None else dict(pb, erosion=dict(p0['erosion'], **kn)); name = f'{base}-{label}' + ('' if kn is None else f'{kn["amplitude_m"]:g}m{kn["cell_m"]:g}'); ridge.STATS.clear(); t0 = time.time()
+            try: bake = bake_place(p)
+            except Refusal as ex: lines.append(f'{name}: the bake is refused: {ex}'); continue         # a refusal is the finding: the sheet goes on without that panel
+            sec = time.time() - t0; sa, sk, sh = bake['sky']; ppd = bake['view']['px_per_deg_v']; cols = np.arange(RING_W)
+            if kn is None: ref = (sa, sh); drift = 'reference'
+            else: dm = np.abs(sh[sk, cols] - ref[1][sk, cols]); dr = np.abs(sa - ref[0]) * ppd; drift = f'skyline drift vs {base}-none: ground under the skyline sample moved max {dm.max():.1f} m p99 {np.percentile(dm, 99):.1f} m, frame rows max {dr.max():.1f} p99 {np.percentile(dr, 99):.1f} (px_per_deg_v {ppd:.1f})'
+            st = ridge.STATS; er = f'helper {st["erosion_helper_s"]:.1f} s ({st["erosion_s"]:.1f} s with IO), {st["erosion_calls"]} phacelle calls on {st["erosion_active"]} of {st["erosion_samples"]} samples' if 'erosion_s' in st else 'no helper call'
+            try: pk = pack(bake); tb = [sum(len(e['surface']) + len(e['geometry']) for e in row if e) for row in pk['tiles']]; size = f'worst tile {max(tb)} B of {TILE_BYTES_MAX}{" OVER" if max(tb) > TILE_BYTES_MAX else ""}, place {sum(tb)} B of {PLACE_BYTES_MAX}{" OVER" if sum(tb) > PLACE_BYTES_MAX else ""}'
+            except Refusal as ex: size = f'pack refuses: {ex}'
+            lines.append(f'{name}: {drift}; eye ground survey {bake["ground"][0]:.1f} m, generalised {bake["ground"][1]:.1f} m, eye {bake["place"]["eye_m"]:.1f} m; highest near-ground angle within 5 m {bake["near5_deg"]:+.1f} deg; {er}; bake {sec:.0f} s wall (a cached march is not timed); {size}')
+            names.append(name); img = flatten(*layers(bake)); imgs.append(img); c0 = int(round(bake['view']['look_az_deg'] / 360.0 * RING_W)); crops.append(img[0][:, (c0 - 600 + np.arange(1200)) % RING_W]); del bake
+        tag = '__'.join(names)
+        (out / f'{pid}__{base}__ring-quarter-width__{tag}.png').write_bytes(bytes(imagecodecs.png_encode(u8(_stack([q(i[0]) for i in imgs], 0)))))
+        (out / f'{pid}__{base}__look-crop-fullres__{tag}.png').write_bytes(bytes(imagecodecs.png_encode(u8(_stack(crops, 0)))))
+    (out / f'{pid}__erosion-table.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8'); print('\n'.join(lines), flush=True)
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0]); ap.add_argument('place', nargs='?'); ap.add_argument('--tiles'); ap.add_argument('--out'); ap.add_argument('--work'); ap.add_argument('--sheet', help='a contact sheet png; with --vs-raw, the directory of the operator sheets')
-    ap.add_argument('--vs-raw', action='store_true', help='the operator sheets of the place: old bake | its relief | candidate B, and the tables (writes nothing under --out)'); ap.add_argument('--old', default=str(HERE.parent.parent / 'public' / 'ridge'), help='the schema 3 bakes of --vs-raw'); ap.add_argument('--write-schema', action='store_true')
+    ap.add_argument('--vs-raw', action='store_true', help='the operator sheets of the place: old bake | its relief | candidate B, and the tables (writes nothing under --out)'); ap.add_argument('--vs-erosion', action='store_true', help='the erosion sheets of the place: the Sculptor medium surface (and the raw survey for fuji, amadablam) without and with erosion at a spread of strengths (writes nothing under --out)'); ap.add_argument('--old', default=str(HERE.parent.parent / 'public' / 'ridge'), help='the schema 3 bakes of --vs-raw'); ap.add_argument('--write-schema', action='store_true')
     ap.add_argument('--switch-index', action='store_true', help='point out/index.json at the new bake and delete the previous one (without it the index is left alone)')
     a = ap.parse_args(argv)
     if a.write_schema: (HERE / 'ridge-bake.schema.json').write_bytes((json.dumps(SCHEMA, indent=1, ensure_ascii=False) + '\n').encode('utf-8')); return 0
-    if not (a.place and a.tiles and (a.out or a.vs_raw)): ap.error('place, --tiles and --out (or --vs-raw) are required')
+    if not (a.place and a.tiles and (a.out or a.vs_raw or a.vs_erosion)): ap.error('place, --tiles and --out (or --vs-raw, --vs-erosion) are required')
     os.environ['RIDGE_TILES'] = a.tiles; os.environ['RIDGE_WORK'] = a.work or os.path.join(os.environ.get('TMPDIR', tempfile.gettempdir()), 'ridge-bake-work'); os.makedirs(os.environ['RIDGE_WORK'], exist_ok=True)
+    if a.vs_erosion:
+        if not a.sheet: ap.error('--vs-erosion needs --sheet DIR')
+        vs_erosion(a.place, a.sheet); return 0
     if a.vs_raw:
         if not a.sheet: ap.error('--vs-raw needs --sheet DIR')
         vs_raw(a.place, a.sheet, a.old); return 0
