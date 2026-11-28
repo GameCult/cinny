@@ -44,6 +44,7 @@ def load_preset(pid, path=Path(__file__).resolve().parent / 'places.json'):
     if not isinstance(tz, str) or not tz: raise Refusal(f"preset {pid}: tz is required (an IANA time zone name such as Europe/Vienna)")
     try: ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError, OSError): raise Refusal(f"preset {pid}: tz {tz!r} is not a time zone the system knows")
+    if 'ground_override_m' in p: raise Refusal(f"preset {pid}: ground_override_m is gone: the eye stands eye_h_m above the final surface at the observer, never at a stored altitude")
     canon_relief(p.get('relief'))
     return p
 
@@ -194,14 +195,17 @@ def cubic(a, lat_top, lon_left, lat, lon):
         for i in range(4): out = out + wy[j] * wx[i] * a[yi, np.clip(x0 + i - 1, 0, a.shape[1] - 1)]
     return out
 
+def surface(lat, lon):
+    """The final terrain surface at lat, lon (arrays of one shape): the one reader the eye and the near march stand on.  It is the Catmull-Rom (cubic) read of the generalised mosaic M'; the erosion detail of cut-ridge-erosion-detail joins here, so the eye and every ground sample see the same surface."""
+    m, lt, ll = mosaic(P); return cubic(m, lt, ll, lat, lon)
+
 def configure(p):
-    """Set the module state for a preset: observer, eye elevation (ground of the terrain surface M' at the observer, cubic, + eye height, or ground_override; prints the survey's ground beside it and refuses a generalised ground more than max_shift_m from it), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
+    """Set the module state for a preset: observer, eye elevation (the final surface at the observer, ridge.surface, + eye height: never a stored altitude; prints the survey's ground, the generalised ground and the final ground, and refuses a generalised ground more than max_shift_m from the survey), rest azimuth (az_center: where the view looks at rest; the ring itself is absolute compass, column 0 = north)."""
     global P
-    P = p; m, lt, ll = mosaic(p); g = float(cubic(m, lt, ll, np.array(p['lat']), np.array(p['lon']))); rg = raw_ground(p); k = canon_relief(p.get('relief')); s = k and k['max_shift_m']
-    print(f"{p['id']}: ground at the observer raw {rg:.1f} m, generalised {g:.1f} m, difference {g - rg:+.1f} m", file=sys.stderr, flush=True)
+    P = p; mosaic(p); g = float(surface(np.array(p['lat']), np.array(p['lon']))); rg = raw_ground(p); k = canon_relief(p.get('relief')); s = k and k['max_shift_m']
+    print(f"{p['id']}: ground at the observer survey {rg:.1f} m, generalised {g:.1f} m, final {g:.1f} m (generalised {g - rg:+.1f} m from the survey)", file=sys.stderr, flush=True)
     if s is not None and abs(g - rg) > s: raise Refusal(f"preset {p['id']}: the generalised ground at the observer differs from the survey by {abs(g - rg):.1f} m, above max_shift_m {s:g}")
-    ground = p['ground_override_m'] if 'ground_override_m' in p else g
-    P['ground_m'] = ground; P['eye_m'] = ground + p['eye_h_m']; P['ground_raw_m'] = rg; P['ground_gen_m'] = g
+    P['ground_m'] = g; P['eye_m'] = g + p['eye_h_m']; P['ground_raw_m'] = rg; P['ground_gen_m'] = g
     if 'look_at' in p:
         la, lo = p['look_at']; P['az_center'] = (math.degrees(math.atan2((lo - p['lon']) * math.cos(math.radians(p['lat'])), la - p['lat'])) + 360) % 360
     else: P['az_center'] = p['az_deg']
@@ -273,14 +277,14 @@ def near_schedule():
     while d[-1] + min(10.0, max(1.0, 0.02 * d[-1])) < NEAR_CLIP_M: d.append(d[-1] + min(10.0, max(1.0, 0.02 * d[-1])))
     return np.array(d)
 def near_march(sigma_m=0.0):
-    """(d, a, h) of the ground under the near clip: the place's own terrain surface M', Catmull-Rom (cubic), sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
-    m, lt, ll = mosaic(P); az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = near_schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
-    h = np.stack([np.asarray(cubic(m, lt, ll, P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
+    """(d, a, h) of the ground under the near clip: the place's final terrain surface (ridge.surface), sampled along near_schedule() on all W columns in float64 (no cache: one pass is about 170 x 6400 samples), low-passed with the place's own prefilter (sigma_m = prefilter_m) like the far march."""
+    az = np.radians((np.arange(W) + 0.5) / W * 360.0); d = near_schedule(); cosl = math.cos(math.radians(P['lat'])); sa, ca = np.sin(az), np.cos(az)
+    h = np.stack([np.asarray(surface(P['lat'] + dk * ca / 111320.0, P['lon'] + dk * sa / (111320.0 * cosl)), np.float64) for dk in d]); a, h = prefilter(d, h, sigma_m)
     return d, a, h
 def check_eye_clear(near):
-    """Refuse a bake whose near march stands above the eye within 5 m of the observer: the generalised surface may not put the ground through the eye."""
-    d, a, h = near; hi = float(np.asarray(h)[np.asarray(d) <= 5.0].max())
-    if hi > P['eye_m']: raise Refusal(f"preset {P['id']}: the near ground within 5 m of the observer stands {hi:.1f} m, above the eye at {P['eye_m']:.1f} m")
+    """Refuse a bake whose near ground stands at or above the eye at the first near sample (d <= NEAR_START_M, 1 m): a face steeper than about 58 degrees at the feet puts the eye inside a wall.  Uphill ground above eye level a few metres away is real on a hillside and stays under the 500 m outline (join_near's cap), so only the first sample counts."""
+    d, a, h = near; hi = float(np.asarray(h)[np.asarray(d) <= NEAR_START_M].max())
+    if hi >= P['eye_m']: raise Refusal(f"preset {P['id']}: the near ground {NEAR_START_M:g} m from the observer stands {hi:.1f} m, at or above the eye at {P['eye_m']:.1f} m: the eye is inside a wall")
 def join_near(d, a, h, near):
     """The one join of the near march to the far march (d, a, h: (K, W), set_view done): returns (D, A, Hc, nrm) for cards, near samples first.  The near angles are capped per column at the angle of the far march's first sample, a[0]: the near ground draws inside the silhouette of the terrain at the clip
     and no near hill rises above it (ruling ridge-near-ground-outline).  The normals of the two marches are computed apart and concatenated, so the far normals are those of the far march alone.  Needs the whole ring (the cap and the lateral normal read ring columns): cut the tiles from the result."""

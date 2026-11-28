@@ -259,7 +259,7 @@ def skyline(p):
     p = ridge.configure(dict(p)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); return a.max(0), h
 
 def bake_place(p):
-    """The preset (ridge.load_preset's dict, or its id): configure (the terrain surface M' and the eye on it), stage 0, prefilter, set_view on the whole ring, the near march and its eye check, cut_ring: dict(place, view, meta, v, material, ground (survey, generalised), sky (the skyline angle per column, the ray sample that makes it, the prefiltered ray heights), and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
+    """The preset (ridge.load_preset's dict, or its id): configure (the terrain surface M' and the eye on it), stage 0, prefilter, set_view on the whole ring, the near march and its eye check, cut_ring: dict(place, view, meta, v, material, ground (survey, generalised), near5_deg (the highest near-ground angle above the eye within 5 m, degrees), sky (the skyline angle per column, the ray sample that makes it, the prefiltered ray heights), and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
     import ridge
     assert ridge.W == RING_W and ridge.H > 0
     p = ridge.load_preset(p) if isinstance(p, str) else dict(p); material = ridge.load_material(p.get('material', 'alpine')); p = ridge.configure(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0))
@@ -267,7 +267,7 @@ def bake_place(p):
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'], tz=p['tz'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])), material=material, relief=ridge.canon_relief(p.get('relief')))
-    return dict(place=place, view=view, meta=meta, v=v, material=material, ground=(p['ground_raw_m'], p['ground_gen_m']), sky=(a.max(0), a.argmax(0), h), **ring)
+    return dict(place=place, view=view, meta=meta, v=v, material=material, ground=(p['ground_raw_m'], p['ground_gen_m']), near5_deg=float(np.degrees(np.arctan2(np.asarray(near[2])[np.asarray(near[0]) <= 5.0] - p['eye_m'], np.asarray(near[0])[np.asarray(near[0]) <= 5.0][:, None])).max()), sky=(a.max(0), a.argmax(0), h), **ring)
 
 def height_range(bake):
     """The bake's encoding with the height range of its surface files: the lowest and highest height of any card pixel (alpha above zero), rounded out to 0.1 m."""
@@ -373,7 +373,7 @@ def vs_raw(pid, out_dir, old_dir):
         try: bake = bake_place(p)
         except Refusal as ex: lines.append(f'{name}: the bake is refused: {ex}'); continue         # a refusal is the finding: the sheet goes on without that panel
         names.append(name); sa, sk, sh = bake['sky']; ppd = bake['view']['px_per_deg_v']; cols = np.arange(RING_W); dm = np.abs(sh[sk, cols] - raw_hh[sk, cols]); dr = np.abs(sa - raw_a) * ppd; st = ridge.STATS
-        lines.append(f'{name}: skyline drift vs the survey: ground under the skyline sample moved max {dm.max():.1f} m p99 {np.percentile(dm, 99):.1f} m; frame rows max {dr.max():.1f} p99 {np.percentile(dr, 99):.1f} (px_per_deg_v {ppd:.1f}); eye ground survey {bake["ground"][0]:.1f} m, generalised {bake["ground"][1]:.1f} m; '
+        lines.append(f'{name}: skyline drift vs the survey: ground under the skyline sample moved max {dm.max():.1f} m p99 {np.percentile(dm, 99):.1f} m; frame rows max {dr.max():.1f} p99 {np.percentile(dr, 99):.1f} (px_per_deg_v {ppd:.1f}); eye ground survey {bake["ground"][0]:.1f} m, generalised and final {bake["ground"][1]:.1f} m, eye {bake["place"]["eye_m"]:.1f} m; highest near-ground angle within 5 m {bake["near5_deg"]:+.1f} deg; '
                      + (f'relief {st["relief_s"]:.0f} s, peak RSS {st["relief_rss_mb"]:.0f} MB' if st else 'relief cached (not timed)'))
         try:
             pk = pack(bake); sb = [sum(len(e['surface']) for e in row if e) for row in pk['tiles']]; tb = [sum(len(e['surface']) + len(e['geometry']) for e in row if e) for row in pk['tiles']]

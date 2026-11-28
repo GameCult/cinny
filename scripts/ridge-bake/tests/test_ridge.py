@@ -2,6 +2,7 @@
 RIDGE_SRC selects the source directory (default ..) (the mutation runner points it at a patched copy).
 Synthetic terrain has a known right answer; the Vienna tests bake the real preset (its rays come from stage0: RIDGE_TILES needs the tiles, or a cached rays file must exist)."""
 import os, sys, math, json, shutil, tempfile, traceback
+from pathlib import Path
 SRC = os.environ.get('RIDGE_SRC') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'); sys.path.insert(0, SRC)   # RIDGE_WORK and RIDGE_TILES must be set (tests/run.sh sets them)
 import numpy as np, ridge, export
 from ridge import W, H
@@ -870,12 +871,17 @@ def test_mosaic_key_includes_relief():
         for k in [k for k in ridge._mos if k[0] == 'cachetest']: ridge._mos.pop(k)
         for k in [k for k in ridge._raw if k[0] == 'cachetest']: ridge._raw.pop(k)
 def test_eye_ground_reads_relief_surface():
-    """On a synthetic mosaic the observer's ground is cubic(M') and nothing else (plus the eye height), ground_override_m still wins, and a generalised ground more than max_shift_m from the survey refuses the bake."""
+    """On a synthetic mosaic the eye is exactly the final surface at the observer (ridge.surface, the cubic read of M') plus eye_h_m, never the survey; load_preset refuses a preset with ground_override_m; a generalised ground more than max_shift_m from the survey refuses the bake, and null is unbounded."""
     n = 60; lat, lon = 47.0, 11.0; lt, ll = lat + 30.5 / 3600, lon - 30.5 / 3600; M = np.full((n, n), 1000.0, np.float32); M[28:32, 28:32] = 1100.0; M2 = M + 40.0
     p = dict(id='eyetest', lat=lat, lon=lon, rmax_km=1, eye_h_m=1.6, az_deg=0.0, relief=dict(KN)); rk = (p['id'], ridge.raw_key(p)); mk = (p['id'], ridge.mosaic_key(p)); saved = ridge.P
     try:
         ridge._raw[rk] = (M, lt, ll); ridge._mos[mk] = (M2, lt, ll); q = ridge.configure(dict(p)); want = float(ridge.cubic(M2, lt, ll, np.array(lat), np.array(lon))); assert q['ground_m'] == want and abs(q['eye_m'] - (want + 1.6)) < 1e-9 and q['ground_raw_m'] != q['ground_m'], (q['ground_m'], want)
-        assert ridge.configure(dict(p, ground_override_m=123.0))['ground_m'] == 123.0
+        assert abs(float(ridge.surface(np.array(lat), np.array(lon))) - want) < 1e-9
+        d = tempfile.mkdtemp(); pj = Path(d) / 'places.json'; base = dict(id='x', name='x', lat=lat, lon=lon, eye_h_m=1.6, az_deg=0.0, rmax_km=1, card_split_km=[6], tz='UTC'); pj.write_text(json.dumps(dict(presets=[dict(base, ground_override_m=123.0)])))
+        try: ridge.load_preset('x', pj)
+        except export.Refusal as e: assert 'ground_override_m' in str(e), str(e)
+        else: assert False, 'a stored eye altitude was accepted'
+        pj.write_text(json.dumps(dict(presets=[base]))); assert 'ground_override_m' not in ridge.load_preset('x', pj)
         ridge._mos[mk] = (M + 100.0, lt, ll)
         try: ridge.configure(dict(p))
         except export.Refusal as e: assert 'max_shift_m' in str(e), str(e)
@@ -918,15 +924,20 @@ def test_march_and_near_march_read_the_surface_not_the_survey():
         assert np.abs(Hh - 1200.0).max() < 1e-3 and np.abs(hn - 1200.0).max() < 1e-3, (float(Hh.min()), float(Hh.max()), float(hn.min()), float(hn.max()))
     finally: ridge.P, ridge.PXDEG_V = saved; ridge._raw.pop(rk, None); ridge._mos.pop(mk, None)
 
-def test_the_near_ground_may_not_stand_above_the_eye():
-    """check_eye_clear refuses a near march whose samples within 5 m of the observer stand above the eye and accepts one that stands at it; samples beyond 5 m do not count."""
-    saved = ridge.P; ridge.P = dict(id='eyeclear', eye_m=100.0); dn = ridge.near_schedule(); h = np.full((len(dn), 8), 90.0)
+def test_eye_check_at_first_sample():
+    """check_eye_clear counts the first near sample only (d <= NEAR_START_M, 1 m): ground at the eye refuses, ground just under passes, ground above the eye from the second sample on does not count; a 30 degree slope under the observer passes (a 5 m check would refuse it), a 70 degree face within 1 m refuses; the unmodified Grand Canyon survey passes with its real tiles."""
+    saved = ridge.P; ridge.P = dict(id='eyeclear', eye_m=100.0); dn = ridge.near_schedule(); h = np.full((len(dn), 8), 90.0); assert dn[0] == ridge.NEAR_START_M and dn[1] > ridge.NEAR_START_M
     try:
-        ridge.check_eye_clear((dn, None, h)); h2 = h.copy(); h2[dn > 5.0] = 150.0; ridge.check_eye_clear((dn, None, h2)); h3 = h.copy(); h3[dn <= 5.0] = 100.0; ridge.check_eye_clear((dn, None, h3))
-        h4 = h.copy(); h4[np.flatnonzero(dn <= 5.0)[-1], 3] = 100.5
+        ridge.check_eye_clear((dn, None, h)); h2 = h.copy(); h2[1:] = 150.0; ridge.check_eye_clear((dn, None, h2)); h3 = h.copy(); h3[0] = 99.9; ridge.check_eye_clear((dn, None, h3))
+        h4 = h.copy(); h4[0, 3] = 100.0
         try: ridge.check_eye_clear((dn, None, h4))
-        except export.Refusal as e: assert 'above the eye' in str(e), str(e)
-        else: assert False, 'a near sample above the eye was accepted'
+        except export.Refusal as e: assert 'inside a wall' in str(e), str(e)
+        else: assert False, 'ground at the eye at the first sample was accepted'
+        for deg, ok in ((30.0, True), (70.0, False)):
+            hs = 100.0 - 1.6 + np.tan(np.radians(deg)) * dn[:, None] * np.ones((1, 8)); ridge.P = dict(id='slope', eye_m=100.0)    # a slope rising from the foot of a 1.6 m eye
+            try: ridge.check_eye_clear((dn, None, hs)); assert ok, f'a {deg} degree face at the feet was accepted'
+            except export.Refusal: assert not ok, f'a {deg} degree slope was refused'
+        p = ridge.load_preset('grandcanyon'); p = dict(p, relief=None); p = ridge.configure(p); near = ridge.near_march(p.get('prefilter_m', 0) or 0); ridge.check_eye_clear(near)
     finally: ridge.P = saved
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 if __name__ == '__main__':
