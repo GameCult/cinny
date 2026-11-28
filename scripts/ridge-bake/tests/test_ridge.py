@@ -955,7 +955,7 @@ EKN = dict(amplitude_m=8.0, cell_m=240.0, octaves=6, gully_weight=0.5, detail=1.
 def _plane_place(pid, **kw):
     """A preset on a synthetic tilted-plane mosaic (injected under its own keys, so no tile is read) and its key pair for cleanup: (place, (raw key, mosaic key), ground function of lat, lon)."""
     lat, lon, n = 47.0, 11.0, 400; lt, ll = lat + 200 / 3600.0, lon - 200 / 3600.0; yy, xx = np.mgrid[0:n, 0:n]; M = (1000.0 + 0.4 * xx - 0.25 * yy).astype(np.float32)
-    p = dict(id=pid, lat=lat, lon=lon, rmax_km=2, eye_h_m=1.6, az_deg=0.0, **kw); rk = (pid, ridge.raw_key(p)); mk = (pid, ridge.mosaic_key(p)); ridge._raw[rk] = (M, lt, ll); ridge._mos[mk] = (M, lt, ll); return p, (rk, mk), (M, lt, ll)
+    p = dict(dict(id=pid, lat=lat, lon=lon, rmax_km=2, eye_h_m=1.6, az_deg=0.0), **kw); rk = (pid, ridge.raw_key(p)); mk = (pid, ridge.mosaic_key(p)); ridge._raw[rk] = (M, lt, ll); ridge._mos[mk] = (M, lt, ll); return p, (rk, mk), (M, lt, ll)
 def _drop(keys): ridge._raw.pop(keys[0], None); ridge._mos.pop(keys[1], None)
 def _with_helper(fake, fn):
     """Run fn with ridge.erode replaced by fake and a stand-in helper identity, restoring both."""
@@ -1012,14 +1012,14 @@ def test_far_floor_schedule():
 
 def test_footprint_is_the_schedule_step():
     """The F passed per sample equals np.gradient of the march's own schedule, for both marches; the near march's last F and the far march's first F differ by under 1 m."""
-    p, keys, _ = _plane_place('foot', erosion=dict(EKN)); saved = ridge.P; calls = []
+    p, keys, _ = _plane_place('foot', erosion=dict(EKN), rmax_km=60); saved = ridge.P; calls = []     # 60 km: the far step grows past the 10 m floor, so a constant F is not the schedule step
     def fake(E, N, h, gE, gN, F, k): calls.append((np.asarray(E).copy(), np.asarray(F).copy())); return np.zeros(np.shape(h))
     try:
         ridge.P = dict(p, eye_m=1300.0)
         def run(): ridge.march(); ridge.near_march(0.0)
         _with_helper(fake, run); (Ef, Ff), (En, Fn) = calls; far = np.gradient(ridge.schedule()); near = np.gradient(ridge.near_schedule())
         assert np.array_equal(Ff.reshape(len(far), W), np.broadcast_to(far[:, None], (len(far), W))) and np.array_equal(Fn.reshape(len(near), W), np.broadcast_to(near[:, None], (len(near), W)))
-        assert abs(near[-1] - far[0]) < 1.0 and near[-1] <= 10.0 and far[0] == 10.0, (near[-1], far[0])
+        assert abs(near[-1] - far[0]) < 1.0 and near[-1] <= 10.0 and far[0] == 10.0 and far.max() > 100.0, (near[-1], far[0], far.max())
     finally: ridge.P = saved; _drop(keys)
 
 def test_eye_ground_on_eroded_surface():
