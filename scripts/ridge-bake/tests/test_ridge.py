@@ -220,6 +220,7 @@ def _write(out, b, packed, **kw):
 def _refuses(out, b, packed, why, **kw):
     try: _write(out, b, packed, **kw)
     except export.Refusal: assert not os.path.exists(out), ('a refused bake left files', why)
+    except Exception as e: assert False, ('refused by a crash, not by a Refusal', why, repr(e))
     else: assert False, why
 def _pins():
     assert (export.RING_W, export.TILES, export.TILE_W, export.APRON, export.MAX_CARDS, export.BAKER_VERSION) == (6400, 32, 200, 3, 6, 8), 'the ring layout is pinned'
@@ -858,6 +859,9 @@ def test_mosaic_key_includes_relief():
         for knob, v in dict(detail=2, ridge_removal=3, ridge_gain=0.3, ridge_sharpness=1.0, valley_removal=3, valley_gain=0.2, valley_limit=0.5, slope_threshold_deg=15, max_shift_m=40).items():
             p = dict(base, relief=dict(KN, **{knob: v})); ridge.P = p; assert ridge.mosaic_key(p) != k0[0] and ridge.rays_key(False) != k0[1] and ridge.raw_key(p) == ridge.raw_key(base), knob
         ridge.P = dict(base, id='other'); assert (ridge.mosaic_key(ridge.P), ridge.rays_key(False)) == k0, 'the preset id changed a key'
+        v = ridge.RELIEF_VERSION; ridge.P = dict(base)
+        try: ridge.RELIEF_VERSION = v + 1; assert ridge.mosaic_key(base) != k0[0], 'a new RELIEF_VERSION kept the surface key'
+        finally: ridge.RELIEF_VERSION = v
     finally: ridge.P = saved
     savedB = ridge.B; d = tempfile.mkdtemp(); ridge.B = type(savedB)(d); M = (np.random.default_rng(4).random((40, 40)) * 300 + 1000).astype(np.float32); keys = []
     try:
@@ -927,8 +931,11 @@ def test_march_and_near_march_read_the_surface_not_the_survey():
 def test_eye_check_at_first_sample():
     """check_eye_clear counts the first near sample only (d <= NEAR_START_M, 1 m): ground at the eye refuses, ground just under passes, ground above the eye from the second sample on does not count; a 30 degree slope under the observer passes (a 5 m check would refuse it), a 70 degree face within 1 m refuses; the unmodified Grand Canyon survey passes with its real tiles."""
     saved = ridge.P; ridge.P = dict(id='eyeclear', eye_m=100.0); dn = ridge.near_schedule(); h = np.full((len(dn), 8), 90.0); assert dn[0] == ridge.NEAR_START_M and dn[1] > ridge.NEAR_START_M
+    def clear(hh, what):
+        try: ridge.check_eye_clear((dn, None, hh))
+        except export.Refusal as e: raise AssertionError((what, str(e)))
     try:
-        ridge.check_eye_clear((dn, None, h)); h2 = h.copy(); h2[1:] = 150.0; ridge.check_eye_clear((dn, None, h2)); h3 = h.copy(); h3[0] = 99.9; ridge.check_eye_clear((dn, None, h3))
+        clear(h, 'ground below the eye'); h2 = h.copy(); h2[1:] = 150.0; clear(h2, 'ground above the eye from the second sample on'); h3 = h.copy(); h3[0] = 99.9; clear(h3, 'ground just under the eye at the first sample')
         h4 = h.copy(); h4[0, 3] = 100.0
         try: ridge.check_eye_clear((dn, None, h4))
         except export.Refusal as e: assert 'inside a wall' in str(e), str(e)
@@ -937,7 +944,9 @@ def test_eye_check_at_first_sample():
             hs = 100.0 - 1.6 + np.tan(np.radians(deg)) * dn[:, None] * np.ones((1, 8)); ridge.P = dict(id='slope', eye_m=100.0)    # a slope rising from the foot of a 1.6 m eye
             try: ridge.check_eye_clear((dn, None, hs)); assert ok, f'a {deg} degree face at the feet was accepted'
             except export.Refusal: assert not ok, f'a {deg} degree slope was refused'
-        p = ridge.load_preset('grandcanyon'); p = dict(p, relief=None); p = ridge.configure(p); near = ridge.near_march(p.get('prefilter_m', 0) or 0); ridge.check_eye_clear(near)
+        p = ridge.load_preset('grandcanyon'); p = dict(p, relief=None); p = ridge.configure(p); near = ridge.near_march(p.get('prefilter_m', 0) or 0)
+        try: ridge.check_eye_clear(near)
+        except export.Refusal as e: raise AssertionError(('the unmodified Grand Canyon survey was refused', str(e)))
     finally: ridge.P = saved
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 if __name__ == '__main__':
