@@ -254,12 +254,12 @@ def cut_ring(d, a, h, splits_km, near):
     return dict(cards=tiles, splits_km=list(splits_km), seams=sm, cov=cov, opaque=[cols(op, t) for t in range(TILES)], edges=ridge.log_edges(d))
 
 def skyline(p):
-    """(angle of the skyline in degrees per ring column, height of the sample that makes it) of a preset's prefiltered far march: configure, stage 0, prefilter, nothing else.  The contact sheet runs it on a preset without relief, the identity case of the same path, to measure what the generalisation moves."""
+    """(angle of the skyline in degrees per ring column, the prefiltered ray heights (K, ring)) of a preset's far march: configure, stage 0, prefilter, nothing else.  The contact sheet runs it on a preset without relief, the identity case of the same path, to measure what the generalisation moves."""
     import ridge
-    p = ridge.configure(dict(p)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); return a.max(0), h[a.argmax(0), np.arange(ridge.W)]
+    p = ridge.configure(dict(p)); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); return a.max(0), h
 
 def bake_place(p):
-    """The preset (ridge.load_preset's dict, or its id): configure (the terrain surface M' and the eye on it), stage 0, prefilter, set_view on the whole ring, the near march and its eye check, cut_ring: dict(place, view, meta, v, material, ground (survey, generalised), sky (see skyline), and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
+    """The preset (ridge.load_preset's dict, or its id): configure (the terrain surface M' and the eye on it), stage 0, prefilter, set_view on the whole ring, the near march and its eye check, cut_ring: dict(place, view, meta, v, material, ground (survey, generalised), sky (the skyline angle per column, the ray sample that makes it, the prefiltered ray heights), and cut_ring's cards, splits_km, seams, cov, opaque, edges).  Needs RIDGE_TILES / RIDGE_WORK."""
     import ridge
     assert ridge.W == RING_W and ridge.H > 0
     p = ridge.load_preset(p) if isinstance(p, str) else dict(p); material = ridge.load_material(p.get('material', 'alpine')); p = ridge.configure(p); d, _, Hh, _ = ridge.stage0(False); a, h = ridge.prefilter(d, Hh, p.get('prefilter_m', 0)); v = ridge.set_view(a.max(0))
@@ -267,7 +267,7 @@ def bake_place(p):
     place = dict(id=p['id'], name=p['name'], lat=p['lat'], lon=p['lon'], altitude_km=p['ground_m'] / 1000.0, eye_m=p['eye_m'], tz=p['tz'])
     view = dict(look_az_deg=p['az_center'], plane_h=ridge.H, px_per_deg_h=ridge.HPX_DEG, px_per_deg_v=v['px_per_deg'], exaggeration=v['exaggeration'], horizon_row=v['horizon_row'], sky_row=v['sky_row'] * ridge.H, near_row=v['near_row'] * ridge.H)
     meta = dict(curvature=dict(r_earth_m=ridge.R_EARTH, k_ref=ridge.KREF), encoding=dict(log_d_min=math.log(d[0]), log_d_max=math.log(d[-1])), material=material, relief=ridge.canon_relief(p.get('relief')))
-    return dict(place=place, view=view, meta=meta, v=v, material=material, ground=(p['ground_raw_m'], p['ground_gen_m']), sky=(a.max(0), h[a.argmax(0), np.arange(ridge.W)]), **ring)
+    return dict(place=place, view=view, meta=meta, v=v, material=material, ground=(p['ground_raw_m'], p['ground_gen_m']), sky=(a.max(0), a.argmax(0), h), **ring)
 
 def height_range(bake):
     """The bake's encoding with the height range of its surface files: the lowest and highest height of any card pixel (alpha above zero), rounded out to 0.1 m."""
@@ -360,17 +360,20 @@ def _stack(panels, axis):
 
 def vs_raw(pid, out_dir, old_dir):
     """The operator's sheets of one place (nothing is written under public/ridge): the old schema 3 bake in old_dir, the preset's own relief knobs ('large-scale') and CAND_B over them ('medium'), each at 1/4 of the ring's width stacked in that order top to bottom, the 4x crops (a crest of the Matterhorn, the near ground of the Grand Canyon's card 0) side by side or stacked in the same order, and a table of what the generalisation moved: the skyline against the same
-    preset with its relief removed (the identity case of the same path), in metres of crest height and in rows of the frame (max and p99), the eye ground raw and generalised, the relief seconds and peak RSS when computed in this process, and the surface bytes against the old colour bytes, the worst tile against TILE_BYTES_MAX (a cap is never raised to fit).  Files named <place>__<what>__<panels in order>.png and <place>__table.txt."""
+    preset with its relief removed (the identity case of the same path), in metres (how far the ground under the generalised skyline's own ray sample moved) and in rows of the frame (max and p99), the eye ground raw and generalised, the relief seconds and peak RSS when computed in this process, and the surface bytes against the old colour bytes, the worst tile against TILE_BYTES_MAX (a cap is never raised to fit).  Files named <place>__<what>__<panels in order>.png and <place>__table.txt."""
     import ridge
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True); p0 = ridge.load_preset(pid)
     if not p0.get('relief'): raise Refusal(f'{pid} has no relief: there is nothing to compare')
     old = Path(old_dir) / json.loads((Path(old_dir) / 'index.json').read_text())['places'][pid]; om = json.loads((old / 'manifest.json').read_text())
-    raw_a, raw_h = skyline({k: v for k, v in p0.items() if k != 'relief'}); orgb, oal = old_layers(old); names = ['old-schema3', 'large-scale', 'medium']; imgs = [flatten(orgb, oal)]; lines = [f'{pid}  relief {json.dumps(p0["relief"])}  (medium: {json.dumps(CAND_B)} over it)']
+    raw_a, raw_hh = skyline({k: v for k, v in p0.items() if k != 'relief'}); orgb, oal = old_layers(old); names = ['old-schema3']; imgs = [flatten(orgb, oal)]; lines = [f'{pid}  relief {json.dumps(p0["relief"])}  (medium: {json.dumps(CAND_B)} over it)']
     ob = [sum(e['colour']['bytes'] for e in row if e) for row in om['tiles']]; og = [sum(e['geometry']['bytes'] for e in row if e) for row in om['tiles']]
     lines.append(f'old schema-3 bake {old.name}: colour {sum(ob)} B, geometry {sum(og)} B, worst tile {max(a + b for a, b in zip(ob, og))} B, place {om["bytes"]} B')
     for name, p in (('large-scale', p0), ('medium', dict(p0, relief=dict(p0['relief'], **CAND_B)))):
-        ridge.STATS.clear(); bake = bake_place(p); sa, sh = bake['sky']; ppd = bake['view']['px_per_deg_v']; dm = np.abs(sh - raw_h); dr = np.abs(sa - raw_a) * ppd; st = ridge.STATS
-        lines.append(f'{name}: skyline drift vs the survey: crest height max {dm.max():.1f} m p99 {np.percentile(dm, 99):.1f} m; frame rows max {dr.max():.1f} p99 {np.percentile(dr, 99):.1f} (px_per_deg_v {ppd:.1f}); eye ground survey {bake["ground"][0]:.1f} m, generalised {bake["ground"][1]:.1f} m; '
+        ridge.STATS.clear()
+        try: bake = bake_place(p)
+        except Refusal as ex: lines.append(f'{name}: the bake is refused: {ex}'); continue         # a refusal is the finding: the sheet goes on without that panel
+        names.append(name); sa, sk, sh = bake['sky']; ppd = bake['view']['px_per_deg_v']; cols = np.arange(RING_W); dm = np.abs(sh[sk, cols] - raw_hh[sk, cols]); dr = np.abs(sa - raw_a) * ppd; st = ridge.STATS
+        lines.append(f'{name}: skyline drift vs the survey: ground under the skyline sample moved max {dm.max():.1f} m p99 {np.percentile(dm, 99):.1f} m; frame rows max {dr.max():.1f} p99 {np.percentile(dr, 99):.1f} (px_per_deg_v {ppd:.1f}); eye ground survey {bake["ground"][0]:.1f} m, generalised {bake["ground"][1]:.1f} m; '
                      + (f'relief {st["relief_s"]:.0f} s, peak RSS {st["relief_rss_mb"]:.0f} MB' if st else 'relief cached (not timed)'))
         try:
             pk = pack(bake); sb = [sum(len(e['surface']) for e in row if e) for row in pk['tiles']]; tb = [sum(len(e['surface']) + len(e['geometry']) for e in row if e) for row in pk['tiles']]
