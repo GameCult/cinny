@@ -897,9 +897,9 @@ def test_schema4_carries_relief():
 def test_no_gpl_source_in_tree():
     """No .java file, no class or package name of the GPL Java source of Terrain Sculptor and no path to a checkout of it anywhere in scripts/ or src/ (text files), and the baker's own files cite the 2010 papers only."""
     import re
-    root = os.path.abspath(os.path.join(SRC, '..', '..')); pat = re.compile('|'.join(['Terrain' + 'SculptorFilter', 'Grid' + 'GaussLowPass', 'Positive' + 'MaximumCurvature', 'Negative' + 'MinimumCurvature', 'Curvature' + 'Combine', 'Weighted' + 'ScaleOperator', 'package ' + 'ika', 'import ' + 'ika'])); path_pat = re.compile('/tmp' + '/ts|OSU' + 'Cartography'); seen = 0
-    for top in ('scripts', 'src'):
-        for dp, dn, fn in os.walk(os.path.join(root, top)):
+    root = os.path.abspath(os.path.join(SRC, '..', '..')); roots = [SRC] + ([os.path.join(root, 'scripts'), os.path.join(root, 'src')] if os.path.isdir(os.path.join(root, 'src')) and os.path.isdir(os.path.join(root, 'scripts')) else []); pat = re.compile('|'.join(['Terrain' + 'SculptorFilter', 'Grid' + 'GaussLowPass', 'Positive' + 'MaximumCurvature', 'Negative' + 'MinimumCurvature', 'Curvature' + 'Combine', 'Weighted' + 'ScaleOperator', 'package ' + 'ika', 'import ' + 'ika'])); path_pat = re.compile('/tmp' + '/ts|OSU' + 'Cartography'); seen = 0
+    for top in roots:
+        for dp, dn, fn in os.walk(top):
             dn[:] = [x for x in dn if x not in ('node_modules', '__pycache__', '.git')]
             for f in fn:
                 assert not f.endswith('.java'), ('a Java file in the tree', f); p = os.path.join(dp, f)
@@ -918,6 +918,16 @@ def test_march_and_near_march_read_the_surface_not_the_survey():
         assert np.abs(Hh - 1200.0).max() < 1e-3 and np.abs(hn - 1200.0).max() < 1e-3, (float(Hh.min()), float(Hh.max()), float(hn.min()), float(hn.max()))
     finally: ridge.P, ridge.PXDEG_V = saved; ridge._raw.pop(rk, None); ridge._mos.pop(mk, None)
 
+def test_the_near_ground_may_not_stand_above_the_eye():
+    """check_eye_clear refuses a near march whose samples within 5 m of the observer stand above the eye and accepts one that stands at it; samples beyond 5 m do not count."""
+    saved = ridge.P; ridge.P = dict(id='eyeclear', eye_m=100.0); dn = ridge.near_schedule(); h = np.full((len(dn), 8), 90.0)
+    try:
+        ridge.check_eye_clear((dn, None, h)); h2 = h.copy(); h2[dn > 5.0] = 150.0; ridge.check_eye_clear((dn, None, h2)); h3 = h.copy(); h3[dn <= 5.0] = 100.0; ridge.check_eye_clear((dn, None, h3))
+        h4 = h.copy(); h4[np.flatnonzero(dn <= 5.0)[-1], 3] = 100.5
+        try: ridge.check_eye_clear((dn, None, h4))
+        except export.Refusal as e: assert 'above the eye' in str(e), str(e)
+        else: assert False, 'a near sample above the eye was accepted'
+    finally: ridge.P = saved
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 if __name__ == '__main__':
     fails = 0

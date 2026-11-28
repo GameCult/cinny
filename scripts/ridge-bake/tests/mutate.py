@@ -113,6 +113,8 @@ MUTANTS = {        # name -> (text in ridge.py or export.py, replacement)
  'eye: the drift bound is ignored': ("if s is not None and abs(g - rg) > s: raise", "if False: raise"),
  'write: the index is switched without the flag': ("    if switch_index:\n", "    if True:\n"),
  'validate: the material is not checked': ("ridge.check_material(m['material'])", "None"),
+ 'eye: the near ground within 5 m may stand above the eye': ("if hi > P['eye_m']: raise", "if False: raise"),
+ 'eye: the near ground counts beyond 5 m': ("np.asarray(d) <= 5.0", "np.asarray(d) <= 50.0"),
  'rays cache key ignores the refraction constant': ("R_EARTH, KREF, W, bool(detail)", "R_EARTH, W, bool(detail)"),
  'rays cache key ignores the eye elevation': ("round(float(P['eye_m']), 3), ", ""),
  'mosaic cache key ignores the tile list': ("sorted(tiles_for(p)), 3600", "3600"),
